@@ -1033,7 +1033,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if refused := (
             state.held_elsewhere(data, args.order, role)
             or unlandable(data, lands)
-            or state.change_wait_refusal(data, args.waits)
+            or state.job_wait_refusal(data, args.waits)
             or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
         ):
             raise DriveError(f"refused, no job added: {refused}")
@@ -1076,11 +1076,13 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:
-    """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, wherever job_refusal lets a builder wait on that reader, so its work is never research's alone while it reads."""
+    """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, wherever a builder there starts only on research and job_refusal lets it wait on that reader, so its work is never research's alone while it reads."""
     reader = data["jobs"][reader_id]
     if reader["kind"] != "reader" or not (uncarried := [part for part in reader["parts"] if not state.carriers(data, reader["order"], part)]):
         return None
-    if brief.job_refusal(name, data, reader["order"], "builder", uncarried, False, [reader_id]):
+    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(
+        name, data, reader["order"], "builder", uncarried, False, [reader_id]
+    ):
         return None
     builder_id = state.next_id(data["jobs"], "j")
     builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", f"build what {reader_id}'s research finds: {reader['goal'].removeprefix('research: ')}", uncarried, created) | {"waits": [reader_id]}
@@ -1110,8 +1112,6 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 def job_set(args: argparse.Namespace) -> int:
     """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it, but for a done or failed job given a part it does not hold, which runs, since it has not returned on that part; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
-    from drive import view
-
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
@@ -1131,24 +1131,8 @@ def job_set(args: argparse.Namespace) -> int:
         fix_kept(known, args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
-    if refused := state.change_wait_refusal(known, args.waits):
+    if refused := state.job_wait_refusal(known, args.waits):
         raise DriveError(refused)
-    if jobs := [wait for wait in args.waits if wait in known["jobs"] and known["jobs"][wait]["kind"] not in state.CHANGE_KINDS]:
-        found = view.live_cards(name)
-        holds = [
-            *(card for job_id in jobs for card in view.open_cards(known["jobs"][job_id])),
-            *(key for job_id in jobs for key in map(state.pr_key, known["jobs"][job_id]["prs"]) if (pr := known["prs"].get(key)) and pr["state"] == "open"),
-        ]
-        instead = (
-            f"open on {' and '.join(jobs)}: {', '.join(holds)}; wait on the one this job needs, as --waits {holds[0]}"
-            if holds
-            else f"nothing is open on {' and '.join(jobs)} to wait on, no card of his and no PR"
-        )
-        raise DriveError(
-            f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks, a release or the change a builder or codex job builds, and on"
-            f" another job only as a build order's designer, builder or codex lane added waiting on its reader, drive job add <kind> --order <o>"
-            f" --waits <the reader>; {instead}"
-        )
     found = check_waits(name, args.waits)
     told_him(name, args)
     for order_id in args.carries:
@@ -1163,7 +1147,7 @@ def job_set(args: argparse.Namespace) -> int:
         job.update({field: value for field, value in changes.items() if value is not None})
         if args.card:
             hold_card(job, args.card, shown)
-        job["waits"] = merged_waits(data, job, args, found)
+        state.rewait(job, merged_waits(data, job, args, found))
         state.hold_unstarted(job)
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
@@ -3569,7 +3553,7 @@ def parser() -> argparse.ArgumentParser:
             "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
-            " service is none of them or is no component at all, or for a PR a job, it waits on;"
+            " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each. The watch drops each as he answers or taps it, the PR merges or closes, the job returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, or GitHub shows the"
             " newest release of that service holds the PR's merge commit, and says FREE once when the last is gone, which wakes the"
@@ -3866,8 +3850,8 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="CARD|PR|RELEASE|JOB",
         help=(
-            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, as job set"
-            " takes them, or for a build order's designer, builder or codex lane its reader still at work, that this job waits on: it is recorded"
+            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, or a job"
+            " of this drive still at work, of any kind, a reader that just started included, as job set takes them, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),
     )

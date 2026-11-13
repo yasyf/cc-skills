@@ -2135,20 +2135,19 @@ def card_wait(data: dict, wait: str) -> bool:
     return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait) and wait != SLOT_WAIT
 
 
-def change_job_waits(data: dict, waits: list[str]) -> list[str]:
-    """The waits naming a builder or codex job, a job's wait on the change that job builds."""
-    return [wait for wait in waits if wait in data["jobs"] and data["jobs"][wait]["kind"] in CHANGE_KINDS]
+def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
+    """Why a job may not wait on another job: a builder or codex job that already opened its PR is waited on by that PR instead, since a job waits on a change only until its first PR is registered, which then takes the wait's place, and a job view.holds no longer holds on leaves nothing to wait on. Any other job of any kind may be waited on, a reader that just started included."""
+    from drive import view
 
-
-def change_wait_refusal(data: dict, waits: list[str]) -> str | None:
-    """Why a job may not wait on the change another job builds: that job is finished, or already opened its PR, which the job waits on instead; a job waits on a change only until its first PR is registered, which then takes the wait's place."""
-    for wait in change_job_waits(data, waits):
-        building = data["jobs"][wait]
-        if building["prs"]:
-            keys = [pr_key(url) for url in building["prs"]]
+    for wait in waits:
+        if wait not in data["jobs"]:
+            continue
+        waited = data["jobs"][wait]
+        if waited["kind"] in CHANGE_KINDS and waited["prs"]:
+            keys = [pr_key(url) for url in waited["prs"]]
             return f"--waits {wait}: {wait} already opened {', '.join(keys)}, so wait on the PR this job builds on, as --waits {keys[0]}"
-        if building["state"] in FINISHED_JOB_STATES:
-            return f"--waits {wait}: {wait} is {building['state']} with no PR, so no change of it is coming to wait on"
+        if not view.holds(data, wait, None):
+            return f"--waits {wait}: {wait} is {waited['state']}, so nothing of it is left to wait on"
     return None
 
 
