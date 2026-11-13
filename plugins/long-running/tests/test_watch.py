@@ -268,14 +268,14 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
     reads = {key: read(**stacked[key], mergeable="CONFLICTING" if key == REPLAYED_54026 else "UNKNOWN" if key in REPLAYED_UNKNOWN else "MERGEABLE") for key in REPLAYED_STACK_55221}
     serve(monkeypatch, reads)
     watching = watcher(demo)
-    held_why = f"{REPLAYED_54026} below it in its stack conflicts with its base dev, held: it waits on his cards {REPLAYED_HOLDING_CARD}"
+    behind_54026 = ("behind", stage.BUILDER, f"{REPLAYED_54026} below it in its stack conflicts with its base dev, red: it conflicts with its base dev")
     for minutes, mergeable in ((0, "UNKNOWN"), (2, "CONFLICTING"), (32, "CONFLICTING"), (242, "CONFLICTING")):
         for key in REPLAYED_UNKNOWN:
             reads[key] = read(**stacked[key], mergeable=mergeable)
         watch.run_pass(watching, T0 + timedelta(minutes=minutes))
         prs = state.load(demo)["prs"]
-        assert [(prs[key]["stage"]["name"], prs[key]["stage"]["owner"], prs[key]["stage"]["why"]) for key in REPLAYED_STACK_55221[1:]] == [("behind", stage.HIM, held_why)] * 5
-        assert woken == []
+        assert [(prs[key]["stage"]["name"], prs[key]["stage"]["owner"], prs[key]["stage"]["why"]) for key in REPLAYED_STACK_55221[1:]] == [behind_54026] * 5
+    assert [key for key, _ in woken] == [REPLAYED_54026] * 3
     reads[REPLAYED_54026] = read(**stacked[REPLAYED_54026], mergeable="MERGEABLE")
     restacked_at = T0 + timedelta(minutes=243)
     watch.run_pass(watching, restacked_at)
@@ -283,7 +283,7 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
     assert [prs[key]["stage"]["name"] for key in REPLAYED_STACK_55221[:4]] == ["held", "card", "card", "red"]
     behind_55220 = ("behind", stage.BUILDER, f"{REPLAYED_55220} below it in its stack conflicts with its base {STACKED_BASE}, red: {CONFLICTS_WITH_BASE}")
     assert [(prs[key]["stage"]["name"], prs[key]["stage"]["owner"], prs[key]["stage"]["why"]) for key in REPLAYED_UNKNOWN[1:]] == [behind_55220] * 2
-    assert woken == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(restacked_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
+    assert woken[3:] == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(restacked_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
 
 
 def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3578,9 +3578,10 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
     passes = []
 
     def at(minutes: int) -> None:
+        drawn = redraws.asked.count(state.pr_url(red_pr))
         watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
         kept = state.load(demo)["prs"][red_pr]["stage"]
-        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken]))
+        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken], redraws.asked.count(state.pr_url(red_pr)) > drawn))
         woken.clear()
 
     at(0)
@@ -3602,15 +3603,14 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
     reads[fix] = read(state="MERGED", mergeCommit="ddd444", headRefOid=heads[fix], title=titles[fix], checks=GREEN, reviewDecision="APPROVED")
     at(150)
     assert passes == [
-        (0, "red", stage.BUILDER, [red_pr]),
-        (16, "blocked", stage.HIM, []),
-        (46, "blocked", stage.HIM, []),
-        (76, "blocked", stage.HIM, []),
-        (106, "blocked", stage.HIM, []),
-        (144, "blocked", stage.WAITED, []),
-        (150, "red", stage.BUILDER, [red_pr]),
+        (0, "red", stage.BUILDER, [red_pr], True),
+        (16, "blocked", stage.HIM, [], True),
+        (46, "blocked", stage.HIM, [], False),
+        (76, "blocked", stage.HIM, [], False),
+        (106, "blocked", stage.HIM, [], False),
+        (144, "blocked", stage.WAITED, [], True),
+        (150, "red", stage.BUILDER, [red_pr], True),
     ]
-    assert redraws.asked.count(state.pr_url(red_pr)) == 4
 
 
 def release_out(data: dict, release: str) -> None:
