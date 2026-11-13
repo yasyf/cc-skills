@@ -635,6 +635,12 @@ def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> No
     assert watch.run_pass(watching, T0 + timedelta(minutes=21))[0].startswith("DUE o1")
 
 
+def shown_pr(demo: str, key: str) -> str:
+    """The PR's line as drive status shows it: its stored row, with his card and its stage on it."""
+    prs = cli.with_cards(demo, state.load(demo))["prs"]
+    return f"- {render.pr_line(key, prs[key], prs[key]['card_state'])}"
+
+
 def quiet_incident(demo: str) -> None:
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0), "away": True}
@@ -655,8 +661,8 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     [(report, body), (start, _)] = calls
     assert (report["text"], report["topic"], "to" in report) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", False)
     assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
-    assert f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}" in body.splitlines()
-    assert "Evidence record: 674295" in body.splitlines()
+    assert {f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}", "PRs, as the watch last read them from GitHub: 1", shown_pr(demo, KEY)} <= set(body.splitlines())
+    assert "674295" not in body
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
     quiet = state.load(demo)["orders"]["o1"]["quiet"]
     assert (quiet["record"], quiet["at"], quiet["handler"] in state.load(demo)["handlers"]) == ("901", state.stamp(T0 + timedelta(minutes=7)), True)
@@ -692,6 +698,27 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     assert len(calls) == 1
 
 
+def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refreshed_never_the_note_typed_before_the_merge(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fix, writer = "Forge-AI/monorepo#55152", "Forge-AI/monorepo#54949"
+    quiet_incident(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(text=f"cloud agent sessions fail to write; the writer change is unmerged {writer}", note="its fix is #55152, green and approved, waiting on his tap")
+        data["orders"]["o4"] = order(text="the writer change", jobs=["j4"])
+        data["jobs"]["j1"]["prs"] = [state.pr_url(fix)]
+        data["jobs"]["j4"] = job(order="o4")
+        data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, order_id) | {"state": "merged", "checks": "pass", "review": "approved"} for key, job_id, order_id in ((fix, "j1", "o1"), (writer, "j4", "o4"))}
+    calls = catching_up(monkeypatch, demo)
+    assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=7)) == []
+    [(_, body), _] = calls
+    lines = body.splitlines()
+    prs = state.load(demo)["prs"]
+    assert lines[1:4] == ["PRs, as the watch last read them from GitHub: 2", *(f"- {render.pr_line(key, prs[key], None)}" for key in (fix, writer))]
+    assert " merged, checks pass, review approved" in lines[2]
+    assert [line for line in lines if "waiting on his tap" in line or "green and approved" in line] == []
+
+
 def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_and_one_handler_on_the_threads_newest_line(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -706,7 +733,15 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
     [(report, body), (start, _)] = calls
     assert (report["text"], report["topic"]) == ("POST incidents o1, o3 have had no line to him in 5 minutes: post where each stands now in its thread", "watch-quiet-o1")
-    assert {"Incident o1, o1, o2: ship the watch", "Incident o3, o3: checkout is down too", "Evidence record: 674300", f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}"} <= set(body.splitlines())
+    lines = body.splitlines()
+    assert lines[: lines.index("Incident o3, o3: checkout is down too") + 2] == [
+        "Incident o1, o1, o2: ship the watch",
+        "PRs, as the watch last read them from GitHub: 1",
+        shown_pr(demo, KEY),
+        "Incident o3, o3: checkout is down too",
+        "PRs, as the watch last read them from GitHub: 0",
+    ]
+    assert f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}" in lines
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
     orders = state.load(demo)["orders"]
     assert orders["o1"]["quiet"] == orders["o3"]["quiet"] == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}
@@ -3707,7 +3742,10 @@ def test_an_incident_with_no_monitor_closes_with_no_datadog_read_once_a_release_
     assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {shipped}, nothing else holds it", f"FREE j2 o2: {shipped}, nothing else holds it", recovered]
     assert not watch.wakes(recovered, state.load(demo))
     assert [(record["text"], record["body"]) for records in ready_records for record in records] == [
-        ("POST incident o1 is over: its fix is live; post the Live line in its thread", f"Incident: ship the watch\nFix live: {shipped}, {state.pr_url(KEY)}\n")
+        (
+            "POST incident o1 is over: its fix is live; post the Live line in its thread",
+            f"Incident: ship the watch\nFix live: {shipped}, {state.pr_url(KEY)}\nPRs, as the watch last read them from GitHub: 1\n{shown_pr(demo, KEY)}\n",
+        )
     ]
     data = state.load(demo)
     assert (view.incidents(data), data["orders"]["o1"]["proof"], data["orders"]["o2"]["recovered"]) == ([], shipped, None)
@@ -3808,7 +3846,7 @@ def test_a_builders_done_on_an_incidents_fix_records_it_live_so_the_watch_closes
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")] == [
         f"RECOVERED o1: {fixed}, so the communicator posts its Live line and closes o1"
     ]
-    assert [record["body"] for records in ready_records for record in records] == [f"Incident: ship the watch\nFix live: {fixed}\n"]
+    assert [record["body"] for records in ready_records for record in records] == [f"Incident: ship the watch\nFix live: {fixed}\nPRs, as the watch last read them from GitHub: 1\n{shown_pr(demo, KEY)}\n"]
     assert view.incidents(state.load(demo)) == []
 
 
@@ -3864,7 +3902,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_
                 "topic": "watch-recovered-o1",
                 "attr": {"close": "o1,o2", "thread": "1794200000.000100"},
                 "text": "POST incident o1 is over: its monitors read OK and its fix is live; post the Live line in its thread",
-                "body": f"Incident: ship the watch\nRecovered: {MONITOR} read OK\nFix live: {shipped}, {state.pr_url(KEY)}\nNote: record 5f6b2b5; follow-up o3\n",
+                "body": f"Incident: ship the watch\nRecovered: {MONITOR} read OK\nFix live: {shipped}, {state.pr_url(KEY)}\nPRs, as the watch last read them from GitHub: 2\n{shown_pr(demo, KEY)}\n{shown_pr(demo, OTHER)}\n",
             }
         ]
     ]

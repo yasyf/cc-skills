@@ -332,11 +332,12 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> list[str]:
-    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then a POST report names each order for the communicator's handler to post in its thread and close; a post that fails goes again next read."""
+    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then a POST report, naming each PR of the incident as the watch last read it from GitHub, names each order for the communicator's handler to post in its thread and close; a post that fails goes again next read."""
     read_ok = f"{', '.join(links)} read OK"
     with state.edit(watcher.name) as data:
         group = state.open_incidents(data, state.incident_orders(data, head))
         incident = data["orders"][head]
+        prs = incident_pr_lines(watcher.name, group)
         follow = follow_up(data, head, group, state.stamp(moment))
         for order_id in group:
             data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or "; ".join([*([f"{read_ok} at {when(state.stamp(moment))}"] if links else []), incident["fixed"]])
@@ -345,7 +346,7 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
         f"Incident: {incident['text']}",
         *([f"Recovered: {read_ok}"] if links else []),
         f"Fix live: {incident['fixed']}" + (f", {state.pr_url(pr[0])}" if pr else ""),
-        *([f"Note: {incident['note']}"] if incident["note"] else []),
+        *prs,
     ]
     record = {
         "kind": "report",
@@ -947,7 +948,7 @@ def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime
         *(
             line
             for head, group in groups.items()
-            for line in (f"Incident {head}, {', '.join(group)}: {data['orders'][head]['text']}", f"Evidence record: {data['orders'][head]['note'] or 'none'}")
+            for line in (f"Incident {head}, {', '.join(group)}: {data['orders'][head]['text']}", *incident_pr_lines(watcher.name, group))
         ),
         f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
         f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then post where {'the' if one else 'each'} incident stands now in its thread: what each job found or is doing, a card of his that blocks it with the option built meanwhile, and what ships next.",
@@ -968,6 +969,20 @@ def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime
 
     [seq] = tools.sent(watcher.name, LANE, [record])
     return seq
+
+
+def incident_pr_lines(name: str, group: list[str]) -> list[str]:
+    """Each PR of an incident's orders, on their jobs or named in their words, from its row as the watch last read it from GitHub with his card on it, never from what an order's words or note say of it, which only someone typed."""
+    from drive import cli
+
+    data = cli.with_cards(name, state.load(name))
+    lines = dict.fromkeys(
+        [
+            *(line for order_id in group for job_id in data["orders"][order_id]["jobs"] for line in render.job_pr_lines(data, job_id, data["jobs"][job_id])),
+            *(render.pr_line(key, data["prs"][key], data["prs"][key]["card_state"]) for order_id in group for key in state.named_prs(data, order_id, data["orders"][order_id]["text"])),
+        ]
+    )
+    return [f"PRs, as the watch last read them from GitHub: {len(lines)}", *(f"- {line}" for line in lines)]
 
 
 def owes_tell(order: dict, moment: datetime) -> bool:
