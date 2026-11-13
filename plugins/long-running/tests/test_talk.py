@@ -1207,6 +1207,33 @@ def test_a_note_to_a_person_with_no_thread_goes_out_through_cc_slack_send_into_t
     assert said(demo)[0]["channel"] == "U0REPORTER"
 
 
+@pytest.mark.parametrize(
+    ("post", "why"),
+    [
+        ({"job": "j2"}, "job j2 is done, so nothing would wait on the reply"),
+        ({"job": "j9"}, "job j9 is no job of this drive, so nothing would wait on the reply"),
+        ({"job": "j1", "channel_id": None}, "job names the job a question to a teammate is for, so it takes channel_id"),
+    ],
+)
+def test_a_question_naming_a_job_that_cannot_wait_on_the_reply_posts_nothing(demo: str, posts: list[tuple[str, ...]], post: dict, why: str) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "reader", "ask Dana about the migration", [], state.stamp())
+        data["jobs"]["j2"] = state.new_job("o1", "reader", "ask Dana about the migration", [], state.stamp()) | {"state": "done"}
+    with pytest.raises(DriveError, match=f"^nothing posted: {re.escape(why)}"):
+        talk.say(demo, {"text": "Can we run the migration tonight?", "channel_id": "U0REPORTER"} | post | TICKET)
+    assert (posts, said(demo)) == ([], [])
+
+
+def test_a_question_to_a_teammate_for_a_job_keeps_that_job_waiting_on_their_reply(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "reader", "ask Dana about the migration", [], state.stamp())
+    question = {"text": "Can we run the migration tonight?", "channel_id": "U0REPORTER", "job": "j1"}
+    assert talk.say(demo, question | TICKET).startswith(f"POSTED {POSTED}; j1 waits on the reply to it")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["waits"], job["state"], job["said"]) == ([f"reply:{POSTED}"], "waiting", f"waits on reply:{POSTED}")
+    assert posts[0][:5] == ("send", "--agent", "claude", "--channel", "U0REPORTER")
+
+
 def test_a_report_closing_its_order_in_another_orders_thread_his_message_started_records_there_and_joins_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:

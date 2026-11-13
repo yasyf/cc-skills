@@ -118,6 +118,7 @@ PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 SLOT_WAIT = "builder-slot"
+REPLY_WAIT = re.compile(r"reply:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?\S*)?)")
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
 DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monitors/(\d+)(?:[/?#]\S*)?")
@@ -2427,8 +2428,8 @@ def open_prs(data: dict) -> list[dict]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a release of the drive or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a release of the drive, a teammate's reply to a question the drive asked them or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

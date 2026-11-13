@@ -53,6 +53,7 @@ RELEASES_AT_ONCE = 2
 QUIET_LANE = timedelta(minutes=30)
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
+REPLY_READ = 100
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 JOB_LINE = re.compile(r"JOB (?P<job>j\d+) o\d+ ")
@@ -282,9 +283,11 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out, a teammate's reply come or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
+    answered, unread = replies(watcher, data, moment)
+    out, lines = out | answered, lines + unread
     turns, held = place.turns(data, moment)
     turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id])}
     owners = [
@@ -650,6 +653,67 @@ def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[st
         return ""
     answered = [bare(wait) for wait in ended if wait not in out]
     return ", ".join([*([f"{', '.join(answered)} answered or done"] if answered else []), *(out[wait] for wait in ended if wait in out)])
+
+
+def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
+    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply ended, with who replied and its link: the first message after the drive's question from anyone but the drive and a bot, read once a minute. Each reply first goes to the communicator in a report, whose handler posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; a failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
+    out, lines = {}, []
+    for job_id, job in data["jobs"].items():
+        if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job):
+            continue
+        for wait in job["waits"]:
+            if not (asked := state.REPLY_WAIT.fullmatch(wait)):
+                continue
+            source = f"reply {wait}"
+            try:
+                if reply := first_reply(asked["link"]):
+                    out[wait] = told(watcher, data, job_id, asked["link"], reply)
+            except (slack.SlackError, reads.ReadError, state.DriveError) as error:
+                lines += failed(watcher, source, f"read of the reply {job_id} waits on to {asked['link']}", error, moment)
+                continue
+            watcher.failures.pop(source, None)
+    return out, lines
+
+
+def first_reply(question: str) -> dict | None:
+    """The first message after the drive's question at this permalink from anyone but the drive and a bot, with its link: in the question's thread and, for a question at its conversation's top level, there too, one cc-slack history read finding both a top-level message and whether the question has a reply newer than it, which only then is read from its thread."""
+    channel, ts, thread = state.slack_message(question)
+    after, threaded = [], thread != ts
+    if not threaded:
+        top = slack.cc_slack("history", "--channel", channel, "--limit", str(REPLY_READ), "--json")["messages"]
+        after = [message for message in top if float(message["ts"]) > float(ts)]
+        threaded = any(float(message.get("latest_reply") or 0) > float(ts) for message in top if message["ts"] == ts)
+    if threaded:
+        team = question.split("/archives/")[0]
+        after += [
+            {"permalink": f"{team}/archives/{channel}/p{message['ts'].replace('.', '')}?thread_ts={thread}&cid={channel}"} | message
+            for message in slack.thread("--channel", channel, "--thread", thread, "--since-ts", ts, "--limit", str(slack.WHOLE_THREAD))
+            if float(message["ts"]) > float(ts)
+        ]
+    theirs = [message for message in after if not (message.get("from_claude") or message.get("from_bot"))]
+    return min(theirs, key=lambda message: float(message["ts"]), default=None)
+
+
+def told(watcher: Watcher, data: dict, job_id: str, question: str, reply: dict) -> str:
+    """Send the communicator a teammate's reply to the question the drive asked them for a job, for the handler it starts to post in the thread of the job's order, and hold the reply's words on the job; what ended its wait."""
+    from drive import cli
+
+    job = data["jobs"][job_id]
+    who = reply.get("user_name") or reply.get("user")
+    words = f'{who} replied {reply["permalink"]} to the question the drive asked them for {job_id} at {question}: "{reply.get("text") or ""}"'
+    record = {
+        "kind": "report",
+        "topic": f"reply-{job_id}",
+        "id": f"reply-{job_id}-{reply['ts']}",
+        "attr": {"order": job["order"], "job": job_id, "progress": "true", **state.thread_attr(data["orders"][job["order"]])},
+        "text": f"POST {who} replied to the question the drive asked them for {job_id}: post their words in the thread of {job['order']}",
+        "body": f"His order {job['order']}: {data['orders'][job['order']]['text']}\n{words}\n",
+    }
+    [seq] = reported(watcher, [record])
+    with contextlib.suppress(agents.Busy):
+        agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reply-{seq}'}")
+    cli.hold(watcher.name, job_id, words)
+    return f"{who} replied {reply['permalink']}"
 
 
 def minutes(span: timedelta) -> int:

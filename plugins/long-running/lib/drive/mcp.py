@@ -176,6 +176,15 @@ SAY = {
                 ),
             },
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
+            "job": {
+                "type": "string",
+                "description": (
+                    "With channel_id, the job a question to a teammate is for, which then waits on their reply: the watch reads that"
+                    " conversation each minute, and the first message after this post from anyone but the drive and a bot, in its thread"
+                    " or, for a post at the conversation's top level, there too, frees the job, carries it the reply's words and sends"
+                    " them to the communicator to post in the job's order's thread"
+                ),
+            },
             "visuals": {"type": "array", "items": VISUAL},
             "close": {
                 "type": "boolean",

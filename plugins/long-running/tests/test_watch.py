@@ -36,6 +36,8 @@ BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
 TEAMMATE_THREAD = "1794500000.000300"
+ASKED_TS = f"{T0.timestamp():.6f}"
+ASKED_TEAMMATE = f"https://acme.slack.com/archives/C0TEAM0001/p{ASKED_TS.replace('.', '')}"
 NO_BUILDER = "no builder carries this work, only "
 ANSWERED = f"answered by the post {REPORTED}, but it counts as work he ordered, which no post delivers, held by "
 READ = ("reader", "done")
@@ -984,6 +986,77 @@ def test_a_watched_thread_that_cannot_be_read_keeps_its_cursor_and_is_said_from_
     said = [watch.watched_lines(watching, T0 + timedelta(minutes=minute)) for minute in (1, 2, 3)]
     assert said == [[], [], [f"WATCH answer of o1's watched thread C0TEAM0001/{TEAMMATE_THREAD} failed 3 times in a row: channel_not_found"]]
     assert state.load(demo)["orders"]["o1"]["watch"]["seen"] == f"{T0.timestamp():.6f}"
+
+
+def at_top(moment: datetime, **fields: object) -> dict:
+    ts = f"{moment.timestamp():.6f}"
+    return {"ts": ts, "user": "U0DANA", "user_name": "Dana", "permalink": f"https://acme.slack.com/archives/C0TEAM0001/p{ts.replace('.', '')}", **fields}
+
+
+def asked_teammate(demo: str, monkeypatch: pytest.MonkeyPatch, top: list[dict]) -> list[tuple[str, ...]]:
+    histories: list[tuple[str, ...]] = []
+    monkeypatch.setattr(watch.slack, "cc_slack", lambda *argv: histories.append(argv) or {"messages": list(top)})
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"waits on reply:{ASKED_TEAMMATE}", waits=[f"reply:{ASKED_TEAMMATE}"])
+    return histories
+
+
+def test_a_teammates_first_message_after_the_drives_question_frees_the_job_waiting_on_their_reply_and_reaches_him_and_the_job(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    answer = at_top(T0 + timedelta(minutes=9), text="yes, run it tonight")
+    top = [
+        at_top(T0 + timedelta(minutes=12), text="and the dashboard too"),
+        answer,
+        at_top(T0, user="U0BOT", user_name="claude", from_claude=True, text="Can we run the migration tonight?"),
+        at_top(T0 - timedelta(minutes=5), text="morning"),
+    ]
+    histories = asked_teammate(demo, monkeypatch, top)
+    watching = watcher(demo)
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=13)) == [f"FREE j1 o1: Dana replied {answer['permalink']}, nothing else holds it"]
+    words = f'Dana replied {answer["permalink"]} to the question the drive asked them for j1 at {ASKED_TEAMMATE}: "yes, run it tonight"'
+    [(report, body), (start, _)] = calls
+    assert (report["text"], report["topic"], report["id"], report["to"]) == (
+        "POST Dana replied to the question the drive asked them for j1: post their words in the thread of o1",
+        "reply-j1",
+        f"reply-j1-{answer['ts']}",
+        [f"communicator@{demo}"],
+    )
+    assert report["attr"] == {"order": "o1", "job": "j1", "progress": "true"}
+    assert body.splitlines() == ["His order o1: ship the watch", words]
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'reply-901'}"
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["waits"], job["said"], [held["words"] for held in job["undelivered"]]) == ([], None, [words])
+    assert (histories, slack_thread.reads) == ([("history", "--channel", "C0TEAM0001", "--limit", "100", "--json")], [])
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=14)) == []
+    assert (len(calls), len(histories)) == (2, 1)
+
+
+def test_a_reply_wait_ends_on_a_teammates_reply_in_the_questions_thread_never_on_the_drives_or_a_bots_message(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    top = [
+        at_top(T0 + timedelta(minutes=3), user="U0CI", user_name="buildkite", from_bot=True, text="build passed"),
+        at_top(T0, user="U0BOT", user_name="claude", from_claude=True, text="Can we run the migration tonight?", latest_reply=f"{(T0 + timedelta(minutes=2)).timestamp():.6f}"),
+    ]
+    histories = asked_teammate(demo, monkeypatch, top)
+    slack_thread.messages += [
+        {"ts": ASKED_TS, "thread_ts": ASKED_TS, "user_name": "claude", "from_claude": True, "text": "Can we run the migration tonight?"},
+        {"ts": f"{(T0 + timedelta(minutes=2)).timestamp():.6f}", "thread_ts": ASKED_TS, "user_name": "claude", "from_claude": True, "text": "It holds o1."},
+    ]
+    watching = watcher(demo)
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=4)) == []
+    assert (calls, state.load(demo)["jobs"]["j1"]["waits"]) == ([], [f"reply:{ASKED_TEAMMATE}"])
+    reply_ts = f"{(T0 + timedelta(minutes=6)).timestamp():.6f}"
+    slack_thread.messages.append({"ts": reply_ts, "thread_ts": ASKED_TS, "user": "U0DANA", "user_name": "Dana", "text": "after 9 works"})
+    top[1]["latest_reply"] = reply_ts
+    reply_link = f"https://acme.slack.com/archives/C0TEAM0001/p{reply_ts.replace('.', '')}?thread_ts={ASKED_TS}&cid=C0TEAM0001"
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=7)) == [f"FREE j1 o1: Dana replied {reply_link}, nothing else holds it"]
+    assert calls[0][0]["id"] == f"reply-j1-{reply_ts}"
+    assert len(histories) == 2
+    assert slack_thread.reads == [("--channel", "C0TEAM0001", "--thread", ASKED_TS, "--since-ts", ASKED_TS, "--limit", "1000")] * 2
 
 
 def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refreshed_never_the_note_typed_before_the_merge(

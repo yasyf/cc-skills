@@ -31,7 +31,7 @@ PLAIN_QUESTION = (
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
@@ -62,6 +62,8 @@ def say(name: str, post: dict) -> str:
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
+    if job_id := post.get("job"):
+        line += f"; {awaiting(name, job_id, reply['permalink'])}"
     if handler := state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID")):
         with state.edit(name) as data:
             data["handlers"][handler]["posted"].append(line)
@@ -76,6 +78,15 @@ def say(name: str, post: dict) -> str:
     if close:
         line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
     return line
+
+
+def awaiting(name: str, job_id: str, link: str) -> str:
+    """Keep the job waiting on the reply to the question a post at link asked a teammate for it, which the watch reads each minute until the first message after it from anyone but the drive and a bot frees the job; a job no agent or lane started is recorded waiting."""
+    with state.edit(name) as data:
+        job = data["jobs"][job_id]
+        state.rewait(job, list(dict.fromkeys([*job["waits"], f"reply:{link}"])))
+        state.hold_unstarted(job)
+    return f"{job_id} waits on the reply to it"
 
 
 def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
@@ -251,7 +262,7 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot, and a card there, a thread outside his DM named with no channel_id, and a PR card leaving out the thread outside his DM of an order its PRs carry out, which its line goes in."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot, and a card there, a thread outside his DM named with no channel_id, a PR card leaving out the thread outside his DM of an order its PRs carry out, which its line goes in, and a job a question is for named on a post in his DM, on a card or on a job finished or unknown."""
     data = state.load(name)
     if channel := post.get("channel_id"):
         if channel == slack.dm():
@@ -273,6 +284,12 @@ def check(name: str, post: dict) -> None:
         raise DriveError("nothing edited: an edit needs text, the post's new words")
     if post.get("edit") and any(picture.drawable(fence[1], fence[2]) for fence in picture.FENCE.finditer(post["text"])):
         raise DriveError("nothing edited: a code or diagram fence draws as a picture, which an edit of a Slack message cannot add; post it as a new post")
+    if job_id := post.get("job"):
+        if not post.get("channel_id") or post.get("card") or post.get("tap_prs"):
+            raise DriveError("nothing posted: job names the job a question to a teammate is for, so it takes channel_id, their user id or a thread outside his DM, and no card or tap_prs")
+        if job_id not in data["jobs"] or data["jobs"][job_id]["state"] in state.FINISHED_JOB_STATES:
+            held = data["jobs"][job_id]["state"] if job_id in data["jobs"] else "no job of this drive"
+            raise DriveError(f"nothing posted: job {job_id} is {held}, so nothing would wait on the reply")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in data["prs"]]:
         raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
