@@ -523,9 +523,11 @@ restating it.
   under its own, and so passes the post check when he was asked the same question twice. No other
   post repeats it. His words, Nov 11 1:16 AM, on a post `say` had opened with a raw line naming the job
   and its branch: "What the hell is this message?"
-- His read-only question gets its answer within minutes from a handler, which reads the source that
-  owns the fact through whatever access opens it, a staff route included, and never answers that it
-  could not read it. The communicator reads nothing itself.
+- His read-only question gets its answer in seconds from a handler, by his words "things liek this
+  should be egtting almost immediate reponses but they are not": the handler reads the source that
+  owns the fact through whatever access opens it, a staff route included, never answers that it
+  could not read it, and posts with one `say(order=<o>, close=true)`. The communicator reads nothing
+  itself.
 
 ## What goes in
 

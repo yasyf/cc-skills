@@ -4,7 +4,7 @@ import re
 import shlex
 import subprocess
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
@@ -26,8 +26,10 @@ JOB_GRACE = timedelta(seconds=5)
 ROSTER_PROTO = 1
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
+ORDER = "Order"
+IN_THREAD = "In his thread"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
-LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in render.HANDLER_LABELS)}):")
+LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, IN_THREAD))}):")
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
     "outputStyle": "default",
@@ -145,9 +147,17 @@ def beyond_brief(prompt: str) -> str | None:
     for line in prompt.strip().splitlines():
         if found := LABEL.match(line):
             label, context = found[1], 1
-        elif line.strip() and not (label == HIS_WORDS or (label == "Context" and (context := context + 1) <= 3)):
+        elif line.strip() and not (label in (HIS_WORDS, IN_THREAD) or (label == "Context" and (context := context + 1) <= 3)):
             return line.strip()
     return None
+
+
+def his_words(prompt: str) -> str:
+    """His words as a brief carries them, from their label to the next line opening with a label."""
+    lines = prompt.strip().splitlines()
+    start = next(index for index, line in enumerate(lines) if line.startswith(f"{HIS_WORDS}:"))
+    end = next((index for index in range(start + 1, len(lines)) if LABEL.match(lines[index])), len(lines))
+    return "\n".join([lines[start].removeprefix(f"{HIS_WORDS}:"), *lines[start + 1 : end]]).strip()
 
 
 def shaped(payload: dict) -> dict:
@@ -318,8 +328,8 @@ class Busy(state.DriveError):
     """A live handler holds the same record or message of his a brief holds, so the brief is a copy that needs no handler of its own."""
 
 
-def handle(name: str, brief: str, detached: bool = False) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record on that message, in that thread or on its record's re chain is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record on that message, in that thread or on its record's re chain is handed to that handler, which takes it at its next step; the id of the handler at work on the brief, and whether it was handed. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
     data = state.load(name)
     if (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
@@ -341,19 +351,27 @@ def handle(name: str, brief: str, detached: bool = False) -> tuple[str, bool]:
         raise Busy(f"refused, no handler started: handler {held} is at work on {his}; this copy needs no handler of its own")
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if detached:
+    try:
+        prompt = briefed(handler_id) if briefed else brief
+        if not detached:
+            start_handler(name, handler_id, prompt)
+            return handler_id, False
         kept = brief_path(name, handler_id)
         kept.parent.mkdir(parents=True, exist_ok=True)
-        kept.write_text(brief)
+        kept.write_text(prompt)
         state.detach(name, ["handler-start", handler_id], "handlers.log")
-        return handler_id, False
-    try:
-        start_handler(name, handler_id, brief)
-    except reads.ReadError as error:
-        with state.edit(name) as data:
-            del data["handlers"][handler_id]
-        raise state.DriveError(f"claude --bg started no handler: {error}") from None
+    except (reads.ReadError, state.DriveError) as error:
+        unstarted(name, handler_id)
+        raise (error if isinstance(error, state.DriveError) else state.DriveError(f"claude --bg started no handler: {error}")) from None
     return handler_id, False
+
+
+def unstarted(name: str, handler: str) -> None:
+    """Take a handler that did not start off the drive, with the job it was given and the order made for that job."""
+    with state.edit(name) as data:
+        data["handlers"].pop(handler, None)
+        if job_id := state.agent_job(data, handler):
+            del data["orders"][data["jobs"].pop(job_id)["order"]]
 
 
 def brief_path(name: str, handler: str) -> Path:
@@ -361,13 +379,12 @@ def brief_path(name: str, handler: str) -> Path:
 
 
 def start_kept(name: str, handler: str) -> str:
-    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers and tells the communicator in a done record from lane handler, naming the error and its kept brief."""
+    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the communicator in a done record from lane handler, naming the error and its kept brief."""
     kept = brief_path(name, handler)
     try:
         start_handler(name, handler, kept.read_text())
     except reads.ReadError as error:
-        with state.edit(name) as data:
-            data["handlers"].pop(handler, None)
+        unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd())
         return line

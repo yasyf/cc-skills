@@ -14,7 +14,8 @@ Contents:
 - Every job is the coordinator's except two kinds. A drive tooling order's reader, designer and
   builder are the meta session's, started under its own "Drive tooling:" order by [meta.md](meta.md),
   so neither the communicator nor the coordinator starts a tooling job. The reader of his read-only
-  question is the communicator's, under its `answer` order. An order of the coordinator's whose
+  question is the communicator's, under its `answer` order, which `drive handler --answer` adds
+  with that reader job, the handler its agent. An order of the coordinator's whose
   builder serves drive tooling becomes the meta session's when
   `drive job brief <j> --serves "drive tooling"` writes that brief: from then on only the meta
   session starts its agents and posts its reports, and the watch sends it the order's lines. The
@@ -96,8 +97,8 @@ when its brief, the brief file it names or the record it is briefed with names a
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
 brief leaves the job to that lane. No agent is recorded over a remote job's dispatch either: its
 Orca lane holds it, and `drive job resume` restarts that lane once it dies. A handler holds a job
-only when the communicator names it with `agent`, the id the `handler` tool returned, as it adds a
-read-only question's reader job. `drive job set <j> --agent <the dispatch the job records>` puts a
+only when `drive handler --answer` adds a read-only question's reader job with the handler as its
+`agent`. `drive job set <j> --agent <the dispatch the job records>` puts a
 remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite
 Orca shows for that dispatch, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
 but a codex job, and nothing else does: the stop sends back a line not kept, `drive job set` refuses

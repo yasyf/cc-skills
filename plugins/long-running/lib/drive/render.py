@@ -56,12 +56,9 @@ COMMUNICATOR_RULES = (
         " records that he wrote and starts the long-running:handler as its own claude --bg session, returning started"
         " <its id> and nothing to act on; the handler posts his owner record for an order, alert or ruling, a question"
         ' proposing work such as "why not just X?" included, and none for a read-only question, which asks for facts,'
-        " since the coordinator answers any question it hears. Then the turn ends, but for one"
-        " call more for a read-only question, so the watch holds his answer: the job tool with ops `[{add: {kind:"
-        ' "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
-        ' "<his message\'s permalink>", project: "<the project in use his words are about>", workstream:'
-        ' "<its workstream>", title: "<a few words naming it>"}, goal: "<one line>", agent: "<the id handler returned>"}}]`, the permalink naming his thread, leaving out complex only for'
-        " a one-fact lookup."
+        " since the coordinator answers any question it hears. For a read-only question the call also passes answer:"
+        ' "<a few words naming it>", with project and workstream, the pair in use his words are about, and adds his'
+        " answer order and the handler's reader job itself, so the watch holds his answer. Then the turn ends."
     ),
     (
         'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
