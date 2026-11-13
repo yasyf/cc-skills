@@ -436,11 +436,26 @@ the patch.
   targets it touches, shown by its card in #releases.
 - Start a regular release (`tools/ci release start`) only when his order covers releasing; otherwise,
   the change rides the next release and the job returns `WAITING release`.
+- His hold on every release is his answer labelled `release-hold` that no later answer of his
+  supersedes, such as 15c4de1: "no releases until I say we can again, only I can give exceptions".
+  While it stands, a release runs only on his exception, an answer of his recorded after the hold
+  that approves that one release. The `landing_guard` hook refuses every other release call and
+  quotes the hold. It covers `tools/ci release start`, `hotfix`, `resume`, `approve` and `rollback`,
+  `tools/ci bk rerun release`, and a `tools/ci bk api` write to a release build. A wrapper such as
+  `drive break-glass`, `timeout` or `xargs` changes nothing. It holds a drive session, its agents
+  and a Sprite lane, which asks the coordinator's Mac with `drive job held --release`.
+- A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
+  `--order` of its `Release:` line. A call naming none passes only when Jev reads one of his answers
+  since the hold as approving it. An incident's order passes on its words, never on its label. Ask
+  him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
+  again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
+  hold of his with `drive answer --label release-hold`.
 - A sub-coordinator, the coordinator session for one project, lands and installs its project's
   changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
   since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,
-  `approve` and `rollback` from a sub-coordinator's session and the agents it starts, naming the top's
-  session; `--plan`, `--dry-run`, `status` and `watch` still run. A job of a sub-coordinator returns
+  `resume`, `approve` and `rollback` and a release build's rerun or unblock from a sub-coordinator's
+  session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `status` and
+  `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
   for the cut with a `release` record at `root@<drive>`. The top adds the job that starts the cut on
   the record's order, such as `drive job add builder --order o1094 --goal "release the merged SandSQL

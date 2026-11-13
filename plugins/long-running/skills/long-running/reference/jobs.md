@@ -497,7 +497,8 @@ waits for its top".
 A resume or re-plan of a release he ordered keeps his order. No agent approves a release or its gate
 without his approval of that release, and a pick on a card that asked anything else is none. A
 release he started himself is his: never cancel, retry, reorder or approve it. An incident's order
-approves starting its own cut and rollback, by [incidents.md](incidents.md).
+approves starting its own cut and rollback, by [incidents.md](incidents.md). While he holds every
+release, only his answer recorded after the hold approves one, by [landing.md](landing.md#after-merge).
 
 Answers resume; PR events start fresh. His answer to a job's `ASK` goes back by `SendMessage` to
 its agent, or `drive job resume <j> -` with it on stdin for a remote lane or for an agent another

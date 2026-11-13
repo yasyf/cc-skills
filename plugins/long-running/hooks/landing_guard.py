@@ -29,6 +29,8 @@ WRAPPERS = {
     "time": frozenset(),
     "nice": frozenset({"-n"}),
     "env": frozenset({"-u", "--unset", "-C", "--chdir"}),
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+    "xargs": frozenset({"-P", "-n", "-I", "-L", "-d", "-s", "-a", "-E"}),
 }
 CHDIR = {"-C", "--chdir"}
 REPO_VARIABLE = "GH_REPO"
@@ -44,6 +46,11 @@ QUEUE_REASON = (
 CARD_REASON = (
     "Refused on purpose: {key} waits on his open card {cards}, and its recommended option never stands in for his answer."
     " Land and enqueue nothing: return `WAITING {cards}`; the watch says FREE once he answers"
+)
+RELEASE_UNASKED = (
+    "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held"
+    " --release` whether his hold on every release refuses `{release}`, and the Mac did not say: {error}. Run it again once"
+    " it answers"
 )
 UNASKED = (
     "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held --pr`"
@@ -96,8 +103,14 @@ COORDINATOR_WORK = (
     ("cargo", "test"),
     ("make",),
 )
-RELEASE_CUTS = frozenset({"start", "hotfix", "approve", "rollback"})
+RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "rerun", "api"})
 PLAN_ONLY = frozenset({"--plan", "--dry-run"})
+RELEASE_PIPELINE = "release"
+RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/|$)")
+HOLD_UNREAD = (
+    "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
+    " Run it again once it answers"
+)
 RELEASE_CANCEL = (
     "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
     ' words "next time fucking do the right thing and then dont cancel it". Leave it running, or held at approve, and return'
@@ -240,6 +253,9 @@ def command_words(words: list[str], shell: Shell) -> tuple[list[str], Shell]:
             words = words[1:]
         elif (wrapper := Path(words[0]).name) in WRAPPERS:
             words, shell = past_options(words[1:], WRAPPERS[wrapper], shell)
+            words = words[1:] if wrapper == "timeout" else words
+        elif Path(words[0]).name == "drive" and words[1:2] == ["break-glass"] and "--" in words:
+            words = words[words.index("--") + 1 :]
         else:
             break
     return words, shell
@@ -436,12 +452,13 @@ def lane_reason(keys: list[str]) -> str | None:
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, or an agent it started, may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, approve or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; a drive job starts or hotfixes only the release its brief's Release line names, --order included, after a plan at its flags outside an incident, since `drive job brief --release` already read that --order as his approval; and a drive session's own start, which no brief names, starts on `--order` only naming an answer of his that approves it."""
-    if Path(words[0]).name not in brief.CI_BINARIES or words[1:2] != ["release"]:
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; a drive job starts or hotfixes only the release its brief's Release line names, --order included, after a plan at its flags outside an incident, since `drive job brief --release` already read that --order as his approval; a drive session's own start, which no brief names, starts on `--order` only naming an answer of his that approves it; and while he holds every release, each of them runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`."""
+    if (verb := release_verb(words)) is None:
         return None
-    if words[2:3] == ["cancel"] and shell.job:
+    job = shell.job or bool(os.environ.get(state.REMOTE_LANE_ENV))
+    if verb == "cancel" and job:
         return RELEASE_CANCEL
-    if not RELEASE_CUTS & set(words[2:3]) or PLAN_ONLY & set(words):
+    if verb not in RELEASE_CUTS or PLAN_ONLY & set(words):
         return None
     names = state.session_drives(shell.session)
     for name in names:
@@ -449,15 +466,58 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         if project := state.session_project(data, shell.session):
             top = data["roles"].get("coordinator", {}).get("session") or "not started"
             return (
-                f"ci release {words[2]}: the sub-coordinator for {project} starts, approves and rolls back no production cut; the"
-                f" top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
+                f"ci {' '.join(words[1:3])}: the sub-coordinator for {project} starts, approves and rolls back no production cut;"
+                f" the top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
                 " the merged changes the cut must carry"
             )
-    if words[2] not in brief.RELEASE_STARTS:
+    starts = verb in brief.RELEASE_STARTS
+    if starts and job and (unbriefed := unbriefed_reason(words, shell)):
+        return unbriefed
+    if os.environ.get(state.REMOTE_LANE_ENV):
+        return lane_release_reason(release_of(words, shell))
+    if not names:
         return None
-    if shell.job:
-        return unbriefed_reason(words, shell)
-    return brief.approval_refusal(" ".join(words), state.load(names[0])["roles"]["coordinator"]["cwd"]) if names else None
+    data = state.load(names[0])
+    try:
+        if starts and not job:
+            return brief.approval_refusal(" ".join(words), data)
+        hold = settled.hold(data["roles"]["coordinator"]["cwd"])
+        return hold and brief.hold_refusal(release_of(words, shell), data, hold)
+    except state.DriveError as error:
+        return HOLD_UNREAD.format(command=" ".join(words), error=error)
+
+
+def release_of(words: list[str], shell: Shell) -> str:
+    """The release a release verb runs, as his exception names it: a start's or hotfix's own words, else the newest Release line of the caller's brief, the release its job runs, else the verb's own words."""
+    if words[1:2] == ["release"] and words[2] in brief.RELEASE_STARTS:
+        return " ".join(words)
+    return next(reversed(brief.RELEASE.findall(agents.brief(shell.caller))), " ".join(words))
+
+
+def release_verb(words: list[str]) -> str | None:
+    """The release verb a command runs: a `ci release` verb, a `ci bk rerun` of a forge/release build, or `api` for a `ci bk api` call writing to one, such as unblocking its approval step."""
+    if Path(words[0]).name not in brief.CI_BINARIES:
+        return None
+    if words[1:2] == ["release"]:
+        return next(iter(words[2:3]), None)
+    if words[1:2] == ["bk"] and words[2:3] in (["rerun"], ["cancel"]) and words[3:4] == [RELEASE_PIPELINE]:
+        return words[2]
+    if words[1:3] != ["bk", "api"] or not any(RELEASE_BUILDS.search(word) for word in words[3:]):
+        return None
+    method, rest = "GET", iter(words[3:])
+    for word in rest:
+        flag, given, value = word.partition("=")
+        if flag in ("-X", "--X"):
+            method = value if given else next(rest, "")
+    return "api" if method.upper() != "GET" else None
+
+
+def lane_release_reason(release: str) -> str | None:
+    """Why a Sprite lane, which holds no drive, may not run a release verb: `drive job held --release` on the coordinator's Mac refuses the release it runs under his hold, as hold_refusal() reads it there, or the Mac did not answer."""
+    try:
+        return land.lane_held(f"--release={release}")["release"]
+    except state.DriveError as error:
+        return RELEASE_UNASKED.format(release=release, error=error)
 
 
 def unbriefed_reason(words: list[str], shell: Shell) -> str | None:
