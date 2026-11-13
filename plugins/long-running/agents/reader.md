@@ -25,7 +25,11 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   panic, error or log message, a doc, a PR body, the brief, a record or an earlier answer is a
   claim to test against that code, never a fact: your report says whether each claim it relies on
   holds and names the read that decides it. A fact about every case cites what decides it, never
-  one case, and a mechanism you name cites the read or his words showing whether the system controls
+  one case, and an absence read from one metric, span or log series, such as no calls, zero rows
+  or nothing since, names a second source with no shared emitter showing the same absence, such as
+  the caller's client spans beside the server's trace metric, or goes on
+  `UNPROVEN: <the absence>: <the source that settles it>`, since one series can be sampled or
+  dropped before it is stored. A mechanism you name cites the read or his words showing whether the system controls
   that piece where it would run, by his words "we cant do that since we dont control the poloices on customer bucket".
 - Whether something he uses works is read where he uses it, never from API data.
 - Make every read the order names, whoever owns the data; his order authorizes it and a read

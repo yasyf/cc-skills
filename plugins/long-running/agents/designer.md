@@ -24,7 +24,11 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   `path:line` on your `Facts:` line, since the builder builds from them. A code comment, a panic,
   error or log message, a doc, a PR body, the brief or an earlier answer is a claim to test against
   the code that does it, never a fact, by his words "dont just take things for granted critically
-  evakuate them". A fact about every case cites what decides it, and a mechanism an option proposes
+  evakuate them". A fact about every case cites what decides it, and an absence read from one
+  metric, span or log series, such as no calls, zero rows or nothing since, names a second source
+  with no shared emitter showing the same absence, such as the caller's client spans beside the
+  server's trace metric, or goes on `UNPROVEN: <the absence>: <the source that settles it>`, since
+  one series can be sampled or dropped before it is stored. A mechanism an option proposes
   cites the read or his words showing whether the system controls that piece where it would run, by his words "we cant
   do that since we dont control the poloices on customer bucket".
 - Before the design adds any table, column, store, file, process, mechanism, check or verb, find what

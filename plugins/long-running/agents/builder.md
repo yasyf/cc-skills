@@ -145,7 +145,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    - A Datadog read, for research or a `PROVE:` line, goes through the Datadog MCP's tools, whose
      `execute_code` reaches any Datadog API, never the `pup` command, whose OAuth grant keeps the
      scopes its `pup auth login` was granted while later pup releases add commands needing more,
-     such as profiling's `continuous_profiler_read`.
+     such as profiling's `continuous_profiler_read`. An absence read from one metric, span or log
+     series, such as no calls, zero rows or nothing since, names a second source with no shared
+     emitter showing the same absence, such as the caller's client spans beside the server's trace
+     metric, or goes on `UNPROVEN: <the absence>: <the source that settles it>`, since one series
+     can be sampled or dropped before it is stored.
    - Run a pass, migration, backfill, conversion or bulk repair over a team's data as a service
      account inside the cluster that serves that team, started from a pipeline or an in-cluster
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
