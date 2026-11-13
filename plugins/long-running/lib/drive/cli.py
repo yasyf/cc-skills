@@ -2194,18 +2194,22 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, or one taking over from an agent on this Mac that stopped or that another session holds, with the text in its handoff when a resume brought one."""
+    """Start a job's first lane, or one taking over from an agent on this Mac that stopped or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each answer of his it has not heard whose words its brief lacks."""
+    from drive import view
+
     data = state.load(name)
     job = data["jobs"][job_id]
     if adopted := orca.adopted(launch_brief(name, job_id)):
         return {field: adopted[field] for field in LAUNCHED}
-    if not job.get("agent") and (waits := [wait for wait in job["waits"] if local or wait != state.SLOT_WAIT]):
+    if not job.get("agent") and (waits := [wait for wait in view.holding(data, job["waits"], None) if local or wait != state.SLOT_WAIT]):
         raise DriveError(f"{job_id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends")
     taker = other_sessions_agent(job)
     if not (brief_file or job.get("brief")):
         raise DriveError(f"{job_id} has no brief: write it with drive job brief {job_id}, or name its file")
     root = orca.checkout(name, data)
     written = named_text(brief_file or job["brief"], "brief file")
+    if since := [kept for kept in superseded.owed(data, job_id) if not superseded.carries(written, kept["words"])]:
+        written = written.rstrip() + "\nHis answers since:" + "".join(f'\n- "{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in since) + "\n"
     if taker or died:
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
@@ -2220,7 +2224,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         job = data["jobs"][job_id]
         if taker or died:
             job.update(agent=None, session=taker or job["session"])
-        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT])
+        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
     kept = launch_brief(name, job_id)
     kept.parent.mkdir(exist_ok=True)
     try:
@@ -2246,7 +2250,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
                 kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
                 job.update(started, **kept, ask=None, report=None, tools_on=started["workspace"], turn_open=True)
                 state.start(job)
-                superseded.hear(data, job_id, Path(handoff or job["brief"]).read_text())
+                superseded.hear(data, job_id, orca.brief_of(Path(handoff or job["brief"]).read_text()))
         return job
     except state.NewerDrive:
         if not (newer := install.upgraded()):
@@ -3186,7 +3190,8 @@ def answer(args: argparse.Namespace) -> int:
     hearing = [job_id for key, _ in args.settled if (job_id := asked[key]["job"]) and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
     if stray := [job_id for job_id in told if job_id not in [*superseded.unheard(data, kept), *hearing]]:
         raise DriveError(
-            f"{', '.join(stray)}: not a job waiting on an order {args.id} touches that is unmarked\n{superseded.listing(args.id, kept, open_keys, asked, data)}"
+            f"{', '.join(stray)}: not a job waiting on an order {args.id} touches that is unmarked, with an agent or lane; a job with"
+            f" neither hears his words from the launch that starts it\n{superseded.listing(args.id, kept, open_keys, asked, data)}"
         )
     if unreached := [job_id for job_id in sent if not state.agent_lane(data, data["jobs"][job_id])]:
         raise DriveError(
