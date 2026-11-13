@@ -40,7 +40,6 @@ LANE_VERBS = (
 )
 LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
-GRANT_STEP = re.compile(r"\bdrive break-glass\b")
 JOB_WORD = re.compile(r"j\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"

@@ -946,8 +946,6 @@ def promised_due(text: str, at: datetime) -> datetime | None:
 def job_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     created = state.stamp()
-    if args.kind == "builder" and not args.remote and not args.agent and not args.waits:
-        refuse_a_local_builder(args.repo)
     if args.waits and args.agent:
         raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
     if args.lands and args.kind != "builder":
@@ -991,7 +989,7 @@ def job_add(args: argparse.Namespace) -> int:
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
     if crowd:
         waiting.append(
-            f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief runs drive break-glass, a release start, ci mac-box, ci devbox or a test Mac waits its turn for a slot here once its agent starts"
+            f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits its turn for a slot here once its agent starts"
         )
     return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
@@ -1679,15 +1677,6 @@ def place_job(args: argparse.Namespace) -> int:
     return emit(args, f"{where}: {why}", payload)
 
 
-def refuse_a_local_builder(repo: str | None) -> None:
-    """A monorepo builder starts on this Mac only while its load says local; one past this Mac's cap of builders, or behind builders waiting their turn, is added to start on a Sprite at once."""
-    if (repo or "").casefold() != place.MONOREPO.casefold():
-        return
-    where, why = place.verdict(place.busy(), place.limit(), {})
-    if where == "remote":
-        raise DriveError(f"refused, no job added: {why}, so this builder starts remote: add --remote, or wait until drive place says local")
-
-
 def remote_job(data: dict, job_id: str) -> dict:
     job = find(data["jobs"], job_id, "job")
     if job.get("where") == "remote":
@@ -1821,7 +1810,7 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief that runs drive break-glass starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended; a lane taking over from an agent on this Mac that stopped or that another session holds; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief naming a step only this Mac runs starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended; a lane taking over from an agent on this Mac that stopped or that another session holds; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
     return relaunch(args, state.resolve(args.drive), None)
 
 
@@ -1905,7 +1894,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         state.held_elsewhere(data, job["order"], role)
         or brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, written)
-        or (f"its brief runs drive break-glass, which no Sprite lane runs, by {reads.NO_SPRITE_GRANT}: launch it with --local" if not local and reads.GRANT_STEP.search(written) else None)
+        or (f"its brief names {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     with state.edit(name) as data:

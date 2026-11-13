@@ -11,7 +11,8 @@ from drive.render import when
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
 MONOREPO = "Forge-AI/monorepo"
 LOCAL_BUILDERS = 8
-MAC_ONLY = re.compile(r"\bdrive break-glass\b|\brelease start\b|\bci (?:mac-box|devbox)\b|\btest Mac\b")
+MAC_ONLY = re.compile(r"\b(?:break-glass|mac[- ]box(?:es)?|devbox(?:es)?|db-read|ci release|release start|test Mac|datadog)\b", re.IGNORECASE)
+MAC_ONLY_STEPS = "drive break-glass, a release verb, ci mac-box, ci devbox, ci db-read, a Datadog read or a test Mac"
 SAMPLE_SECONDS = 1.0
 HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
@@ -43,6 +44,11 @@ def busy() -> float:
 def limit() -> float:
     """The load gate's limit, the share of CPU above which it refuses a local build."""
     return float(os.environ.get(LIMIT_ENV, "1"))
+
+
+def mac_step(text: str) -> str | None:
+    """The first step a brief names that only this Mac runs, as the brief writes it, None for none: break-glass, a Mac box or test Mac, a devbox, db-read and a release verb sign in with this Mac's machine profile or Buildkite token, and a Datadog read with this Mac's Claude Code Datadog sign-in, none of which a Sprite holds."""
+    return found[0] if (found := MAC_ONLY.search(text)) else None
 
 
 def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str, str]:

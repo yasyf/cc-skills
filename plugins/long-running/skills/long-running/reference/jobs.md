@@ -26,8 +26,8 @@ Contents:
   does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
   while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and
   prints why, naming each builder it counted with its order and when its agent last wrote, and its
-  `drive job launch <j> <brief>`. Only a builder whose brief runs `drive break-glass`, a release
-  start, `ci mac-box`, `ci devbox` or a test Mac waits its turn for a slot, held on `builder-slot`;
+  `drive job launch <j> <brief>`. Only a builder whose brief names a step only this Mac runs, listed
+  below, waits its turn for a slot, held on `builder-slot`;
   `drive status` shows its place, and the watch reads the job waiting, never abandoned.
   A builder on an open incident's order or on an `immediate fix` part never waits its turn: it
   starts here at once past the cap and the line, and holds a slot against later builders once it
@@ -36,19 +36,23 @@ Contents:
   its turn that is due first: the earliest time promised him on an order it serves, then the oldest
   added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
   `agent_brief` hook refuses any other builder here while one waits its turn, naming each builder it
-  counted and the line: one whose brief runs none of those steps starts on a Sprite at once with
+  counted and the line: one whose brief names none of those steps starts on a Sprite at once with
   `drive job launch <j> <brief>`, and one whose brief does, that no agent runs, it holds waiting its
-  turn the same way, unless a wait, a card of his or an open PR of its still holds it. Before
-  you start a Forge-AI/monorepo builder, run `drive place` and start it where it says. It answers
-  `remote` when this Mac's CPU is at or over its load gate's limit or eight builders hold its slots,
-  and `local` otherwise; a remote builder runs its builds and checks on its own Sprite, and
-  `drive job launch <j>` starts one waiting its turn there at once.
-- Readers, codex jobs, any
-  job that touches this Mac's processes, a handoff whose `PROVE:` line runs `ci mac-box` or
-  `ci devbox`, and a job whose brief or handoff runs `drive break-glass`, by his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac", always
-  run here: while `drive place` says remote, add a monorepo one with `--remote` and start it with
-  `drive job launch <j> --local`, which refuses on a Sprite a brief that runs `drive break-glass`. A Sprite holds no AWS credentials, and `ci mac-box` and `ci devbox` run on this Mac's
-  machine profile through `DEVBOX_AWS_PROFILE`, with no sign-in.
+  turn the same way, unless a wait, a card of his or an open PR of its still holds it.
+- A Forge-AI/monorepo builder is placed when it starts, from the steps its brief names, by his pick
+  "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
+  check". `drive job add` never refuses one for load. The `agent_brief` hook refuses one started
+  with the Agent tool while this Mac's CPU is at or over its load gate's limit, the `remote` that
+  `drive place` prints, unless its brief or handoff names a step only this Mac runs: break-glass, a
+  Mac box (`ci mac-box`) or test Mac, a devbox (`ci devbox`), `ci db-read`, a `tools/ci release`
+  verb or a Datadog read, matched by `place.MAC_ONLY` over the whole brief. Such a brief starts here
+  at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
+  the Agent tool, or with `--local` when it reads no Datadog, since a `--local` Orca worker starts
+  with no plugin MCP servers. A refused builder starts on its own Sprite with `drive job launch <j>`,
+  which also starts one waiting its turn there at once. A Sprite holds no AWS credentials, Buildkite
+  token or Datadog sign-in, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
+  through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
+  Mac's processes always run here.
 
 ## Start one on this Mac
 
