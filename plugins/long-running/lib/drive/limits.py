@@ -146,6 +146,23 @@ ROOT_CAUSE_RULES = {
     ),
 }
 ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "asked": "his ruling on root causes", "said": ROOT_CAUSE_QUOTE}
+TEAM_DATA_QUOTE = "4, it is never ok to write from local or not use a service agent or any things like this"
+IRIS_BLOBS_QUOTE = "it shouldnt be reading iris blobs at all locally only with a service account on a pass box"
+TEAM_DATA_WORDS = {
+    "id": "ruling:32f49af",
+    "asked": (
+        "his Nov 13 2026 pick on a card asking how one staging SandSQL row write and a bucket listing should run, whose"
+        ' option 4 read "Both on the pass box: the brief\'s route, the box holds every staging database key"'
+    ),
+    "said": TEAM_DATA_QUOTE,
+    "rule": (
+        "A team's data, its SandSQL rows, bucket objects, Iris blobs and run and session journals included, is read or"
+        " written only as a service account, on a pass box or in the team's own cluster, never on this Mac, a Sprite or"
+        f' under `drive break-glass`, by these words and his Nov 12 words "{IRIS_BLOBS_QUOTE}". An option breaks this when'
+        " what it runs reads or writes a team's data any other way, recommended or not, a hand repair or one staging row"
+        " included; a write no service account can make yet waits on the grant it needs, never runs as anyone else."
+    ),
+}
 PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"
 SIGNED_IN = re.compile(r"https://(?:[\w-]+\.)*(?:slack|github)\.com/")
@@ -908,10 +925,10 @@ def ask_case(text: str, asked: Question) -> str:
 
 
 def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Jev weighs a card's case by beside his words, each with the rule it sets: his ruling on root causes, by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, and, when the case reads a page the card links, his words on a link that opened another view than its card described."""
+    """His rulings Jev weighs a card's case by beside his words, each with the rule it sets: his ruling on root causes, by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his ruling that a team's data is read or written only as a service account, whatever order the card serves, and, when the case reads a page the card links, his words on a link that opened another view than its card described."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
-    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
+    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
 
 
 def linked_pages(asked: Question) -> list[str]:

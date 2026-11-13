@@ -4337,7 +4337,7 @@ def parser() -> argparse.ArgumentParser:
         help=f"his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
     )
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
-    verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
+    verb.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, as it runs them, refused when Jev does not read the answer its --order names as his approval; landing_guard refuses any other")
     verb.add_argument(
         "--mac",
@@ -4867,9 +4867,9 @@ def parser() -> argparse.ArgumentParser:
             " a command naming another stack's profile finds none; the credentials are deleted when it exits. The command runs as"
             " a process group of its own, ended with every process it started when it exits, when the grant ends, which exits"
             " 124, and when drive gets SIGTERM, SIGHUP or SIGINT. A grant ending"
-            " within 15 minutes, the shortest credentials STS mints, runs nothing. A read writes nothing; a production write runs"
-            " only on his word or an incident order at 0 deletes and 0 replaces. A remote lane runs the same verb from its Sprite,"
-            " in its own job's name."
+            " within 15 minutes, the shortest credentials STS mints, runs nothing. A team's data is neither read nor written under"
+            " it, since only a service account on a pass box or in the team's cluster reads or writes it; any other production write"
+            " runs only on his word or an incident order at 0 deletes and 0 replaces. A Sprite lane's run is refused."
         ),
     )
     verb.add_argument("id", metavar="JOB|ORDER", help="the job or order the grant is for, named in its reason")

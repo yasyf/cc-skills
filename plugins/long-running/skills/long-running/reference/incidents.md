@@ -372,14 +372,20 @@ check's verdict, or from the order when none ran.
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts. Break-glass
   runs on this Mac's machine profile with no sign-in:
   `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, from a lane on
-  this Mac, never a Sprite's, and no card asks him to sign in for it.
-- A pass, migration or backfill over a team's data runs as a service account inside the cluster
-  that serves that team, by the brief's `Runs as:` line in [jobs.md](jobs.md), never from an admin
-  `kubectl exec`, anyone's own sign-in, or another cluster with credentials copied in. An urgent
-  hand repair of the records a bug left stuck is an immediate fix: it runs at once through this
-  Mac's machine-profile break-glass, beside the root fix that stops new ones. His words: "manually
-  repair his stuck ones with machine profile break glass asap", and "You can use the fucking
-  machine profile for break glass how many fucking times do I have to tell you".
+  this Mac, never a Sprite's, and no card asks him to sign in for it. A team's data is never read
+  or written under it, by the next rule.
+- A team's data, its SandSQL rows, bucket objects, Iris blobs and run and session journals
+  included, is read or written only as a service account, on a pass box or in the team's own
+  cluster, in an incident too. A pass, migration or backfill over it runs as a service account
+  inside the cluster that serves that team, by the brief's `Runs as:` line in [jobs.md](jobs.md),
+  never from an admin `kubectl exec`, anyone's own sign-in, or another cluster with credentials
+  copied in. An urgent hand repair of the records a bug left stuck is an immediate fix: it starts
+  at once, beside the root fix that stops new ones, as a Job in the team's cluster started from
+  its suspended CronJob with `tools/ci cluster-job`, never under `drive break-glass` from this Mac;
+  with no service account that can make it, its job returns `BLOCKED` naming the grant it needs
+  while the root fix ships. His words: "4, it is never ok to write from local or not use a service
+  agent or any things like this", and "it shouldnt be reading iris blobs at all locally only with a
+  service account on a pass box".
 
 ## What he hears
 

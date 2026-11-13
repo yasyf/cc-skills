@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, land, orca, state, view
+from drive import agents, github, install, land, limits, orca, state, view
 from drive.orca import OrcaError
 from drive.shell import expanded, runnable, simple_commands, templates
 
@@ -43,13 +43,9 @@ FORGE_LOCATIONS = (
     "frg-plat-usw2-prod-microvm-artifacts/pass-box/",
     "frg-plat-usw2-staging-microvm-artifacts/pass-box/",
 )
-COPIES = {"cp", "mv", "sync", "rsync", "copy", "copyto", "move", "moveto"}
-LISTS = {
-    "ls", "cat", "du", "head", "stat", "hash", "presign", "signurl", "sign-url", "objects", "lsd", "lsf", "lsl", "lsjson",
-    "ncdu", "size", "tree", "mount", "serve", "md5sum", "sha1sum", "hashsum", "check", "list", "download", "download-batch", "show",
-}
-SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage", "blob")}
-S3API_READS = re.compile(r"(?:get|head|select)-object|list-object")
+STORAGE_TOOLS = {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"}
+SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage",)}
+S3API_OBJECTS = re.compile(r"object|upload|part")
 BUCKET_URI = re.compile(r"(?:s3|gs)://([^\s]*)")
 AZURE_URL = re.compile(r"https://([^/.\s]+)\.(?:blob|dfs)\.core\.windows\.net/([^?\s]*)")
 RCLONE_PATH = re.compile(r"[\w.-]*:(?!//)([^\s]*)")
@@ -64,12 +60,34 @@ OPTIONED = {
 SOURCES = {"source", "."}
 FOLLOWED_DEPTH = 4
 TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
-TEAM_READ = (
-    "refused: this reads `{location}` where the job runs, and a drive job reads a team's data only with a service account"
-    ' on a pass box, never on this Mac, a Sprite or after `drive break-glass`, by his words "it shouldnt be reading iris'
-    ' blobs at all locally only with a service account on a pass box". {route} Only {forge} read where a job runs, since'
-    " they hold no team's data: a box's binary goes under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and"
-    " the box fetches it through a presigned URL"
+TEAM_DATA_RULE = (
+    "a drive job reads or writes a team's data only as a service account, on a pass box or in the team's own cluster,"
+    f' never on this Mac, a Sprite or under `drive break-glass`, by his words "{limits.TEAM_DATA_QUOTE}" and'
+    f' "{limits.IRIS_BLOBS_QUOTE}"'
+)
+CLUSTER_JOB = (
+    "runs as a Job in the team's cluster, started from its suspended CronJob with `tools/ci cluster-job --cluster"
+    ' <release env> --cronjob <name> --reason "<why>"`'
+)
+UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the service account that makes it"
+NO_WRITER = (
+    "No service account writes or deletes a team's data from a pass box yet, since the pass box role and every reader's"
+    f" grant are read-only: a pass that writes it {CLUSTER_JOB}, and any other write or delete {UNMADE}."
+)
+TEAM_DATA = (
+    "refused: this reads or writes `{location}` where the job runs, and " + TEAM_DATA_RULE + ". {route} " + NO_WRITER
+    + " Only {forge} are read or written where a job runs, since they hold no team's data: a box's binary goes under"
+    " `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
+)
+SANDSQL_NAMESPACES = {"sandsql", "sandsql-system", "sandsql-inbox"}
+SANDSQL_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
+SECRETS = {"secret", "secrets"}
+KUBECTL_VALUED = {"-n", "--namespace", "--context", "--cluster", "--user", "--kubeconfig", "-c", "--container", "-o", "--output", "-l", "--selector", "-f", "--filename", "--address", "-s", "--server", "--as"}
+SANDSQL_DATA = (
+    "refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs, and with them"
+    " every read and write of their rows, and " + TEAM_DATA_RULE + ". A pass box's cluster access grants no secrets,"
+    f" exec or port-forward, so no service account reaches a team's SandSQL rows from a box yet: a pass over them {CLUSTER_JOB},"
+    f" and any other read or write {UNMADE}."
 )
 RUNS_ROUTE = (
     "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves: launch a box with"
@@ -78,8 +96,7 @@ RUNS_ROUTE = (
     " us-west-2 --instance-ids <id> --document-name AWS-RunShellScript --parameters file://<scratch>/<name>.json`, whose"
     ' commands load the runs reader\'s grant first, `eval "$(./ci runs-reader grant --team {team})"`, and copy no team data'
     " back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A team another cluster serves, a staging read, or a"
-    " `./ci runs-reader grant` that refuses, as it does until Forge-AI/monorepo#55460 and #55533 are live, has no route:"
-    " return `BLOCKED` naming the prefix, the team and its refusal."
+    " `./ci runs-reader grant` that refuses has no route: return `BLOCKED` naming the prefix, the team and its refusal."
 )
 NO_ROUTE = (
     "No service account reads `{prefix}`, as the runs reader's grant reaches `iris/teams/<team>/runs/` alone: return"
@@ -359,26 +376,38 @@ def shell_shebang(path: Path) -> bool:
     return first.startswith("#!") and any(Path(word).name in SHELLS for word in first[2:].split())
 
 
-def bucket_reads(words: list[str]) -> list[str]:
-    """The bucket or blob locations a command reads, as `<bucket>/<key>`: each it lists, prints, presigns or downloads and each source it copies from, through the AWS, Google Cloud or Azure CLI, s5cmd, gsutil, rclone or azcopy."""
+def bucket_locations(words: list[str]) -> list[str]:
+    """The bucket or blob locations a command reads or writes, as `<bucket>/<key>`: each it names through the AWS, Google Cloud or Azure CLI, s5cmd, gsutil, rclone or azcopy, whatever it does there, and the bucket and copy source of each s3api operation on objects."""
     tool = Path(words[0]).name
     if tool == "aws" and "s3api" in words:
         operation = next((word for word in words[words.index("s3api") + 1 :] if not word.startswith("-")), "")
-        named = "--copy-source" if operation in {"copy-object", "upload-part-copy"} else "--bucket" if S3API_READS.match(operation) else None
-        return [location for location in [named and option(words, named)] if location]
+        return [location for location in (option(words, "--bucket"), option(words, "--copy-source")) if location] if S3API_OBJECTS.search(operation) else []
     service = SERVICES.get(tool, ())
-    if tool not in {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"} or any(name not in words for name in service):
-        return []
-    after = words[words.index(service[-1]) + 1 :] if service else words[1:]
-    action = next((word for word in after if word in COPIES | LISTS), None)
-    if action is None:
+    if tool not in STORAGE_TOOLS or any(name not in words for name in service):
         return []
     if tool == "az":
         return [f"{option(words, '--account-name') or 'azure'}/{option(words, '--container-name') or option(words, '-c') or ''}"]
-    named = [(index, location) for index, word in enumerate(after) if (location := remote_location(tool, word))]
-    if action in COPIES:
-        named = [(index, location) for index, location in named if any(word == "-" or not word.startswith("-") for word in after[index + 1 :])]
-    return [location for _, location in named]
+    after = words[words.index(service[-1]) + 1 :] if service else words[1:]
+    return [location for word in after if (location := remote_location(tool, word))]
+
+
+def sandsql_reach(words: list[str]) -> tuple[str, str] | None:
+    """The `kubectl` step and SandSQL namespace through which a command reaches a team's SandSQL databases: an exec, attach, copy, debug session or port-forward into a SandSQL fleet's namespace, or a read of a secret there, such as the blobstore's root key."""
+    if Path(words[0]).name != "kubectl" or (namespace := option(words, "-n") or option(words, "--namespace")) not in SANDSQL_NAMESPACES:
+        return None
+    named, rest = [], iter(words[1:])
+    for word in rest:
+        if word == "--":
+            break
+        if word in KUBECTL_VALUED:
+            next(rest, None)
+        elif not word.startswith("-"):
+            named.append(word)
+    if named[:1] and named[0] in SANDSQL_REACHES:
+        return f"kubectl {named[0]}", namespace
+    if any(word.split("/")[0] in SECRETS for word in named[1:]):
+        return f"kubectl {named[0]} secret", namespace
+    return None
 
 
 def remote_location(tool: str, word: str) -> str | None:
@@ -390,12 +419,14 @@ def remote_location(tool: str, word: str) -> str | None:
     return found[1] if found and found[1] else None
 
 
-def team_read(command: str, cwd: str) -> str | None:
-    """Why a drive job's call must not run: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads a bucket or blob outside a Forge build, state or log bucket and the `pass-box/` folder of a pass box env's MicroVM artifacts bucket, where a job puts the binary its box fetches through a presigned URL, so a team's data, a customer's own bucket included, whose name no list here holds."""
+def team_data(command: str, cwd: str) -> agents.Unjudged | None:
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a bucket or blob outside a Forge build, state or log bucket and the `pass-box/` folder of a pass box env's MicroVM artifacts bucket, where a job puts the binary its box fetches through a presigned URL, so a team's data, a customer's own bucket included, whose name no list here holds, or it opens a team's SandSQL databases through `kubectl`."""
     for words in reached(command, Place(Path(cwd))):
-        if location := next((found for found in bucket_reads(words) if not f"{found}/".startswith(FORGE_LOCATIONS)), None):
+        if location := next((found for found in bucket_locations(words) if not f"{found}/".startswith(FORGE_LOCATIONS)), None):
             forge = [f"`{place}`" for place in FORGE_LOCATIONS]
-            return TEAM_READ.format(location=location, route=team_route(location), forge=f"{', '.join(forge[:-1])} and {forge[-1]}")
+            return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location), forge=f"{', '.join(forge[:-1])} and {forge[-1]}"))
+        if reach := sandsql_reach(words):
+            return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], namespace=reach[1]))
     return None
 
 
@@ -480,7 +511,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads a team's bucket or blobs where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's command gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -490,8 +521,8 @@ def deny_reason(payload: dict) -> str | None:
     if payload["tool_name"] != "Bash":
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
     found = commands(runnable(call["command"]))
-    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (read := team_read(call["command"], payload.get("cwd") or os.getcwd())):
-        return read
+    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], payload.get("cwd") or os.getcwd())):
+        return touched
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
         return lane_held(found)
     if not drives and not kind.startswith(AGENTS):
@@ -541,7 +572,7 @@ def main() -> None:
         decided = {"hookEventName": "PreToolUse", "updatedInput": made}
     else:
         return
-    print(json.dumps({"hookSpecificOutput": decided}))
+    print(json.dumps({"hookSpecificOutput": decided} | agents.ruled(reason or "")))
 
 
 if __name__ == "__main__":

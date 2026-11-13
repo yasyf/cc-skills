@@ -6711,12 +6711,12 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     [request] = jev.asked
     questions = request["questions"]
     assert list(questions) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "untapped", "card"]
-    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046"]
+    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046", "ruling:32f49af"]
     assert list(questions["worked2"]["label"]["options"]) == ["none", limits.WORKED_WORDS["id"]]
     assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
     assert f'The option: "{asked.options[2]}".' in questions["worked3"]["label"]["instructions"]
     assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
-    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.WORKED_WORDS]
+    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
     assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
@@ -6770,7 +6770,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
         assert settled.broken_refusal(settled.judged(limits.ask_case(text, asked), asked, []), None) is None
         request = jev.asked[-1]
         offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
-    assert offered == [(["none", "ruling:0c59046"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.WORKED_WORDS])] * 2
+    assert offered == [(["none", "ruling:0c59046", "ruling:32f49af"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS])] * 2
     assert "story" not in settled.CARD_QUESTION
 
 
