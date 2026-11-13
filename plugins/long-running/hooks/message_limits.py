@@ -190,7 +190,7 @@ def last_read(path: Path, dm: str, where: tuple[str, str]) -> tuple[datetime | N
                         saved[file.group(1)] = at
                     else:
                         read = max(read or at, at)
-                elif opened := [file for file in saved if file in others.get(part.get("tool_use_id"), "")]:
+                elif opened := [file for file in saved if Path(file).name in others.get(part.get("tool_use_id"), "")]:
                     read = max([saved.pop(file) for file in opened] + ([read] if read else []))
     return read, saved, failed
 
