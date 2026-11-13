@@ -3563,7 +3563,7 @@ def pr_checked(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him, parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name and each other question card Jev reads it as changing, and the jobs waiting on their orders: refuse until each card, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, take each part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -3597,8 +3597,9 @@ def answer(args: argparse.Namespace) -> int:
             if unsaid := settled.unsaid([args.words, settled.his(shown["body"])], args.link, found, data):
                 raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
             changes = settled.changed(shown["title"], args.words, asked)
+        bound = superseded.binding(data, args.link, asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, state.stamp())
+            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, bound, state.stamp())
     done = []
     if not marking:
         with state.edit(name) as data:
@@ -3612,7 +3613,7 @@ def answer(args: argparse.Namespace) -> int:
     if twice := sorted({key for key in [*named, *told] if [*named, *told].count(key) > 1}):
         raise DriveError(f"{', '.join(twice)}: marked twice; mark each card, part or PR once, standing, settled, dropped, superseded or reopened, and each job once, sent or untouched")
     if stray := [key for key in named if key not in superseded.markable(kept, asked)]:
-        raise DriveError(f"{', '.join(stray)}: not a card, part or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
+        raise DriveError(f"{', '.join(stray)}: not a card, order, part or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
     hearing = [job_id for key, _ in args.settled if (job_id := asked[key]["job"]) and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
     if stray := [job_id for job_id in told if job_id not in [*superseded.unheard(data, kept), *hearing]]:
         raise DriveError(
@@ -3628,7 +3629,7 @@ def answer(args: argparse.Namespace) -> int:
     refusals = [
         *(superseded.settled_refusal(data, kept, key, asked[key], file) for key, file in args.settled),
         superseded.part_refusal(asked, [key for key, _ in [*args.superseded, *args.reopened]]),
-        superseded.dropped_refusal(data, asked, args.dropped),
+        superseded.dropped_refusal(asked, args.dropped),
         superseded.stack_refusal(asked, [*args.dropped, *(key for key, _ in args.superseded)]),
         *(superseded.fold_refusal(data, key, asked[key], into) for key, into in args.superseded if into),
         *(superseded.reopen_refusal(data, key, asked[key], by) for key, by in args.reopened),
@@ -3642,8 +3643,20 @@ def answer(args: argparse.Namespace) -> int:
     cleared: set[str] = set()
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
+        dropping = superseded.whole(data, asked, args.dropped)
+        cwd = data["roles"]["coordinator"]["cwd"]
+        bound = superseded.binding(data, kept["link"], asked, cwd) if dropping else {}
+        for order_id, keys in dropping.items():
+            for pick in bound.get(order_id, []):
+                settled.supersede(pick, args.id, cwd)
+                done.append(f"his pick {pick}, which bound {order_id}, is superseded by {args.id} in cc-notes, so ccn answer match no longer reads it as standing")
+            with state.edit(name) as data:
+                data["answers"][args.id]["cards"].update({key: {"mark": "dropped", "job": None, "card": None} for key in keys})
+                done += superseded.drop_order(data, args.id, order_id)
         for key in args.dropped:
             entry = asked[key]
+            if entry["kind"] in ("order", "part") and entry["order"] in dropping:
+                continue
             if entry["kind"] == "part":
                 with state.edit(name) as data:
                     data["answers"][args.id]["cards"][key] = {"mark": "dropped", "job": None, "card": None}
@@ -5081,7 +5094,7 @@ def parser() -> argparse.ArgumentParser:
         "--link",
         help="the permalink of his message or of the card he answered, which a superseded card links, or terminal for words he typed into a drive session's terminal; the first call needs it, and checks both --words and a named answer's words above its Notes: against it",
     )
-    verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card, part or PR his answer leaves as it is")
+    verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card, order, part or PR his answer leaves as it is")
     verb.add_argument(
         "--dropped",
         action="extend",
@@ -5089,9 +5102,10 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="KEY",
         help=(
-            "a card, part or open PR his answer removes: a card is withdrawn showing his words with no buttons and its job keeps working;"
-            " a part leaves its order, every job delivering it and every PR naming it, and a live job left with no part stops; an open PR"
-            " closes on GitHub, its tap ask dropped and its card withdrawn"
+            "a card, order, part or open PR his answer removes: a card is withdrawn showing his words with no buttons and its job keeps working;"
+            " an order, or every part of one, drops the order, stopping each live job whose order it is, and each pick of his binding it is"
+            " superseded by his answer in cc-notes; a part leaves its order, every job delivering it and every PR naming it, and a live job"
+            " left with no part stops; an open PR closes on GitHub, its tap ask dropped and its card withdrawn"
         ),
     )
     verb.add_argument(

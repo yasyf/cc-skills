@@ -7263,7 +7263,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
     refusal = capsys.readouterr().err
-    assert "demo:j2-7: not a card, part or PR that a1 has not marked" in refusal
+    assert "demo:j2-7: not a card, order, part or PR that a1 has not marked" in refusal
     assert refusal.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
     code, out = run("answer", "a1", "--superseded", f"{designing}=stop")
     assert out.splitlines() == [
@@ -7277,6 +7277,38 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     data = state.load("demo")
     assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"]) == (False, "stopped", "running")
     assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
+
+
+def test_his_answer_on_a_card_asking_him_to_lift_a_pick_lists_each_open_order_the_pick_binds_and_dropping_it_stops_its_job_and_supersedes_the_pick(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers, closed: list[str]
+) -> None:
+    run("order", "add", "--title", "Isolate helper scripts", "--project", "Iris", "--workstream", "Durable agents", "isolate helper scripts in their own process with a memory cap")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the separate process once the four PRs merge")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"][0]["unsettled"] = "9992100: he ruled the wait on o2's separate process; this card asks whether to build it now"
+        data["jobs"]["j3"].update(state="waiting", agent="agent-3")
+    recorded.shown["9992100"] = {"id": "9992100", "title": "Still build the separate process now?", "body": "Wait for the four PRs to merge\nNotes: Binds order o2", "tags": [], "created_at": "2026-11-10T00:45:49Z"}
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    cards_asking(monkeypatch, PR)
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert "1 order and 1 PR have no mark:" in listed
+    assert "  o2  order  j3 o2  Isolate helper scripts" in listed
+    assert "  o1  order" not in listed
+    assert "  j3 waits on o2 and has not heard a1: " in listed
+    code, out = run("answer", "a1", "--dropped", "o2", "--superseded", f"{designing}=stop")
+    assert (code, out.splitlines()[:4]) == (
+        0,
+        [
+            "his answer a1 recorded: 0 standing, 1 dropped, 1 superseded, 0 reopened by it",
+            "his pick 9992100, which bound o2, is superseded by a1 in cc-notes, so ccn answer match no longer reads it as standing",
+            "o2 dropped by his answer a1",
+            "j3 stopped with its order: end its agent, or its lane with drive job end j3",
+        ],
+    )
+    data = state.load("demo")
+    assert (data["orders"]["o2"]["state"], data["orders"]["o2"]["withdrawn"], data["jobs"]["j3"]["state"], superseding) == ("dropped", PICK, "stopped", [("9992100", "a1")])
 
 
 def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by_its_short_id(
@@ -8020,7 +8052,7 @@ def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
     with state.edit("demo") as data:
         data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Tree", DESIGN_CARD)
     assert cli.main(["answer", "a1", "--superseded", "demo:j2-7=stop"]) == 2
-    assert "demo:j2-7: not a card, part or PR that a1 has not marked" in capsys.readouterr().err
+    assert "demo:j2-7: not a card, order, part or PR that a1 has not marked" in capsys.readouterr().err
     data = state.load("demo")
     assert (data["answers"]["a1"]["cards"]["demo:j2-7"], data["jobs"]["j2"]["state"]) == (None, "running")
 

@@ -1,4 +1,4 @@
-"""What each answer or ruling of his leaves standing: the cards open, parts of orders undelivered and PRs not yet live when it was recorded that it could change, until each is marked standing, settled, dropped, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
+"""What each answer or ruling of his leaves standing: the cards open, orders and parts of orders undelivered and PRs not yet live when it was recorded that it could change, until each is marked standing, settled, dropped, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
 
 import re
 import sys
@@ -13,10 +13,11 @@ from drive.state import DriveError
 OTHERS_STAND = 3
 SUBJECT_TERMS = 3
 GENERIC_TITLES = 10
+PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
-    """Every card asking him, part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
+    """Every card asking him, order and part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, else the open order itself by its id, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
     shown = {view.message_key(card["url"]): card for card in found["questions"]}
     asked = {}
     for job_id, job in data["jobs"].items():
@@ -45,7 +46,19 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
                 "card": card["url"],
             }
     for order_id, order in data["orders"].items():
-        undelivered = [] if order["state"] in state.CLOSED_ORDER_STATES else [part for part in order["parts"] if not state.delivered(data, order_id, part)]
+        if order["state"] in state.CLOSED_ORDER_STATES:
+            continue
+        undelivered = [part for part in order["parts"] if not state.delivered(data, order_id, part)]
+        if len(undelivered) < 2:
+            asked[order_id] = {
+                "kind": "order",
+                "title": view.order_title(order),
+                "job": None,
+                "jobs": [job_id for job_id in order["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES],
+                "order": order_id,
+                "url": "",
+                "card": None,
+            }
         for part in undelivered if len(undelivered) > 1 else []:
             asked[f"{order_id}:{part}"] = {
                 "kind": "part",
@@ -74,8 +87,8 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
     return asked
 
 
-def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], moment: str) -> dict:
-    """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
+def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
+    """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
@@ -84,7 +97,12 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
         key: None
         for key, entry in asked.items()
         if not answers(link, entry)
-        and (entry["job"] in jobs or jobs & set(entry.get("jobs", ())) or entry["order"] in orders or named(words, key, entry) or key in changes)
+        and (
+            entry["kind"] != "order" and (entry["job"] in jobs or jobs & set(entry.get("jobs", ())) or entry["order"] in orders)
+            or entry["order"] in bound
+            or named(words, key, entry)
+            or key in changes
+        )
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
     return {
@@ -99,6 +117,36 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
             if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running"
         },
     }
+
+
+def binding(data: dict, link: str, asked: dict[str, dict], cwd: str) -> dict[str, list[str]]:
+    """Each open order bound by a pick of his that a question his message is on or under asked him to lift, as `drive job ask --unsettled "<id>: <why>"` keeps it, with the picks binding it: an order whose card, part, PR or waiting job the pick's own drive answer listed, one whose job's question the pick ended, and one whose card, part, PR or own key the pick's cc-notes answer names, as `named` reads his words. A pick ccn cannot read binds only by the drive's records."""
+    picks = sorted({pick for job in data["jobs"].values() for question in job["questions"] if question["unsettled"] and question["card"] and under(link, question["card"]) for pick in PICK.findall(question["unsettled"])})
+    bound: dict[str, list[str]] = {}
+    for pick in picks:
+        for order_id in sorted(held_by(data, pick, asked) | noted(pick, asked, cwd)):
+            if data["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES:
+                bound.setdefault(order_id, []).append(pick)
+    return bound
+
+
+def held_by(data: dict, pick: str, asked: dict[str, dict]) -> set[str]:
+    """The orders the drive's own records tie a pick of his to: each one its drive answer listed a card, part or PR of, or a waiting job on, and each one of a job whose question it ended."""
+    kept = [answer for answer_id, answer in data["answers"].items() if answer_id[:7] == pick]
+    listed = {asked[key]["order"] for answer in kept for key in answer["cards"] if key in asked and asked[key]["order"]}
+    waiting = [data["jobs"][job_id] for answer in kept for job_id in answer["jobs"]]
+    ended = [job for job in data["jobs"].values() if any((closed := question["closed"]) and pick in ((closed["answer"] or "")[:7], (closed["ruling"] or "")[:7]) for question in job["questions"])]
+    return listed | {order_id for job in [*waiting, *ended] for order_id in (job["order"], *job["carries"])}
+
+
+def noted(pick: str, asked: dict[str, dict], cwd: str) -> set[str]:
+    """The orders whose card, part, PR or own key a pick's cc-notes answer names, its Notes included, which say what it binds."""
+    try:
+        body = settled.shown(pick, cwd)["body"]
+    except DriveError as error:
+        print(f"his pick {pick} could not be read from cc-notes, so only the drive's records say which orders it binds: {error}", file=sys.stderr)
+        return set()
+    return {entry["order"] for key, entry in asked.items() if entry["order"] and named(body, key, entry)}
 
 
 def shared(title: str, other: str, common: set[str]) -> list[str]:
@@ -116,7 +164,7 @@ def generic(data: dict) -> set[str]:
 def named(words: str, key: str, entry: dict) -> bool:
     """Whether his words name this card or PR whole, by its key, its link, its card's link or its PR's link."""
     refs = (key, entry["url"], entry["card"], entry.get("pr") and state.pr_url(entry["pr"]))
-    return any(ref and re.search(rf"{re.escape(ref)}(?!\w)", words) for ref in refs)
+    return any(ref and re.search(rf"(?<!\w){re.escape(ref)}(?!\w)", words) for ref in refs)
 
 
 def markable(kept: dict, asked: dict[str, dict]) -> list[str]:
@@ -324,9 +372,9 @@ def carries(text: str, words: str) -> bool:
 
 
 def counted(keys: list[str], asked: dict[str, dict]) -> str:
-    """How many cards, parts and PRs these keys name, as `2 cards and 3 PRs` or `1 card, 2 parts and 3 PRs`."""
-    kinds = Counter("card" if asked[key]["kind"] == "question" else asked[key]["kind"] if asked[key]["kind"] == "part" else "PR" for key in keys)
-    named = [f"{count} {word if count == 1 else word + 's'}" for word in ("card", "part", "PR") if (count := kinds[word])]
+    """How many cards, orders, parts and PRs these keys name, as `2 cards and 3 PRs` or `1 card, 1 order, 2 parts and 3 PRs`."""
+    kinds = Counter("card" if asked[key]["kind"] == "question" else asked[key]["kind"] if asked[key]["kind"] in ("order", "part") else "PR" for key in keys)
+    named = [f"{count} {word if count == 1 else word + 's'}" for word in ("card", "order", "part", "PR") if (count := kinds[word])]
     return f"{', '.join(named[:-1])} and {named[-1]}" if len(named) > 1 else "".join(named)
 
 
@@ -344,8 +392,9 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
         ),
         *rows,
         (
-            f"mark each: drive answer {answer_id} --stands <key>... --dropped <key>... for a card, part or open PR his words remove, which"
-            " withdraws a card without stopping its job, takes a part off its order and jobs, and closes a PR, --settled <card key>... for a card it"
+            f"mark each: drive answer {answer_id} --stands <key>... --dropped <key>... for a card, order, part or open PR his words remove, which"
+            " withdraws a card without stopping its job, drops an order and stops each live job whose order it is, takes a part off its order"
+            " and jobs, and closes a PR, --settled <card key>... for a card it"
             " decides, or <card key>=<the ASK its job keeps with drive job ask --redraws <card key> asking only what it leaves open>... for one"
             " it decides in part, --superseded"
             " <key>=stop|<key>=<live job to fold it into>... --reopened <PR key>=<live job that reworks it to his words>..., or"
@@ -420,24 +469,33 @@ def stack_refusal(asked: dict[str, dict], keys: list[str]) -> str | None:
     return None
 
 
-def dropped_refusal(data: dict, asked: dict[str, dict], keys: list[str]) -> str | None:
-    """Why his answer may not drop these, before anything is dropped: a merged PR comes out only by a revert, which lands on his tap alone, and dropping every part of an order drops the order itself."""
+def dropped_refusal(asked: dict[str, dict], keys: list[str]) -> str | None:
+    """Why his answer may not drop these, before anything is dropped: a merged PR comes out only by a revert, which lands on his tap alone."""
     if merged := [key for key in keys if asked[key]["kind"] == "merged"]:
         return (
             f"{', '.join(merged)} merged, so taking it out is a revert, which lands only on his tap on a card stating the bug in it:"
             " mark it --stands, or --reopened <key>=<the live job that reworks it>"
         )
-    parts = [asked[key] for key in keys if asked[key]["kind"] == "part"]
-    for order_id in dict.fromkeys(entry["order"] for entry in parts):
-        if set(data["orders"][order_id]["parts"]) <= {entry["title"] for entry in parts if entry["order"] == order_id}:
-            return f"--dropped takes every part off {order_id}, which drops the order: drive order set {order_id} --state dropped takes its parts off this list"
     return None
 
 
+def whole(data: dict, asked: dict[str, dict], keys: list[str]) -> dict[str, list[str]]:
+    """The orders these --dropped keys drop whole, each with its keys among them: an order named by its own key, and one whose every part they name."""
+    held: dict[str, list[str]] = {}
+    for key in keys:
+        if asked[key]["kind"] in ("order", "part"):
+            held.setdefault(asked[key]["order"], []).append(key)
+    return {
+        order_id: listed
+        for order_id, listed in held.items()
+        if asked[listed[0]]["kind"] == "order" or set(data["orders"][order_id]["parts"]) <= {asked[key]["title"] for key in listed}
+    }
+
+
 def part_refusal(asked: dict[str, dict], keys: list[str]) -> str | None:
-    """Why a part may not be superseded or reopened: a part stands or is dropped."""
-    if parts := [key for key in keys if asked[key]["kind"] == "part"]:
-        return f"{', '.join(parts)}: a part stands or is dropped, so mark it --stands or --dropped"
+    """Why an order or part may not be superseded or reopened: it stands or is dropped."""
+    if held := [key for key in keys if asked[key]["kind"] in ("order", "part")]:
+        return f"{', '.join(held)}: an order or part stands or is dropped, so mark it --stands or --dropped"
     return None
 
 
@@ -490,6 +548,27 @@ def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
         if pr["order"] == order_id and part in pr["parts"]:
             pr["parts"].remove(part)
     return [f"{order_id}:{part} dropped from {order_id}" + (f" and {', '.join(trimmed)}" if trimmed else ""), *stopped]
+
+
+def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:
+    """Drop an order his answer removes whole, as drive order set <o> --state dropped --withdrawn <his link> does, stopping each live job whose order it is and taking it off each live job carrying it, which keeps waiting to hear his words; what was done, a line each."""
+    kept = data["answers"][answer_id]
+    order = data["orders"][order_id]
+    order.update(state="dropped", withdrawn=kept["link"], updated=state.stamp())
+    done = [f"{order_id} dropped by his answer {answer_id}"]
+    for job_id in order["jobs"]:
+        job = data["jobs"][job_id]
+        if job["state"] in state.FINISHED_JOB_STATES:
+            continue
+        if job["order"] != order_id:
+            if order_id in job["carries"]:
+                del job["carries"][order_id]
+                job["updated"] = state.stamp()
+                kept["jobs"].setdefault(job_id, None)
+            continue
+        job.update(state="stopped", said=f"his answer {answer_id} dropped its order {order_id}", updated=state.stamp())
+        done.append(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}")
+    return done
 
 
 def close(key: str) -> None:

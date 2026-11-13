@@ -1248,7 +1248,9 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     assert watch.answer_lines(watching, state.now() + timedelta(minutes=30)) == []
 
 
-def test_drive_answer_refuses_to_drop_a_merged_pr_or_every_part_of_an_order_and_to_supersede_a_part(demo: str, run: Callable[..., tuple[int, str]], capsys: pytest.CaptureFixture[str]) -> None:
+def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_dropping_every_part_of_an_order_drops_the_order(
+    demo: str, run: Callable[..., tuple[int, str]], capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD)
@@ -1258,12 +1260,17 @@ def test_drive_answer_refuses_to_drop_a_merged_pr_or_every_part_of_an_order_and_
     assert run("answer", "8427b3c", "--words", RULED, "--link", UNDER_CARD)[0] == 0
     for marks, refusal in (
         (["--dropped", "Forge-AI/monorepo#54101"], "Forge-AI/monorepo#54101 merged, so taking it out is a revert"),
-        (["--dropped", *(f"o1:{part}" for part in SANDSQL_PARTS)], "--dropped takes every part off o1, which drops the order: drive order set o1 --state dropped"),
-        (["--superseded", f"o1:{SANDSQL_PARTS[0]}=stop"], f"o1:{SANDSQL_PARTS[0]}: a part stands or is dropped, so mark it --stands or --dropped"),
+        (["--superseded", f"o1:{SANDSQL_PARTS[0]}=stop"], f"o1:{SANDSQL_PARTS[0]}: an order or part stands or is dropped, so mark it --stands or --dropped"),
     ):
         assert cli.main(["answer", "8427b3c", *marks]) == 2
         assert refusal in capsys.readouterr().err
     assert list(state.load(demo)["orders"]["o1"]["parts"]) == list(SANDSQL_PARTS)
+    assert run("answer", "8427b3c", "--dropped", *(f"o1:{part}" for part in SANDSQL_PARTS)) == (
+        0,
+        "his answer 8427b3c recorded: 0 standing, 2 dropped, 0 superseded, 0 reopened by it\no1 dropped by his answer 8427b3c\nj1 stopped with its order: end its agent, or its lane with drive job end j1",
+    )
+    drive = state.load(demo)
+    assert (drive["orders"]["o1"]["state"], drive["orders"]["o1"]["withdrawn"], list(drive["orders"]["o1"]["parts"]), drive["jobs"]["j1"]["state"]) == ("dropped", UNDER_CARD, list(SANDSQL_PARTS), "stopped")
 
 
 def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_notes(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:

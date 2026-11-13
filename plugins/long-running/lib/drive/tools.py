@@ -572,8 +572,9 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
                 f"his ruling {ruling}: Jev gave no reading of it against his other open cards, so it lists only what its card's job and order"
                 f" hold and its words name: mark any other card it changes on drive answer {ruling}"
             )
+        bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            kept = data["answers"][ruling] = superseded.record(data, made["text"], made["url"], asked, changes, state.stamp())
+            kept = data["answers"][ruling] = superseded.record(data, made["text"], made["url"], asked, changes, bound, state.stamp())
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 
