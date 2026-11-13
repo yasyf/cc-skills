@@ -7141,7 +7141,7 @@ def test_the_verbs_page_names_every_verb_and_flag_exactly_as_the_parser_takes_th
     for verb, (positionals, line) in rows.items():
         parser = leaves[verb]
         assert positionals == sum(not action.option_strings for action in parser._actions), verb
-        assert set(FLAG.findall(re.sub(r"`drive\s[^`]*`", "", line))) - UNLISTED == flags(parser), verb
+        assert set(FLAG.findall(re.sub(r"`[a-z][^`\s]*\s[^`]*`", "", line))) - UNLISTED == flags(parser), verb
         assert [choice for action in parser._actions for choice in map(str, action.choices or ()) if choice not in line] == []
     assert run("manual", "verbs", "job set") == (0, rows["job set"][1])
 
