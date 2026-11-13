@@ -27,10 +27,10 @@ INSTRUCTIONS = (
     " with no {record:}, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, and"
     " each `cc-slack check-post` finding, and Jev judges each by the rule it stands for and his words, or, when"
     " Jev cannot finish, each only warns and the post goes out as written;"
-    " on a handler's post Jev also weighs its own reads, every tool call of its transcript whose result came back, and"
-    " names beside the post, which goes out as written, a line about code no read of the code that does it backs, a"
-    " comment, message, doc, PR body or earlier answer being a claim to test, never a source; it posts exactly the words"
-    " the hook let out and adds none."
+    " on a handler's post Jev also checks each of its claims against the read it names, whole, and holds the post for a"
+    " claim that read does not back and a line about code, a number or a state that claims leaves out, a comment,"
+    " message, doc, PR body or earlier answer being a claim to test, never a source; it posts exactly the words the hook"
+    " let out and adds none."
     " The drive's verbs are tools too: heard, handler, which starts a handler as its own session, record for the"
     " records between the drive's sessions, order, job and pr taking several ops a call, and status; each takes"
     " dry_run, and drive, the drive it acts on when this session is bound to none or several."
@@ -61,6 +61,30 @@ VISUAL = {
     },
     "required": ["kind", "source"],
 }
+CLAIMS = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "claim": {"type": "string", "description": "The post's words making the claim"},
+            "read": {
+                "type": "string",
+                "description": (
+                    "The read behind it: record:<seq> for a record, held whole, else words copied from one call of yours, such as the"
+                    " path, command or query it ran, each word in its input, every such call handed to Jev with its whole result"
+                ),
+            },
+        },
+        "required": ["claim", "read"],
+    },
+    "description": (
+        "On a handler's post, each line saying where code lives, what it does or why, or a number or state, beside the read"
+        " behind it, a claim standing on several reads listed once beside each. Jev checks each claim against its reads"
+        " together and holds the post for a claim they do not back, a read matching no call of yours, or such a line left"
+        " out; your account of your own act, his words quoted back and the drive's state a reference such as {pr:} or"
+        " {card:} names need none"
+    ),
+}
 SAY = {
     "name": "say",
     "description": (
@@ -78,7 +102,7 @@ SAY = {
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and with order"
         " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
-        " an order or job id such as j1700, or a finding Jev read its rule as holding against, such as a line naming a cause (because, caused) with no {record:}, a"
+        " an order or job id such as j1700, a handler's claim the read it names in claims does not back, or a finding Jev read its rule as holding against, such as a line naming a cause (because, caused) with no {record:}, a"
         " line telling him a card, check, hook, session, job or tool of the drive failed, refused or disconnected with no"
         " {order:} or {pr:} on it carrying how that is prevented, or a word `cc-slack check-post` flags: make the fix and"
         " call again. A post cc-slack reports failing after it went out is read back from Slack,"
@@ -148,9 +172,10 @@ SAY = {
                 "type": "string",
                 "description": (
                     "The permalink of a post of yours, in his DM or in a thread outside it such as an alert's, to reword in place"
-                    " with text, in place of a new post; it takes text and asked alone, since a card is redrawn with drive job card"
+                    " with text, in place of a new post; it takes text, asked and claims alone, since a card is redrawn with drive job card"
                 ),
             },
+            "claims": CLAIMS,
             "drive": tools.DRIVE,
             "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing, refused as the post would be"},
         },

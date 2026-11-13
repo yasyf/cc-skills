@@ -564,13 +564,14 @@ restating it.
   line of his words.
 - Name a ruling of his as `{answer:<id>}`, which `say` draws as when he said it and its first words,
   linked to the ack of them in his DM, since the id cc-notes keeps it under means nothing to him.
-- State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
-  on the same line. `say` links what the record measured, its `--url`, under the first clause of the record's own
+- State a cause, a number or a state only through the read that measured it: a record, as `{record:<seq>}`
+  on the same line, or, in a handler's post, a read of its own its `claims` list beside that line. `say` links what the record measured, its `--url`, under the first clause of the record's own
   words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
   measuring lane's evidence is one tap away and its whole text never joins the post or its length:
   on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a
   card he tapped at 9:49 PM carried a false "disk full". `say` posts nothing while a line outside a
-  fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it.
+  fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it, unless a
+  handler's post lists it in `claims`, where Jev checks it against the read beside it.
 - A line about code, where it lives, what it does or why, stands on the posting session's own read
   of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
   shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
@@ -579,11 +580,14 @@ restating it.
   line to repeat, and the post says whether each claim it relies on holds. A line about every case
   stands on a read of what decides it, and a mechanism it proposes on a read showing the system
   controls that piece where it would run, by his words "we cant do that since we dont control the
-  poloices on customer bucket". The say hook hands Jev each handler post's own reads, every tool call
-  of its transcript whose result came back and each name the post uses beside the line of a read
-  holding it, and Jev names beside the post, which goes out as written, a line no read backs and the
-  read it needs. When Jev is right, the fix is that read and a correction, never a line posted marked
-  unread.
+  poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
+  behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
+  a claim standing on several reads listed once beside each. The say hook hands Jev every call those
+  words name with its whole result, and each record the post cites or carries, whole, and Jev holds
+  the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
+  pick "The handler names the read behind each claim; Jev
+  checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,
+  or the line cut to what the reads show, never a line posted marked unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so

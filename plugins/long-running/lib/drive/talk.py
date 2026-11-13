@@ -13,7 +13,7 @@ CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
-EDIT_TAKES = {"edit", "text", "asked", "dry_run", *TICKET_FLAGS}
+EDIT_TAKES = {"edit", "text", "asked", "claims", "dry_run", *TICKET_FLAGS}
 OPENING_WORDS = 12
 RECENT_POSTS = 50
 WORD = re.compile(r"\w+")
@@ -155,7 +155,7 @@ def check(name: str, post: dict) -> None:
         raise DriveError(refused)
     if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
         raise DriveError(
-            f"nothing edited: an edit rewords the text of one post of yours, so it takes edit, text and asked alone, and this one also"
+            f"nothing edited: an edit rewords the text of one post of yours, so it takes edit, text, asked and claims alone, and this one also"
             f" passes {', '.join(extra)}. Redraw a card with drive job card, and post anything new as a new post"
         )
     if post.get("edit") and not post.get("text"):

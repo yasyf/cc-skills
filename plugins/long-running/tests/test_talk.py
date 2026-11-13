@@ -910,12 +910,13 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
     assert len(posts) == 1
 
 
-def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook_named_and_the_dashboard_shows_its_new_words(
+def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook_named_and_its_claims_posting_none_of_them_and_the_dashboard_shows_its_new_words(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
     talk.say(demo, {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "order": "o1"} | TICKET)
-    assert talk.say(demo, {"edit": POSTED, "text": "The release failed on the migration {pr:7} fixes."} | TICKET) == f"EDITED {POSTED}"
+    claims = [{"claim": "The release failed on the migration", "read": "tools/ci release status"}]
+    assert talk.say(demo, {"edit": POSTED, "text": "The release failed on the migration {pr:7} fixes.", "claims": claims} | TICKET) == f"EDITED {POSTED}"
     assert posts[1] == (
         "edit", "--url", POSTED, "--text", f"The release failed on the migration <{PR_URL}|the run page shows its history> fixes.",
         "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, limits, picture, refs, render, slack, state, talk, view
+from drive import agents, cli, limits, mcp, picture, refs, render, slack, state, talk, tools, view
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -55,7 +55,7 @@ UNREAD = (
 )
 DRIVE_ID = re.compile(r"^\d+:\d+ drive-term '[oj]\d+'")
 CAUSE_RULE = (
-    "State a cause, a number or a state only through the record that measured it, as {record:<seq>} on the same line: on"
+    "State a cause, a number or a state only through the read that measured it, as {record:<seq>} on the same line or, in a handler's post, in claims beside that read: on"
     ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
     ' 9:49 PM carried a false "disk full".'
 )
@@ -118,20 +118,17 @@ WHOLE = (
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word or by its"
     " permalink, one per line."
 )
-CODE_SPAN = re.compile(r"`([^`\n]+)`")
-LINKED = re.compile(r"<https?://[^>]*>|https?://\S+")
-INNER = re.compile(r"\w(?:_|\.|/|::)\w")
-PLACE = re.compile(r"<[^<>]*>")
-WORD = re.compile(r"[a-z_]\w*")
-EDGES = ".,;:!?()[]\"'“”‘’*"
-CALL_SHOWN = 240
-LINE_SHOWN = 200
-READS_SOURCE = (
-    "the reads the posting handler made itself, from its own transcript: each tool call whose result came back, its posts"
-    " aside, numbered, then each name the post uses beside the first line of each read, its call or its result, holding it;"
-    " another agent's or"
-    " session's read, a doc, the project's loaded instructions and the handler's brief are none of these"
+RECORD_READ = re.compile(r"record:(\d+)")
+READ_WORDS = re.compile(r"[^\s:]+")
+DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
+NAMED_SOURCE = (
+    "the read the posting handler names as {read} behind its claims {claims}: each call of its own transcript, its posts"
+    " aside, whose tool name and input hold every word of it, case aside, with that call's whole result; a call reading a"
+    " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
+DOC_SOURCE = "; {docs} this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word"
+CITED_SOURCE = "a record the post cites as {record:} or a claim names as its read, held whole, its first line naming its writer and, after >, the lanes it went to, root being the coordinator's: it backs a line telling what it says or where it went, and any other line only where it measured what that line says"
+UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
 CARRIED_SOURCE = "the report this post carries as say's record, another agent's words, which back a line only as the record that measured it"
 
 
@@ -304,10 +301,13 @@ def thread_words(messages: list[dict]) -> list[dict]:
 
 
 def unbacked(payload: dict, said: str) -> str | None:
-    """Why a line of say's post names a cause with no {record:} of the record that measured it."""
-    if payload["tool_name"] != SAY or not (lines := refs.unbacked(said)):
+    """Why a line of say's post names a cause with no {record:} of the record that measured it, on any post but a handler's listing claims, whose every cause line Jev checks against the read its claims name beside it."""
+    if payload["tool_name"] != SAY or payload.get("agent_id") and payload["tool_input"].get("claims") or not (lines := refs.unbacked(said)):
         return None
-    return agents.Ruled(f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}", CAUSE_RULE)
+    return agents.Ruled(
+        f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line, or, in a handler's post, sits in claims beside the read behind it: {' | '.join(lines)}",
+        CAUSE_RULE,
+    )
 
 
 def unprevented(said: str, found: dict[str, dict]) -> Warned | None:
@@ -405,7 +405,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
-    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing or a link inside a link's words outright, whatever Jev reads."""
+    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
         return posted, payload["tool_input"]
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -415,9 +415,10 @@ def checked(payload: dict) -> tuple[str | None, dict]:
         return found_in(payload, drive, said, {}), payload["tool_input"]
     try:
         found = refs.resolved(drive["name"], said)
+        claims = tools.parsed("claims", payload["tool_input"].get("claims") or [], mcp.CLAIMS)
     except DriveError as error:
         return agents.Unjudged(str(error)), payload["tool_input"]
-    sent = payload["tool_input"] | {"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"]))} if found else payload["tool_input"]
+    sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"]))} if found else {}) | ({"claims": claims} if claims else {})
     return found_in(payload | {"tool_input": sent}, drive, said, found), sent
 
 
@@ -728,61 +729,58 @@ def denial(reason: str) -> dict:
     }
 
 
-def read_evidence(payload: dict) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: the reads the handler made itself and the report the post carries, since a line on where code lives, what it does, or a number or state stands only on a read or the record that measured it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names with their whole results, or the record it names, each record its text cites and the report it carries, all whole, since a line on where code lives, what it does, or a number or state stands only on the read behind it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
         return []
-    report = [{"id": f"record:{seq}", "source": CARRIED_SOURCE, "quote": agents.record(seq)}] if (seq := tool_input.get("record")) else []
-    return [own_reads(payload, tool_input.get("text") or ""), *report]
+    reads: dict[str, list[str]] = {}
+    for claim in claims:
+        reads.setdefault(claim["read"].strip(), []).append(claim["claim"])
+    named = [read for read in reads if not RECORD_READ.fullmatch(read)]
+    calls = own_calls(payload) if named else {}
+    cited = [found[2] for found in refs.REF.finditer(tool_input.get("text") or "") if found[1] == "record"]
+    seqs = dict.fromkeys([*cited, *(found[1] for read in reads if (found := RECORD_READ.fullmatch(read)))])
+    carried = tool_input.get("record")
+    return [
+        *(called(index, read, reads[read], calls) for index, read in enumerate(named, 1)),
+        *({"id": f"record:{seq}", "source": CITED_SOURCE, "quote": agents.record(seq)} for seq in seqs if seq != carried),
+        *([{"id": f"record:{carried}", "source": CARRIED_SOURCE, "quote": agents.record(carried)}] if carried else []),
+        *([] if claims else [UNCLAIMED]),
+    ]
 
 
-def own_reads(payload: dict, said: str) -> dict:
-    """The handler's own reads as one evidence item: each tool call of its transcript whose result came back, its posts aside, and for each name the post uses the line of each read's result holding it, so Jev sees a name no read returned, and one only a comment, a panic message or a doc holds."""
+def own_calls(payload: dict) -> dict[str, str]:
+    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so; the newest result of two calls alike."""
     calls: dict[str, str] = {}
-    results: list[tuple[list[str], str]] = []
+    results: dict[str, str] = {}
     for row in agents.tail(agents.transcript(payload)):
         for part in agents.parts(row):
             if part.get("type") == "tool_use" and part.get("name") not in DM_POSTS | CHANNEL_POSTS:
-                calls[part["id"]] = f"{part['name'].rpartition('__')[2]} {render.cut(json.dumps(part.get('input'), ensure_ascii=False), CALL_SHOWN)}"
-            elif part.get("type") == "tool_result" and not part.get("is_error") and part.get("tool_use_id") in calls:
-                lines = [calls[part["tool_use_id"]], *result_text(part).splitlines()]
-                results.append((lines, "\n".join(lines).casefold()))
-    listed = [f"[{index}] {lines[0]}" for index, (lines, _) in enumerate(results, 1)] or ["none: no call of the handler's returned a result"]
-    held = []
-    for name in names(said):
-        found = [f"[{index}] {render.cut(line, LINE_SHOWN)}" for index, (lines, folded) in enumerate(results, 1) if (line := holding(pieces(name), lines, folded))]
-        held.append(f"{name}: {' | '.join(found) or 'no read returned it'}")
-    return {"id": "reads:own", "source": READS_SOURCE, "quote": "\n".join(["Reads:", *listed, "Names the post uses:", *(held or ["none"])])}
+                calls[part["id"]] = f"{part['name']} {json.dumps(part.get('input'), ensure_ascii=False)}"
+            elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls:
+                results[calls[part["tool_use_id"]]] = ("error: " if part.get("is_error") else "") + result_text(part)
+    return results
 
 
-def names(said: str) -> list[str]:
-    """Each name a post uses: a code span, a word with `_`, `.`, `/` or `::` inside it, such as a path, a function or a number, and a capitalized word not opening a sentence, such as a product."""
-    found = CODE_SPAN.findall(said)
-    for sentence in SENTENCE_BREAK.split(LINKED.sub(" ", refs.REF.sub(" ", CODE_SPAN.sub(" ", said)))):
-        for index, word in enumerate(word.strip(EDGES) for word in sentence.split()):
-            if INNER.search(word) or (index and len(word) > 1 and word[0].isupper()):
-                found.append(word)
-    return list(dict.fromkeys(found))
-
-
-def pieces(name: str) -> list[str]:
-    """The words a read must hold, on one line, to return a name, case aside: each identifier in it, so `journalValues.PutAt` is returned by `func (v *journalValues) PutAt` and a path by the call reading it, a `<placeholder>` standing for any words; the whole name when it holds none, such as a number."""
-    return [word for word in WORD.findall(PLACE.sub(" ", name.casefold())) if len(word) > 2] or [name.casefold()]
-
-
-def holding(words: list[str], lines: list[str], folded: str) -> str | None:
-    """The first line of a read, its call then its result, holding every word."""
-    if not all(word in folded for word in words):
-        return None
-    return next((line for line in lines if all(word in line.casefold() for word in words)), None)
+def called(index: int, read: str, claimed: list[str], calls: dict[str, str]) -> dict:
+    """Jev's item for one read the claims name: each call whose tool name and input hold every word of the read, case aside, a word split at a colon, as a path's from its line numbers, with its whole result, or none when no call does, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
+    words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(read.casefold())]
+    held = [call for call in calls if words and all(word in call.casefold() for word in words)]
+    docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
+    source = NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False), claims=json.dumps(claimed, ensure_ascii=False))
+    return {
+        "id": f"read:{index}",
+        "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
+        "quote": "\n\n".join(f"{call}\n{calls[call]}" for call in held) or f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}",
+    }
 
 
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
     try:
         reason, sent = checked(payload)
-        reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload)
+        reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
         judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
