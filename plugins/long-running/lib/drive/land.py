@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -12,14 +13,15 @@ ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LOG = "landings.log"
 LANDINGS = "landing"
+CLONES = "clones"
 CHECKOUT_SECONDS = 600
+LFS_POINTERS = ("-c", "filter.lfs.smudge=git-lfs smudge --skip -- %f", "-c", "filter.lfs.process=git-lfs filter-process --skip")
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
 BASE_MOVED = "Base branch was modified"
 NOT_MERGING = "not merging it"
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
-NO_WORKTREE = "not landed: no fresh worktree"
 LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -173,9 +175,9 @@ def stall(data: dict, key: str, cards: dict) -> str | None:
 
 
 def tried(data: dict, pr: dict) -> bool:
-    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges, one a newer install's save ended before it queued anything tries again on that install, and one that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout lazily fetched, which says nothing of the PR, tries again at the watch's next pass with no new tap."""
+    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it neither his Approve nor an exempt class clears tries again once each of them is cleared or merges, and one a newer install's save ended before it queued anything tries again on that install."""
     lander = pr["lander"] or {}
-    if lander.get("head") != pr["head"] or (lander.get("outcome") or "").startswith((NEWER_INSTALL, NO_WORKTREE)):
+    if lander.get("head") != pr["head"] or (lander.get("outcome") or "").startswith(NEWER_INSTALL):
         return False
     return not lander.get("below") or not all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"])
 
@@ -266,13 +268,9 @@ def unmergeable(key: str, read: dict) -> str | None:
 
 
 def mark(data: dict, keys: tuple[str, ...], pid: int, head: str | None = None) -> None:
-    """Mark the PRs a lander starts on, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once."""
     at = state.stamp()
     for key in keys:
-        pr = data["prs"][key]
-        before = pr["lander"] or {}
-        tries = head or pr["head"]
-        pr["lander"] = {"head": tries, "pid": pid, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == tries else None}
+        data["prs"][key]["lander"] = {"head": head or data["prs"][key]["head"], "pid": pid, "at": at, "outcome": None}
 
 
 def spawn(name: str, keys: tuple[str, ...]) -> int:
@@ -309,14 +307,12 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
-    """Record what came of a landing on each PR, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
+    """Record what came of a landing on each PR and as a landing event, on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
     with state.edit(name) as data:
         for key in keys:
             pr = data["prs"][key]
             pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
-            if pr["lander"].get("was") == outcome:
-                continue
             repo, number = key.split("#")
             state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
     return outcome
@@ -326,16 +322,16 @@ def said(output: str) -> str:
     return cut("; ".join([line for line in output.splitlines() if line.strip()][-SAID_LINES:]), SAID_CHARS)
 
 
-def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
+def enqueued(name: str, coordinator: Path, keys: list[str], dry_run: bool = False) -> str:
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of this Mac's landing clone and never from the coordinator's checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock before it makes its worktree, which may wait on the landing clone's lock and the first landing's clone of the repository, and holds none through --check, which reads GitHub for every PR of the unit, or --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     try:
         branch = github.default_branch(repo)
-        with fresh(name, clone, branch) as (checkout, sha):
+        state.let_go_install()
+        with fresh(name, coordinator, repo, branch) as (checkout, sha):
             script = str(checkout / ENQUEUE)
             print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
-            state.let_go_install()
             try:
                 checked = subprocess.run([script, "--check", *numbers], cwd=checkout, capture_output=True, text=True)
             except OSError as error:
@@ -354,7 +350,7 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                 return refused
             done = subprocess.run([script, "--watch", *numbers], cwd=checkout, capture_output=True, text=True)
     except github.GithubError as error:
-        return f"{NO_WORKTREE} of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
+        return f"not landed: no fresh worktree of {repo}'s default branch to run stack-enqueue from: {cut(str(error), SAID_CHARS)}"
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
@@ -362,10 +358,18 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
 
 
 @contextmanager
-def fresh(name: str, clone: Path, branch: str) -> Iterator[tuple[Path, str]]:
-    """A worktree of the clone's repository at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tuple[Path, str]]:
+    """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter, so neither its checkout nor stack-enqueue's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as GitHub may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, and each fetches branch into it by name, both under the clone's lock, since landings run at once and each moves its one ref. Its LFS files check out as their pointers, since no landing step reads one and fetching it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+    clone = state.root() / CLONES / f"{repo}.git"
     git = ["git", "-C", str(clone)]
-    sha = github.fetched(str(clone), branch)
+    with state.flocked(clone.with_name(f"{clone.name}.lock")):
+        if not clone.exists():
+            making = clone.with_name(f"{clone.name}.tmp")
+            shutil.rmtree(making, ignore_errors=True)
+            origin = github.run(["git", "-C", str(coordinator), "remote", "get-url", "origin"]).strip()
+            github.run(["git", "clone", "-q", "--bare", "--no-tags", "--single-branch", "--branch", branch, *LFS_POINTERS, origin, str(making)], timeout=CHECKOUT_SECONDS)
+            making.rename(clone)
+        sha = github.fetched(str(clone), branch)
     checkout = state.drive_dir(name) / LANDINGS / str(os.getpid())
     github.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], timeout=CHECKOUT_SECONDS)
     try:

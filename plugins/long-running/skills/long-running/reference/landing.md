@@ -265,7 +265,12 @@ carry out one decision of his into one first, so he gets one card.
 lander, a process of its own, enqueues it into the Trunk merge queue with the script as the head of
 the repository's default branch holds it, run from a fresh worktree of that head made for the landing
 and removed after it, never from the coordinator checkout, whose commit and uncommitted files it leaves
-as they are. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
+as they are. The worktree comes from the one clone of the repository this Mac keeps for landings,
+which the first landing makes in the state folder's `clones/`, holding every file with no blob filter,
+so neither its checkout nor `stack-enqueue`'s merge checks ask GitHub for a file by its id, which
+GitHub may answer without the file. Each landing fetches the default branch into it by name under the
+clone's lock, and its LFS files check out as their pointers, since no landing step reads one. A
+landing fix merged to the default branch, such as a newly pinned toolchain, holds for
 the next landing at once:
 
     .agents/skills/submit-pr/scripts/stack-enqueue --check <PR>...
@@ -291,7 +296,7 @@ His Approve lands the PR whatever the check of its change against his words says
 tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
-line goes to the session holding its order, which has its builder change it. Each head gets one try, but a try that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that head did is said once. Its outcome comes back as the PR's line: `PR … queued for merge`
+line goes to the session holding its order, which has its builder change it. Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
 wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
 holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
 His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. A PR of

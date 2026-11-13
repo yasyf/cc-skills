@@ -3077,42 +3077,43 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
     assert f"{KEY}: stack-enqueue from {checkout}, a fresh worktree of Forge-AI/monorepo's main at {head}" in said
     assert ("main said --check 42" in said, "main said --watch 42" in said, "the checkout said" in said) == (True, True, False)
     assert (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain")) == untouched
-    assert (len(git_in(clone, "worktree", "list").splitlines()), checkout.exists()) == (1, False)
+    landings = state.root() / land.CLONES / "Forge-AI/monorepo.git"
+    assert (len(git_in(clone, "worktree", "list").splitlines()), len(git_in(landings, "worktree", "list").splitlines()), checkout.exists()) == (1, 1, False)
 
 
-def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_and_tried_again_with_no_new_tap_until_a_good_worktree_queues_it(
-    demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
+def test_a_landing_checks_out_from_this_macs_clone_with_no_blob_filter_so_a_blob_origin_withholds_from_a_fetch_by_id_never_stops_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     waiting_job(demo)
     approve(demo, KEY)
-    with state.edit(demo) as data:
-        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
     origin, blobless = tmp_path / "origin", tmp_path / "blobless"
     git_in(origin, "config", "uploadpack.allowFilter", "true")
+    git_in(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
     git_in(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin}", str(blobless))
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(blobless)
-    commit_files(origin, "admin", {"admin.rs": "fn admin() {}\n"})
-    blob = git_in(origin, "rev-parse", "HEAD:admin.rs")
-    loose = origin / ".git" / "objects" / blob[:2] / blob[2:]
-    withheld = loose.read_bytes()
-    loose.unlink()
-    watching = watcher(demo)
-    failed = land.run(demo, [KEY])
-    assert failed.startswith(f"{land.NO_WORKTREE} of Forge-AI/monorepo's default branch to run stack-enqueue from: ")
-    assert f"could not fetch {blob} from promisor remote" in failed
-    assert (len(git_in(blobless, "worktree", "list").splitlines()), (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()) == (1, False)
-    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
-    assert land.run(demo, [KEY]) == failed
-    loose.write_bytes(withheld)
-    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    admin = "rust/crates/sandsql-server/src/admin.rs"
+    head = commit_files(origin, "admin", {admin: "fn admin() {}\n" * 18186})
+    blob = git_in(origin, "rev-parse", f"HEAD:{admin}")
+    asked, withhold, config = tmp_path / "asked", tmp_path / "withhold", tmp_path / "gitconfig"
+    withhold.write_text(f'#!/bin/sh\ntee -a {asked} | grep -v "^{blob}$" | "$@"\n')
+    withhold.chmod(0o755)
+    config.write_text(f"[uploadpack]\n\tpackObjectsHook = {withhold}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
     assert land.run(demo, [KEY]) == land.QUEUED
-    assert land.start(demo, [KEY], NO_CARDS) == []
-    assert landers == [(KEY,), (KEY,)]
-    lines = watch.event_lines(watching)
-    assert lines == [f"PR {KEY}: {failed} [o1 j1]", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
-    assert [watch.wakes(line, state.load(demo)) for line in lines] == [True, False]
+    clone = state.root() / land.CLONES / "Forge-AI/monorepo.git"
+    made = clone.stat().st_ino
+    newer = commit_files(origin, "newer admin", {admin: "fn newer() {}\n" * 18186})
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert clone.stat().st_ino == made
+    assert git_in(clone, "rev-parse", "refs/remotes/origin/main") == newer
+    assert [git_in(clone, "cat-file", "-t", f"{sha}:{admin}") for sha in (head, newer)] == ["blob", "blob"]
+    assert "promisor" not in git_in(clone, "config", "--local", "--list")
+    assert blob not in asked.read_text().split()
+    git_in(blobless, "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main")
+    coordinators = subprocess.run(["git", "-C", str(blobless), "worktree", "add", "-q", "--detach", str(tmp_path / "from-blobless"), head], capture_output=True, text=True)
+    assert f"could not fetch {blob} from promisor remote" in coordinators.stderr
 
 
 def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
