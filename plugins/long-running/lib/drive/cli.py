@@ -1760,7 +1760,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
                 f"{job_id} has {', '.join(unlinked)} open, which its ASK's summary does not link, so his card would describe its work as if no PR"
                 " were up: link each in the summary by what it does, as <url|what it does>"
             )
-    if typed := limits.typed_time("\n".join([asked.title, *asked.summary, *asked.show_me, *asked.options, *asked.hints.values()]), data):
+    if typed := limits.typed_time("\n".join([asked.title, *asked.summary, asked.cause, *asked.show_me, *asked.options, *asked.hints.values()]), data):
         problems.append(f"his card draws these words, and {typed}")
     said = "\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
@@ -2165,11 +2165,12 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     recorded = cited_answers("\n".join(asked.summary), recorded_answers(data, job, path.read_text())) if job else []
     asked = already_answered(asked, recorded)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    found = refs.resolved(name, "\n".join([*asked.summary, *show_me, *asked.hints.values()]))
+    found = refs.resolved(name, "\n".join([*asked.summary, asked.cause, *show_me, *asked.hints.values()]))
     holds = question["holds"] if question else job and asked.holds and state.held_words(data, asked.holds, job_id)
     card = replace(
         asked,
         summary=[refs.slack(line, found, None) for line in asked.summary],
+        cause=refs.slack(asked.cause, found, None),
         show_me=[refs.slack(line, found, None) for line in show_me],
         hints={option: refs.slack(hint, found, None) for option, hint in asked.hints.items()},
     ).card(name, waits, meanwhile(data, job_id, holds or "", question and question["unsettled"]) if job else "")
@@ -5256,9 +5257,10 @@ def parser() -> argparse.ArgumentParser:
             " options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence, its `Simplest:` line naming the option"
             " that is the simplest design doing his words, its `Root cause:` line naming the"
-            " structure that lets the defect happen and its `First principles:` line the recommended option that removes"
-            " it, or `Root cause: fixed: <that structure>, removed by <the merged PR's link>`, `not found: <the job"
-            " finding it>` or `none: <why>`. Keep it in the drive in a file of"
+            " structure that lets the defect happen with the number that measures it and its `First principles:` line the"
+            " recommended option that removes it, or `Root cause: fixed: <that structure>, removed by <the merged PR's link>`,"
+            " `not found: <what measures it>, by <the job measuring it>` or `none: <why>`, at most 60 words, which his card"
+            " draws under its first line, the job left off. Keep it in the drive in a file of"
             " its own, add it to the job's open questions, each open until his answer to its own card, and draw its card"
             " in his DM in the same call under the waits id minted for it, printing the file and the card; a card that"
             " does not draw goes up on the watch's next read. A block asking again, in the same words, what one of the"
