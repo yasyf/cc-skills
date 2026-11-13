@@ -113,7 +113,7 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     assert "o1" not in text
     for rule in render.COMMUNICATOR_RULES:
         assert rule in text
-    for row in ("+1 react", "away: true", 'kind: "reader"', "Explain more", "merge:", "MISSING <path>", "defect record", "post feedback", "Sent."):
+    for row in ("+1 react", "away: true", 'answer: "<a few words naming it>"', "Explain more", "merge:", "MISSING <path>", "defect record", "post feedback", "Sent."):
         assert row in text
     assert render.FIRST_CALL["coordinator"] not in text
     assert text.endswith(render.FIRST_CALL["communicator"])

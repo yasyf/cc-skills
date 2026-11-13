@@ -611,7 +611,7 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread = "1794521367.852649"
-    run("order", "add", "--title", "Writer handover", "--project", "Iris", "--workstream", "Durable agents", "--thread", thread, "--parts", state.IMMEDIATE_FIX, "the SandSQL writer handover pauses writes")
+    run("order", "add", "--title", "Writer handover", "--project", "Iris", "--workstream", "Durable agents", "--thread", thread, "the SandSQL writer handover pauses writes", "--parts", state.IMMEDIATE_FIX)
     assert run("job", "add", "builder", "--order", "o1", "--part", state.IMMEDIATE_FIX, "--goal", "merge the handover stack", "--agent", "builder-1") == (0, "j1")
     posted: list[dict] = []
 

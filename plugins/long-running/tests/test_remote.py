@@ -255,7 +255,7 @@ def test_a_launch_orca_makes_no_run_for_exits_non_zero_saying_no_worker_started_
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     assert capsys.readouterr().err == f"drive: j1: no worker started, since Orca made it no Run: {unavailable}\n"
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["launching"], job["dispatch"]) == (None, None)
+    assert (job["launching"], job.get("dispatch")) == (None, None)
 
 
 def test_place_skips_a_running_builder_whose_agent_is_gone(

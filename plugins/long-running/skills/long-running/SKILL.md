@@ -7,7 +7,7 @@ description: Use when work will outlive one context window, spans several PRs or
 
 A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. Only the coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); the rest run Opus 5.5 (`claude-opus-5-5`), Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
-The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. For his read-only question that call also files the answer order and the handler's reader job, so the handler answers in seconds with one `say(order=, close=true)`. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
+The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
 
 The coordinator turns his messages into orders and gives each to a job owning one deliverable end to end: code, PR, CI, merge, install, check. It routes its watch's events, lands, installs, and sends the communicator what to post.
 
@@ -50,7 +50,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 - Read state from `drive status`, GitHub, CI logs, transcripts, and a release's commit and build, never from memory.
 - Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
-- Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`). His words adding work to an open order are a part of it, which the watch names until a job or card carries it.
+- Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`).
 - Cards and posts name each thing by its proper technical term, never a stand-in (`messages`). Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
 - Events and job results feed the next summary, never a record or post each (`messages`).
 
