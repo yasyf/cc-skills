@@ -5,7 +5,7 @@ import re
 import subprocess
 from datetime import datetime, timedelta
 
-from drive import github, install, refs, settled, slack, state, view
+from drive import brief, github, install, refs, settled, slack, state, view
 from drive.limits import REF
 from drive.render import cut
 from drive.state import DriveError
@@ -52,7 +52,7 @@ VERDICT = {
     },
     "required": ["changed", "against"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
 An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer.
 
@@ -62,7 +62,7 @@ Then list in `against` each place where the change goes against his words: it do
 
 Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
-- what his words leave to a later change or to the parts other changes deliver, or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, merged or open, does;
+- what his words leave to a later change or to the parts other changes deliver, unless this change builds, in the shape of one of them, what those later changes must share, so each would branch around it or undo it; or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, merged or open, does;
 - style, naming and tests, and new code the outcome his words name needs;
 - any line the diff does not show: judge only what it shows, an unchanged context line included.
 
@@ -104,11 +104,11 @@ def check(name: str, key: str, cited: list[str]) -> dict:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites and each answer of his binding its job, by brief.bound, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named, checked = pr["head"], state.stamp(), "", None
-    cited = [line for line in state.report_text(name, pr["job"]).splitlines() if line.startswith("DESIGN:")]
+    cited = [*(line for line in state.report_text(name, pr["job"]).splitlines() if line.startswith("DESIGN:")), *brief.bound(name, data, data["jobs"][pr["job"]])[0]]
     try:
         checked = check(name, key, cited)
     except Against as error:
@@ -233,7 +233,7 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his the PR cites."""
+    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
@@ -249,7 +249,7 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
         if held := [key for key in others if data["prs"][key]["state"] == state_of]:
             lines.append(said + "; ".join(f'{key} "{data["prs"][key]["title"]}"' if data["prs"][key]["title"] else key for key in held))
     if answered:
-        lines += ["his answers the PRs cite for the design they make:", *answered]
+        lines += ["his answers that bind the PRs, those their brief carries and those they cite for the design they make:", *answered]
     return "\n".join(lines)
 
 

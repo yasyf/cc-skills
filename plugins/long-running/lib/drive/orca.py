@@ -41,6 +41,7 @@ GONE = {
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
 START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
+TAKING_OVER = "## Taking over from "
 REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
 REPORT_JOB = re.compile(r"\bj\d+\b")
 REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
@@ -390,7 +391,7 @@ def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dic
     prs = ", ".join(job["prs"]) or "none yet"
     return (
         f"{brief.strip()}\n\n"
-        f"## Taking over from {holder}\n\n"
+        f"{TAKING_OVER}{holder}\n\n"
         f"{held}\n\n"
         f"Its branch: {branch or job['branch'] or 'none recorded'}\n"
         f"Its last line: {job['said'] or 'nothing yet'}\n"

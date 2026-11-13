@@ -1179,6 +1179,36 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
     ]
 
 
+def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each_earlier_takeover(
+    run: Run, remote: str, recorded: Answers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo dev")
+    recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Partition strategies", "body": "time, hash by key and spill all ship", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
+    taken = "## Taking over from a lane that died\n\nThe message it never read, which you act on now:\n\nUse @poeticapps/poetic"
+    earlier = tmp_path / "earlier.md"
+    earlier.write_text(orca.vm_brief(remote, "j1", f"{Path(state.load(remote)['jobs']['j1']['brief']).read_text()}\n{taken}", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(earlier), workspace="sprite-old", ask="msg_q1", state="waiting", said="ASK which npm name?")
+        data["jobs"]["j1"]["brief_flags"]["ruling"] = ["bc0da25"]
+    launched: dict = {}
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launched.update(brief=brief.read_text())
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "resume", "j1", "Ship it now")[0] == 0
+    brief = orca.brief_of(launched["brief"])
+    assert "Decisions that bind:\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n" in brief
+    assert f"\n\n{taken}\n\n## Taking over from a lane that died\n\n" in brief
+    assert brief.endswith("which you act on now:\n\nShip it now")
+
+
 def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_with_the_new_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

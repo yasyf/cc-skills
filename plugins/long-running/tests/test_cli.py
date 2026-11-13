@@ -3801,6 +3801,28 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
 
 
+@pytest.mark.parametrize(
+    ("pick", "refusal"),
+    [
+        ("o1", 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
+        ("first", f"Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first, walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later Change: line waiting on it, by his words {brief.ABSTRACTION_RULING}"),
+        ("none", None),
+    ],
+)
+def test_a_design_building_less_or_later_than_his_words_or_a_strategy_before_their_shared_abstraction_is_refused(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, refusal: str | None
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: partition each table by "time, hash by key and spill"')
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the partitions")
+    jev.picks(pick)
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED)
+    assert code == (2 if refusal else 0)
+    assert (refusal in err) if refusal else err == ""
+    [read] = [asked for asked in jev.asked if "narrows" in asked["questions"]]
+    assert read["state"]["his_words"] == [{"id": "o1", "asked": "his words the order quotes", "said": '"time, hash by key and spill"'}]
+    assert list(read["questions"]["narrows"]["label"]["options"]) == ["none", "o1"]
+
+
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_builder_waiting_on_the_builder_of_each_earlier_change_its_line_names(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4036,7 +4058,7 @@ def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_alone_against_that_par
     said, changes = judge.asked[-1]
     assert list(changes) == ["Forge-AI/monorepo#42"]
     assert "this change delivers: moved-table abstraction\n  other changes deliver: doors close; partitioning\n" in said
-    answered = said.rpartition("his answers the PRs cite for the design they make:\n")[2]
+    answered = said.rpartition("his answers that bind the PRs, those their brief carries and those they cite for the design they make:\n")[2]
     assert answered.startswith("953a8c8, ") and answered.endswith(f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)\nOptions: Once Env::file_of reads env_id | Now"')
     assert "the coordinator's reading" not in said
     pr = state.load(demo)["prs"]["Forge-AI/monorepo#42"]
@@ -5124,6 +5146,27 @@ def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_
     assert state.load(demo)["jobs"]["j1"]["brief_flags"]["ruling"] == ["5abdd1a", "c7756f4"]
     assert f"Handoff: {handoff}\n" in written.read_text()
     assert "(c7756f4)" in written.read_text()
+
+
+def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruling_their_readers_name(
+    run: Run, meta: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: partition the journal tables")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: pick each table's partition by its usage", "--kind", "build")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the partitions")
+    rulings = "rulings: bc0da25: 'time, hash by key and spill all ship'; a6a9980 (tap) \"build the abstraction first\"; 9f3c2e1 reverted the spill"
+    assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("rulings: none on the copy path", rulings)) == (0, "")
+    recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Partition strategies", "body": "time, hash by key and spill all ship\nNotes: read as three strategies", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
+    recorded.shown["a6a9980"] = {"id": "a6a9980f", "title": "Abstraction first", "body": "build the abstraction first", "tags": [], "created_at": "2026-11-12T11:34:00Z"}
+    builder = run("job", "add", "builder", "--order", "o1", "--goal", "partition the tables")[1].splitlines()[0]
+    assert run("job", "set", builder, "--carries", "o2")[0] == 0
+    code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    assert out.splitlines()[1].startswith("his words from o1, o2, rulings: 2,")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert written.startswith("Order (his words): Drive tooling: partition the journal tables\no2, which it also carries: Drive tooling: pick each table's partition by its usage\n")
+    assert "Decisions that bind:\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n- Abstraction first (a6a9980)\n  build the abstraction first\n" in written
+    assert "9f3c2e1" not in written
 
 
 def test_a_live_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_its_brief_file(run: Run, demo: str) -> None:

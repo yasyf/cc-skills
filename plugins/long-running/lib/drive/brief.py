@@ -92,6 +92,23 @@ RELEASE_APPROVAL = (
 )
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
+RULING_ID = re.compile(r"""(?<![\w-])((?=[0-9a-f]*\d)[0-9a-f]{7,40})(?:[ \t]+\([^()"']*\))?(?:[ \t]*[:,][ \t]*|[ \t]+)["'“]""")
+ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
+NARROWS_QUESTION = (
+    "Does this design build less than these words of his name, or build part of it later, with no fork below asking him about it:"
+    " does it leave out, defer to a later change or trigger, or narrow something his words or answers name, such as building one"
+    " of several strategies he approved while the others wait, or deciding such a cut on its own because it is cheap to reverse?"
+    " Pick the item whose words it narrows, or none when it builds all they name or a fork below asks him about what it leaves out."
+)
+NARROWS_OPTIONS = {settled.UNDECIDED: "It builds all his words name, or a fork asks him about what it leaves out."}
+SHARED_QUESTION = (
+    "Do his words or this design name several strategies for one job, such as the partition strategies a table picks by its usage,"
+    " while the design's first change is not the one abstraction every strategy goes through, walked through each strategy on"
+    " paper, with each strategy's change waiting on it? Pick first when its first change builds one strategy, or routes each"
+    " strategy as its own case, before their shared abstraction; none when it names no such strategies or its first change is"
+    " that abstraction."
+)
+SHARED_OPTIONS = {settled.UNDECIDED: "It names no such strategies, or its first change is their shared abstraction.", "first": "A strategy comes before their shared abstraction."}
 
 
 def carried(prompt: str) -> str:
@@ -202,6 +219,16 @@ def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[st
         if filled(researched(text := state.report_text(name, job_id))):
             return job_id, text
     return None
+
+
+def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
+    """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each the rulings: line of the newest reader of its part of its order and of each order it carries names by id and quote, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
+    found = [held for order_id in [job["order"], *job["carries"]] if (held := research(name, data, order_id, state.job_parts(job, order_id)))]
+    closed = [answer for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
+    named = [ruling[1] for _, text in found for ruling in RULING_ID.finditer(researched(text)["rulings"])]
+    ids = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for answer in closed if answer["ruling"]), *named]
+    heard = [f'his answer "{answer["words"]}"' + (f" ({answer['link']})" if answer["link"] else "") for answer in closed if not answer["ruling"] and answer["words"]]
+    return list(dict.fromkeys(ids)), list(dict.fromkeys(heard))
 
 
 def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
@@ -324,7 +351,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -364,6 +391,8 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             f'its Change: line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on earlier changes'
             " of its list, as (waits on change <its number, counting Change: lines from 1>) or (waits on change 1 and change 2)"
         )
+    if job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
+        return narrowed
     if job["kind"] == "reader" and (refused := reader_refusal(data, job_id, job, order, text, lines)):
         return refused
     if opening in ("DONE", *READY_OPENINGS) and (left := left_steps(text)):
@@ -452,6 +481,47 @@ def unlisted_waits(text: str) -> str | None:
     """The first Change: line waiting on a change that is not an earlier one of the list."""
     found = list(state.CHANGE_LINE.finditer(text))
     return next((line[0] for number, line in enumerate(found, start=1) if any(not 1 <= wait < number for wait in state.change_waits(line))), None)
+
+
+def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
+    """Why a design may not be kept, as Jev reads it in one call against his words on its order and each order its job carries, each answer of his binding the job and his answer to each of its cards, beside the forks it asks him, at least settled.DECIDES sure: it leaves out, defers or narrows what they name with no fork asking him, or, where several strategies do one job, builds one before the abstraction they share. Jev giving no reading keeps it, said on stderr."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    ids, _ = bound(name, data, job)
+    words = [
+        *(word for order_id in [job["order"], *job["carries"]] for word in settled.order_words(data, order_id)),
+        *({"id": answer["id"][:7], "asked": answer["title"], "said": settled.his(answer["body"])[: settled.BODY_CHARS]} for answer in (settled.shown(answer_id, cwd) for answer_id in ids)),
+        *(
+            {"id": f"q{number}", "asked": question["title"], "said": closed["words"]}
+            for number, question in enumerate(job["questions"], 1)
+            if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"]
+        ),
+    ]
+    items = {word["id"]: word for word in words}
+    forks = [question["title"] for question in job["questions"] if not question["closed"]]
+    questions = {
+        "shared": {"label": {"instructions": SHARED_QUESTION, "options": SHARED_OPTIONS}},
+        **({"narrows": {"label": {"instructions": NARROWS_QUESTION, "options": NARROWS_OPTIONS | dict.fromkeys(items)}}} if items else {}),
+    }
+    try:
+        read = settled.jev({"state": {"design": text, "forks": forks, "his_words": words}, "questions": questions})
+    except settled.Unheard as failure:
+        print(f"drive job report: Jev did not read the design against his words, so it is kept unchecked: {failure}", file=sys.stderr)
+        return None
+    narrows, shared = read.get("narrows"), read["shared"]
+    if narrows and narrows["choice"] in items and narrows["probabilities"][narrows["choice"]] >= settled.DECIDES:
+        said = items[narrows["choice"]]
+        return (
+            f'Jev reads this design as building less than his words "{cut(said["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({said["asked"]}) name, or later, with no fork asking him:'
+            " building less than his words or an answer of his name is a fork whatever it costs to switch, so build it in, or keep it as a"
+            " fork with drive job ask and name it on a Fork: line"
+        )
+    if shared["choice"] == "first" and shared["probabilities"]["first"] >= settled.DECIDES:
+        return (
+            "Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first,"
+            " walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later"
+            f" Change: line waiting on it, by his words {ABSTRACTION_RULING}"
+        )
+    return None
 
 
 def limit_finding(lines: list[str]) -> str | None:

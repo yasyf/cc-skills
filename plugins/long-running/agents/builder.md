@@ -51,6 +51,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      `ASK` when it still leaves you unsure.
      His words say what he wants, never every piece of it, and the rest is yours to find. Quote each
      ruling you follow on `RULINGS:` and apply it to what its words name; a wider reading is an `ASK`.
+     When the brief, plan or his words name several strategies, build the abstraction they share
+     first and walk each strategy through it on paper before building any, and return `ASK` on a
+     plan that leaves one for later with no answer of his, by his words "we should buiold the
+     abstraction first, make sure it works by imaginign, then implement the strategies".
    - Search the merged fixes in the area too. When yours would be the third fix for one symptom, make
      it a class fix that deletes the earlier patches and list each in the PR body, since he ruled that
      three fixes for one thing call for a fundamental fix.

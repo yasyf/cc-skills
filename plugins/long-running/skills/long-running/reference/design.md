@@ -52,7 +52,11 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      on a sweeper, time rule or reclaim loop instead, send it back with his words: "make getting in
      a bad state unrepresentable; ... not add another sweeper".
    - When his words tell the system to choose by a rule, such as by usage or size, the fork asks
-     him to approve the strategies and the rule that picks one, never one outcome.
+     him to approve the strategies and the rule that picks one, never one outcome. The design then
+     builds the abstraction those strategies share first, walks each through it on paper, and
+     leaves none he approved for later without his card. `drive job report` refuses a design Jev
+     reads as building less or later than his words name with no fork asking him, or as building a
+     strategy before the abstraction it shares.
    - Every option carries one plain-text description his card draws under it, saying in prose what
      the option is: what runs and when, where its data lives, and what it requires touching or
      building, by name, with any cost every user pays, such as SandSQL's write path for every
@@ -114,7 +118,10 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      land after he answers, because he wants each card that blocks work surfaced, not skipped.
 5. **The builder carries the design.** Its brief carries the design as `--plan` and his answer to
    each fork as `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim, those
-   above the answer's `Notes:` and never the drive's reading of them. A builder
+   above the answer's `Notes:` and never the drive's reading of them. `drive job brief` adds every
+   ruling the `rulings:` line of each carried order's reader names, his answer to each question
+   that reader asked, and each carried order's words, so no brief reads `none named` over a ruling
+   on its area; a lane that takes over or restarts the job starts on the brief rebuilt this way. A builder
    that meets a new fork mid-build stops and returns `ASK` with it, because only he picks a fork.
 6. **No card for a design he never saw.** A `READY` whose PR makes a design decision he never
    answered goes back as a design question, not onto a PR card. `drive pr set --serves` refuses
