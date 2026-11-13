@@ -326,7 +326,7 @@ Posting it:
   A block no job kept meets every rule a new block meets before it draws.
 - cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
   permalink under its question in the thread of the job's order, or of its open incident, when that
-  thread is in his DM. A thread outside his DM, such as an alert's, gets the card's line through a
+  thread is in his DM. An incident's thread outside his DM, such as an alert's, gets the card's line through a
   report record `drive job ask` sends the communicator, whose handler posts it there, since only a
   `say` call carries the ticket cc-slack spends on a write outside his DM. That record goes once for
   each change to the line: its cci id names the card's `waits` id and the line's hash, so a redraw
@@ -410,7 +410,7 @@ When it is answered, replaced or redone:
   waits on him. The drive posts the line in the thread of each open order those PRs carry out, the
   one each serves, its own and each its job carries, in his DM, and cc-slack puts the card's
   permalink under it there, so whichever thread he reads carries its buttons; with none, the line
-  goes at his DM root. An order whose thread is outside his DM, such as an alert's, gets the line with
+  goes at his DM root. An incident whose thread is outside his DM, such as an alert's, gets the line with
   the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and
   `thread_ts`, the one place cc-slack's Slack permission hook judges it for, and is refused without
   them, naming both. His words: "There's no approval button". The call's `card_permalink` names

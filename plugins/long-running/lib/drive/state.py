@@ -2026,7 +2026,7 @@ def heard_lane(data: dict, order_id: str) -> str:
 
 def join_thread(order: dict, where: tuple[str, str], at: str, kind: str) -> None:
     """Keep a thread among the order's from when it joined, once, unless it is the order's own: posted for a thread a post naming the order went in, question for a card its jobs drew, pr for a card drawn for a PR it serves."""
-    if where != promise_thread(order) and all((channel, ts) != where for channel, ts, _, _ in order["threads"]):
+    if where != own_thread(order) and all((channel, ts) != where for channel, ts, _, _ in order["threads"]):
         order["threads"].append([*where, at, kind])
 
 
@@ -2466,9 +2466,23 @@ def fix_shipper(data: dict, job_id: str) -> str | None:
     return builder_id
 
 
-def promise_thread(order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order's lines go in, as the order keeps them, in his DM or a channel such as an alert's; None, his DM's root, for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
+def own_thread(order: dict) -> tuple[str, str] | None:
+    """The channel and thread an order came in or was pointed at, in his DM or a channel such as an alert's or a teammate's; None for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
     return (order["thread"][0], order["thread"][1]) if order["thread"] and not in_reporter_thread(order) else None
+
+
+def promise_thread(order: dict) -> tuple[str, str] | None:
+    """The channel and thread an order's lines go in: an incident's own thread, such as an alert's, which hears its status and fix-live lines, else the thread of his DM its lines to him go in."""
+    return own_thread(order) if order["incident"] else dm_thread(order)
+
+
+def dm_thread(order: dict) -> tuple[str, str] | None:
+    """The thread of his DM an order's lines to him go in: its own when it is in his DM, else the first of his DM it keeps, since a line to him never goes in a channel; None, his DM's root, for one keeping none and for one with no own thread."""
+    from drive import slack
+
+    if not order["thread"]:
+        return None
+    return next(((channel, ts) for channel, ts, *_ in [order["thread"], *order["threads"]] if channel == slack.dm()), None)
 
 
 def in_reporter_thread(order: dict) -> bool:
@@ -2482,7 +2496,7 @@ def thread_attr(order: dict) -> dict:
 
 
 def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:
-    """The channel and thread a card for these PRs is linked in, in his DM or a channel such as an alert's: the thread of each open order whose words they are checked against, the one each serves, its job's own and each its job carries."""
+    """The channel and thread a card for these PRs is linked in, in his DM or an incident's channel such as an alert's: the thread the lines of each open order whose words they are checked against go in, the one each serves, its job's own and each its job carries."""
     orders = dict.fromkeys(order_id for key in keys for order_id in served_orders(data, data["prs"][key]))
     return list(
         dict.fromkeys(

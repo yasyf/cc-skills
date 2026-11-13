@@ -1161,6 +1161,21 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
     assert len(posts) == 1
 
 
+def test_a_reports_post_naming_no_place_goes_nowhere_when_its_line_has_a_thread_so_a_line_refused_there_never_lands_at_his_dm_root(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    alert_order(run, slack_thread)
+    report(monkeypatch, {"order": "o1", "thread": ALERT})
+    line = {"text": "The release failed on the migration.", "record": "683597"}
+    with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {ALERT} of channel C0ALERT1, never his DM root: pass channel_id C0ALERT1 and thread_ts {ALERT}, "):
+        talk.say(demo, line)
+    card = "1794439546.145729"
+    report(monkeypatch, {"order": "o1", "thread": card})
+    with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {card} of his DM, never his DM root: pass thread_ts {card}$"):
+        talk.say(demo, line | {"dry_run": True})
+    assert posts == []
+
+
 def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook_named_and_its_claims_posting_none_of_them_and_the_dashboard_shows_its_new_words(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
@@ -1268,6 +1283,24 @@ def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_s
         f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {his}, now one of its threads"
     )
     assert [where[:2] for where in state.load(demo)["orders"]["o1"]["threads"]] == [["D123", his]]
+
+
+def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him_is_the_thread_its_next_lines_go_in(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    alert, root = "1794100000.000100", "1794200100.000500"
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--thread", alert)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["orders"]["o1"]["thread"] = ["C0822AHFY3G", alert]
+    link = f"https://acme.slack.com/archives/D123/p{root.replace('.', '')}"
+    slack_thread.messages.append({"ts": root, "from_claude": True, "text": "The fix is building."})
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": link})
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    assert talk.say(demo, {"text": "The fix is building.", "record": "677158"}).startswith(f"POSTED {link}; o1 progress line")
+    assert state.thread_attr(state.load(demo)["orders"]["o1"]) == {"thread": root}
 
 
 def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo: str, run: Callable[..., tuple[int, str]]) -> None:

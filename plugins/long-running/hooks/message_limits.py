@@ -545,7 +545,7 @@ def reported_down(drive: dict, said: str) -> str | None:
 
 
 def reporter_post(payload: dict, drive: dict) -> str | None:
-    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted, which Jev judges by REPORTER_RULE and which refuses when Jev cannot finish; a thread an open order's own lines go in, such as a teammate's he ordered the drive to keep replying in, is his order to post there."""
+    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted, which Jev judges by REPORTER_RULE and which refuses when Jev cannot finish; an open order's own thread, such as a teammate's he ordered the drive to keep replying in, is his order to post there."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] not in CHANNEL_POSTS - {EDIT} and not (payload["tool_name"] == SAY and tool_input.get("channel_id")):
         return None
@@ -554,7 +554,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
     reported = [(order, held) for order in drive["orders"].values() for held in order["reporters"] if (held["channel"], held["thread"]) == where]
     if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(order) and not held["told"] for order, held in reported):
         return None
-    if any(state.promise_thread(order) == where for order in state.open_orders(drive).values()):
+    if any(state.own_thread(order) == where for order in state.open_orders(drive).values()):
         return None
     told_order, told = next(((order, held["told"]) for order, held in reported if held["told"]), (None, None))
     if told and told_order["kind"] == "answer":
@@ -636,9 +636,9 @@ def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
 
 
 def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:
-    """The order a post goes to: the one say records it on, else the open order whose thread, in his DM or the channel its channel_id names, it goes in."""
+    """The order a post goes to: the one say records it on, else the open order whose own thread, in his DM or the channel its channel_id names, or the thread its lines to him go in, it goes in."""
     where = talk.place(tool_input)
-    return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and state.promise_thread(order) == where), None)
+    return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and where in (state.own_thread(order), state.promise_thread(order))), None)
 
 
 def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) -> bool:

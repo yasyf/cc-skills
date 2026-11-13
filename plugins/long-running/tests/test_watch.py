@@ -858,22 +858,25 @@ def test_a_due_order_an_older_install_saved_reads_its_thread_in_the_channel_that
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", source: str, from_thread: str | None, thread: str | None, where: tuple[str, str]
 ) -> None:
     serve(monkeypatch, {})
+    card = "1794350000.000500"
     with state.edit(demo) as data:
         data["orders"]["o1"].update(
             {
                 "from": source,
                 "from_thread": from_thread,
                 "thread": thread,
+                "threads": [["D123", card, state.stamp(T0 - timedelta(minutes=90)), "question"]],
                 "due": state.stamp(T0 - timedelta(minutes=30)),
                 "promised": state.stamp(T0 - timedelta(minutes=60)),
             }
         )
     [line] = said_due(watcher(demo), T0)
     assert line.startswith('DUE o1 "ship the watch" was due ')
-    assert slack_thread.reads == [("--channel", where[0], "--thread", where[1], "--since-ts", str(int((T0 - timedelta(minutes=60)).timestamp())), "--limit", "1000")]
+    since = str(int((T0 - timedelta(minutes=60)).timestamp()))
+    assert slack_thread.reads == [("--channel", channel, "--thread", ts, "--since-ts", since, "--limit", "1000") for channel, ts in (where, ("D123", card))]
 
 
-def test_a_due_order_from_his_dm_whose_thread_is_an_alerts_reads_that_thread_in_the_alert_channel(
+def test_a_due_order_from_his_dm_whose_own_thread_is_an_alerts_and_keeps_none_of_his_dm_says_its_time_once_reading_no_thread(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
     serve(monkeypatch, {})
@@ -887,8 +890,8 @@ def test_a_due_order_from_his_dm_whose_thread_is_an_alerts_reads_that_thread_in_
             }
         )
     [line] = said_due(watcher(demo), T0)
-    assert line.startswith('DUE o1 "ship the watch" was due ')
-    assert slack_thread.reads == [("--channel", "C0822AHFY3G", "--thread", "1794493064.110609", "--since-ts", str(int((T0 - timedelta(minutes=60)).timestamp())), "--limit", "1000")]
+    assert line.startswith('DUE o1 "ship the watch" was due ') and line.endswith(watch.UNTHREADED)
+    assert slack_thread.reads == []
 
 
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6519,6 +6522,27 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     assert [record["text"] for [record] in ready_records] == [f"POST {KEY} has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
     assert watchdogs == []
+
+
+@pytest.mark.parametrize(("kept", "thread"), [([["D123", "1794439546.145729", state.stamp(T0), "question"]], "1794439546.145729"), ([], None)])
+def test_a_stall_on_an_order_from_a_channel_thread_names_the_thread_of_his_dm_it_keeps_never_that_channel_thread(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], kept: list[list[str]], thread: str | None
+) -> None:
+    watching = stalling(demo)
+    with state.edit(demo) as data:
+        data["owner"]["away"] = False
+        data["orders"]["o1"].update(thread=["C0B75AL4XEW", "1794436805.002349"], threads=[["C0B75AL4XEW", "1794438322.192619", state.stamp(T0), "posted"], *kept])
+        data["prs"][KEY]["stall"] = {
+            "print": REPLAYED_53519_CHAIN,
+            "since": state.stamp(T0),
+            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
+            "found": {"WHY": READERS_FIRST},
+            "said": state.stamp(T0 + timedelta(minutes=68)),
+            "told": None,
+        }
+    watch.stall_lines(watching, T0 + timedelta(minutes=141))
+    [[record]] = ready_records
+    assert (record["attr"]["stall"], record["attr"].get("thread")) == ("true", thread)
 
 
 def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_its_handler_beside_the_coordinator_once(

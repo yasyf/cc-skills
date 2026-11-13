@@ -424,7 +424,21 @@ def test_an_order_an_older_install_saved_with_a_bare_thread_reads_as_the_channel
         "o7": ["C0822AHFY3G", "1794493064.110609"],
     }
     assert not any("from_thread" in order for order in orders.values())
-    assert [state.promise_thread(order) for order in orders.values()][3:] == [("C0822AHFY3G", "1794493064.110609")] * 2 + [None, ("C0822AHFY3G", "1794493064.110609")]
+    assert [state.own_thread(order) for order in orders.values()][3:] == [("C0822AHFY3G", "1794493064.110609")] * 2 + [None, ("C0822AHFY3G", "1794493064.110609")]
+
+
+def test_an_orders_lines_to_him_go_in_a_thread_of_his_dm_and_in_a_channel_thread_only_for_an_incident() -> None:
+    at = "2026-11-13T10:00:00-08:00"
+    release = ["C0B75AL4XEW", "1794436805.002349"]
+    order = state.new_order("ship the release", "slack:C0B75AL4XEW/1794436805.002349", tuple(release), {}, at)
+    kept = [["C0B75AL4XEW", "1794436900.000100", at, "posted"], ["D123", "1794437000.000200", at, "question"]]
+    assert [
+        state.promise_thread(order),
+        state.promise_thread(order | {"threads": kept}),
+        state.promise_thread(order | {"threads": kept, "incident": True}),
+        state.promise_thread(order | {"thread": ["D123", "1794437100.000300"], "threads": kept}),
+        state.promise_thread(order | {"thread": None, "threads": kept}),
+    ] == [None, ("D123", "1794437000.000200"), tuple(release), ("D123", "1794437100.000300"), None]
 
 
 def test_an_order_an_older_install_saved_with_one_reporter_reads_as_a_list_of_that_reporter_and_one_with_none_as_no_reporters(state_root: Path) -> None:
