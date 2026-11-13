@@ -15,6 +15,7 @@ from unittest.mock import ANY
 import pytest
 from conftest import (
     DRIVE_TERMINAL,
+    LEAD,
     LIVE_WORKER,
     REAL_DRIVE_TERMINAL,
     REAL_KEEP_LOGS,
@@ -2563,7 +2564,7 @@ def test_a_finished_lane_whose_job_still_runs_is_said_once_until_its_result_is_r
 
 
 def test_a_lane_whose_report_lands_between_the_mail_read_and_the_worker_read_is_not_an_orphan(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/53935", "--job", "j1")[0] == 0
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/53935", "--job", "j1", *LEAD)[0] == 0
     deliver(monkeypatch, [], [message("worker_done", "WAITING CI on #53935\nPR: https://github.com/Forge-AI/monorepo/pull/53935")])
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER | {"dispatch": {"completedAt": state.stamp(T0 + timedelta(seconds=20))}})
     branches(monkeypatch, {})
@@ -2600,7 +2601,7 @@ def test_a_running_job_with_an_open_pr_the_drive_does_not_track_is_said_until_it
     assert watch.run_pass(watching, T0) == [
         'ORPHAN o1 "ship the remote builder": j1 is running; Forge-AI/monorepo#9 on its branch lane-fix is not in the drive: checks pending, review none'
     ]
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/9", "--job", "j1")[0] == 0
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/9", "--job", "j1", *LEAD)[0] == 0
     with state.edit(remote) as data:
         data["jobs"]["j1"]["updated"] = state.stamp(T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
@@ -3103,7 +3104,7 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
 ) -> None:
     monkeypatch.setattr(state, "now", lambda: T0)
     url = "https://github.com/Forge-AI/monorepo/pull/7"
-    assert run("pr", "add", url, "--job", "j1")[0] == 0
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
     deliver(monkeypatch, [message(kind, f"READY {url}\nPR: Fix: x")])
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == []
@@ -3643,7 +3644,7 @@ def test_every_worker_on_a_jobs_own_run_is_heard_one_it_never_recorded_included_
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(dispatch="ctx_lane0003", deaths=[{"dispatch": DISPATCH, "workspace": "pool-one", "why": "x", "at": "y"}])
     pr = "https://github.com/Forge-AI/monorepo/pull/7"
-    assert run("pr", "add", pr, "--job", "j1")[0] == 0
+    assert run("pr", "add", pr, "--job", "j1", *LEAD)[0] == 0
     deliver(
         monkeypatch,
         [
@@ -4075,7 +4076,7 @@ def test_a_lanes_ready_on_a_yasyf_pr_it_added_with_its_proof_file_kept_starts_th
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\nexit 0\n")
     proof.chmod(0o755)
-    assert run("pr", "add", url, "--job", "j1")[0] == 0
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
     assert run("job", "set", "j1", "--repro", str(proof))[0] == 0
     deliver(monkeypatch, [message("worker_done", f"READY {url}\nPR: {url}")])
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
@@ -4098,7 +4099,7 @@ def test_a_lanes_ready_on_a_yasyf_pr_with_no_proof_file_is_refused_and_starts_no
 def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_took_first(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")[0] == 0
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)[0] == 0
     taken = message("worker_done", "WAITING CI on #7\nPR: https://github.com/Forge-AI/monorepo/pull/7", id="msg_old", read=1)
     first = message("status", "building", id="msg_1")
     second = message("question", "WAITING review on #7", id="msg_2")
@@ -4262,7 +4263,7 @@ def test_bound_exits_75_when_it_refuses_before_a_worker_start_could_start_anythi
 def test_a_root_recorded_by_its_orca_dispatch_is_read_through_worker_show_and_its_run_mail_and_is_no_orphan(
     run: Run, rooted: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/9", "--job", "j1")[0] == 0
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/9", "--job", "j1", *LEAD)[0] == 0
     monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
     shown = []
     monkeypatch.setattr(orca, "worker", lambda dispatch: shown.append(dispatch) or ROOT_WORKER)

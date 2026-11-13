@@ -875,12 +875,14 @@ function prCard(item, at, total, embedded = false) {
   const chosen = chosenRow(item);
   const row = rows[chosen];
   const pr = prKey(row.url);
-  const head = model.review.find((each) => each.key === pr)?.head ?? row.head ?? '';
+  const entry = model.review.find((each) => each.key === pr);
+  const head = entry?.head ?? row.head ?? '';
+  const lead = entry?.lead;
   const read = prReads.get(pr);
   const tab = prTabs.get(key) ?? 'show';
-  const title = decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
+  const title = lead?.headline ?? decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
   const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
-  const story = [['Why this exists', context ?? row.refresher], ['What changes', row.summary], ['Downstream', row.hate_most]].map(([label, text]) => `<div><strong>${label}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
+  const story = [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => `<div><strong>${label}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
   const stack = rows.length > 1 ? `<ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');

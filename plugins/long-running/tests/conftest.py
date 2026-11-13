@@ -33,6 +33,16 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+LEAD = (
+    "--headline",
+    "His cards say why a change is made",
+    "--because",
+    "He could not tell from a card whether to merge its change",
+    "--does",
+    "Every card he taps opens with why, what and downstream",
+    "--downstream",
+    "Builders write four short lines for each PR they open",
+)
 DRIVE_TERMINAL = "term_drive"
 REAL_DRIVE_TERMINAL = orca.drive_terminal
 REAL_KEEP_LOGS = orca.keep_logs

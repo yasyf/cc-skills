@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Chrome, Jev, Judge, Redraws
-from drive import card, cli, github, picture, stage, state, superseded, view
+from drive import card, cli, github, limits, picture, stage, state, superseded, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1370,3 +1370,82 @@ def test_a_pr_added_to_its_native_stack_after_the_stack_card_was_drawn_gets_its_
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
     [again] = ask(asks(42) | {"redraw": True})["cards"]
     assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
+
+
+TITLE_55405 = "sandsql: 🐛 Fix: a stopping SandSQL primary leaves an applying migration attached for its final writer drain"
+SUMMARY_55405 = (
+    "`drain_one` in `rust/crates/sandsql-server/src/admin.rs` now skips `Instance::drain_jobs`, `unheld` and the park or replicator release when the"
+    " server's own `ShutdownWatch` (`inner.shutdown`) is armed, leaving the database attached for `Instance::shutdown`'s final drain. A stop of the"
+    " migration pass alone, with the server still serving, settles, parks and releases the database as before."
+)
+SEEN_55405 = f"""## Context
+
+When a SandSQL primary hands its writer lease to a successor, `serve_primary` stops its background passes one phase at a time. The `migration_stop` phase joins the migration pass at `rust/crates/sandsql-server/src/lib.rs:1326`, and only later does the `audit_final_drain` phase run `Instance::shutdown`, which quiesces the writer pool and interrupts whatever is still applying, at `rust/crates/sandsql-server/src/lib.rs:1353`.
+
+## Summary
+
+{SUMMARY_55405}
+"""
+LEAD_55405 = {
+    "headline": "Stop a SandSQL writer handoff hanging behind a running migration",
+    "why": "During the Nov 12 SandSQL release, sandsql-api answered 231 requests with 503 while the old primary was slow to stop and hand over the writer; this removes one way it gets stuck.",
+    "what": "A primary that is shutting down stops waiting for a migration it has in flight; its last shutdown step stops that migration, and the new primary runs it again.",
+    "downstream": "A handoff during a release no longer holds clients behind a long migration; a migration caught part way is redone by the new primary, so its work so far is lost.",
+}
+SUMMARY_55337 = (
+    "`stream_routed` in `sandsql-server/src/data.rs` now posts a read to its fleet's `sandsql-replica` through the new `Shed` client (`data/shed.rs`),"
+    " using the new `replica_url` key in the primary's TOML (`infra/rows/sandsql/serverConfig.ts`). A `NONE` read always goes there."
+)
+LEAD_55337 = {
+    "headline": "Answer SandSQL reads from the idle replica while the primary is busy",
+    "why": "The customer primary on plat sits at its 12-core limit serving every read while its replica uses a quarter of one core.",
+    "what": "Reads allowed to miss a write made moments before always go to the replica, and reads that must see every write go there only while every primary core is busy.",
+    "downstream": "A read allowed to be stale can now really see a row a moment old, and the replica's answer still streams back through the primary.",
+}
+
+
+def test_pr_55405s_card_as_he_saw_it_says_neither_why_what_nor_downstream_and_its_lead_opens_the_card_with_each_before_any_code() -> None:
+    pr = pr_json(title=TITLE_55405, body=SEEN_55405, url="https://github.com/Forge-AI/monorepo/pull/55405")
+    seen = card.render(pr, entry())
+    assert ("body" in seen, seen["title"], seen["prs"][0]["summary"]) == (False, "Fix: approve a stopping SandSQL primary leaves an applying migration attached for its final writer drain?", SUMMARY_55405)
+    led = card.render(pr, entry() | {"lead": LEAD_55405})
+    assert (led["title"], led["body"].splitlines(), led["prs"]) == (
+        LEAD_55405["headline"],
+        [f"**Why this exists:** {LEAD_55405['why']}", f"**What changes:** {LEAD_55405['what']}", f"**Downstream:** {LEAD_55405['downstream']}"],
+        seen["prs"],
+    )
+
+
+@pytest.mark.parametrize(("summary", "rewrite", "named"), [(SUMMARY_55405, LEAD_55405, "drain_one"), (SUMMARY_55337, LEAD_55337, "stream_routed")])
+def test_a_lead_copied_from_a_prs_code_level_summary_is_refused_naming_its_code_and_a_plain_rewrite_passes(summary: str, rewrite: dict, named: str) -> None:
+    naming = [problem for problem in limits.lead_problems(rewrite | {"why": summary, "what": summary}) if " names " in problem]
+    assert ([problem.partition(" ")[0] for problem in naming], all(named in problem for problem in naming)) == (["--because", "--does"], True)
+    assert limits.lead_problems(rewrite) == []
+
+
+@pytest.mark.parametrize(
+    ("lead", "problem"),
+    [
+        ({"why": "w", "what": "w", "downstream": "d"}, "--headline is missing"),
+        (LEAD_55405 | {"headline": "x" * 91}, "--headline is 91 characters; say it in at most 90"),
+        (LEAD_55405 | {"downstream": " ".join(["word"] * 41)}, "--downstream is 41 words; say it in at most 40"),
+        (LEAD_55405 | {"what": "one line\nand another"}, "--does spreads over several lines; say it in one"),
+        (LEAD_55405 | {"why": "the watch calls refresh() too often"}, "--because names refresh;"),
+    ],
+)
+def test_a_lead_line_missing_long_spread_or_naming_code_is_refused_by_its_flag(lead: dict, problem: str) -> None:
+    assert limits.lead_problems(lead)[0].startswith(problem)
+
+
+def test_a_stack_card_opens_with_each_prs_lead_under_its_headline_and_takes_the_bottom_prs_headline_as_its_title() -> None:
+    bottom = pr_json(title=TITLE_55405, body=SEEN_55405, url="https://github.com/Forge-AI/monorepo/pull/55405")
+    top = pr_json(title="sandsql-server: ✨ New: the primary hands a NONE read to the replica", body=f"## Summary\n\n{SUMMARY_55337}", url="https://github.com/Forge-AI/monorepo/pull/55337")
+    led = card.render_stack([(bottom, entry() | {"lead": LEAD_55405}, (), ()), (top, entry() | {"lead": LEAD_55337}, (), ())], False)
+    unled = card.render_stack([(bottom, entry(), (), ()), (top, entry(), (), ())], False)
+    assert (led["title"], led["body"].split("\n\n")[1].splitlines()[0], unled["title"], "body" in unled) == (
+        LEAD_55405["headline"],
+        f"**{LEAD_55337['headline']}**",
+        "New: 2 PRs: a stopping SandSQL primary leaves an applying migration attached for its final writer drain",
+        False,
+    )
+    assert led["body"].startswith(f"**{LEAD_55405['headline']}**\n**Why this exists:** {LEAD_55405['why']}")

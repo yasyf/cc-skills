@@ -860,6 +860,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "landing": landing_words(pr),
         "approve_waits": approve_waits(drive, key, pr, found),
         "parts": pr["parts"],
+        "lead": pr["lead"],
         "job": pr["job"],
         "job_said": said(job["said"]) if job else "",
         "job_at": job["updated"] if job else None,

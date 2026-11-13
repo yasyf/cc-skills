@@ -17,7 +17,7 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import RESEARCH, SHORT_ASK, drawn_card, Answers, Jev, WatchProcess
+from conftest import LEAD, RESEARCH, SHORT_ASK, drawn_card, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, land, place, render, settled, state
 
 Run = Callable[..., tuple[int, str]]
@@ -30,7 +30,7 @@ ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 def drive_pr(run: Run, demo: str) -> str:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     return state.pr_key(PR)
 
 
@@ -252,7 +252,7 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
     long = "WAITING CI on the PR\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12"
-    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1")
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1", *LEAD)
     output = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(long))))
     assert (output["decision"], output["judged"]) == ("block", False)
     assert output["reason"].startswith("Your final message is 3 lines and 82 characters")
@@ -281,7 +281,7 @@ def test_a_job_agent_stops_once_its_newest_return_opens_with_its_line_whatever_i
     pushed = f"PUSHED {url}"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-7")
-    run("pr", "add", url, "--job", "j1")
+    run("pr", "add", url, "--job", "j1", *LEAD)
     run("job", "set", "j1", "--said", "pushing the fix")
     assert one_line_result.block_reason(agent_stop(pushed)).startswith("Refused on purpose: j1's return is not kept in the drive")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{pushed}\nCHANGE: x\n"))
@@ -1279,7 +1279,7 @@ SIBLINGS = ("https://github.com/Forge-AI/monorepo/pull/41", "https://github.com/
 @pytest.fixture
 def stack(drive_pr: str, run: Run) -> None:
     for url in SIBLINGS:
-        run("pr", "add", url, "--job", "j1")
+        run("pr", "add", url, "--job", "j1", *LEAD)
     approve("Forge-AI/monorepo#41")
     approve(drive_pr)
 
@@ -1360,7 +1360,7 @@ def copy_of_demo(run: Run, name: str) -> None:
     run("start", name, "--role", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", name)
     run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", name)
-    run("pr", "add", PR, "--job", "j1", "--drive", name)
+    run("pr", "add", PR, "--job", "j1", "--drive", name, *LEAD)
 
 
 def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_started_last(

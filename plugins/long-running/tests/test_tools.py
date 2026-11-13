@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from drive import card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
-from conftest import LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
+from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -1068,7 +1068,7 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     pr = "https://github.com/Forge-AI/monorepo/pull/54084"
-    run("pr", "add", pr, "--job", "j1")
+    run("pr", "add", pr, "--job", "j1", *LEAD)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
     answered = open_cards(monkeypatch, prs=(pr,))
     asked = {"kind": "owner", "text": "Why is this card gone when the PR is approved?", "url": f"{PR_CARD}?thread_ts=1794200000.000900", "about": "his work"}
@@ -1093,7 +1093,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in parts for flag in ("--part", part)))
     supervisor, electron = (f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (54101, 54102))
     for url in (supervisor, electron):
-        run("pr", "add", url, "--job", "j1")
+        run("pr", "add", url, "--job", "j1", *LEAD)
     sibling = f"{CARD[:-2]}01"
     titles = {"demo:j1-684776": "Which socket formats does sandsql-proc own?", "demo:j1-684682": "Should Electron start sand iris serve through sandsql-proc?"}
     drawn = list(zip(titles.items(), (CARD, sibling), strict=True))
@@ -1161,7 +1161,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
 def test_drive_answer_refuses_to_drop_a_merged_pr_or_every_part_of_an_order_and_to_supersede_a_part(demo: str, run: Callable[..., tuple[int, str]], capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD)
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#54101"]["state"] = "merged"
     view.refresh_cards(demo)

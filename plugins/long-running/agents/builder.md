@@ -159,8 +159,16 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    a step left for him. Close each gap inside the order yourself, starting from the brief's `Would he ask:` line;
    a gap that is a design fork goes back as `ASK`.
 6. Open the PR the repository's way (its own submit wrapper, otherwise the `open-pr` skill; a hook refuses a bare `gh pr create`), with the
-   title and body below, and register it: `drive pr add <url> --job <your job id>`, which records it
-   waiting on his tap and draws his card on it at once. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
+   title and body below, and register it: `drive pr add <url> --job <your job id> --headline "<line>"
+   --because "<line>" --does "<line>" --downstream "<line>"`, which records it waiting on his tap and
+   draws his card on it at once, opening with that lead before any code: the headline, under 90
+   characters, says what the change gets him; `--because` why it is made, the problem or his words;
+   `--does` what it changes for him or its users once it lands; `--downstream` what else it changes,
+   breaks or holds. Write each as one plain line to someone deciding whether to merge it, naming no
+   function or file, which the Summary names: `drive pr add` refuses a PR waiting on his tap until all
+   four pass, by his words "I have no idea why were doing this change, what it does, or what the
+   downstream impacts of it are". A later `drive pr add` with only a changed line keeps the rest and
+   redraws his card. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
    `--no-tap --why "<reason>"` for a PR its author lands outside `Forge-AI`, where only his tap or an
    exempt class lands one.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and

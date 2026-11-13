@@ -1518,6 +1518,28 @@ done(measured);
     assert [(each["tab"], each["shown"], each["frame"]) for each in seen] == [("show", True, False), ("change", True, True), ("context", True, False)]
 
 
+def test_a_pr_cards_lead_titles_it_and_tells_its_why_what_and_downstream_above_its_stack_with_nothing_to_open(tmp_path: Path) -> None:
+    lead = {"headline": "Held locks let go after 30 seconds", "why": "A held lock never lets go.", "what": "A held lock lets go after 30 s.", "downstream": "A slow writer can lose its lock."}
+    led = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(600);
+const card = document.querySelector('#main .pr-card');
+const story = card.querySelector('.pr-story');
+done({
+  title: card.querySelector('.card-title').textContent,
+  story: [...story.children].map((part) => part.innerText.split('\\n').filter(Boolean)),
+  above: Boolean(story.compareDocumentPosition(card.querySelector('.stack')) & Node.DOCUMENT_POSITION_FOLLOWING),
+  folded: Boolean(story.closest('details, .fold')),
+});
+""", board(queue=[STACK], review=[entry | {"lead": lead if entry["key"].endswith("#41") else None} for entry in OPEN]), "1440,900", before=STAND_IN)
+    assert led == {
+        "title": "Held locks let go after 30 seconds",
+        "story": [["Why this exists", "A held lock never lets go."], ["What changes", "A held lock lets go after 30 s."], ["Downstream", "A slow writer can lose its lock."]],
+        "above": True,
+        "folded": False,
+    }
+
+
 def test_the_change_tab_shows_progress_while_cc_review_starts_then_why_it_failed_with_retry_then_the_embedded_review(tmp_path: Path) -> None:
     reason = "GitHub did not answer cc-review in time (cc-review said: net/http: TLS handshake timeout)"
     seen = browse(tmp_path, """

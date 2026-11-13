@@ -661,6 +661,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             stamp.setdefault("read", stamp["head"])
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
+        pr.setdefault("lead", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:
@@ -2438,5 +2439,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "checked": None,
         "undrawn": None,
         "parts": [],
+        "lead": None,
         "updated": stamp(),
     }

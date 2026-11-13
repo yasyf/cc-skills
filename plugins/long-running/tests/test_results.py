@@ -8,7 +8,7 @@ import no_file_tools
 import one_line_result
 import pytest
 import quiet_turn
-from conftest import RESEARCH, CodexAsk, codex_reply
+from conftest import LEAD, RESEARCH, CodexAsk, codex_reply
 from drive import cli, codex, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -60,7 +60,7 @@ def test_a_builder_the_communicator_started_is_told_to_keep_its_return_before_it
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
-    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1")
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1", *LEAD)
     waiting = "WAITING CI on https://github.com/yasyf/cc-skills/pull/1"
     reason = one_line_result.block_reason(agent_stop(f"{waiting}\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12", tmp_path))
     assert "lands whole in the communicator's context" in reason

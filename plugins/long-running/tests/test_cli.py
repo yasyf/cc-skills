@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_NOTE, SHORT_ASK, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -780,7 +780,7 @@ def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: s
     wait = "release:api:Forge-AI/monorepo#7"
     assert cli.main(["job", "set", "j1", "--waits", wait]) == 2
     assert f"--waits {wait}: the drive tracks no PR Forge-AI/monorepo#7; drive pr add it to its job first" in capsys.readouterr().err
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")[0] == 0
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)[0] == 0
     assert run("job", "set", "j1", "--waits", wait)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["waits"] == [wait]
 
@@ -790,7 +790,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)
     clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
     for root in (clone, checkout):
         (root / "tools").mkdir(parents=True)
@@ -3033,6 +3033,7 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     kept_proof(tmp_path, "j1")
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1", *LEAD)
     assert run("job", "report", "j1")[0] == 2
     monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
     code, kept = run("job", "report", "j1", "-")
@@ -3211,6 +3212,7 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1", *LEAD)
     ready = "READY https://github.com/yasyf/cc-skills/pull/7\n"
     code, err = keep(monkeypatch, capsys, "j1", ready)
     assert (code, state.load("demo")["jobs"]["j1"]["state"]) == (2, "running")
@@ -3329,7 +3331,7 @@ def test_a_builder_is_added_waiting_on_another_builders_change_until_that_builde
     assert run("job", "add", "builder", "--order", "o1", "--goal", "copy the store")[0] == 0
     code, out = run("job", "add", "builder", "--order", "o1", "--goal", "read the copy", "--waits", "j3")
     assert (code, out.splitlines()[:2]) == (0, ["j4", "j4 waits on j3: start no agent for it until the watch's FREE line says its last wait ended"])
-    assert run("pr", "add", state.pr_url(built), "--job", "j3")[0] == 0
+    assert run("pr", "add", state.pr_url(built), "--job", "j3", *LEAD)[0] == 0
     assert state.load("demo")["jobs"]["j4"]["waits"] == [built]
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "dropped"]) == 2
     assert capsys.readouterr().err.strip().endswith(
@@ -3672,6 +3674,7 @@ def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
     ) in err
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     kept_proof(tmp_path, "j1")
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/4244", "--job", "j1", *LEAD)
     assert keep(monkeypatch, capsys, "j1", "READY https://github.com/yasyf/cc-skills/pull/4244\n") == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
     assert keep(monkeypatch, capsys, "j2", "HANDOFF /scratch/j2/left.md\nBRANCH: lr-strip\n") == (0, "")
@@ -3965,8 +3968,8 @@ def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_alone_against_that_par
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one abstraction everything goes through", "--parts", "moved-table abstraction", "doors close", "partitioning")
     run("job", "add", "builder", "--order", "o1", "--part", "moved-table abstraction", "--part", "doors close", "--goal", "route every caller through Env")
-    run("pr", "add", PR, "--job", "j1")
-    run("pr", "add", STACKED, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    run("pr", "add", STACKED, "--job", "j1", *LEAD)
     recorded.shown["953a8c8"] = DOORS
     assert cli.main(["pr", "set", PR, "--part", "partitioning"]) == 2
     assert 'its job j1 delivers no part partitioning; its parts are "moved-table abstraction", "doors close"' in capsys.readouterr().err
@@ -3990,8 +3993,8 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents", "agents live in the sessions table", "--parts", sessions, purpose)
     run("job", "add", "builder", "--order", "o1", "--part", sessions, "--goal", "move the API")
     run("job", "add", "builder", "--order", "o1", "--part", purpose, "--goal", "move purpose")
-    run("pr", "add", PR, "--job", "j1")
-    run("pr", "add", STACKED, "--job", "j2")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    run("pr", "add", STACKED, "--job", "j2", *LEAD)
     refused = {"order": "o1", "words": purpose, "file": "", "change": "Agent.purpose still reads the agents table"}
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or ([] if f"other changes deliver: {purpose}" in said else [refused]))
     assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
@@ -4104,6 +4107,8 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", kind, "--order", "o1", "--goal", "ship")
     kept_proof(tmp_path, "j1")
+    if first.startswith("READY "):
+        run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
@@ -4158,7 +4163,7 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     code, err = keep(monkeypatch, capsys, "j1", "WAITING release: #54575 merged after the newest release was cut\n")
     assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name the release as release:<service>" in err) == (2, True)
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
@@ -4176,7 +4181,7 @@ def test_a_waiting_whose_first_line_names_no_link_waits_on_each_pr_and_release_i
     run("job", "add", "builder", "--order", "o2", "--goal", "ship the slots")
     keys = [f"Forge-AI/monorepo#{number}" for number in (54607, 54665, 54680)]
     for key in keys:
-        run("pr", "add", state.pr_url(key), "--job", "j2")
+        run("pr", "add", state.pr_url(key), "--job", "j2", *LEAD)
     report = (
         "WAITING change (b) of j660 needs Env::file_of to read each table's stored slot; that change follows three open SandSQL PRs and the release carrying them\n"
         f"It follows {state.pr_url(keys[0])}, {state.pr_url(keys[1])} and {state.pr_url(keys[2])}.\n"
@@ -4265,7 +4270,7 @@ def test_job_report_prints_each_result_a_remote_lane_sent_newest_first_and_none_
 def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    run("pr", "add", PR + "/files", "--job", "j1")
+    run("pr", "add", PR + "/files", "--job", "j1", *LEAD)
     return "Forge-AI/monorepo#42"
 
 
@@ -4287,21 +4292,21 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     key = "Forge-AI/monorepo#42"
-    assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap", *LEAD]) == 2
     assert "--no-tap needs --why <reason>" in capsys.readouterr().err
-    assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap", "--why", "a teammate lands it"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap", "--why", "a teammate lands it", *LEAD]) == 2
     assert "only his tap or an exempt class lands a Forge-AI PR" in capsys.readouterr().err
     assert key not in state.load("demo")["prs"]
-    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/8", "--job", "j1", "--no-tap", "--why", "a teammate lands it")[0] == 0
-    assert run("pr", "add", PR, "--job", "j1", "--exempt", "test-only")[0] == 0
+    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/8", "--job", "j1", "--no-tap", "--why", "a teammate lands it", *LEAD)[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", "--exempt", "test-only", *LEAD)[0] == 0
     prs = state.load("demo")["prs"]
     assert (prs["yasyf/cc-skills#8"]["wants_tap"], stage.carded(prs["yasyf/cc-skills#8"])) == (False, False)
     assert (prs[key]["wants_tap"], prs[key]["exempt"], stage.carded(prs[key])) == (True, "test-only", False)
     with state.edit("demo") as data:
         data["prs"].pop(key)
         data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
-    assert run("pr", "add", PR, "--job", "j1")[0] == 0
-    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1", *LEAD)[0] == 0
     prs = state.load("demo")["prs"]
     assert (prs[key]["wants_tap"], prs["yasyf/cc-skills#7"]["wants_tap"]) == (True, False)
 
@@ -4322,7 +4327,31 @@ def test_pr_add_refuses_a_new_pr_of_a_job_on_a_surface_until_its_proof_file_hold
     )
     assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
     kept_proof(tmp_path, "j1")
-    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+
+
+def test_pr_add_refuses_a_pr_his_card_asks_his_tap_on_until_its_lead_says_why_what_and_downstream_keeps_it_and_redraws_his_card_when_it_changes(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], draws: Draws, redraws: Redraws
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key = "Forge-AI/monorepo#42"
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--headline", "Uploads survive a flaky network", "--because", "upload.Retry dropped files"]) == 2
+    refusal = capsys.readouterr().err
+    assert f"{key}: refused, nothing added: his card opens with its lead, and --because names upload.Retry;" in refusal
+    assert "--does is missing; --downstream is missing" in refusal
+    assert (key in state.load("demo")["prs"], draws.keys) == (False, [])
+    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/8", "--job", "j1", "--no-tap", "--why", "a teammate lands it")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"{key}, his card {draws.link}")
+    lead = dict(zip(LEAD[::2], LEAD[1::2], strict=True))
+    assert state.load("demo")["prs"][key]["lead"] == {line: lead[flag] for line, flag in limits.LEAD_LINES}
+    assert run("pr", "add", PR, "--job", "j1") == (0, key)
+    assert run("pr", "add", PR, "--job", "j1", "--downstream", "Builders also rewrite the lead when the change moves") == (0, f"{key}, his card redrawn with its new lead")
+    assert (state.load("demo")["prs"][key]["lead"]["why"], state.load("demo")["prs"][key]["lead"]["downstream"], redraws.asked) == (
+        lead["--because"],
+        "Builders also rewrite the lead when the change moves",
+        [PR],
+    )
 
 
 def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serves_names_it(
@@ -4332,12 +4361,12 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["author"] = {"login": "rowan", "is_bot": False}
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
     assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
     assert key not in state.load("demo")["prs"]
     with state.edit("demo") as data:
         data["orders"]["o1"]["text"] = "land #42 once it is green"
-    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert state.load("demo")["prs"][key]["author"] == "rowan"
     with state.edit("demo") as data:
         data["orders"]["o1"]["text"] = "land it"
@@ -4356,7 +4385,7 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
     run("job", "add", "builder", "--order", "o1", "--part", "wake", "--goal", "wake agents on their inbox")
     run("job", "add", "builder", "--order", "o2", "--goal", "list the agent's chat")
     run("job", "add", "builder", "--order", "o1", "--part", "take over", "--goal", "take over the inbox wake")
-    run("pr", "add", url, "--job", "j1")
+    run("pr", "add", url, "--job", "j1", *LEAD)
     for project, session in (("Platform", "platform-1"), ("Iris", "iris-1")):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
         run("start", "demo", "--role", "coordinator", "--project", project)
@@ -4369,7 +4398,7 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
             monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
         else:
             monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
-        assert cli.main(["pr", "add", url, "--job", "j2", "--drive", "demo"]) == 2
+        assert cli.main(["pr", "add", url, "--job", "j2", "--drive", "demo", *LEAD]) == 2
         assert f"{key}: refused, nothing added: {held}" in capsys.readouterr().err
     data = state.load("demo")
     assert (data["prs"][key]["job"], data["prs"][key]["order"], data["jobs"]["j2"]["prs"]) == ("j1", "o1", [])
@@ -4380,11 +4409,11 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
         data["prs"][key].update(job="j2", order="o2")
         data["jobs"]["j2"]["prs"].append(url)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
-    assert cli.main(["pr", "add", url, "--job", "j3"]) == 2
+    assert cli.main(["pr", "add", url, "--job", "j3", *LEAD]) == 2
     assert "j2 holds it for o2, the order of the sub-coordinator for Iris, session iris-1, while j3 is on o1" in capsys.readouterr().err
-    assert run("pr", "add", url, "--job", "j1")[0] == 0
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
     assert (state.load("demo")["prs"][key]["job"], state.load("demo")["prs"][key]["order"]) == ("j1", "o1")
-    assert run("pr", "add", url, "--job", "j3")[0] == 0
+    assert run("pr", "add", url, "--job", "j3", *LEAD)[0] == 0
     assert state.load("demo")["prs"][key]["job"] == "j3"
 
 
@@ -4394,7 +4423,7 @@ def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     url = "https://github.com/yasyf/cc-skills/pull/7"
-    assert run("pr", "add", url, "--job", "j1") == (0, "yasyf/cc-skills#7")
+    assert run("pr", "add", url, "--job", "j1", *LEAD) == (0, "yasyf/cc-skills#7")
     assert landers == []
     kept_proof(tmp_path, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
@@ -4402,11 +4431,11 @@ def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_
     assert (code, out.splitlines()[1].startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
     assert landers == [("yasyf/cc-skills#7",)]
     assert state.load("demo")["prs"]["yasyf/cc-skills#7"]["lander"]["head"] == "abc"
-    assert run("pr", "add", url, "--job", "j1")[1] == f"yasyf/cc-skills#7: not merging it: lander pid {os.getpid()} already merges it"
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[1] == f"yasyf/cc-skills#7: not merging it: lander pid {os.getpid()} already merges it"
     on_github["baseRefName"] = "j1-below"
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"]["lander"]["outcome"] = "not landed: gh pr merge --squash --admin refused it: conflict"
-    assert run("pr", "add", url, "--job", "j1")[1] == (
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[1] == (
         "yasyf/cc-skills#7: not merging it: it sits on j1-below, not main; register it again once the PR below it merges"
     )
     assert landers == [("yasyf/cc-skills#7",)]
@@ -4416,7 +4445,7 @@ def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, dem
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["title"] = "Port: land it"
-    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234", *LEAD)[0] == 0
     pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"], stage.carded(pr)) == (51234, "pure port", False, False)
 
@@ -4430,7 +4459,7 @@ def test_pr_add_on_a_public_repo_takes_demo_pictures_and_draws_his_card_in_the_s
         "![Hover](https://github.com/yasyf/cc-skills/blob/73f9efa/pr-shots/demo-hover.png?raw=true)\n"
         "Follows yasyf/cc-skills#4146."
     )
-    assert run("pr", "add", PR, "--job", "j1") == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
     assert (draws.keys, state.load("demo")["prs"]["Forge-AI/monorepo#42"]["card"]) == ([["Forge-AI/monorepo#42"]], draws.link)
 
 
@@ -4438,21 +4467,37 @@ def test_pr_add_whose_card_draw_fails_registers_the_pr_uncarded_for_the_watch_to
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     draws.failure = "cc-slack exited 1"
-    assert run("pr", "add", PR, "--job", "j1") == (0, "Forge-AI/monorepo#42, his card not drawn yet, so the watch draws it on its next read: cc-slack exited 1")
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, "Forge-AI/monorepo#42, his card not drawn yet, so the watch draws it on its next read: cc-slack exited 1")
     data = state.load("demo")
     assert stage.of(data, "Forge-AI/monorepo#42", view.NO_CARDS).name == "uncarded"
 
 
-def test_a_builders_pushed_naming_a_pr_the_drive_does_not_track_registers_it_on_that_builder_and_draws_his_card(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+def test_a_builders_pushed_naming_a_pr_the_drive_does_not_track_registers_it_on_that_builder(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, tmp_path: Path
+) -> None:
+    url = "https://github.com/yasyf/cc-skills/pull/7"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    kept_proof(tmp_path, "j1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {url}\n"))
+    code, out = run("job", "report", "j1", "-")
+    assert (code, out.splitlines()[1]) == (0, "yasyf/cc-skills#7: registered on j1")
+    pr = state.load("demo")["prs"]["yasyf/cc-skills#7"]
+    assert (pr["job"], pr["card"], draws.keys) == ("j1", None, [])
+
+
+def test_a_builders_pushed_naming_an_untracked_pr_his_card_would_open_with_no_lead_is_refused_until_drive_pr_add_keeps_one(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], draws: Draws
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n"))
-    code, out = run("job", "report", "j1", "-")
-    assert (code, out.splitlines()[1]) == (0, f"Forge-AI/monorepo#42: registered on j1, his card {draws.link}")
-    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
-    assert (pr["job"], pr["card"], draws.keys) == ("j1", draws.link, [["Forge-AI/monorepo#42"]])
+    assert cli.main(["job", "report", "j1", "-"]) == 2
+    refusal = capsys.readouterr().err
+    assert "drive pr add refuses a PR its first line names: Forge-AI/monorepo#42: refused, nothing added: his card opens with its lead, and --headline is missing" in refusal
+    assert f'drive pr add {PR} --job j1 --headline "<headline>" --because "<why>" --does "<what>" --downstream "<downstream>"' in refusal
+    assert ("Forge-AI/monorepo#42" in state.load("demo")["prs"], draws.keys) == (False, [])
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n"))
     assert (run("job", "report", "j1", "-")[0], draws.keys) == (0, [["Forge-AI/monorepo#42"]])
 
@@ -4460,7 +4505,7 @@ def test_a_builders_pushed_naming_a_pr_the_drive_does_not_track_registers_it_on_
 def test_pr_add_again_keeps_stored_state(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
         data["prs"][with_pr]["checks"] = "pass"
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     pr = state.load("demo")["prs"][with_pr]
     assert pr["checks"] == "pass"
     assert pr["wants_tap"] is True
@@ -4605,7 +4650,7 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
     run("job", "add", "builder", "--order", "o1", "--part", "stop", "--goal", "ship the stop")
-    run("pr", "add", PR, "--job", "j4")
+    run("pr", "add", PR, "--job", "j4", *LEAD)
     on_github.update(title="Fix: table moves stop rerunning on every write", body=CARD_BODY)
     assert run("pr", "set", PR, "--exempt", "incident fix")[0] == 0
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "incident fix"
@@ -4693,7 +4738,7 @@ def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     on_github["body"] = CARD_BODY.split("## His words")[0] + "## His words, step by step\nNone: drive tooling.\n"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
     assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
@@ -4719,7 +4764,7 @@ def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_no
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     run("job", "add", "builder", "--order", "o1", "--goal", "redraw it")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     crossed = "o1 is a drive tooling order and o3 is an order of his feature work, and one job or PR never carries both: start a job on o3 with drive job add <kind> --order o3"
     assert cli.main(["job", "set", "j1", "--carries", "o3"]) == 2
     assert capsys.readouterr().err.strip() == f"drive: j1 --carries o3: refused, {crossed}"
@@ -4753,12 +4798,12 @@ def test_a_port_changing_how_its_data_is_stored_is_no_pure_port(run: Run, demo: 
     table = "api/migrations/0042_site_visuals.sql"
     diff = f"diff --git a/{table} b/{table}\n--- /dev/null\n+++ b/{table}\n@@ -0,0 +1 @@\n+create table site_visuals (key text, value text);\n"
     monkeypatch.setattr(served, "change", lambda key: {"title": "Port: land it", "head": "abc", "diff": diff.encode()})
-    assert cli.main(["pr", "add", PR, "--job", "j1", "--port-of", "51234"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--port-of", "51234", *LEAD]) == 2
     refused = capsys.readouterr().err
     assert f"it changes {table}, how its data is stored, so it is no pure port of #51234" in refused and "modelng the data" in refused
     assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
     monkeypatch.setattr(served, "change", lambda key: {"title": "Port: land it", "head": "abc", "diff": diff.replace(table, "dashboard/src/visuals.ts").encode()})
-    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234", *LEAD)[0] == 0
 
 
 def test_pr_set_port_of_refuses_a_title_that_does_not_open_port(
@@ -4822,7 +4867,7 @@ def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "move the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "move it")
     on_github["title"] = "move strip"
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
     assert capsys.readouterr().err.strip() == (
         'drive: Forge-AI/monorepo#42: refused, its title "move strip" does not open Fix:, New:, Cleanup: or Port:, the kind of change'
         ' his card names it by: retitle it with gh pr edit 42 -R Forge-AI/monorepo --title "<Fix|New|Cleanup|Port>: move strip", then run this again'
@@ -4830,14 +4875,14 @@ def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo:
     assert state.load("demo")["prs"] == {}
     for title in ("Port: move strip", "store: 🐛 move strip", "fix(store): move strip"):
         on_github["title"] = title
-        assert run("pr", "add", PR, "--job", "j1")[0] == 0
+        assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
 
 
 def test_pr_add_adds_a_body_whose_shown_sections_speak_of_him_as_he_or_his_with_a_note(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Land it", "--project", "The drive", "--workstream", "Releases", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land it")
     on_github["body"] = CARD_BODY.replace("once your tap comes in", "once his tap comes in")
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 0
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 0
     assert (
         'Forge-AI/monorepo#42: note, added all the same: its card shows him these sections, which may speak of him as he or his: summary: "`land.py` lands the PR once his tap comes in.".'
         ' Where these mean him, say you and your, as in "Your Nov 11 words narrowed it", and edit the body with gh pr edit 42 -R Forge-AI/monorepo --body-file <file>;'
@@ -4845,7 +4890,7 @@ def test_pr_add_adds_a_body_whose_shown_sections_speak_of_him_as_he_or_his_with_
     ) in capsys.readouterr().err.splitlines()
     assert "Forge-AI/monorepo#42" in state.load("demo")["prs"]
     on_github["body"] = CARD_BODY.replace("once your tap comes in", 'once your tap comes in, as `he` and "his tap" say')
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 0
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 0
     assert "may speak of him" not in capsys.readouterr().err
 
 
@@ -4856,10 +4901,10 @@ def test_pr_add_reads_a_capitalised_he_a_word_precedes_as_a_name(run: Run, demo:
         "\n## Show me\n![The timeline beside Grace Hopper's and Wren He's entries](https://example.com/after.png)\n"
         "\n| who | review |\n| --- | --- |\n| Wren He | approved |\n"
     )
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 0
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 0
     assert "may speak of him" not in capsys.readouterr().err
     on_github["body"] += "\n## The stack\nWren's 19 are left for him.\n"
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 0
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 0
     noted = capsys.readouterr().err
     assert ('which may speak of him as he or his: the stack: "Wren\'s 19 are left for him.".' in noted, "Wren He" in noted) == (True, False)
     assert "Forge-AI/monorepo#42" in state.load("demo")["prs"]
@@ -4872,11 +4917,11 @@ def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_d
     run("job", "add", "builder", "--order", "o1", "--goal", "move it")
     on_github["body"] = CARD_BODY + '\n## Show me\nThe map\n```arch\n{"arch": 1}\n```\n\n![before](https://example.com/before.png)\n'
     chrome.refusal = '"name" is required'
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
     assert capsys.readouterr().err.strip() == 'drive: Forge-AI/monorepo#42: refused, nothing added: its Show me arch does not draw: "name" is required'
     assert state.load("demo")["prs"] == {}
     chrome.refusal = None
-    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert [kind for kind, _ in chrome.drawn] == ["arch"]
 
 
@@ -4900,15 +4945,15 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "the mint endpoint fails", "--incident", "--parts", "fix", "first check")
     on_github.update(title="Fix: the mint endpoint answers again", body="Reverts Forge-AI/monorepo#41")
-    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "incident fix"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "incident fix", *LEAD]) == 2
     refusal = capsys.readouterr().err
     assert 'refused, it reverts a change, and a revert never lands as an "incident fix"' in refusal
     assert f"Add it waiting on his tap with drive pr add {PR} --job j1. Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
     assert state.load("demo")["prs"] == {}
-    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is True
     on_github["body"] = CARD_BODY
-    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
 
 
 def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprite_at_once_and_never_refuses_a_monorepo_one_for_load(
@@ -5126,7 +5171,7 @@ def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_of
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
     run("job", "add", "builder", "--order", "o1", "--goal", "Fix: land it", "--repo", "Forge-AI/monorepo", "--remote")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
     assert run("job", "report", "j1", "-")[0] == 0
     brief = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo main"]
@@ -5143,7 +5188,7 @@ def test_job_ask_on_a_port_names_the_pr_it_ports_in_its_summary(
     run: Run, asking: str, on_github: dict, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     on_github["title"] = "Port: move strip"
-    run("pr", "add", PR, "--job", asking)
+    run("pr", "add", PR, "--job", asking, *LEAD)
     run("pr", "set", PR, "--port-of", "4100")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
@@ -5602,7 +5647,7 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -5623,7 +5668,7 @@ def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_car
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
-    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -6097,7 +6142,7 @@ def test_pr_set_part_on_a_done_builders_merged_pr_delivers_a_part_its_job_never_
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", main, "--parts", main, state.IMMEDIATE_FIX)
     run("job", "add", "builder", "--order", "o1", "--part", state.IMMEDIATE_FIX, "--goal", "the line every five minutes", "--agent", "a")
     url = "https://github.com/yasyf/cc-skills/pull/4582"
-    run("pr", "add", url, "--job", "j1")
+    run("pr", "add", url, "--job", "j1", *LEAD)
     assert cli.main(["pr", "set", url, "--part", main]) == 2
     assert f"yasyf/cc-skills#4582: refused, nothing set: its job j1 delivers no part {main}" in capsys.readouterr().err
     with state.edit("demo") as data:
@@ -6346,11 +6391,11 @@ def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, 
 def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str], draws: Draws) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "rerun the backfill once", "--once")
     run("job", "add", "builder", "--order", "o1", "--goal", "run the backfill")
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
     assert "refused, o1 is a repair he asked to run once: run it, and put up no PR for it" in capsys.readouterr().err
     assert state.load("demo")["prs"] == {}
     run("order", "set", "o1", "--no-once")
-    assert run("pr", "add", PR, "--job", "j1") == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
 
 
 def test_status_names_the_open_incidents_and_each_running_job_whose_session_ended(
@@ -6945,10 +6990,10 @@ def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_wha
 def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it_its_card_withdrawn(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], withdrawals: Withdrawals
 ) -> None:
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1", *LEAD)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2", *LEAD)
     run("job", "add", "builder", "--order", "o1", "--goal", "shipped", "--waits", "j1")
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/46", "--job", "j3")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/46", "--job", "j3", *LEAD)
     settled = cards_asking(monkeypatch, PR)
     withdrawals.cards = [TAP_CARD]
     with state.edit("demo") as data:
@@ -6984,7 +7029,7 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
 ) -> None:
     top, top_url = "Forge-AI/monorepo#44", "https://github.com/Forge-AI/monorepo/pull/44"
     run("job", "add", "builder", "--order", "o1", "--goal", "rework the top", "--waits", "j1")
-    run("pr", "add", top_url, "--job", "j3")
+    run("pr", "add", top_url, "--job", "j3", *LEAD)
     cards_asking(monkeypatch, PR, top_url)
     stack = [designing, top]
     with state.edit("demo") as data:
@@ -7026,8 +7071,8 @@ def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_
     cards_asking(monkeypatch, PR)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j3")
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j3")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j3", *LEAD)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j3", *LEAD)
     words = f"{WORDS}; hold https://github.com/Forge-AI/monorepo/pull/45 until it lands"
     assert cli.main(["answer", "a1", "--words", words, "--link", PICK]) == 2
     listed = capsys.readouterr().err
@@ -7177,7 +7222,7 @@ def test_others_stand_refuses_to_mark_more_than_a_few_unread_cards_and_prs_stand
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for number in (44, 45, 46):
-        run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1")
+        run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1", *LEAD)
     cards_asking(monkeypatch, PR)
     assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
     assert cli.main(["answer", "a1", "--others-stand"]) == 2
@@ -7193,7 +7238,7 @@ def test_others_stand_refuses_to_mark_more_than_a_few_unread_cards_and_prs_stand
 def test_superseding_an_open_pr_outright_closes_it_on_github_and_leaves_a_merged_one_as_it_is(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, closed: list[str]
 ) -> None:
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1", *LEAD)
     cards_asking(monkeypatch, PR)
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#44"]["state"] = "merged"
@@ -7360,7 +7405,7 @@ def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
 def test_superseding_one_pr_of_a_stack_card_refuses_until_the_whole_stack_is_marked_and_settles_it_once(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("pr", "add", STACKED, "--job", "j1")
+    run("pr", "add", STACKED, "--job", "j1", *LEAD)
     settled = cards_asking(monkeypatch, PR, STACKED)
     assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
     assert run("answer", "a1", "--superseded", f"{designing}=stop")[0] == 2
