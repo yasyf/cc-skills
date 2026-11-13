@@ -2957,7 +2957,7 @@ def test_job_ask_hands_jev_his_order_from_his_slack_message_and_his_thread_words
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block))[0] == 0
     assert [(word["id"], word["said"]) for word in jev.asked[0]["state"]["his_words"] if "ruling" not in word["id"]] == [("p1794200000000100", his)]
-def test_job_ask_refuses_an_option_his_words_rule_out_until_it_is_rewritten_or_unsettled_names_them(
+def test_job_ask_keeps_a_card_whose_option_his_words_rule_out_and_prints_jevs_finding_to_the_agent(
     run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
@@ -2971,23 +2971,17 @@ def test_job_ask_refuses_an_option_his_words_rule_out_until_it_is_rewritten_or_u
     jev.breaks("untapped", key)
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert "refused: Jev reads his words as ruling out what this card offers him." in refusal
-    assert f'- option "A map file beside each journal file: no guessing, but one request per file and twice the objects" breaks {key}: asked "his message in the order\'s thread", he said "{words}"' in refusal
-    assert f'- the card breaks {key}: asked "his message in the order\'s thread", he said "{words}"' in refusal
+    assert cli.main(["job", "ask", "j1", str(block)]) == 0
+    advice = capsys.readouterr().err
+    broken = f'as breaking {key}, his message in the order\'s thread, "{words}". This finding refuses no card, by his pick 320b7a7'
+    assert f'drive job ask: Jev reads option "A map file beside each journal file: no guessing, but one request per file and twice the objects" {broken}' in advice
+    assert f"drive job ask: Jev reads the card {broken}" in advice
+    assert f'ask it again with `--unsettled "{key}: <why his words do not reach it>"`, which holds its PR on an incident until he answers.' in advice
     [question] = state.load("demo")["jobs"]["j1"]["questions"]
-    assert question["refused"]
-    assert f'or keep it with `drive job ask j1 {question["file"]} --unsettled "{key}: <why his words do not reach it>"`, and for a reader\'s DESIGN run `drive job report j1 -` again' in refusal
-    jev.ruled.pop("breaks2")
-    block.write_text(SHORT_ASK.replace("ASK How should", "ASK Once a run is billed per object, how should"))
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    assert [line.split(":")[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f"- the card breaks {key}"]
-    kept = state.load("demo")["jobs"]["j1"]["questions"][-1]["file"]
-    assert run("job", "ask", "j1", kept, "--unsettled", f"{key}: he named no amount this card asks about")[0] == 0
+    assert (question["refused"], question["waits"] is not None) == (None, True)
 
 
-def test_job_ask_refuses_an_option_jev_reads_as_never_worked_out_to_what_it_will_look_like_naming_that_option(
+def test_job_ask_keeps_a_card_whose_option_jev_reads_as_never_worked_out_and_prints_jevs_finding_naming_that_option(
     run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
@@ -2998,15 +2992,14 @@ def test_job_ask_refuses_an_option_jev_reads_as_never_worked_out_to_what_it_will
     jev.breaks("worked3", limits.WORKED_WORDS["id"])
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert f'- option "{unworked}" breaks ruling:77b577b: asked "{limits.WORKED_WORDS["asked"]}", he said "dontg be lazy flash this out' in refusal
-    assert [line.split(":")[0] for line in refusal.splitlines() if line.startswith("- ")] == [f'- option "{unworked.split(":")[0]}']
+    assert cli.main(["job", "ask", "j1", str(block)]) == 0
+    advice = capsys.readouterr().err
+    assert f'drive job ask: Jev reads option "{unworked}" as breaking ruling:77b577b, {limits.WORKED_WORDS["asked"]}, "dontg be lazy flash this out' in advice
+    assert [line.partition(" as breaking ")[0] for line in advice.splitlines() if line.startswith("drive job ask: Jev reads")] == [f'drive job ask: Jev reads option "{unworked}"']
     [request] = jev.asked
     assert f'The option: "{unworked}".' in request["questions"]["worked3"]["label"]["instructions"]
     assert limits.WORKED_WORDS in request["state"]["his_words"]
-    jev.ruled.pop("worked3")
-    assert run("job", "ask", "j1", str(block))[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["refused"] is None
 
 
 def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes(
@@ -3039,9 +3032,10 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix") + "Interim fix: j1 restarts the pods that ran out of memory\n"
     block = tmp_path / "ask.md"
     block.write_text(asked)
-    assert cli.main(["job", "ask", "j3", str(block)]) == 2
-    assert f'breaks 9992100: asked "{WAIT_RULING["asked"]}", he said "{WAIT_RULING["said"]}"' in capsys.readouterr().err
+    assert cli.main(["job", "ask", "j3", str(block)]) == 0
+    assert f'as breaking 9992100, {WAIT_RULING["asked"]}, "{WAIT_RULING["said"]}". This finding refuses no card' in capsys.readouterr().err
     assert WAIT_RULING in jev.asked[-1]["state"]["his_words"]
+    assert land.ship_held(state.load("demo"), "j3", {}) == []
     unsettled = "9992100: this card asks whether the incident overrides his wait"
     assert run("job", "ask", "j3", str(block), "--unsettled", unsettled)[0] == 0
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
@@ -7333,11 +7327,14 @@ NOT_SPECIAL = {
 }
 
 
-def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_card_against_his_rulings_and_refuses_only_what_it_is_eight_in_ten_sure_they_rule_out(jev: Jev) -> None:
+def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_card_against_his_rulings_and_prints_only_what_it_is_eight_in_ten_sure_they_rule_out(
+    jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
     asked = limits.question(AGENT_START, kept=True)
     case = limits.ask_case(AGENT_START, asked)
     jev.picks(NOT_SPECIAL["id"], 0.79)
-    assert settled.judged(case, asked, [NOT_SPECIAL]) == []
+    settled.judged(case, asked, [NOT_SPECIAL])
+    assert capsys.readouterr().err == ""
     [request] = jev.asked
     questions = request["questions"]
     assert list(questions) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "untapped", "card"]
@@ -7350,7 +7347,8 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_
     assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
-    assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
+    settled.judged(case, asked, [NOT_SPECIAL])
+    assert capsys.readouterr().err.startswith(f'drive job ask: Jev reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
     settled.judged(case, asked, [])
     assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "card"]
 
@@ -7363,10 +7361,10 @@ def test_his_ruling_on_root_causes_is_judged_once_on_the_cards_recommendation_be
     assert "speaks only to the option the card recommends" in settled.CARD_QUESTION
     assert "root causes" not in settled.BREAKS_QUESTION
     jev.breaks("card", "ruling:0c59046")
-    assert settled.judged(case, asked, [NOT_SPECIAL]) == []
+    settled.judged(case, asked, [NOT_SPECIAL])
     assert all("ruling:0c59046" not in question["label"]["options"] for key, question in jev.asked[-1]["questions"].items() if key != "card")
     advice = capsys.readouterr().err
-    assert advice.startswith(f'drive job ask: Jev reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}", by its rule: {limits.ROOT_CAUSE_RULES["found"]}')
+    assert advice.startswith(f'drive job ask: Jev reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}". Its rule: {limits.ROOT_CAUSE_RULES["found"]}')
     assert "This finding refuses no card, by his pick 320b7a7" in advice
 
 
@@ -7408,12 +7406,13 @@ Holds: none: no option changes code any job builds
 """
 
 
-def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_his_words_on_another_area(jev: Jev) -> None:
+def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_his_words_on_another_area(jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     jev.breaks("card", "ruling:a99b78b")
     offered = []
     for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
         asked = limits.question(text, kept=True)
-        assert settled.broken_refusal(settled.judged(limits.ask_case(text, asked), asked, []), None, "j1", Path("ask.md")) is None
+        settled.judged(limits.ask_case(text, asked), asked, [])
+        assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
     assert offered == [(["none", "ruling:0c59046", "ruling:32f49af"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS])] * 2

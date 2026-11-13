@@ -138,8 +138,8 @@ Replaces: <only on a question built on another open question of his: the path dr
   line, and a PR adding a cap, timer, retry, exit, flag, pin or sweeper removed nothing. A card with no
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
-  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever", and his words "so why was that not the suggested optin to me, or even any of the options?" `drive job ask` refuses a block whose lines are out of this shape, and
-  one with an option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or keep it with the `drive job ask <j> <file> --unsettled "<id>: <why those words do not reach it>"` the refusal prints, by his words "They should all use jev for judgement rather than hard coding thighs". Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one, and its finding is printed to you and refuses no card, by his pick 320b7a7 "drive job ask keeps every well-shaped card and prints Jev's finding to the agent".
+  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever", and his words "so why was that not the suggested optin to me, or even any of the options?" `drive job ask` refuses a block whose lines are out of this shape,
+  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card, and when the card asks him to lift those words, ask it again with `--unsettled "<id>: <why those words do not reach it>"`. Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
   working a change it names, only those its own job or its design's builder carries and those it
@@ -185,7 +185,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   calls, the rows or bytes it writes, its flow or what a caller gets, as a `compare` panel named
   with the option's words, a table, or a diagram captioned with its number, never only its files and
   cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
-  `drive job ask` refuses an option Jev reads as left unworked, naming it. Beyond that it shows only
+  `drive job ask` prints each option Jev reads as left unworked, naming it. Beyond that it shows only
   what the words cannot, never a name or value they already say: "show a sinippet when it makews
   sense". It is drawn whole on his card, outside the 150 words, so never cut the example to fit.
 - Name each fence's kind, since the card draws it as a picture from its source. Use `mermaid` for

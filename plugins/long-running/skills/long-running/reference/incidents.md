@@ -223,8 +223,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
   open, another pick is a follow-up: no incident waits; costs a second PR."
 - A card that asks him to lift a ruling of his holds its PR on an incident too, by his pick "Hold
   the PR until you answer; the drive finds each card against your recorded answers". `drive job ask`
-  reads each card against his recorded answers `ccn answer match` ranks nearest to its whole block,
-  and refuses one whose option his words rule out until `--unsettled` names them. That mark makes
+  reads each card against his recorded answers `ccn answer match` ranks nearest to its whole block
+  and prints each option Jev reads his words as ruling out, refusing none, by his pick 320b7a7; the
+  builder keeps such a card with `--unsettled` naming those words. That mark makes
   `land.open_cards` keep the card on an incident, so the `bash_guard` hook refuses the
   `ccx vcs ship` that would open its PR, and the lander, `landing_guard` and his PR card hold an
   open one, until he answers.

@@ -96,9 +96,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    option while his card stays open, by his pick "The repair lands on the recommendation, the
    question stays open, another pick is a follow-up: no incident waits; costs a second PR."
    A card that asks him to lift a ruling of his is the exception: `drive job ask` reads each card
-   against the recorded answers of his `ccn answer match` ranks nearest to it, refuses one whose
-   option his words rule out until `--unsettled` names them, and that mark holds its PR on an
-   incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
+   against the recorded answers of his `ccn answer match` ranks nearest to it and prints each
+   option Jev reads his words as ruling out; keep such a card with `--unsettled` naming them, a
+   mark that holds its PR on an incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
    until you answer; the drive finds each card against your recorded answers".
 4. Write the change:
    - Change only what his words ask. What already exists, a value's printed form, a wire, file or
@@ -569,8 +569,8 @@ Replaces: <only on a question built on another open question of his: the path dr
   line, and a PR adding a cap, timer, retry, exit, flag, pin or sweeper removed nothing. A card with no
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
-  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape, and
-  one with an option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or keep it with the `drive job ask <j> <file> --unsettled "<id>: <why those words do not reach it>"` the refusal prints, by his words "They should all use jev for judgement rather than hard coding thighs". Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one, and its finding is printed to you and refuses no card, by his pick 320b7a7 "drive job ask keeps every well-shaped card and prints Jev's finding to the agent". On an incident or a bug a reporter shared,
+  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape,
+  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card, and when the card asks him to lift those words, ask it again with `--unsettled "<id>: <why those words do not reach it>"`. Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
@@ -625,7 +625,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   what it will look like once built: its real calls, the rows or bytes it writes, its flow, or the
   reply or screen a caller gets, as a `compare` panel named with the option's words, a markdown
   table, or a diagram or picture captioned with its number, never only the files it touches and its
-  cost. `drive job ask` refuses an option Jev reads as left unworked, naming it, by his words
+  cost. `drive job ask` prints each option Jev reads as left unworked, naming it, by his words
   "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3" and "flash this out wayu more and od that for everyhtrfing in the future".
   Any other card, such as one asking whether or when to release, adds a Show me only when it shows
   what the summary and options cannot; a constant, name or value the words already say needs none.
