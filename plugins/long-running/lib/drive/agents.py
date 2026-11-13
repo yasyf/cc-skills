@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import install, limits, procs, reads, render, state, superseded
+from drive import install, limits, procs, reads, render, slack, state, superseded
 from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
@@ -575,7 +575,7 @@ def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
     reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]), reads.posting())
-    remove_session(payload)
+    remove_session(name, payload)
 
 
 def resume(payload: dict) -> str | None:
@@ -612,13 +612,14 @@ def restart_handler(name: str, payload: dict) -> None:
         entry = data["handlers"][payload["agent_id"]]
         entry.update(session=None, handed=[*entry["took"], *entry["handed"]], took=[])
     state.detach(name, ["handler-start", payload["agent_id"]], "handlers.log")
-    remove_session(payload)
+    remove_session(name, payload)
 
 
-def remove_session(payload: dict) -> None:
-    """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it."""
+def remove_session(name: str, payload: dict) -> None:
+    """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. The session then stops hearing his DM, so cc-slack hands each reply of his it never took to the session holding his DM at once rather than once the process exits."""
     own, _ = background_job(payload["handler_session"])
     subprocess.Popen(["claude", "rm", own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    slack.cc_slack("unfollow", "--channel", state.stored(name, ("slack",))["slack"]["channel"], "--session", payload["handler_session"], "--cwd", payload["cwd"])
 
 
 def ended(row: dict) -> bool:

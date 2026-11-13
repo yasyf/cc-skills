@@ -29,6 +29,13 @@ def started(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     return argvs
 
 
+@pytest.fixture(autouse=True)
+def slack_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {})
+    return calls
+
+
 def start(run: Run, tmp_path: Path) -> str:
     code, out = run("handler", HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1"))
     assert code == 0
@@ -211,8 +218,14 @@ def test_the_agent_tool_starts_no_handler(communicator: str) -> None:
     assert agent_brief.deny_reason(call | {"tool_input": call["tool_input"] | {"subagent_type": "long-running:reader"}}) is None
 
 
-def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_session(
-    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_session_which_stops_hearing_his_dm(
+    communicator: str,
+    run: Run,
+    tmp_path: Path,
+    started: list[list[str]],
+    slack_calls: list[tuple[str, ...]],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     handler = start(run, tmp_path)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Answers", "why is this card asking again?", "--kind", "answer")
@@ -233,6 +246,7 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
         "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
     ]
     assert removed == [["claude", "rm", BACKGROUND_JOB]]
+    assert slack_calls[-1] == ("unfollow", "--channel", state.load("demo")["slack"]["channel"], "--session", "h-session", "--cwd", str(tmp_path))
     data = state.load("demo")
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))
