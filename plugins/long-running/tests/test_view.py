@@ -749,6 +749,14 @@ def test_a_card_of_sibling_prs_in_his_queue_is_titled_as_the_card_and_names_the_
     assert [each["url"] for each in item["prs"]] == urls
 
 
+def test_each_pr_page_of_a_card_of_sibling_prs_reads_it_as_siblings_so_it_never_calls_them_a_stack() -> None:
+    data = drive_of({"o1": order("fix the incident", ["j1"])}, {"j1": job("o1", "running")}, [pr(n, "o1", wants_tap=True) for n in (1, 2)])
+    urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
+    card = {"prs": urls, "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": {"title": "Fix: 2 PRs of one request: cap the demo buffer", "options": ["Approve", "Hold"], "prs": [{"url": url, "title": f"Fix: demo {n}"} for n, url in enumerate(urls, 1)], "siblings": True}}
+    shown = view.summary(view.board(data, found(pr_cards=[card]), "live", [], T0, set(), {}))
+    assert [entry["card"]["siblings"] for entry in shown["review"]] == [True, True]
+
+
 def test_a_stack_card_in_his_queue_carries_each_of_its_prs_as_it_stands_now_in_the_cards_order() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(1, "o1", state="merged"), pr(2, "o1", wants_tap=True)])
     urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
@@ -891,7 +899,7 @@ def test_the_summary_every_page_is_sent_leaves_out_history_lanes_and_each_featur
     [entry] = [entry for group in shown["status"] for entry in group["features"]]
     assert not {"history", "work"} & set(shown)
     assert (entry["title"], "text" in entry, "jobs" in entry, entry["running"]) == ("ship the page", False, False, 1)
-    assert shown["queue"][0]["card"] == {"title": "Raise the limit?", "options": ["Yes", "No"], "recommended": "Yes", "prs": []}
+    assert shown["queue"][0]["card"] == {"title": "Raise the limit?", "options": ["Yes", "No"], "recommended": "Yes", "prs": [], "siblings": False}
 
 
 def test_history_pages_eighty_moments_newest_first_of_a_pacific_day_or_every_day_kept_to_the_kinds_he_picked() -> None:
