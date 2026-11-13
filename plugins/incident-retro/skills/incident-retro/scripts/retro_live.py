@@ -73,8 +73,11 @@ def clip(text: str, budget: int, chars: int = 0) -> str:
 
 
 def handle(text: str, fallback: str, retro) -> str:
-    short = clip(text, retro.HANDLE_WORDS).rstrip(".,;:")
-    return short if len(short.split()) > 1 else fallback
+    parts = WORD.findall(str(text or "").strip())
+    while parts and retro.words(retro.prose_only(" ".join(parts))) > retro.HANDLE_WORDS:
+        parts.pop()
+    short = " ".join(parts).rstrip(".,;:")
+    return short if retro.words(retro.prose_only(short)) > 1 else fallback
 
 
 def numeric_id(holder: dict, where: str):
