@@ -143,6 +143,10 @@ Then do the row that matches. A row that names a section means every bullet of t
 - His order to keep answering a teammate's thread lives on the drive's watch, never on you, since your session ends: file it with `drive order add "<his words>" --from <his permalink> --watch <the thread's permalink> --kind answer --project <p> --workstream <w> --title "<a few words>"`, the pair in use it is about. The watch reads that thread once a minute and starts a handler on each new message there from anyone but him, the drive and a bot, until the order closes. Then answer the thread's newest unanswered message there as "A report carrying `watch=true`" does, and post one line in his thread that the drive answers each new message there until he ends it.
 - His words ending a watch close its order: `say(close=true, text=<one line naming the thread no longer answered>)` in his thread when the communicator holds it, else the `owner` record above with his words and `order: "<o>"`, so the session holding it closes it. The watch reads no thread of a closed order.
 
+### A followed build
+
+- His ask to be kept updated on a Buildkite build, such as a staging release, lives on the drive's watch, never on you: once the build exists, run `drive order set <o> --follow <the build's link> <his ask's permalink> [--part "<the part>"]`. The watch rewrites one status message in the thread of his ask each minute and, at the build's end, starts a handler on a report carrying the part, whose one `say(record=<seq>)` in that thread is the end line delivering it: how the build ended, its failed steps by name, and what his ask wants of its end, such as how confident we are to release the same commit further. Post nothing about the build's steps yourself.
+
 ## Share rules
 
 His order to post, in his DM, in a terminal or by a tap on a card, is his permission for one post in

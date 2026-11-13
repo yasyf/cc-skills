@@ -74,6 +74,11 @@ WATCH_HELP = (
     "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
     " a minute and starts a handler on each new message there from anyone but him, the drive and a bot, until the order closes"
 )
+FOLLOW_HELP = (
+    "a Buildkite build's link and his message in his DM asking to be kept updated on it: the watch reads the build once a minute,"
+    " keeps one status message in the thread of his ask current with its running steps, and once the build ends starts a handler"
+    " on the end line, which delivers the part --part names, the order's only part by default; no other post delivers that part meanwhile"
+)
 ALERT_HELP = (
     "the Datadog monitor or Sentry issue link of the alert it is, again for each: once its fix is live, the watch reads each"
     " monitor every minute and closes the incident once all read OK"
@@ -631,6 +636,7 @@ def order_set(args: argparse.Namespace) -> int:
     held = {(kept["channel"], kept["thread"]) for kept in order["reporters"]}
     reporters = [] if unreported else [*order["reporters"], added] if added and (added["channel"], added["thread"]) not in held else order["reporters"]
     watched = state.new_watch(args.watch, state.now()) if args.watch else None
+    followed = follow_ask(data, args.id, *args.follow, args.part) if args.follow else None
     if args.state == "done" and state.untold_reporters(order | {"reporters": reporters}):
         raise DriveError(untold(args.id, order | {"reporters": reporters}))
     if args.words is not None:
@@ -642,7 +648,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.title is not None:
         titled(args.title)
     alerts = alert_links(args.alerts)
-    sorted_parts = sorted_as(data, args.id, args.kind, args.part)
+    sorted_parts = sorted_as(data, args.id, args.kind, [] if followed and not args.kind else args.part)
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
@@ -726,6 +732,8 @@ def order_set(args: argparse.Namespace) -> int:
             )
         if args.incident is not None:
             order["incident"] = args.incident
+        if followed:
+            order["parts"][followed[0]].update(follow=followed[1], posted=None)
         for part in sorted_parts:
             order["parts"][part]["answer"] = args.kind == "answer"
         answered = set(sorted_parts or order["parts"]) if args.kind == "answer" else set()
@@ -750,8 +758,23 @@ def order_set(args: argparse.Namespace) -> int:
             order["last_line"] = order["updated"]
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
-    parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
+    parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *(followed[:1] if followed else [])])]
     return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+
+
+def follow_ask(data: dict, order_id: str, build: str, ask: str, named: list[str]) -> tuple[str, dict]:
+    """The part his ask to be kept updated on a Buildkite build wants followed, and the follow the watch keeps of it, refused for a link that is no build, a message that is not his, an ask outside his DM, where the watch rewrites its own status message with no ticket, more than one part, since one end line delivers one, and work he ordered, which no post delivers."""
+    if not github.BUILD.fullmatch(build):
+        raise DriveError(f"--follow {build}: refused, name the build by its Buildkite link, https://buildkite.com/<org>/<pipeline>/builds/<number>")
+    channel, thread = state.link_thread(his_words(ask, "ask to be kept updated on a build"))
+    if channel != slack.dm():
+        raise DriveError(f"--follow {ask}: refused, the watch keeps a build's status message current only in his DM, where rewriting its own post needs no ticket; name his ask there")
+    if len(named) > 1:
+        raise DriveError(f"--follow: refused, the build's end line delivers one part of {order_id}, so name one --part")
+    [part] = pick_parts(order_id, data["orders"][order_id], named)
+    if state.work(data, order_id, part):
+        raise DriveError(f'--follow: refused, "{part}" of {order_id} is work he ordered, which its builder\'s DONE or a merged PR delivers, never the end line of a build: sort the part asking to be kept updated as words he reads first, with drive order set {order_id} --kind answer --part "{part}"')
+    return part, {"build": build, "thread": thread, "message": None, "words": None, "ended": None, "record": None}
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
@@ -894,10 +917,12 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
+    """Deliver a part of the order from the session its watch lines reach, posting nothing, refused while the build it follows runs: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
     data = state.load(name)
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])
+    if state.following(order["parts"][part]):
+        raise DriveError(f'--part "{part}": refused, the watch follows {order["parts"][part]["follow"]["build"]} for it, so only the end line it owes once that build ends delivers it')
     if not (work := state.work(data, order_id, part)):
         drive_post_at(link, data, order_id)
     elif not state.PR_URL.search(link):
@@ -1040,10 +1065,10 @@ def unclaim_close(name: str, closes: list[str]) -> None:
 
 
 def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
-    """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered nor a part whose followed build still runs, which only the end line the watch owes delivers, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
     closing = order_id in state.closed_orders(report)
     if named := [part for on, part in items if on == order_id]:
-        return [part for part in pick_parts(order_id, order, named) if closing or not state.work(data, order_id, part)]
+        return [part for part in pick_parts(order_id, order, named) if closing or not (state.work(data, order_id, part) or state.following(order["parts"][part]))]
     return list(order["parts"]) if closing else []
 
 
@@ -4466,6 +4491,7 @@ def parser() -> argparse.ArgumentParser:
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporters; the order then closes done with no note to them")
     verb.add_argument("--watch", metavar="LINK", help=f"{WATCH_HELP}; it replaces any thread the order watched, reading only messages newer than now")
+    verb.add_argument("--follow", nargs=2, metavar=("BUILD", "ASK"), help=FOLLOW_HELP)
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
@@ -4478,7 +4504,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         type=str.strip,
-        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left; with --kind build, work again",
+        help="with --follow alone, the part the build's end line delivers; with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left; with --kind build, work again",
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(

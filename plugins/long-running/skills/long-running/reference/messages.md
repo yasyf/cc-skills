@@ -524,6 +524,18 @@ restating it.
   naming every step that moved in that time, and starts one handler, which posts what changed in that
   thread, so no session writes a progress line of its own and a thread lined minutes before gets none. None goes out while he is away, since his catch-up
   carries it, nor once a report closing the order is kept or posted, whose post is its line.
+- His ask to be kept updated on a Buildkite build, such as a staging release, is the watch's to
+  follow, by his pick "A live status message: one message in your thread, rewritten each minute with
+  the running step, then an end line; one Buildkite read a minute" and his words "fix your toolking
+  so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent". Once
+  the build exists, the session holding the order runs `drive order set <o> --follow <build link>
+  <his ask> [--part "<part>"]`. The watch reads the build each minute, posts one status message in
+  the thread of his ask naming each running step with its minutes and how many steps are done, and
+  rewrites it whenever those words change. At the build's end it starts a handler on the end line,
+  which says how the build ended and what his ask wants of it, such as how confident we are to
+  release the same commit further, and delivers the part; no other post delivers it meanwhile, so
+  the ack under his ask leaves it open. Only an ask in his DM is followed, since the watch rewrites
+  its own post there with no ticket, and the end line waits for his catch-up while he is away.
 - An incident shares that rule with a clock: until its fix is live he hears each step the moment it
   happens, and until its users are unblocked a line five quiet minutes after the last while a job
   works on it or something it names moved, while he is away too, which the watch owes and has a

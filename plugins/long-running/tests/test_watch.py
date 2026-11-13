@@ -999,6 +999,85 @@ def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_m
     assert (len(calls), len(slack_thread.reads)) == (2, 2)
 
 
+FOLLOWED = "https://buildkite.com/forge/release/builds/14185"
+
+
+def release(state_name: str, finished_at: str | None = None, **states: str) -> dict:
+    jobs = [
+        {"type": "script", "name": "Build images", "state": "passed", "started_at": "2026-11-09T15:00:00Z"},
+        {"type": "waiter", "state": "passed"},
+        {"type": "script", "name": "Watch the tenant smoke on plat-usw2-staging", "state": states.get("smoke", "running"), "started_at": "2026-11-09T15:01:00Z"},
+        {"type": "script", "label": "Promote", "state": states.get("promote", "scheduled")},
+    ]
+    return {
+        "web_url": FOLLOWED,
+        "number": 14185,
+        "state": state_name,
+        "message": "Staging release plangent-macdiarmid\n\nships 12 PRs",
+        "commit": "abc1234def",
+        "created_at": "2026-11-09T14:59:00Z",
+        "started_at": "2026-11-09T15:00:00Z",
+        "finished_at": finished_at,
+        "jobs": jobs,
+    }
+
+
+
+def test_a_build_his_ask_follows_keeps_one_status_message_current_and_has_a_handler_post_the_end_line_that_delivers_the_part(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "open"
+        data["jobs"]["j1"]["state"] = "done"
+        [part] = data["orders"]["o1"]["parts"]
+        data["orders"]["o1"]["parts"][part]["follow"] = {"build": FOLLOWED, "thread": "1794200000.000100", "message": None, "words": None, "ended": None, "record": None}
+    builds = [release("running")]
+    read: list[tuple[str, str]] = []
+    posts: list[dict] = []
+    monkeypatch.setattr(github, "build", lambda pipeline, number: read.append((pipeline, number)) or builds[-1])
+    monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": POSTED})
+    watching = watcher(demo)
+    title = f"<{FOLLOWED}|Staging release plangent-macdiarmid>"
+    assert watch.followed_lines(watching, T0 + timedelta(minutes=5)) == []
+    assert posts == [{"text": f"{title}: Watch the tenant smoke on plat-usw2-staging, 4 min; 1 of 3 steps done", "thread_ts": "1794200000.000100"}]
+    assert watch.followed_lines(watching, T0 + timedelta(minutes=5, seconds=30)) == []
+    assert (len(read), len(posts)) == (2, 1)
+    assert watch.followed_lines(watching, T0 + timedelta(minutes=6)) == []
+    assert posts[-1] == {"edit": POSTED, "text": f"{title}: Watch the tenant smoke on plat-usw2-staging, 5 min; 1 of 3 steps done"}
+    assert watch.part_gap(watching, state.load(demo), "o1", part, T0 + timedelta(hours=1)) is None
+    assert calls == []
+    builds.append(release("failed", "2026-11-09T15:20:00Z", smoke="failed", promote="not_run"))
+    assert watch.followed_lines(watching, T0 + timedelta(minutes=21)) == []
+    assert posts[-1] == {"edit": POSTED, "text": f"{title}: failed after 20 min; 3 of 3 steps done; failed: Watch the tenant smoke on plat-usw2-staging"}
+    [(report, body), (start, _)] = calls
+    assert (report["text"], report["topic"], report["to"]) == ("POST the build o1 follows ended failed: post its end line in the thread of his ask", "follow-o1", [f"communicator@{demo}"])
+    assert report["attr"] == {"order": "o1", "part": f"o1:{part}", "thread": "1794200000.000100"}
+    assert f"The build: {FOLLOWED}, failed, at commit abc1234def" in body.splitlines()
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'follow-901'}"
+    follow = state.load(demo)["orders"]["o1"]["parts"][part]["follow"]
+    assert (follow["ended"], follow["record"], follow["message"]) == (state.stamp(T0 + timedelta(minutes=21)), None, POSTED)
+    assert watch.followed_lines(watching, T0 + timedelta(minutes=22)) == []
+    assert (len(read), len(posts), len(calls)) == (4, 3, 2)
+
+
+def test_a_followed_build_that_cannot_be_read_posts_nothing_and_is_said_from_its_third_failure_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "open"
+        [part] = data["orders"]["o1"]["parts"]
+        data["orders"]["o1"]["parts"][part]["follow"] = {"build": FOLLOWED, "thread": "1794200000.000100", "message": None, "words": None, "ended": None, "record": None}
+
+    def unread(pipeline: str, number: str) -> dict:
+        raise github.GithubError("bk: 502")
+
+    monkeypatch.setattr(github, "build", unread)
+    monkeypatch.setattr(talk, "posted", lambda name, post: pytest.fail("posted with no build read"))
+    watching = watcher(demo)
+    assert [watch.followed_lines(watching, T0 + timedelta(minutes=minute)) for minute in (1, 2)] == [[], []]
+    assert watch.followed_lines(watching, T0 + timedelta(minutes=3)) == [f"WATCH follow of {FOLLOWED} for o1 failed 3 times in a row: bk: 502"]
+    assert state.load(demo)["orders"]["o1"]["parts"][part]["follow"]["message"] is None
+
+
 def test_a_watched_thread_that_cannot_be_read_keeps_its_cursor_and_is_said_from_its_third_failure_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
         data["orders"]["o1"].update(state="open", watch=state.new_watch(f"slack:C0TEAM0001/{TEAMMATE_THREAD}", T0))

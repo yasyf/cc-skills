@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, stall, state, superseded, view
+from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, refs, render, served, slack, stage, stall, state, superseded, view
 from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, reported_prs, said_on_prs, upgraded
 from drive.render import cut, when
 
@@ -67,6 +67,8 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
+STEP_ENDED = ("passed", "failed", "canceled", "timed_out", "skipped", "broken", "expired", "not_run")
+STEP_FAILED = ("failed", "timed_out")
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 
 
@@ -1155,6 +1157,84 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
     return seq
 
 
+def followed_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Keep his thread current on each Buildkite build a part of an open order the watch hears follows, by his pick "A live status message: one message in your thread, rewritten each minute with the running step, then an end line; one Buildkite read a minute": the build read each READ_EVERY, one status message posted in the thread of his ask at the first read and rewritten whenever its words change, so no session's turn keeps it current, and at the build's end a report the handler the watch starts posts as the end line, which delivers the part. A failed read, post, write or start is said as a failed read is and tried again next read, a start with the same report."""
+    lines = []
+    for order_id, order in heard_orders(watcher, state.load(watcher.name)).items():
+        for part, held in order["parts"].items():
+            if not (follow := held["follow"]) or follow["ended"] and not follow["record"]:
+                continue
+            source = f"follow {order_id} {follow['build']}"
+            try:
+                seq = follow["record"] or followed(watcher, order_id, order, part, follow, moment)
+                if seq:
+                    with contextlib.suppress(agents.Busy):
+                        agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'follow-{seq}'}")
+            except (github.GithubError, slack.SlackError, reads.ReadError, state.DriveError) as error:
+                lines += failed(watcher, source, f"follow of {follow['build']} for {order_id}", error, moment)
+                continue
+            watcher.failures.pop(source, None)
+            if seq:
+                with state.edit(watcher.name) as data:
+                    data["orders"][order_id]["parts"][part]["follow"]["record"] = None
+    return lines
+
+
+def followed(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, moment: datetime) -> str | None:
+    """Read the build a part follows, post its status message or rewrite it when its words changed, and once the build ended write the report owing its end line, kept on the follow until a handler has it; that report's seq, None while the build runs."""
+    from drive import talk
+
+    found = github.BUILD.fullmatch(follow["build"])
+    build = github.build(found["pipeline"], found["number"])
+    words = followed_words(build, moment)
+    message = follow["message"] or talk.posted(watcher.name, {"text": words, "thread_ts": follow["thread"]})["permalink"]
+    if follow["message"] and words != follow["words"]:
+        talk.posted(watcher.name, {"edit": message, "text": words})
+    kept = {"message": message, "words": words}
+    if build.get("finished_at"):
+        kept |= {"ended": state.stamp(moment), "record": followed_report(watcher, order_id, order, part, follow | kept, build)}
+    with state.edit(watcher.name) as data:
+        data["orders"][order_id]["parts"][part]["follow"].update(kept)
+    return kept.get("record")
+
+
+def followed_words(build: dict, moment: datetime) -> str:
+    """A followed build's status message: its link, then each step running with its minutes, or once it ended its result, minutes and failed steps, then how many of its steps are done, such as "Staging release plangent-macdiarmid: Watch the tenant smoke on plat-usw2-staging, 4 min; 120 of 136 steps done"."""
+    steps = [job for job in build["jobs"] if job["type"] != "waiter"]
+    title = cut(first_line(build["message"]) or f"build {build['number']}", 80).translate(refs.LINK_WORDS)
+    tally = f"{sum(job['state'] in STEP_ENDED for job in steps)} of {len(steps)} steps done"
+    if ended := build.get("finished_at"):
+        failing = [step_name(job) for job in steps if job["state"] in STEP_FAILED]
+        took = minutes(state.parse_time(ended) - state.parse_time(build.get("started_at") or build["created_at"]))
+        return f"<{build['web_url']}|{title}>: {build['state']} after {took} min; {tally}" + (f"; failed: {', '.join(failing)}" if failing else "")
+    running = [f"{step_name(job)}, {minutes(moment - state.parse_time(job['started_at']))} min" for job in steps if job["state"] == "running"]
+    return f"<{build['web_url']}|{title}>: {'; '.join(running) or build['state']}; {tally}"
+
+
+def step_name(job: dict) -> str:
+    return job.get("name") or job.get("label") or job["type"]
+
+
+def followed_report(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, build: dict) -> str:
+    """Write the report owing him the end line of the build a part of the order follows, for the handler that posts it in the thread of his ask, where the line delivers the part; its seq."""
+    facts = [
+        f"His order {order_id}: {order['text']}",
+        f"His ask, the part the end line delivers: {part}",
+        f"The build: {build['web_url']}, {build['state']}, at commit {build['commit']}",
+        f"Its status message, which the watch kept current: {follow['message']}, now reading: {follow['words']}",
+        f"Read the build's failed steps and the jobs on {order_id}, then post one line in that thread: how the build ended and what his ask wants of its end, such as how confident we are to release the same commit further.",
+    ]
+    record = {
+        "kind": "report",
+        "topic": f"follow-{order_id}",
+        "attr": {"order": order_id, "part": f"{order_id}:{part}", "thread": follow["thread"]},
+        "text": f"POST the build {order_id} follows ended {build['state']}: post its end line in the thread of his ask",
+        "body": "\n".join(facts) + "\n",
+    }
+    [seq] = reported(watcher, [record])
+    return seq
+
+
 def incident_pr_lines(name: str, group: list[str]) -> list[str]:
     """Each PR of an incident's orders, on their jobs or named in their words, from its row as the watch last read it from GitHub with his card on it, never from what an order's words or note say of it, which only someone typed."""
     from drive import cli
@@ -2221,7 +2301,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
             f"no fix job: {last} ended {job['state']} with no open or merged PR; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
             f" drive job add builder --order {order_id} --part {state.INCIDENT_FIX} --goal {shlex.quote(job['goal'])} (incidents: Clocks)"
         )
-    if state.delivered(data, order_id, part):
+    if state.delivered(data, order_id, part) or state.following(order["parts"][part]):
         return None
     if part != state.IMMEDIATE_FIX and any(job["kind"] in state.WORK_KINDS and job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
         return None
@@ -2387,7 +2467,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver, each teammate thread an order watches and each build a part of one follows every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield read_lines(watcher, state.load(watcher.name), moment)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -2426,6 +2506,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield dashboard_lines(watcher)
         yield receiver_lines(watcher, moment)
         yield watched_lines(watcher, moment)
+        yield followed_lines(watcher, moment)
     yield event_lines(watcher)
     if "github" not in watcher.failures:
         yield github_lines(watcher, moment)

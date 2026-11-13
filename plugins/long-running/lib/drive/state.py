@@ -667,6 +667,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("design", None)
             part.setdefault("answer", False)
             part.setdefault("orphan_gap", None)
+            part.setdefault("follow", None)
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
@@ -1345,12 +1346,12 @@ def unposted_answer(data: dict, job_id: str) -> bool:
 
 
 def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
-    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and every reporter told."""
+    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and a part whose followed build still runs, which its end line delivers, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and every reporter told."""
     job = data["jobs"][job_id]
     for order_id in [job["order"], *job["carries"]]:
         order = data["orders"][order_id]
         for part in job_parts(job, order_id):
-            if not (order["parts"][part]["posted"] or work(data, order_id, part)):
+            if not (order["parts"][part]["posted"] or work(data, order_id, part) or following(order["parts"][part])):
                 order["parts"][part]["posted"] = link
         finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
         if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(order):
@@ -1496,7 +1497,12 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered."""
-    return {"posted": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False}
+    return {"posted": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "follow": None}
+
+
+def following(part: dict) -> bool:
+    """Whether a part waits on the Buildkite build it follows: until the build ends the watch keeps its status message current, no post delivers the part, and only the end line the watch owes once it ends does."""
+    return bool(part["follow"]) and not part["follow"]["ended"]
 
 
 def reporter(link: str) -> dict:

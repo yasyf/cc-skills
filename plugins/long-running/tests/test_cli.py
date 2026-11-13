@@ -6359,6 +6359,28 @@ def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_o
     assert state.incident_orders(data, "o2") == ["o1", "o2"]
 
 
+def test_his_ask_in_his_dm_follows_a_build_and_no_post_delivers_its_part_until_the_build_ends(run: Run, demo: str, slack_thread: "Thread") -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "keep me updated on the staging release", "--thread", "1794200000.000100")
+    ours = slack_thread.post(state.now() - timedelta(minutes=2), from_claude=True)
+    his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
+    build = "https://buildkite.com/forge/release/builds/14185"
+    assert run("order", "set", "o1", "--follow", "https://buildkite.com/forge/release", his)[0] == 2
+    assert run("order", "set", "o1", "--follow", build, ours)[0] == 2
+    assert run("order", "set", "o1", "--follow", build, his.replace("/D123/", "/C0TEAM0001/"))[0] == 2
+    assert state.load("demo")["orders"]["o1"]["parts"]["keep me updated on the staging release"]["follow"] is None
+    code, out = run("order", "set", "o1", "--follow", build, his)
+    assert code == 0
+    assert f'"keep me updated on the staging release": the watch follows {build}, and its end line delivers it' in out
+    data = state.load("demo")
+    held = data["orders"]["o1"]["parts"]["keep me updated on the staging release"]
+    assert held["follow"] == {"build": build, "thread": "1794200000.000100", "message": None, "words": None, "ended": None, "record": None}
+    items = [("o1", "keep me updated on the staging release")]
+    assert cli.reported_parts(data, "o1", data["orders"]["o1"], {"part": "o1:keep me updated on the staging release"}, items) == []
+    assert run("order", "posted", "o1", ours, "--part", "keep me updated on the staging release")[0] == 2
+    held["follow"]["ended"] = state.stamp()
+    assert cli.reported_parts(data, "o1", data["orders"]["o1"], {"part": "o1:keep me updated on the staging release"}, items) == ["keep me updated on the staging release"]
+
+
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
     ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)
