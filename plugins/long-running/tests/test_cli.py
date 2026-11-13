@@ -5272,7 +5272,7 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
     assert "9f3c2e1" not in written
 
 
-def test_a_live_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_its_brief_file(run: Run, demo: str) -> None:
+def test_a_live_or_finished_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_its_brief_file(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs", "--parts", "the watchdog", "its retry")
     run("job", "add", "builder", "--order", "o1", "--part", "the watchdog", "--goal", "build the watchdog")
     run("job", "add", "builder", "--order", "o1", "--part", "its retry", "--goal", "build the watchdog's retry")
@@ -5284,8 +5284,7 @@ def test_a_live_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_
             del job["brief_flags"]["handoff"]
         data["jobs"]["j2"]["state"] = "done"
     jobs = state.load(demo)["jobs"]
-    assert jobs["j1"]["brief_flags"]["handoff"] == handoff
-    assert "handoff" not in jobs["j2"]["brief_flags"]
+    assert (jobs["j1"]["brief_flags"]["handoff"], jobs["j2"]["brief_flags"]["handoff"]) == (handoff, handoff)
     code, out = run("job", "brief", "j1", "--plan", "the watchdog section")
     assert "--handoff" in out.splitlines()[-1]
     assert f"Handoff: {handoff}\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()

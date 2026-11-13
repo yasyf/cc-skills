@@ -50,7 +50,6 @@ ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its b
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 GO_CI = Path("tools", "ci")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
-BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
 STDIN: list[str] = []
@@ -2077,7 +2076,7 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    line, payload = write_brief(state.resolve(args.drive), args.id, {flag: getattr(args, flag) for flag in BRIEF_FLAGS})
+    line, payload = write_brief(state.resolve(args.drive), args.id, {flag: getattr(args, flag) for flag in state.BRIEF_FLAGS})
     return emit(args, line, payload)
 
 
@@ -2087,9 +2086,9 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
     earlier_flags = job.get("brief_flags") or {}
-    kept = [flag for flag in BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
+    kept = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
     bound = [answer_id for other in order["jobs"] for answer_id in (data["jobs"][other].get("brief_flags") or {}).get("ruling") or []]
-    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *(named.get("ruling") or [])])]}
+    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *(named.get("ruling") or [])])]}
     flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
