@@ -2790,21 +2790,33 @@ def test_a_lanes_waiting_naming_nothing_the_watch_frees_it_on_is_refused_and_set
     assert (job["state"], job["waits"]) == ("running", [])
 
 
-def test_a_running_job_with_an_open_pr_the_drive_does_not_track_is_said_until_it_is_added(
-    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_working_lanes_open_pr_the_drive_does_not_track_yet_is_no_orphan_and_reads_no_branches(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch)
-    branches(monkeypatch, {"Forge-AI/monorepo#9": {"branch": "lane-fix", "checks": "pending", "review": "none"}})
+    asked = branches(monkeypatch, {"Forge-AI/monorepo#9": {"branch": "lane-fix", "checks": "pending", "review": "none"}})
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(branch="lane-fix", updated=state.stamp(T0 - timedelta(minutes=10)))
-    watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert watch.run_pass(watching, T0) == [
-        'ORPHAN o1 "ship the remote builder": j1 is running; Forge-AI/monorepo#9 on its branch lane-fix is not in the drive: checks pending, review none'
-    ]
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/9", "--job", "j1", *LEAD)[0] == 0
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    assert asked == []
+
+
+def test_a_pr_added_while_github_reads_a_finished_lanes_branches_is_not_said_untracked(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    key = "Forge-AI/monorepo#53447"
+    branches(monkeypatch, {})
+
+    def added_meanwhile(heads: list[tuple[str, str]]) -> dict[str, dict]:
+        with state.edit(remote) as data:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
+            state.take_pr(data, "j1", key)
+        return {key: {"branch": "ci-mac-box-prove", "checks": "pass", "review": "approved"}}
+
+    monkeypatch.setattr(github, "open_on", added_meanwhile)
     with state.edit(remote) as data:
-        data["jobs"]["j1"]["updated"] = state.stamp(T0)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
+        'ORPHAN o1 "ship the remote builder": j1\'s lane succeeded and its result is not recorded'
+    ]
 
 
 @pytest.mark.parametrize(

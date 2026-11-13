@@ -279,8 +279,9 @@ lane reads those, and Slack, through this Mac with a blocking question.
   stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
   `ORPHAN`s even when another job or a posted answer carries them, as does work he ordered that only
-  a reader, a design with no builder, his card or a post holds. So does an open PR from GitHub on
-  the job's branch or its lane's that the drive does not track.
+  a reader, a design with no builder, his card or a post holds. Those lines also name each open PR
+  from GitHub on the job's branch or its lane's that the drive does not track, which alone makes no
+  line, since a working builder opens its PR before its `drive pr add` registers it.
 
 **Resume and launch.** `drive job resume` and `drive job launch` are one relaunch under the job's
 own lock: a second one waits for the first, about 150 s, then acts on the worker it started, so a
