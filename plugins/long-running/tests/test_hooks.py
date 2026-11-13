@@ -1746,8 +1746,8 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     assert landing_guard.deny_reason(bash(held) | handler) == (
         "This refused record goes to iris@demo: a defect, and the communicator's owner record about the drive, to the meta"
         " session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote"
-        " the record it answers, its other owner, answer, handoff or refused record, and any other session's handoff,"
-        " to the session holding the order it serves; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
+        " the record it answers, and its other owner, answer, handoff or refused record to the session holding the"
+        " order it serves; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
     )
     refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
     assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)

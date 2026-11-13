@@ -544,6 +544,17 @@ def test_the_communicators_record_answering_a_coordinators_record_reaches_its_wr
     assert [record["to"] for record in made] == [root, root, ["iris@demo"], ["iris@demo"], ["iris@demo"]]
 
 
+def test_a_coordinators_handoff_reaches_the_lane_it_names_whichever_session_holds_the_order_it_serves(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Journal", "ship the journal")
+    for project in ("SandSQL", "Platform"):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"{project.lower()}-1")
+        run("start", demo, "--role", "coordinator", "--project", project)
+    handoff = {"kind": "handoff", "text": "take the journal's alert", "to": ["platform@demo"], "re": ["699084"], "attrs": {"order": "o1"}}
+    assert record_lines.decision(post(**handoff)) is None
+
+
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
