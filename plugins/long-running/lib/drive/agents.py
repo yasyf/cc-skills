@@ -22,6 +22,7 @@ RE_HOPS = 8
 AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
+POSTS_CURSOR = "watch-posts"
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 CLAUDE_HOOK_SECONDS = "600"
@@ -187,12 +188,13 @@ def typed_time(text: str, data: dict) -> Ruled | None:
 
 
 def seen(payload: dict) -> dict:
-    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged."""
+    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged; on a drive whose roles hold no communicator, it reads as an agent of its own session, which holds the communicator's role by its handler's id."""
     if payload.get("agent_id") or payload.get("agent_type") != HANDLER or not (names := state.session_drives(payload["session_id"])):
         return payload
     data = state.saved(names[0])
+    communicator = data["roles"].get("communicator")
     return payload | {
-        "session_id": data["roles"]["communicator"]["session"],
+        "session_id": communicator["session"] if communicator else payload["session_id"],
         "agent_id": state.handler_id(data, payload["session_id"]),
         "agent_transcript_path": payload["transcript_path"],
         "handler_session": payload["session_id"],
@@ -297,6 +299,24 @@ def amendments(name: str, seqs: Iterable[str]) -> dict[str, dict[str, list[str]]
     return found
 
 
+def posts(name: str) -> list[str]:
+    """The seq of each `POST` report to communicator@<drive> since the watch last read them, oldest first, through cci's POSTS_CURSOR, which cci moves past each record it prints."""
+    argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--cursor", POSTS_CURSOR, "--budget", str(AMENDMENT_BYTES), "--json"]
+    try:
+        lines = reads.run(argv, Path.cwd()).splitlines()
+    except reads.ReadError as error:
+        raise state.DriveError(f"the POST reports to communicator@{name} could not be read: {error}") from None
+    return [str(record["seq"]) for record in map(json.loads, lines) if record["text"].startswith("POST")]
+
+
+def unread(name: str, seq: str) -> None:
+    """Move POSTS_CURSOR back to just before seq, so the watch's next read of the POST reports starts at it."""
+    try:
+        reads.run(["cci", "cursor", "set", POSTS_CURSOR, str(int(seq) - 1), "--drive", name], Path.cwd())
+    except reads.ReadError as error:
+        raise state.DriveError(f"the POST reports' cursor could not move back to {seq}: {error}") from None
+
+
 def trunk_failures(keys: list[str], since: str) -> list[dict]:
     """The records of each failure of keys in Trunk's merge queue since then, newest first, which Trunk's webhook relays into cci's trunk drive, read in one cci grep."""
     pattern = "|".join(f"{re.escape(key)} {TRUNK_FAILED}" for key in keys)
@@ -369,11 +389,8 @@ class Busy(state.DriveError):
     """A live handler holds the same record or message of his a brief holds, so the brief is a copy that needs no handler of its own."""
 
 
-def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str | None, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch. On a drive whose roles hold no communicator, as one started from a terminal holds none, no handler starts, since a handler runs as the communicator's session: the brief goes to the coordinator as a handoff record answering the record it names, and no handler's id comes back."""
-    if "communicator" not in state.saved(name)["roles"]:
-        to_coordinator(name, brief)
-        return None, False
+def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
@@ -416,16 +433,6 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool)
     return []
 
 
-def to_coordinator(name: str, brief: str) -> None:
-    named = RECORD.search(brief)
-    line = f"No communicator holds this drive to start a handler, so this brief is the coordinator's: {' '.join(brief.split())}"
-    argv = ["cci", "post", "--drive", name, "--lane", "handler", "--kind", "handoff", "--to", f"root@{name}", *(["--re", named[1]] if named else []), "--text", line]
-    try:
-        reads.run(argv, Path.cwd(), reads.posting())
-    except reads.ReadError as error:
-        raise state.DriveError(f"no communicator holds {name}, and its handler brief could not go to the coordinator: {error}") from None
-
-
 def unstarted(name: str, handler: str) -> None:
     """Take a handler that did not start off the drive, with the job it was given and the order made for that job."""
     with state.edit(name) as data:
@@ -439,25 +446,30 @@ def brief_path(name: str, handler: str) -> Path:
 
 
 def start_kept(name: str, handler: str) -> str:
-    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the communicator in a done record from lane handler, naming the error and its kept brief."""
+    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the session it runs beside in a done record from lane handler, naming the error and its kept brief."""
     kept = brief_path(name, handler)
     try:
         start_handler(name, handler, kept.read_text())
     except reads.ReadError as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
-        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
+        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
     return f"started {handler}"
 
 
+def beside(data: dict) -> tuple[str, dict]:
+    """The lane a drive's handlers run beside and end their turn to, and its role: the communicator's, or on a drive whose roles hold none, as one started from a terminal holds none, the coordinator's, so his lines still reach a handler that posts them in his DM."""
+    return ("communicator", data["roles"]["communicator"]) if "communicator" in data["roles"] else ("root", data["roles"]["coordinator"])
+
+
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the communicator's checkout, whether the communicator or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
-    communicator = state.saved(name)["roles"]["communicator"]
-    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": communicator["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the checkout of the session it runs beside, the communicator's or on a drive with none the coordinator's, whether that session or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
+    _, held = beside(state.saved(name))
+    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
-    reads.run(argv, Path(communicator["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
+    reads.run(argv, Path(held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
 
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
@@ -566,7 +578,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
     try:
         if reason := refused(payload):
@@ -594,7 +606,7 @@ def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
-    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]), reads.posting())
+    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]), reads.posting())
     remove_session(name, payload)
 
 
