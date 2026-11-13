@@ -2548,6 +2548,11 @@ def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
     return None
 
 
+def waited_pr(wait: str) -> str:
+    """The PR a wait names: the PR of a release wait, else the wait itself."""
+    return release["pr"] if (release := RELEASE_WAIT.fullmatch(wait)) else wait
+
+
 def change_wait(data: dict, wait: str) -> str:
     """What a job's wait on the change another job builds names: that job's newest open PR, free once it merges, else the job, which view.coming holds on while its work is still to come, so a PR of it closing unmerged frees nobody waiting on its change; a wait naming no job as given."""
     if wait not in data["jobs"]:

@@ -430,6 +430,34 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_the
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
 
 
+def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and_moves_every_other_waiter_to_that_jobs_change(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
+    closed, rebuilt = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44"
+    release_wait = f"release:api:{closed}"
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(goal="build the store", state="built", branch="blobstore-refcounts")
+        data["jobs"]["j3"] = job(goal="build on the store")
+    assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["waits"] = [release_wait]
+        data["jobs"]["j3"].update(state="waiting", said=f"waits on {release_wait}", waits=[release_wait])
+        data["prs"][KEY]["waits"] = [release_wait]
+    serve(monkeypatch, {closed: read(state="CLOSED")})
+    watching = watcher(demo)
+    said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j2 o1: {release_wait} answered or done, nothing else holds it, built on blobstore-refcounts"]
+    data = state.load(demo)
+    assert (data["jobs"]["j2"]["waits"], data["jobs"]["j3"]["waits"], data["jobs"]["j3"]["said"], data["prs"][KEY]["waits"]) == ([], ["j2"], "waits on j2", ["j2"])
+    assert state.pr_url(KEY) in redraws.asked
+    assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
+    assert state.load(demo)["jobs"]["j3"]["waits"] == [rebuilt]
+    serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
+    said = watch.run_pass(watching, T0 + timedelta(seconds=122)) + watch.run_pass(watching, T0 + timedelta(seconds=183))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
+
+
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {KEY: read()})
     assert watch.run_pass(watcher(demo), T0) == []
