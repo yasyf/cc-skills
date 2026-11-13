@@ -1135,7 +1135,7 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
 def merge_proven(order: dict) -> bool:
     """Whether an open order keeps as its proof only merge commits outside yasyf/*, as the watch's DONE at a merge once kept with its close report, though a merge proves no fix live."""
     commits = [MERGE_COMMIT.fullmatch(token) for token in (order["proof"] or "").split()]
-    return order["state"] not in CLOSED_ORDER_STATES and bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits)
+    return bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits) and order["state"] not in CLOSED_ORDER_STATES
 
 
 def may_tell(order: dict) -> bool:
