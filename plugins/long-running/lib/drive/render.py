@@ -25,8 +25,8 @@ REACHING = (
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
 STAMPS = (
     "What he reads, a say post, a card or a POST, ready or ask record to the communicator, names when a job started as"
-    " {started:<job>} and when a record went out as {at:<seq>}, never a clock time you type, and quotes a time a tool printed,"
-    " such as a GitHub check's, in backticks as it printed it, a release's, build's or deploy's start on the line linking that"
+    " {started:<job>} and when a record went out as {at:<seq>}, never a clock time you type, and writes a time a tool or query printed,"
+    " such as a GitHub check's, in Pacific on the line linking it or in backticks as it printed it, a release's, build's or deploy's start on the line linking that"
     " build or tool, so its first write passes the check that refuses a typed one; a promise of a time to come passes, and a"
     " SendMessage, a defect or any other record between sessions quotes times as it needs."
 )

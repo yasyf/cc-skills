@@ -456,7 +456,7 @@ def test_a_post_report_typing_when_past_work_happened_is_refused_naming_its_stam
     )
     monkeypatch.setattr(limits, "now", lambda: posted.replace(minute=47, second=0))
     assert refusal(record_lines.decision(coordinator(turn, kind="report", text=FIX_HALF, body=FIX_JOBS, to=TO, attrs=PROGRESS))).startswith(
-        'refused: "4:50 AM", "4:54 AM", "4:25 AM" are times typed for work already done, and the drive\'s stamps say when it'
+        'refused: "4:25 AM", "4:50 AM" are times typed for work already done, and the drive\'s stamps say when it'
         " happened: this write is stamped 4:47:00 AM."
     )
     for promised in ("POST The fix PR is up; next line by 5:40 AM.", "POST The fix lands by 5:40 AM.", "POST A second fix job started at {started:j1}; due 6 AM."):
