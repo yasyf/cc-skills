@@ -263,7 +263,7 @@ check's verdict, or from the order when none ran.
 | First check: the live build's commit, and the default branch's newest build tried on a test machine | 10 minutes | A second job on the first check |
 | Rollback started on the proven target, or the evidence that no build can serve | 10 minutes | A second job on the rollback |
 | Every later step, until live | at most 10 minutes out | A second job on that step |
-| His next line, until the fix is live | 5 minutes after the incident's last line | The watch's report, and a handler posting where it stands |
+| His next line, until users are unblocked | 5 minutes after the incident's last line | The watch's report, and a handler posting where it stands |
 
 - His next line's clock is the watch's, never a time a line promises, by his pick "Watch-owned
   clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
@@ -276,7 +276,12 @@ check's verdict, or from the order when none ran.
   that thread; a handler already at work in the thread takes the report at its next step.
   - It runs while he is away too, and restarts once a handler has the report, so a handler that
     cannot post leaves the next five minutes owed.
-  - It stops once the fix is recorded live, by his words "werte still in incident until its fixed".
+  - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
+    ends the line: none once users are unblocked; the incident stays open until its root fix is
+    live.": a builder's `DONE` on its `fix`, `stop` or `rollback` part keeps its proof as the
+    order's, and after a hand repair `drive order set <o> --proof <that run>` keeps it. Its fix
+    recorded live stops it too. The incident stays open until that fix is live, by his words "werte
+    still in incident until its fixed".
   - An incident keeps no promised time: "Next line by" in its line sets no due, `drive incident
     open` takes no `--due`, and no `DUE o<n>` comes for it.
 - A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
@@ -373,8 +378,9 @@ the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thre
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
 me". These rules bind the communicator, its handlers and any reader that posts for it.
 
-- Until the fix is live he hears a line at least every five minutes, the watch owing one after any
-  five quiet minutes by [Clocks](#clocks), and each step below the moment it happens. A link
+- Until users are unblocked he hears a line at least every five minutes, the watch owing one after
+  any five quiet minutes by [Clocks](#clocks), and until the fix is live each step below the moment
+  it happens. A link
   appears once, inline, where the sentence names the thing it points at.
 - Each line names the failing service, function, file or table by its proper term, never a
   stand-in, and carries no "not proven" paragraph under any label, by [messages.md](messages.md).
@@ -396,9 +402,11 @@ The steps, in order:
    fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
 4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the
-   service's other releases until its root fix releases. An order with a reporter gets
-   `drive order set <o> --proof <that run>` first, so this report's handler posts the fix-live note
-   in the thread the bug was reported in, by [messages.md](messages.md).
+   service's other releases until its root fix releases. The order keeps that run as its proof,
+   which ends the five-minute line by [Clocks](#clocks): a builder's `DONE` on the `fix`, `stop` or
+   `rollback` part keeps it, and a hand repair gets `drive order set <o> --proof <that run>` first.
+   On an order with a reporter this report's handler then posts the fix-live note in the thread the
+   bug was reported in, by [messages.md](messages.md).
 5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
 7. **Release started:** the root fix's release, or the default branch's.

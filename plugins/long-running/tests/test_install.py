@@ -1129,8 +1129,8 @@ def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_th
         data["jobs"]["j1"]["parts"] = ["fix"]
     install.prove("demo", "j1", 900)
     order = state.load("demo")["orders"]["o1"]
-    assert (order["close_report"], order["proof"]) == (None, None)
-    assert order["fixed"] == f"j1 proved it live: {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+    assert (order["close_report"], order["proof"]) == (None, f"{URL} live: {script} exits 0 on long-running@skills 1.0.3")
+    assert order["fixed"] == f"j1 proved it live: {order['proof']}"
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROVEN} on long-running@skills 1.0.3: {script} exits 0, its output {state.proof_path('demo', 'j1')}")]
 
 
