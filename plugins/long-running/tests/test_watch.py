@@ -6373,6 +6373,10 @@ REPLAYED_53519_CHAIN = (
     f"{KEY} red, owed by its builder: {READERS_FIRST}; j1 waiting on j2; j2 waiting on {FOOTER}, {FOOTER_STACKED};"
     f" {FOOTER} card, owed by him: green, waits on his Approve; {FOOTER_STACKED} card, owed by him: green, waits on his Approve"
 )
+REPLAYED_53519_CARD = (
+    f"{KEY} red, owed by its builder: {READERS_FIRST}; {FOOTER} card, owed by him: green, waits on his Approve;"
+    f" {FOOTER_STACKED} card, owed by him: green, waits on his Approve"
+)
 WATCHDOG_ANSWER = f"WHY: {READERS_FIRST}, and j2 waits on his Approve of {FOOTER}\nWHO: him\nNEXT: tap Approve on {FOOTER}\nUNREAD: nothing\n"
 
 
@@ -6412,7 +6416,7 @@ def test_replayed_53519_a_red_pr_behind_a_builder_waiting_on_his_card_gets_one_w
     assert said == {0: [], 59: [], 60: [], 61: []}
     [(brief, out)] = watchdogs
     assert brief.splitlines()[:7] == [
-        f"Stall: {KEY}, unmoved 60 minutes",
+        f"Stall: {KEY}, which holds j1, j2, unmoved 60 minutes",
         "Job: j1 of o1: ship the watch",
         "Holder: the coordinator, session session-under-test",
         f"Chain: {REPLAYED_53519_CHAIN}",
@@ -6423,21 +6427,81 @@ def test_replayed_53519_a_red_pr_behind_a_builder_waiting_on_his_card_gets_one_w
     assert {f"- gh pr checks {state.pr_url(KEY)}", f"- gh pr checks {state.pr_url(FOOTER)}"} <= set(brief.splitlines())
     watchdog_answered(out)
     assert watch.stall_lines(watching, T0 + timedelta(minutes=68)) == [
-        f"STUCK j1 o1: {KEY} unmoved 68 minutes: {REPLAYED_53519_CHAIN}. WHY: {READERS_FIRST}, and j2 waits on his Approve of {FOOTER}; NEXT: tap Approve on {FOOTER};"
+        f"STUCK j1 o1: {KEY}, which holds j1, j2, unmoved 68 minutes: {REPLAYED_53519_CARD}. WHY: {READERS_FIRST}, and j2 waits on his Approve of {FOOTER}; NEXT: tap Approve on {FOOTER};"
         f" its whole answer, WHO and UNREAD with it, in {out}"
     ]
     for minutes in (69, 97, 98, 150):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     [[report]] = ready_records
     assert (report["attr"], report["to"]) == ({"order": "o1", "job": "j1", "stall": "true"}, ["communicator@demo"])
-    assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
-    assert ["WHO: him", f"NEXT: tap Approve on {FOOTER}"] == [line for line in report["body"].splitlines() if line.startswith(("WHO:", "NEXT:"))]
+    assert report["text"] == f"POST {KEY}, which holds j1, j2, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    assert ["Holds: j1 of o1, j2 of o1", "WHO: him", f"NEXT: tap Approve on {FOOTER}"] == [line for line in report["body"].splitlines() if line.startswith(("Holds:", "WHO:", "NEXT:"))]
     with state.edit(demo) as data:
         data["prs"][KEY]["stage"] = RED_STAGE | {"why": "it fails readers-first at bbbbbbb"}
     watch.stall_lines(watching, T0 + timedelta(minutes=151))
-    kept = state.load(demo)["prs"][KEY]["stall"]
-    assert (kept["since"], kept["agent"], kept["said"]) == (state.stamp(T0 + timedelta(minutes=151)), None, None)
-    assert [brief.splitlines()[0] for brief, _ in watchdogs] == [f"Stall: {KEY}, unmoved 60 minutes", "Stall: j1, unmoved 151 minutes"]
+    data = state.load(demo)
+    assert (list(data["stalls"]), data["stalls"][KEY]["since"], data["stalls"][KEY]["agent"], data["stalls"][KEY]["said"]) == ([KEY], state.stamp(T0 + timedelta(minutes=151)), None, None)
+    assert [brief.splitlines()[0] for brief, _ in watchdogs] == [f"Stall: {KEY}, which holds j1, j2, unmoved 60 minutes"]
+
+
+def test_jobs_waiting_on_one_approve_card_make_one_stall_one_watchdog_one_stuck_line_and_one_line_to_him_naming_each(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    def waiting(data: dict, job_id: str) -> None:
+        data["orders"]["o1"]["jobs"].append(job_id)
+        data["jobs"][job_id] = job(state="waiting", waits=[OTHER])
+
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"stage": ON_HIS_APPROVE}
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [OTHER]}
+        for job_id in ("j2", "j3"):
+            waiting(data, job_id)
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(brief, out)] = watchdogs
+    assert brief.splitlines()[0] == f"Stall: {OTHER}, which holds j1, j2, j3, unmoved 60 minutes"
+    watchdog_answered(out)
+    card = f"{OTHER} card, owed by him: green, waits on his Approve"
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=68)) == [
+        f"STUCK j1 o1: {OTHER}, which holds j1, j2, j3, unmoved 68 minutes: {card}. WHY: {READERS_FIRST}, and j2 waits on his Approve of {FOOTER}; NEXT: tap Approve on {FOOTER};"
+        f" its whole answer, WHO and UNREAD with it, in {out}"
+    ]
+    with state.edit(demo) as data:
+        waiting(data, "j4")
+    for minutes in (70, 98, 130):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    [[report]] = ready_records
+    assert report["text"] == f"POST {OTHER}, which holds j1, j2, j3, j4, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    assert "Holds: j1 of o1, j2 of o1, j3 of o1, j4 of o1" in report["body"].splitlines()
+    assert (len(watchdogs), list(state.load(demo)["stalls"])) == (1, [OTHER])
+
+
+def test_a_stall_whose_report_another_live_watch_claimed_posts_nothing_and_one_whose_claimer_died_posts_once(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    watching = stalling(demo)
+    live = {"pid": 4242, "started": "Mon Nov  9 10:00:00 2026"}
+    monkeypatch.setattr(watch, "started", lambda pid: live["started"] if pid == live["pid"] else "now")
+    with state.edit(demo) as data:
+        data["stalls"][KEY] = {
+            "print": REPLAYED_53519_CARD,
+            "since": state.stamp(T0),
+            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
+            "found": {"WHY": READERS_FIRST},
+            "said": state.stamp(T0 + timedelta(minutes=68)),
+            "told": None,
+            "claim": live,
+        }
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=98)) == []
+    assert ready_records == []
+    live["pid"] = 0
+    for minutes in (99, 100):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 99 minutes and the coordinator was told 31 minutes ago: post one line on it in its thread"]
+    assert (state.load(demo)["stalls"][KEY]["told"], state.load(demo)["stalls"][KEY]["claim"]) == (state.stamp(T0 + timedelta(minutes=99)), None)
 
 
 def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_its_watchdog_reads_it_and_wakes_its_agent_by_its_sendmessage(
@@ -6462,7 +6526,7 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
     assert posted(sent) == [("handoff", f"meta@{demo}", stuck)]
     watch.stall_lines(watching, T0 + timedelta(minutes=98))
     [[report]] = ready_records
-    assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the meta session was told 30 minutes ago: post one line on it in its thread"
+    assert report["text"] == f"POST {KEY}, which holds j1, j2, has not moved in 98 minutes and the meta session was told 30 minutes ago: post one line on it in its thread"
 
 
 def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
@@ -6472,13 +6536,14 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
     said_at = T0 + timedelta(minutes=68)
     with state.edit(demo) as data:
         data["owner"]["away"] = True
-        data["prs"][KEY]["stall"] = {
-            "print": REPLAYED_53519_CHAIN,
+        data["stalls"][KEY] = {
+            "print": REPLAYED_53519_CARD,
             "since": state.stamp(T0),
             "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
             "found": {"WHY": READERS_FIRST},
             "said": state.stamp(said_at),
             "told": None,
+            "claim": None,
         }
     for minutes in (98, 140):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
@@ -6487,7 +6552,7 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
         data["owner"]["away"] = False
     for minutes in (141, 142):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
-    assert [record["text"] for [record] in ready_records] == [f"POST {KEY} has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
+    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
     assert watchdogs == []
 
 
@@ -6499,25 +6564,26 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_
     watching = stalling(demo)
     told_at = T0 + timedelta(minutes=98)
     with state.edit(demo) as data:
-        data["prs"][KEY]["stall"] = {
-            "print": REPLAYED_53519_CHAIN,
+        data["stalls"][KEY] = {
+            "print": REPLAYED_53519_CARD,
             "since": state.stamp(T0),
             "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
             "found": {"WHY": READERS_FIRST},
             "said": state.stamp(T0 + timedelta(minutes=68)),
             "told": None,
+            "claim": None,
         }
     coordinator = state.load(demo)["roles"]["coordinator"]
     assert "communicator" not in state.load(demo)["roles"]
     assert watch.stall_lines(watching, told_at) == []
     [[report]] = ready_records
-    assert (report["text"], report["to"]) == (f"POST {KEY} has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread", [f"communicator@{demo}"])
+    assert (report["text"], report["to"]) == (f"POST {KEY}, which holds j1, j2, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread", [f"communicator@{demo}"])
     [(argv, checkout)] = ran
     assert (argv[:4], checkout) == (["claude", "--bg", "--agent", "long-running:handler"], Path(coordinator["cwd"]))
     assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
     assert argv[-1] == f"Record: #9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-#9'}"
     data = state.load(demo)
-    assert ([entry["holds"]["record"] for entry in data["handlers"].values()], data["prs"][KEY]["stall"]["told"]) == (["9"], state.stamp(told_at))
+    assert ([entry["holds"]["record"] for entry in data["handlers"].values()], data["stalls"][KEY]["told"]) == (["9"], state.stamp(told_at))
     posts_to_communicator.append("9")
     assert watch.post_lines(watching, told_at) == []
     assert watch.stall_lines(watching, told_at + timedelta(minutes=1)) == []
@@ -6556,16 +6622,16 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_a_communicator_its_dr
 
 
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
-    release = f"release:sand:{OTHER}"
+    releases = {job_id: f"release:{service}:{OTHER}" for job_id, service in (("j1", "api"), ("j2", "web"), ("j3", "sand"))}
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
-        data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[release])}
+        data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[releases["j3"]])}
     watching = watcher(demo)
     watching.cards = NO_CARDS
     watch.stall_lines(watching, T0)
     with state.edit(demo) as data:
         for job_id in ("j1", "j2"):
-            data["jobs"][job_id] |= {"state": "waiting", "waits": [release]}
+            data["jobs"][job_id] |= {"state": "waiting", "waits": [releases[job_id]]}
     for minutes in (5, 65, 66):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     assert len(watchdogs) == 2
@@ -6575,15 +6641,19 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
     assert [line.split(":")[0] for line in said] == ["STUCK j3 o1", "STUCK j1 o1"]
     assert len(watchdogs) == 2
     watch.stall_lines(watching, T0 + timedelta(minutes=68))
-    assert [brief.splitlines()[0] for brief, _ in watchdogs] == ["Stall: j3, unmoved 65 minutes", "Stall: j1, unmoved 60 minutes", "Stall: j2, unmoved 63 minutes"]
+    assert [brief.splitlines()[0] for brief, _ in watchdogs] == [
+        f"Stall: {releases['j3']}, which holds j3, unmoved 65 minutes",
+        f"Stall: {releases['j1']}, which holds j1, unmoved 60 minutes",
+        f"Stall: {releases['j2']}, which holds j2, unmoved 63 minutes",
+    ]
 
 
 def test_watchdog_agents_count_those_still_searching_and_those_started_within_the_hour() -> None:
     def kept(started: int, said: bool) -> dict:
-        return {"stall": {"agent": {"pid": 1, "out": "/s/a.md", "at": state.stamp(T0 - timedelta(minutes=started))}, "said": state.stamp(T0) if said else None}}
+        return {"agent": {"pid": 1, "out": "/s/a.md", "at": state.stamp(T0 - timedelta(minutes=started))}, "said": state.stamp(T0) if said else None}
 
-    data = {"jobs": {"j1": kept(5, False), "j2": kept(12, False), "j3": kept(30, True), "j4": {"stall": {"agent": None, "said": None}}, "j5": {"stall": None}}, "prs": {KEY: kept(61, True)}}
-    assert stall.starts(data, T0) == (1, 3)
+    stalls = {"j1": kept(5, False), "j2": kept(12, False), "j3": kept(30, True), "j4": {"agent": None, "said": None}, KEY: kept(61, True)}
+    assert stall.starts(stalls, T0) == (1, 3)
 
 
 @pytest.mark.parametrize(
@@ -6602,4 +6672,4 @@ def test_no_chain_is_aged_past_his_hold_his_card_a_time_to_come_or_a_running_job
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:sand:{OTHER}"]}
         data["prs"][KEY]["stage"] = RED_STAGE
         stops(data)
-    assert list(stall.chains(state.load(demo), NO_CARDS, T0, lambda order_id: True)) == subjects
+    assert list(stall.chains(state.load(demo), NO_CARDS, T0)) == subjects

@@ -170,7 +170,7 @@ BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
-COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers")
+COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
 BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
 TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -496,6 +496,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "jobs": {},
         "prs": {},
         "answers": {},
+        "stalls": {},
         "stand_ins": {},
         "held": {},
         "carried": {},
@@ -672,6 +673,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
         job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
+        job.pop("stall", None)
         if job.pop("checks", None):
             job["parts"] = []
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
@@ -732,7 +734,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("undrawn", None)
         pr.setdefault("design", None)
         pr.setdefault("answers", None)
-        pr.setdefault("stall", None)
+        pr.pop("stall", None)
         if stamp := pr["checked"]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
@@ -754,6 +756,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         elif tap:
             pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"])
     data.setdefault("answers", {})
+    data.setdefault("stalls", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
     data.setdefault("stand_ins", {})
@@ -1555,7 +1558,6 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "updated": created,
         "returned": None,
         "resumed": None,
-        "stall": None,
     }
 
 
@@ -2786,6 +2788,5 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "lead": None,
         "design": None,
         "answers": None,
-        "stall": None,
         "updated": stamp(),
     }

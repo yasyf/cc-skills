@@ -599,7 +599,7 @@ def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
         for entry in view.waiting_on_him(data, watcher.cards)
         if heard_job(watcher, data, data["jobs"][entry["job"]])
         and not any(view.names_card(entry["card"], said) for said in data["jobs"][entry["job"]]["waiting_said"])
-        and not ((claimer := data["jobs"][entry["job"]]["waiting_claims"].get(entry["wait"])) and started(claimer["pid"]) == claimer["started"])
+        and not claimed(data["jobs"][entry["job"]]["waiting_claims"].get(entry["wait"]))
     ]
 
 
@@ -1761,60 +1761,84 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Age the chain of waits behind each job and PR the watch hears, and act on each chain that stood unmoved past its deadline, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first; once that agent answers, or ten minutes pass, say one STUCK line naming the chain to its ends with what the agent found, or the chain alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with its chain unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is kept on its job's or PR's row, so a watch restart adopts its agent and nothing is said twice; a chain that moves starts a fresh one."""
+    """Age each thing the drive's chains of waits end on, a card or PR stack, a question card, a release or a job, and act once on each that stood unmoved past its deadline, however many jobs and PRs wait on it, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line" and his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first; once that agent answers, or ten minutes pass, say one STUCK line naming it, each job and PR waiting on it and what the agent found, or that alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with the thing unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is one row of the drive's stalls, aged under the drive's lock by every watch and acted on only by the watch hearing the job answering for the first job or PR waiting on it, its report claimed under the lock before it posts, so a watch restart adopts its agent, two watches never act on one stall and nothing is said twice; a thing that moves starts a fresh one."""
     if watcher.cards is None:
         return []
-    data = state.load(watcher.name)
-    links = stall.chains(data, watcher.cards, moment, lambda order_id: hears(watcher, data, order_id))
-    rows = data["jobs"] | data["prs"]
-    kept = {subject: stall.aged(rows[subject]["stall"], found, moment) for subject, found in links.items()}
-    running, started = stall.starts(data, moment)
-    lines = []
-    for subject in stall.stalled(data, kept, links, moment):
-        held = kept[subject] = dict(kept[subject])
-        if not held["agent"]:
-            if running >= stall.AT_ONCE or started >= stall.STARTS_AN_HOUR:
-                continue
-            out = state.drive_dir(watcher.name) / "stalls" / f"{NOT_SLUG.sub('-', subject)}-{moment:%Y%m%dT%H%M%S}.md"
-            try:
-                pid = agents.watchdog(watcher.name, watchdog_brief(watcher, data, subject, links[subject], held, moment), coordinator(data, watcher.project)["cwd"], out)
-            except OSError as error:
-                lines += failed(watcher, "watchdog", f"watchdog agent on {subject}", error, moment)
-                continue
-            watcher.failures.pop("watchdog", None)
-            held["agent"] = {"pid": pid, "out": str(out), "at": state.stamp(moment)}
-            running, started = running + 1, started + 1
-        elif not held["said"]:
-            if state.alive(held["agent"]["pid"]) and moment - state.parse_time(held["agent"]["at"]) < stall.SEARCH_FOR:
-                continue
-            held |= {"found": stall.answer(Path(held["agent"]["out"]).read_text()), "said": state.stamp(moment)}
-            lines.append(stuck_line(data, subject, held, moment))
-        elif not held["told"] and moment - state.parse_time(held["said"]) >= stall.TOLD_AFTER and not state.owner_away(data, moment):
-            try:
-                [seq] = reported(watcher, [stall_report(data, subject, held, moment)])
-                held["told"] = state.stamp(moment)
-                with contextlib.suppress(agents.Busy):
-                    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
-            except (reads.ReadError, state.DriveError) as error:
-                lines += failed(watcher, f"stall {subject}", f"line to him on {subject}, which stood unmoved", error, moment)
-                continue
-            watcher.failures.pop(f"stall {subject}", None)
-    changed = {subject: held for subject, held in kept.items() if held != rows[subject]["stall"]}
-    changed |= {subject: None for subject, row in rows.items() if row["stall"] and subject not in links and hears(watcher, data, row["order"])}
-    if changed:
-        with state.edit(watcher.name) as data:
-            rows = data["jobs"] | data["prs"]
-            for subject, held in changed.items():
-                rows[subject]["stall"] = held
+    known = state.load(watcher.name)
+    links = stall.chains(known, watcher.cards, moment)
+    found = stall.things(known, links)
+    printed = {thing: stall.words(known, watcher.cards, held["members"]) for thing, held in found.items()}
+    aged = {thing: stall.aged(known["stalls"].get(thing), printed[thing], moment) for thing in found}
+    if aged == known["stalls"] and not owed(watcher, known, found, aged, moment):
+        return []
+    lines, telling = [], {}
+    claimer = {"pid": os.getpid(), "started": started(os.getpid())}
+    with state.edit(watcher.name) as data:
+        stalls = data["stalls"] = {thing: stall.aged(data["stalls"].get(thing), printed[thing], moment) for thing in found}
+        running, begun = stall.starts(stalls, moment)
+        for thing, step in owed(watcher, known, found, stalls, moment).items():
+            held = stalls[thing]
+            if step == "agent":
+                if running >= stall.AT_ONCE or begun >= stall.STARTS_AN_HOUR:
+                    continue
+                out = state.drive_dir(watcher.name) / "stalls" / f"{NOT_SLUG.sub('-', thing)}-{moment:%Y%m%dT%H%M%S}.md"
+                try:
+                    pid = agents.watchdog(watcher.name, watchdog_brief(watcher, known, thing, found[thing], links, held, moment), coordinator(known, watcher.project)["cwd"], out)
+                except OSError as error:
+                    lines += failed(watcher, "watchdog", f"watchdog agent on {thing}", error, moment)
+                    continue
+                watcher.failures.pop("watchdog", None)
+                held["agent"] = {"pid": pid, "out": str(out), "at": state.stamp(moment)}
+                running, begun = running + 1, begun + 1
+            elif step == "said":
+                held |= {"found": stall.answer(Path(held["agent"]["out"]).read_text()), "said": state.stamp(moment)}
+                lines.append(stuck_line(known, thing, found[thing], held, moment))
+            else:
+                held["claim"] = claimer
+                telling[thing] = stall_report(known, thing, found[thing], held, moment)
+    for thing, report in telling.items():
+        try:
+            [seq] = reported(watcher, [report])
+        except (reads.ReadError, state.DriveError) as error:
+            told(watcher.name, thing, None)
+            lines += failed(watcher, f"stall {thing}", f"line to him on {thing}, which stood unmoved", error, moment)
+            continue
+        told(watcher.name, thing, state.stamp(moment))
+        watcher.failures.pop(f"stall {thing}", None)
+        with contextlib.suppress(agents.Busy):
+            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
     return lines
 
 
-def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple[str, str]], held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, and what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain."""
-    job_id, order_id = stall.owner(data, subject)
+def owed(watcher: Watcher, data: dict, found: dict[str, dict[str, list[str]]], stalls: dict[str, dict], moment: datetime) -> dict[str, str]:
+    """The step each stall past its deadline that this watch acts on owes now, oldest first: its agent while the watchdog cap has room, its STUCK line, and his report while no live watch claims it."""
+    running, begun = stall.starts(stalls, moment)
+    away = state.owner_away(data, moment)
+    ours = [thing for thing in stall.stalled(data, stalls, found, moment) if heard_job(watcher, data, data["jobs"][stall.owner(data, found[thing]["subjects"][0])[0]])]
+    steps = {thing: stall.step(stalls[thing], moment, away) for thing in ours}
+    free = running < stall.AT_ONCE and begun < stall.STARTS_AN_HOUR
+    return {thing: step for thing, step in steps.items() if step == "said" or step == "agent" and free or step == "told" and not claimed(stalls[thing]["claim"])}
+
+
+def told(name: str, thing: str, at: str | None) -> None:
+    """Give back a stall's claim on its report, keeping when he was told once it posted; a stall that moved meanwhile is gone and keeps nothing."""
+    with state.edit(name) as data:
+        if held := data["stalls"].get(thing):
+            held |= {"claim": None, "told": at or held["told"]}
+
+
+def claimed(claim: dict | None) -> bool:
+    """Whether the watch that claimed a step still runs: its pid holds the process that started when the claim says, never one the system handed that pid since."""
+    return bool(claim) and started(claim["pid"]) == claim["started"]
+
+
+def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict[str, list[str]], links: dict[str, list[tuple[str, str, bool]]], held: dict, moment: datetime) -> str:
+    """The brief a watchdog agent starts on: the stall, each job and PR waiting on it, their chains to it, the session holding the order of the first of them, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, and what to read, the drive's rows of everything in the chains, the job's returns and its agent's transcript, the holding session's transcript since the thing last moved, and the checks of each PR in the chains."""
+    job_id, order_id = stall.owner(data, found["subjects"][0])
     job = data["jobs"][job_id]
     holder, holding = state.holding_role(data, data["orders"][order_id])
-    named = dict.fromkeys([order_id, job_id, *(link for link, _ in links if link in data["jobs"] or link in data["prs"])])
+    chained = {link: words for subject in found["subjects"] for link, words, _ in links[subject]}
+    named = dict.fromkeys([order_id, job_id, *(link for link in chained if link in data["jobs"] or link in data["prs"])])
     reading = [f"drive status {' '.join(named)} --drive {watcher.name}", f"drive job replies {job_id} --drive {watcher.name}"]
     wake = ""
     if job.get("agent") and (runs_in := session_of(job, data)):
@@ -1825,10 +1849,10 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
     reading += [f"gh pr {verb} {state.pr_url(key)}" for key in named if key in data["prs"] for verb in ("view", "checks")]
     return "\n".join(
         [
-            f"Stall: {subject}, unmoved {minutes(moment - state.parse_time(held['since']))} minutes",
+            f"Stall: {thing}{which_holds(found)}, unmoved {minutes(moment - state.parse_time(held['since']))} minutes",
             f"Job: {job_id} of {order_id}: {cut(data['orders'][order_id]['text'], 300)}",
             f"Holder: {holder}, session {holding.get('session') or 'not started'}{wake}",
-            f"Chain: {held['print']}",
+            f"Chain: {'; '.join(chained.values())}",
             f"Drive: {watcher.name}",
             "Read:",
             *(f"- {line}" for line in reading),
@@ -1836,35 +1860,41 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
     )
 
 
-def stuck_line(data: dict, subject: str, held: dict, moment: datetime) -> str:
-    """The STUCK line a stall's watchdog agent ends on: the chain to its ends, then its WHY and NEXT, or that it answered nothing."""
-    job_id, order_id = stall.owner(data, subject)
-    found = held["found"]
-    said = "; ".join(f"{label}: {cut(found[label], 200)}" for label in ("WHY", "NEXT") if label in found) or "its watchdog agent answered nothing"
+def which_holds(found: dict[str, list[str]]) -> str:
+    return f", which holds {', '.join(waiting)}," if (waiting := stall.waiting(found)) else ""
+
+
+def stuck_line(data: dict, thing: str, found: dict[str, list[str]], held: dict, moment: datetime) -> str:
+    """The STUCK line a stall's watchdog agent ends on: the thing, each job and PR waiting on it and the thing in words, then its WHY and NEXT, or that it answered nothing."""
+    job_id, order_id = stall.owner(data, found["subjects"][0])
+    answered = held["found"]
+    said = "; ".join(f"{label}: {cut(answered[label], 200)}" for label in ("WHY", "NEXT") if label in answered) or "its watchdog agent answered nothing"
     return (
-        f"STUCK {job_id} {order_id}: {subject} unmoved {minutes(moment - state.parse_time(held['since']))} minutes: {cut(held['print'], 400)}. {said};"
+        f"STUCK {job_id} {order_id}: {thing}{which_holds(found)} unmoved {minutes(moment - state.parse_time(held['since']))} minutes: {cut(held['print'], 400)}. {said};"
         f" its whole answer, WHO and UNREAD with it, in {held['agent']['out']}"
     )
 
 
-def stall_report(data: dict, subject: str, held: dict, moment: datetime) -> dict:
-    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of the work it holds."""
-    job_id, order_id = stall.owner(data, subject)
+def stall_report(data: dict, thing: str, found: dict[str, list[str]], held: dict, moment: datetime) -> dict:
+    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of the work it holds, naming each job and PR waiting on it with its order."""
+    job_id, order_id = stall.owner(data, found["subjects"][0])
     order = data["orders"][order_id]
     holder, _ = state.holding_session(data, order)
-    found = held["found"]
-    stood, told = (minutes(moment - state.parse_time(held[field])) for field in ("since", "said"))
+    answered = held["found"]
+    stood, said = (minutes(moment - state.parse_time(held[field])) for field in ("since", "said"))
+    waiting = stall.waiting(found)
     facts = [
         f"Order {order_id}, job {job_id}: {order['text']}",
+        *([f"Holds: {', '.join(f'{subject} of {stall.owner(data, subject)[1]}' for subject in waiting)}"] if waiting else []),
         f"Unmoved {stood} minutes: {held['print']}",
-        f"The STUCK line went to {holder} at {when(held['said'])}, {told} minutes ago.",
-        *(f"{label}: {found[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in found),
+        f"The STUCK line went to {holder} at {when(held['said'])}, {said} minutes ago.",
+        *(f"{label}: {answered[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in answered),
     ]
     return {
         "kind": "report",
-        "topic": f"watch-stall-{NOT_SLUG.sub('-', subject)}",
+        "topic": f"watch-stall-{NOT_SLUG.sub('-', thing)}",
         "attr": {"order": order_id, "job": job_id, "stall": "true"} | ({"thread": order["thread"][1]} if order["thread"] else {}),
-        "text": f"POST {subject} has not moved in {stood} minutes and {holder} was told {told} minutes ago: post one line on it in its thread",
+        "text": f"POST {thing}{which_holds(found)} has not moved in {stood} minutes and {holder} was told {said} minutes ago: post one line on it in its thread",
         "body": "\n".join(facts) + "\n",
     }
 
