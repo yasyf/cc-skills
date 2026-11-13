@@ -4150,12 +4150,12 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
 def test_a_kept_report_sets_a_running_job_from_its_first_line(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, first: str, taken: str | None
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", kind, "--order", "o1", "--goal", "ship")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "ship", "ship again")
+    run("job", "add", kind, "--order", "o1", "--part", "ship", "--goal", "ship")
     kept_proof(tmp_path, "j1")
     if first.startswith("READY "):
         run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship again", "--waits", "j1")
+    run("job", "add", "builder", "--order", "o1", "--part", "ship again", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
     for job_id in ("j1", "j2"):
