@@ -255,7 +255,8 @@ lane reads those, and Slack, through this Mac with a blocking question.
 - A question kept for you that reads as a `READ`, such as one kept before the watch read it
   that way, the watch answers on its next pass, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
-  until the answer goes through, past a refused reply or a watch restart, or until Orca says it
+  until the answer goes through, sending each kept answer at the start of every pass, before it reads
+  any lane's mail, past a refused reply or a watch restart, or until Orca says it
   already holds another answer, which drops it with no line. Its
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
 

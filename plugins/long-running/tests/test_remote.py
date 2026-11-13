@@ -3194,16 +3194,35 @@ def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_fr
 
     monkeypatch.setattr(orca, "call", fenced_three_times)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    passes = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10)]
+    passes = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)]
     assert passes == [
-        [],
         [],
         ["WATCH the answer to j1's read failed 3 times in a row: orca orchestration reply: consumer_fenced: This caller is bound to Run run_other"],
     ]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {"msg_read": "READ cci show 2065"}
-    assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
     assert replies[-2:] == [("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065"), ("check", "--run", RUN)]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+
+
+def test_a_kept_answer_goes_at_the_start_of_the_pass_before_any_lane_mail_is_read_so_a_newer_install_saving_mid_sweep_holds_it_back_no_longer(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(reads={"relay_kept": "READ cci show 2065"}, read_answers={"relay_kept": ["m2065", None]}, readers={"relay_kept": ENDED_READER})
+    calls = []
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+
+    def newer_install_saves(run: str, after: int) -> list[dict]:
+        calls.append(("inbox", run))
+        state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
+        return []
+
+    monkeypatch.setattr(orca, "mail", newer_install_saves)
+    with pytest.raises(state.NewerDrive):
+        watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert [args for args in calls if args[0] in ("reply", "inbox")] == [("reply", "--id", "relay_kept", "--run", RUN, "--body", "m2065"), ("inbox", RUN)]
+    assert state.stored(remote)["jobs"]["j1"]["reads"] == {}
 
 
 def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3426,10 +3445,9 @@ def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_r
 
     monkeypatch.setattr(orca, "call", refused_twice)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    for seconds in (0, 5):
-        watch.run_pass(watching, T0 + timedelta(seconds=seconds))
-        assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"msg_glass": ["DROP TABLE", None]}
-    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
+    watch.run_pass(watching, T0)
+    assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"msg_glass": ["DROP TABLE", None]}
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert ran == [BREAK_GLASS_READ]
     assert ("reply", "--id", "msg_glass", "--run", RUN, "--body", "DROP TABLE") in replies
     job = state.load(remote)["jobs"]["j1"]
