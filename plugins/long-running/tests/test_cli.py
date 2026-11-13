@@ -5038,8 +5038,8 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert "\nResearch: the Researched: block this build needs\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
     run("job", "add", "builder", "--order", "o2", "--goal", "draw the steps")
-    assert cli.main(["job", "brief", "j3"]) == 2
-    assert capsys.readouterr().err.strip() == "drive: j3 has no earlier brief to keep --serves, --done-when, --where from: name each"
+    code, out = run("job", "brief", "j3")
+    assert (code, "\nServes: his order\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()) == (0, True)
     first = ["job", "brief", "j3", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "the dashboard's run page"]
     assert cli.main(first) == 2
     assert capsys.readouterr().err.startswith(

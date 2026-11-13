@@ -51,7 +51,6 @@ WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge
 GO_CI = Path("tools", "ci")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
-BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
 ANSWER_FIRST = (
@@ -1934,7 +1933,7 @@ def job_report(args: argparse.Namespace) -> int:
             added = state.add_changes(name, data, args.id, whole)
         order = data["orders"][job["order"]]
         briefed = [
-            f"{builder_id}: {write_brief(name, builder_id, {'serves': 'drive tooling' if tooling(order) else 'his order'})[0]}"
+            f"{builder_id}: {write_brief(name, builder_id, {})[0]}"
             for builder_id in (order["jobs"] if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else [])
             if args.id in (builder := data["jobs"][builder_id])["waits"] and state.unstarted_builder(data, builder) and not builder.get("brief")
         ]
@@ -2025,22 +2024,19 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    name = state.resolve(args.drive)
-    job = find(state.load(name)["jobs"], args.id, "job")
-    if not job.get("brief_flags") and (missing := [f"--{flag.replace('_', '-')}" for flag in BRIEF_NEEDS if not getattr(args, flag)]):
-        raise DriveError(f"{args.id} has no earlier brief to keep {', '.join(missing)} from: name each")
-    line, payload = write_brief(name, args.id, {flag: getattr(args, flag) for flag in BRIEF_FLAGS})
+    line, payload = write_brief(state.resolve(args.drive), args.id, {flag: getattr(args, flag) for flag in BRIEF_FLAGS})
     return emit(args, line, payload)
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief and each ruling named added to its earlier rulings."""
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief and each ruling named added to its earlier rulings, its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
     earlier_flags = job.get("brief_flags") or {}
     kept = [flag for flag in BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
     flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*(earlier_flags.get("ruling") or []), *(named.get("ruling") or [])])]}
+    flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
@@ -2177,7 +2173,7 @@ def job_resume(args: argparse.Namespace) -> int:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, an agent on this Mac that ended with its session or whose last response ended on an API error or refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, or that a launch finds returned while the job holds texts hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
@@ -2197,7 +2193,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
             if end:
                 return restart(args, name, dispatch, end, None, args.local and not state.on_mac(job))
             raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
-        died = None if taker or not job.get("agent") else watch.agent_death(job, data)
+        died = None if taker or not job.get("agent") else watch.agent_death(job, data) or (returned(job) if text is None else None)
         if job.get("agent") and not (taker or died):
             remote_job(data, args.id)
         if text is not None and not died:
@@ -2213,31 +2209,41 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
     return emit(args, line, started)
 
 
+def returned(job: dict) -> str | None:
+    """Why an agent on this Mac takes no text the job holds: it returned, and only its session's SendMessage reaches it; None while it works or the job holds none."""
+    if job["state"] == "running" or not job["undelivered"]:
+        return None
+    return f'it returned "{render.cut(job["said"] or "", 100)}", and only its session\'s SendMessage reaches it'
+
+
 def hold(name: str, job_id: str, text: str) -> None:
     """Keep the text on the job's undelivered list under a fresh Orca request id before any Orca call, so an outage delays it and never drops it, unless the job already holds it."""
     with state.edit(name) as data:
         kept = data["jobs"][job_id]["undelivered"]
-        if all(held["words"] != text for held in state.held(data["jobs"][job_id])):
+        if all(held["words"] != text for held in kept):
             kept.append({"seq": None, "words": text, "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
 
 
 def deliver(args: argparse.Namespace, name: str) -> int:
-    """Deliver every text the job holds, oldest first, once Orca shows its lane: sent to a worker that takes messages, else carried in the handoff of its next worker; while Orca cannot tell, each stays held for the watch to send once it reads the lane alive."""
+    """Deliver every text the job holds, oldest first, once Orca shows its lane: sent to a worker that takes messages, else carried in the handoff of its next worker; while Orca cannot tell or starts no next worker, each stays held for the watch to send again."""
     job = state.load(name)["jobs"][args.id]
-    held = state.held(job)
+    held = job["undelivered"]
     if not held:
         return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
     try:
         end = orca.lane_end(name, job)
     except orca.OrcaError as error:
         return unsent(args, job, held, error)
-    if end:
+    if not end:
+        return messaged(args, name, job, held)
+    try:
         return restart(args, name, job["dispatch"], end, None)
-    return messaged(args, name, job, held)
+    except orca.OrcaError as error:
+        return unsent(args, job, held, error)
 
 
 def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -> int:
-    """Send each held text to a lane whose worker takes messages, each under its own request id, dropping each from the job once Orca takes it with each answer of his kept before it, which it carries, and mark the job sent each answer of his the text carries; first put on its Sprite the tools a launch puts there, the drive forwarder among them, when no start this drive recorded put them on that Sprite, as for a lane started before the forwarder existed or recorded by hand."""
+    """Send each held text to a lane whose worker takes messages, each under its own request id, dropping each from the job once Orca takes it, and mark the job sent each answer of his the text carries; first put on its Sprite the tools a launch puts there, the drive forwarder among them, when no start this drive recorded put them on that Sprite, as for a lane started before the forwarder existed or recorded by hand."""
     unfit, workspace = None, job.get("workspace")
     if job.get("tools_on") != workspace:
         try:
@@ -2257,7 +2263,7 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: dropped from the job with each text held before it, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
+    """Keep on the job a held text its live worker took: dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
     try:
         with state.edit(name) as data:
             fresh = data["jobs"][job_id]
@@ -2265,7 +2271,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
                 fresh.update(ask=None, state="running")
             fresh.update(
                 updated=state.stamp(),
-                undelivered=[left for left in fresh["undelivered"] if left.get("request") != sent["request"] and (left.get("request") or state.parse_time(left["at"]) > state.parse_time(sent["at"]))],
+                undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
             )
             if "tools_on" in sent:
                 fresh["tools_on"] = sent["tools_on"]
@@ -2297,7 +2303,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, or one taking over from an agent on this Mac that stopped or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each answer of his it has not heard whose words its brief lacks; a lane taking over from a stopped agent starts on this Mac when its brief declares a step only this Mac runs."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each text the job holds and each answer of his it has not heard whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs."""
     from drive import view
 
     data = state.load(name)
@@ -2308,11 +2314,15 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         raise DriveError(f"{job_id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends")
     taker = other_sessions_agent(job)
     if not (brief_file or job.get("brief")):
-        raise DriveError(f"{job_id} has no brief: write it with drive job brief {job_id}, or name its file")
+        write_brief(name, job_id, {})
+        data = state.load(name)
+        job = data["jobs"][job_id]
     root = orca.checkout(name, data)
     written = named_text(brief_file or job["brief"], "brief file")
-    if since := [kept for kept in superseded.owed(data, job_id) if not superseded.carries(written, kept["words"])]:
-        written = written.rstrip() + "\nHis answers since:" + "".join(f'\n- "{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in since) + "\n"
+    held = [kept["words"] for kept in job["undelivered"] if not superseded.carries(written, kept["words"])]
+    owed = [f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in superseded.owed(data, job_id) if not superseded.carries("\n".join([written, *held]), kept["words"])]
+    if since := [*held, *owed]:
+        written = written.rstrip() + "\nHis answers since:" + "".join(f"\n- {line}" for line in since) + "\n"
     if taker or died:
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
     local = local or bool(died and place.mac_step(written))
@@ -2343,15 +2353,15 @@ def launch_brief(name: str, job_id: str) -> Path:
 
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None) -> dict:
-    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
+    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
     try:
         with state.edit(name) as data:
             job = data["jobs"][job_id]
             if started is None:
                 job["launching"] = None
             else:
-                kept = {"handoff": handoff, "reads": {}, "undelivered": []} if handoff else {"brief": str(launch_brief(name, job_id))}
-                job.update(started, **kept, ask=None, report=None, tools_on=started["workspace"], turn_open=True)
+                kept = {"handoff": handoff, "reads": {}} if handoff else {"brief": str(launch_brief(name, job_id))}
+                job.update(started, **kept, undelivered=[], ask=None, report=None, tools_on=started["workspace"], turn_open=True)
                 state.start(job)
                 superseded.hear(data, job_id, orca.brief_of(Path(handoff or job["brief"]).read_text()))
         return job
@@ -2436,7 +2446,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     """Start the job's next worker with a handoff, carrying the text when a resume brought one: in the terminal of a worker that finished on this Mac while Orca holds it, on that worker's Run; for one that finished on a Sprite, on that Sprite again in the checkout it left, on a Run this terminal makes, through the launcher's cc-remote orca prepare --existing, which gives it the tool payload and keys a fresh Sprite gets, since a worker started in the finished one's terminal runs on in the claude process and environment that Sprite's first prepare made, unless that Sprite refuses the tools a worker needs or was made from a cc-remote config other than the one the default branch holds now; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. A dead lane's Sprite first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Otherwise every Claude Code transcript the lane's Sprite holds is first copied whole to the drive's folder by orca.keep_transcripts, kept on the lane's death. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools or started no worker, as a Sprite that will not prepare does, when it is kept and the relaunch runs on a fresh one. A lane Orca could not reach, whose Sprite lane_end woke or tried to, relaunches on that Sprite in the checkout it left with no save when no session of it resumes there, and on a fresh one the same way when that Sprite starts no worker. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, moves the job to a fresh worktree on this Mac whether its worker finished or died, once what its Sprite holds on no remote is saved, and refuses with nothing recorded when that save fails. The handoff carries every text a resume holds on the job, oldest first, then the text given, since the start it records clears what the job holds."""
     data = state.load(name)
     job = data["jobs"][args.id]
-    message = "\n\n".join([*(kept["words"] for kept in state.held(job)), *filter(None, [text])]) or None
+    message = "\n\n".join([*(kept["words"] for kept in job["undelivered"]), *filter(None, [text])]) or None
     finished = end.worktree and not here
     same = finished and state.on_mac(job)
     unreached = end.unreached and not (here or end.unfit)
@@ -4406,15 +4416,15 @@ def parser() -> argparse.ArgumentParser:
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to its earlier rulings, and the output names each kept;"
-            " a first brief names --serves, --done-when and --where. An adopted PR's job, waiting with no agent, is briefed only"
+            " a brief naming no --serves serves drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
             " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
         ),
     )
     verb.add_argument("id", help="the job")
-    verb.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; a first brief names it')
-    verb.add_argument("--done-when", help="the check that proves it done; a first brief names it")
-    verb.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt; a first brief names it")
+    verb.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default drive tooling on a tooling order, else his order')
+    verb.add_argument("--done-when", help="the check that proves it done")
+    verb.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt")
     verb.add_argument(
         "--native",
         help='where he sees or uses the result and what that platform already does for it, with links; "none" for work he never sees',

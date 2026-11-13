@@ -320,7 +320,7 @@ before it sends or starts.
   that one refuses them too, his answer still held.
 - A delivered message, sent to a live worker or carried in the brief or handoff a worker started
   on, marks the job sent each answer of his whose words it holds verbatim, and a first launch adds
-  each answer the job has not heard that its brief lacks under `His answers since:`; `drive answer
+  each text the job holds and each answer it has not heard that its brief lacks under `His answers since:`; `drive answer
   --sent` records only a `SendMessage` to an agent a coordinator session on this Mac runs, and is
   refused on any other job.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
@@ -358,11 +358,11 @@ before it sends or starts.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
   Orca call, so an outage delays it and never drops it. When Orca cannot tell whether the lane
   lives, or refuses the send, the resume exits 0 saying the text is held.
-  The watch, once Orca reads that worker alive and unfinished, runs `drive job resume <j>` with no
-  text as a process of its own, which sends each held text under the id it was held with, so Orca
+  The watch, once Orca reads that worker alive and unfinished, or once a lane that returned has no
+  card of his asking it anything, runs `drive job resume <j>` with no text as a process of its own, which sends each held text under the id it was held with, so Orca
   replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
-  handoff, oldest first. A relaunch Orca refuses exits 2 with Orca's refusal, the text still held;
-  `drive job resume <j>` delivers it once Orca reads the lane.
+  handoff, oldest first. A relaunch Orca refuses exits 0 with Orca's refusal, saying the text is still held, which the
+  watch carries again ten minutes on; `drive job resume <j>` delivers it once Orca reads the lane.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
   message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.

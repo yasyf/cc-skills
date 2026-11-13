@@ -5,9 +5,9 @@ import json
 import os
 import shlex
 import subprocess
-from pathlib import Path
+import uuid
 
-from drive import brief, cli, limits, orca, render, settled, state, superseded, talk, view
+from drive import cli, limits, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -574,7 +574,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     except DriveError as error:
         raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
     said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
-    keep_undelivered(name, posts, seqs, closes)
+    keep_undelivered(name, posts, seqs, closes, found)
     ended = keep_closed(name, posts, seqs, closes, [superseded_by_answer(data, made, questions, found) for made, questions in zip(posts, closes, strict=True)])
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
     said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
@@ -719,40 +719,43 @@ def keep_closed(name: str, posts: list[dict], seqs: list[str], closes: list[list
     return ended
 
 
-def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]]) -> None:
-    """Keep each answer of his on the job that acts on it for each job it answers, the one its attr names and each whose question it ends, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile; an Undo tap takes the answer it undoes off those jobs."""
+def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], found: dict) -> None:
+    """Hold each answer of his verbatim, under a fresh Orca request id, on every job it frees: the job its attr names and each whose question it ends while they are not finished, and every builder not finished on their orders and the orders those carry, so the watch sends it to a running builder, hands it to the next worker of one that returned and launches one never started with it in its brief, with no session's turn between; an Undo tap takes the answer it undoes off those jobs."""
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
     with state.edit(name) as data:
         for made, seq, questions in answers:
             attrs = made.get("attr") or {}
-            named = [state.named_job(data, attrs), *(job_id for job_id, _ in questions)]
-            for job_id in dict.fromkeys(filter(None, (hearer(data, job_id) for job_id in filter(None, named)))):
+            asking = list(dict.fromkeys(filter(None, [state.named_job(data, attrs), *(job_id for job_id, _ in questions)])))
+            for job_id in hearers(data, asking):
                 kept = data["jobs"][job_id]["undelivered"]
                 if "undone" in attrs:
-                    kept[:] = [answer for answer in kept if answer["words"] != attrs["undone"]]
+                    kept[:] = [answer for answer in kept if not superseded.carries(answer["words"], f'verbatim: "{attrs["undone"]}"')]
                 elif all(answer["seq"] != seq for answer in kept):
-                    kept.append({"seq": seq, "words": made["text"], "at": state.stamp(), "said": None})
+                    kept.append({"seq": seq, "words": verbatim(made, questions, found), "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
 
 
-def hearer(data: dict, job_id: str) -> str | None:
-    """The job that acts on his answer to this job's question: the job itself, but a finished reader's builder, which builds its research: the one at work whose brief names it Researched, else none, since a builder briefed later carries the answer in its brief."""
-    job = data["jobs"][job_id]
-    if job["kind"] != "reader" or job["state"] not in state.FINISHED_JOB_STATES:
-        return job_id
-    return next(
-        (
-            builder_id
-            for builder_id in data["orders"][job["order"]]["jobs"]
-            if (builder := data["jobs"][builder_id])["kind"] == "builder"
-            and builder["state"] not in state.FINISHED_JOB_STATES
-            and builder.get("brief")
-            and (named := brief.RESEARCHED_BY.search(orca.brief_of(Path(builder["brief"]).read_text())))
-            and named[1] == job_id
-        ),
-        None,
-    )
+def hearers(data: dict, asking: list[str]) -> list[str]:
+    """The jobs his answer to these jobs frees: each of them not finished, and every builder not finished whose order or carried orders meet theirs."""
+    orders = {order_id for job_id in asking for order_id in (data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"])}
+    freed = [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if job["kind"] == "builder" and job["state"] not in state.FINISHED_JOB_STATES and orders & {job["order"], *job["carries"]}
+    ]
+    return list(dict.fromkeys([*(job_id for job_id in asking if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES), *freed]))
+
+
+def verbatim(made: dict, questions: list[tuple[str, dict]], found: dict) -> str:
+    """His answer as each job it frees holds it: the card it closes, by waits id or else link, and his message's link, his words verbatim, and the option that card recommended when his words differ from it."""
+    named = next((question["waits"] or question["card"] for _, question in questions if question["waits"] or question["card"]), None)
+    link = f" ({made['url']})" if made.get("url") and made["url"] != named else ""
+    said = f'His answer{f" on card {named}" if named else ""}{link}, verbatim: "{made["text"]}"'
+    card = view.asked_card(found, named) if named else None
+    if card and (recommended := card["card"].get("recommended")) and " ".join(recommended.split()) != " ".join(made["text"].split()):
+        said += f'; the card recommended "{recommended}"'
+    return said
 
 
 def his_cards(name: str) -> dict:

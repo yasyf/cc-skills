@@ -738,7 +738,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, and post it as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the drive takes it and shows the tap recorded only then. The question ends in the write after the post, each older open question of its job his answer decides, as Jev reads it, ends superseded, and each other card drawn for an ended question follows; cc-slack closes the tapped card itself. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Kept on the job until drive job resume carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, and post it as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the drive takes it and shows the tap recorded only then. The question ends in the write after the post, each older open question of its job his answer decides, as Jev reads it, ends superseded, and each other card drawn for an ended question follows; cc-slack closes the tapped card itself. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
     from drive import superseded, tools, view
 
     name, _, _ = ask["waits"].partition(":")
@@ -765,8 +765,8 @@ def question_answered(ask: dict) -> dict:
         else:
             fresh = [each for job_id, question in on_card if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
     ended = again + fresh
-    tools.keep_undelivered(name, [made], [seq], [ended])
     shown = view.stored_cards(name)[0]
+    tools.keep_undelivered(name, [made], [seq], [ended], shown)
     card = view.asked_card(shown, ask["url"])
     if fresh or not on_card:
         state.append_event(name, "undone" if undone else "answered", url=ask["url"], label=ask["label"], question=card and card["question"], undo_until=ask.get("undo_until"))

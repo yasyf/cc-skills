@@ -892,7 +892,7 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
     return answered
 
 
-def test_his_answer_waits_on_each_job_it_answers_until_that_job_resumes(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_answer_is_held_verbatim_on_the_job_it_answers_naming_the_option_his_card_recommended(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n#62\n", ""))
@@ -900,7 +900,12 @@ def test_his_answer_waits_on_each_job_it_answers_until_that_job_resumes(demo: st
     answers = [{"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}, {"kind": "answer", "text": "Ring", "waits": "demo:j1-8", "undone": True}]
     tools.run("record", demo, {"records": answers})
     [kept] = state.load(demo)["jobs"]["j1"]["undelivered"]
-    assert (kept["seq"], kept["words"], kept["said"]) == ("#61", "the lazy copy, no sweeper", None)
+    assert (kept["seq"], kept["words"], kept["said"], bool(kept["request"])) == (
+        "#61",
+        f'His answer on card demo:j1-7 ({UNDER_CARD}), verbatim: "the lazy copy, no sweeper"; the card recommended "Ring"',
+        None,
+        True,
+    )
 
 
 def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_call_that_sends_them(
@@ -1031,7 +1036,7 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
     assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", "320b7a7"), [])
 
 
-def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_work_on_its_research_and_never_the_reader(
+def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder_of_its_order_and_never_the_reader(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
     recorded.shown["73060f0"] = ANSWER
@@ -1047,19 +1052,20 @@ def test_his_answer_settling_a_finished_readers_question_reaches_the_builder_at_
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, f"{shown['seq']}\n", ""))
     open_cards(monkeypatch)
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-673100", "ruling": "73060f0"}]})
-    assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
-    tools.run("job", demo, {"ops": [{"brief": {"id": "j2", "serves": "his order", "done_when": "installed", "where": "yasyf/cc-skills main"}}]})
+    drive = state.load(demo)
+    assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673125"], [])
+    assert 'verbatim: "one subject has one card"' in drive["jobs"]["j2"]["undelivered"][0]["words"]
+    tools.run("job", demo, {"ops": [{"brief": {"id": "j2"}}]})
     written = (state.drive_dir(demo) / "jobs" / "j2.brief.md").read_text()
-    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n" in written and "\nResearched: j1\n" in written
+    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n" in written and "\nResearched: j1\n" in written and "\nServes: his order\n" in written
     watching = watch.Watcher(demo, offset=state.events_end(demo))
-    assert watch.undelivered_lines(watching, state.now() + timedelta(minutes=11)) == []
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()) | {"waits": "demo:j1-673190"})
     shown["seq"] = "673200"
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "the thread's own card", "waits": "demo:j1-673190"}]})
     drive = state.load(demo)
-    assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673200"], [])
-    assert [line.split(":")[0] for line in watch.undelivered_lines(watching, state.now() + timedelta(minutes=11))] == ["ANSWER undelivered j2"]
+    assert ([kept["seq"] for kept in drive["jobs"]["j2"]["undelivered"]], drive["jobs"]["j1"]["undelivered"]) == (["673125", "673200"], [])
+    assert [line.split(":")[0] for line in watch.undelivered_lines(watching, state.now() + timedelta(minutes=11))] == ["ANSWER undelivered j2", "ANSWER undelivered j2"]
 
 
 def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its_thread_withdraws_it(
