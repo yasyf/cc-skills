@@ -2155,6 +2155,37 @@ def test_a_question_asked_again_after_its_card_was_withdrawn_redraws_that_card_u
     assert [(question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j2"]["questions"]] == [("demo:j1-7", link)]
 
 
+def test_job_card_refuses_a_question_he_answered_under_a_new_waits_id_and_never_swaps_in_the_answered_one(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    listed = [shown]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(listed), "pr_cards": [], "closed": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    listed.clear()
+    words = "1 but find a less hacky and more first-principles way"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", words, link)
+    title = SHORT_ASK.split("\n")[0].removeprefix("ASK ")
+    for argv in (["job", "card", first, "--waits", "demo:j1-9"], ["job", "card", asking], ["job", "card", asking, first]):
+        assert cli.main(argv) == 2
+        assert capsys.readouterr().err == f'drive: refused: j1\'s question "{title}" kept in {first} ended answered, so its card never draws again: "{words}" ({link})\n'
+    reworded = SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    again = run("job", "ask", asking, "-")[1].split(" keeps ")[0]
+    assert cli.main(["job", "card", again, "--waits", "demo:j1-9"]) == 2
+    assert f'refused: j1\'s question "{title}" kept in {again} ended answered, so its card never draws again: "{words}" ({link})' in capsys.readouterr().err
+    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
+        (first, "demo:j1-7", link),
+        (again, None, None),
+    ]
+
+
 def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_counts_or_sends_it(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
