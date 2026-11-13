@@ -559,14 +559,28 @@ class Receiver:
     unhooked: set[str] = field(default_factory=set)
     hooked: list[str] = field(default_factory=list)
     answering: bool = True
+    unadministered: set[str] = field(default_factory=set)
+    refused: dict[str, Exception] = field(default_factory=dict)
+    tried: list[str] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
 def receiving(monkeypatch: pytest.MonkeyPatch) -> Receiver:
     taking = Receiver()
+
+    def hook(repo: str) -> bool:
+        taking.tried.append(repo)
+        if repo in taking.refused:
+            raise taking.refused[repo]
+        if repo in taking.unadministered:
+            return False
+        taking.hooked.append(repo)
+        taking.unhooked.discard(repo)
+        return True
+
     monkeypatch.setattr(receiver, "keep", lambda: None)
     monkeypatch.setattr(receiver, "unhooked", lambda repos: sorted(taking.unhooked & repos))
-    monkeypatch.setattr(receiver, "hook", lambda repo: taking.hooked.append(repo) or taking.unhooked.discard(repo))
+    monkeypatch.setattr(receiver, "hook", hook)
     monkeypatch.setattr(receiver, "answering", lambda: taking.answering)
     return taking
 

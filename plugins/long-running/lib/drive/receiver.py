@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import secrets
+import shlex
 import subprocess
 import time
 import urllib.error
@@ -81,15 +82,26 @@ def url() -> str:
     return f"https://{net.name}:{FUNNEL_PORT}{FUNNEL_PATH}"
 
 
-def hook(repo: str) -> None:
-    """Point a webhook of the repository at the receiver, signed with its secret and sending EVENTS: the one already at its address updated, else a new one."""
+def asked(cmd: list[str], stdin: str | None = None) -> str:
+    """One gh call of the receiver's upkeep, its failure naming the call, since gh's own message, such as `gh: Not Found (HTTP 404)`, names neither the endpoint nor the repository."""
+    try:
+        return github.run(cmd, stdin=stdin)
+    except github.GithubError as error:
+        raise github.GithubError(f"{shlex.join(cmd)}: {error}") from None
+
+
+def hook(repo: str) -> bool:
+    """Point a webhook of the repository at the receiver, signed with its secret and sending EVENTS: the one already at its address updated, else a new one. False, with no hook made, for a repository GitHub lets this account no admin of, such as an upstream project a drive's PR is open on, whose hooks it answers 404 for."""
+    if asked(["gh", "api", f"repos/{repo}", "--jq", ".permissions.admin"]).strip() != "true":
+        return False
     address = url()
     config = json.dumps({"active": True, "events": EVENTS, "config": {"url": address, "content_type": "json", "secret": secret(), "insecure_ssl": "0"}})
-    found = [made["id"] for made in json.loads(github.run(["gh", "api", f"repos/{repo}/hooks?per_page=100"])) if made["config"].get("url") == address]
+    found = [made["id"] for made in json.loads(asked(["gh", "api", f"repos/{repo}/hooks?per_page=100"])) if made["config"].get("url") == address]
     method, path = ("PATCH", f"repos/{repo}/hooks/{found[0]}") if found else ("POST", f"repos/{repo}/hooks")
-    made = json.loads(github.run(["gh", "api", "-X", method, path, "--input", "-"], stdin=config))
+    made = json.loads(asked(["gh", "api", "-X", method, path, "--input", "-"], stdin=config))
     with hooks_kept() as kept:
         kept[repo] = {"id": made["id"], "last": (kept.get(repo) or {}).get("last")}
+    return True
 
 
 def keep() -> None:
@@ -145,7 +157,7 @@ def caught_up() -> None:
     """Ask GitHub for each kept hook's newest delivery, and when it is newer than the last one taken, take every open PR the drives track in its repository as delivered, since the receiver took none of what GitHub sent meanwhile: one read of those PRs in place of one call per missed delivery. A hook whose deliveries GitHub does not list, one deleted or a network not up yet, is forgotten, so the watch makes it again and owes a read of each PR of its repository."""
     for repo, kept in hooks().items():
         try:
-            newest = json.loads(github.run(["gh", "api", f"repos/{repo}/hooks/{kept['id']}/deliveries?per_page=1"]))
+            newest = json.loads(asked(["gh", "api", f"repos/{repo}/hooks/{kept['id']}/deliveries?per_page=1"]))
         except github.GithubError as error:
             with hooks_kept() as hooked:
                 hooked.pop(repo, None)

@@ -418,6 +418,29 @@ def test_the_watch_hooks_each_repository_of_a_pr_it_hears_and_reads_its_prs_sinc
     assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY]])
 
 
+def test_a_repository_this_account_does_not_administer_is_asked_once_with_no_timed_read_and_a_hook_that_fails_is_said_without_holding_back_the_next(
+    demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    broken, upstream = "Forge-AI/litestream#3", "stablyai/orca#7"
+    with state.edit(demo) as data:
+        for key in (broken, upstream):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
+    calls = serve(monkeypatch, {key: read() for key in (KEY, broken, upstream)})
+    refusal = "gh api 'repos/Forge-AI/litestream/hooks?per_page=100': gh: Not Found (HTTP 404)"
+    receiving.unhooked |= {"Forge-AI/litestream", "Forge-AI/monorepo", "stablyai/orca"}
+    receiving.unadministered.add("stablyai/orca")
+    receiving.refused["Forge-AI/litestream"] = github.GithubError(refusal)
+    watching = watcher(demo)
+    said = [line for minutes in range(3) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("WATCH")]
+    assert (said, receiving.tried, receiving.hooked, calls) == (
+        [f"WATCH upkeep of the receiver failed 3 times in a row: {refusal}"],
+        ["Forge-AI/litestream", "Forge-AI/monorepo", "stablyai/orca", "Forge-AI/litestream", "Forge-AI/litestream"],
+        ["Forge-AI/monorepo"],
+        [[KEY, broken, upstream], [KEY]],
+    )
+
+
 def test_a_receiver_that_does_not_answer_is_said_from_its_third_minute_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
     serve(monkeypatch, {})
     receiving.answering = False
