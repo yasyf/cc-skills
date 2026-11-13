@@ -393,7 +393,7 @@ def test_a_first_launch_whose_brief_carries_his_answer_marks_its_job_sent_it_and
             data["answers"][answer_id] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, checkout, run_id, route, workspace: {field: f"{field}-1" for field in fields})
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, checkout, run_id, route, workspace, session: {field: f"{field}-1" for field in fields})
     assert run("job", "launch", "j1", "brief.md")[0] == 0
     answers = state.load(demo)["answers"]
     assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": None})
@@ -663,7 +663,7 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
         ("--mac", "read the 500s in Datadog APM"),
         ("--mac", "drive install long-running@skills --sha 7765bd2"),
         ("--mac", "record the drive's dashboard walking each part"),
-        ("--release", "tools/ci release start api --env prod --order 680721"),
+        ("--release", "tools/ci release start api --env prod"),
     ],
 )
 def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_mac(
@@ -3847,9 +3847,10 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
 
 
 def kept_attempt(drive: str, attempt: str, dispatch: str) -> None:
-    """The attempt the launcher keeps for a brief whose worker started: worker-start exited 0 with a ready receipt."""
+    """The attempt the launcher keeps for a brief whose worker started: its brief, and worker-start exited 0 with a ready receipt."""
     kept = state.drive_dir(drive) / "jobs" / f"{attempt}.worker"
     kept.mkdir(parents=True)
+    kept.with_suffix(".md").write_text(f"Drive: {drive}, order o1, job {attempt}\n")
     (kept / "worker-start.status").write_text("0\n")
     (kept / "worker-start.json").write_text(json.dumps({"ok": True, "error": None, "result": {"state": "ready", "runId": RUN, "taskId": "task_sprite", "dispatchId": dispatch}}))
 

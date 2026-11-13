@@ -334,7 +334,7 @@ WEB_RUNNER = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 const quiet = { addEventListener() {} };
-const context = vm.createContext({ document: quiet, window: quiet, components: JSON.parse(readFileSync(0, "utf8")) });
+const context = vm.createContext({ document: quiet, window: quiet, URL, components: JSON.parse(readFileSync(0, "utf8")) });
 console.log(vm.runInContext(readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
 """
 WEB_RENDER = r"""
@@ -1001,7 +1001,7 @@ await wait(300);
 const canvas = document.querySelector('#main .canvas');
 const viewport = canvas.querySelector('.viewport');
 const box = canvas.getBoundingClientRect();
-const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (innerWidth * innerHeight) > 0.6 };
+const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, under: box.top - document.querySelector('#main .now-metrics').getBoundingClientRect().bottom <= 24 };
 const wheel = (deltaY, [x, y]) => viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY, clientX: x, clientY: y }));
 const middle = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
 const over = middle(canvas.querySelector('.region[data-cam-key="Platform"]'));
@@ -1015,7 +1015,7 @@ await wait(800);
 done({ fills, zoomedIn, here, zoomedOut: location.hash, same: document.querySelector('#main .canvas') === canvas });
 """, board(queue=[asked], status=[{"state": "running", "features": [FEATURE, iris]}]), "1440,900", "--force-prefers-reduced-motion")
     assert seen == {
-        "fills": {"right": True, "bottom": True, "share": True},
+        "fills": {"right": True, "bottom": True, "under": True},
         "zoomedIn": "#/now/Platform",
         "here": {"narrow": True, "listed": ["Raise the limit?"], "acts": [], "filtered": "#/queue/all?project=Platform"},
         "zoomedOut": "#/now",
@@ -1144,7 +1144,7 @@ def test_now_draws_waiting_and_movement_as_labeled_metrics_and_lists_global_prio
 location.hash = '#/now';
 await wait(300);
 done({
-  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('↗', '').trim()),
+  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('→', '').trim()),
   ranked: [...document.querySelectorAll('#main .qrow')].map((row) => row.dataset.rank),
   strip: [...document.querySelectorAll('#alerts > *')].map((chip) => chip.textContent),
   needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-head .need')].map((need) => need.textContent),
@@ -2475,7 +2475,7 @@ done({ lefts: stats.map((each) => Math.round(each.left)), widths: stats.map((eac
 """, board(), size)
     columns = sorted(set(seen["lefts"]))
     steps = {right - left for left, right in zip(columns, columns[1:])}
-    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, "rgb(34, 39, 39)")
+    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, "rgb(23, 43, 38)")
 
 
 def test_a_picture_or_figure_sent_him_is_a_thumbnail_in_its_row_that_opens_in_the_lightbox(tmp_path: Path) -> None:

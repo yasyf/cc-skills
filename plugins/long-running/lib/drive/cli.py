@@ -2289,7 +2289,7 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
     kept.parent.mkdir(exist_ok=True)
     receipt = orca.adopted(kept) or launch_attempt(name, job, attempt, kept, orca.resumed(ended, message), root, ended["workspace"], session)
     started = {field: receipt[field] for field in LAUNCHED}
-    record_start(name, args.id, started, str(kept), message)
+    record_start(name, args.id, started, str(kept))
     went = "the message went to the job's worker, which" if message is not None else "the job's worker"
     line = f"{args.id}: {went} resumed its own Claude session {session} on Sprite {ended['workspace']} as dispatch {started['dispatch']}, in the checkout its lane left there dead ({end.why})"
     return emit(args, line, {"id": args.id, "how": "resumed", "ended": ended, "handoff": str(kept), "session": session, **started})

@@ -1002,6 +1002,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     titles = {"demo:j1-684776": "Which socket formats does sandsql-proc own?", "demo:j1-684682": "Should Electron start sand iris serve through sandsql-proc?"}
     drawn = list(zip(titles.items(), (CARD, sibling), strict=True))
     with state.edit(demo) as data:
+        data["jobs"]["j1"]["agent"] = "agent-1"
         data["prs"]["Forge-AI/monorepo#54101"]["parts"] = list(SANDSQL_PARTS)
         data["prs"]["Forge-AI/monorepo#54102"]["parts"] = [ELECTRON]
         for (waits, title), url in drawn:

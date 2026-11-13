@@ -3194,7 +3194,10 @@ def test_a_readers_design_report_keeps_its_ask_and_posts_its_ask_record_in_the_s
     job = state.load("demo")["jobs"]["j1"]
     [question] = job["questions"]
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
-    assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, its ask record posted"
+    assert out == (
+        f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, its ask record posted\n"
+        f"j2: Read your brief first: {state.drive_dir('demo') / 'jobs' / 'j2.brief.md'}\nhis words from o1, rulings: 0, earlier jobs: 0"
+    )
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
     assert ([sent["attr"] for sent in asks_sent], question["waits"]) == ([{"job": "j1", "ask": question["file"]}], "demo:j1-7")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build the recommended option")[0] == 0
@@ -6804,6 +6807,8 @@ def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_
         assert cli.main(["answer", "a1", "--settled", mark]) == 2
         assert refusal in capsys.readouterr().err
     redraws(narrowed)
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["agent"] = "agent-1"
     code, out = run("answer", "a1", "--stands", designing, "--settled", f"demo:j3-9={narrowed}", "--sent", "j3")
     redrawn = str(narrowed.resolve())
     assert (code, out.splitlines()) == (
