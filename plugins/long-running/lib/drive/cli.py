@@ -793,11 +793,11 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing; refused for an open incident's fix the watch has not recorded live, since no post delivers it."""
+    """Deliver words he reads, a part of the order its holder's session holds, by the drive's post that already answered it, wherever it was made, posting nothing; refused for work he ordered, every part of an order neither an answer order nor limited to options, since no post delivers it."""
     data = state.load(name)
     [part] = pick_parts(order_id, data["orders"][order_id], [part])
-    if state.unlive_fix(data, order_id, part):
-        raise DriveError(f'--part "{part}": refused, ' + state.UNLIVE_FIX.format(order=order_id, part=part))
+    if state.work(data["orders"][order_id]):
+        raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part))
     drive_post_at(link, data, order_id)
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
@@ -870,10 +870,10 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
-    """The parts of the order a post delivers: each item of its report's part attr names on this order, but an open incident's fix the watch has not recorded live, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
     closing = order_id in state.closed_orders(report)
     if named := [part for on, part in items if on == order_id]:
-        return [part for part in pick_parts(order_id, order, named) if closing or not state.unlive_fix(data, order_id, part)]
+        return pick_parts(order_id, order, named) if closing or not state.work(order) else []
     return list(order["parts"]) if closing else []
 
 

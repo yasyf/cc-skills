@@ -464,7 +464,7 @@ def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_t
     recorded: str,
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread, "--parts", "fix")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--kind", "answer", "--thread", thread, "--parts", "fix")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = "communicator-session"
@@ -512,7 +512,7 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--thread", thread, "--parts", "cause", "options as a card")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--kind", "answer", "--thread", thread, "--parts", "cause", "options as a card")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -538,7 +538,7 @@ def test_a_report_naming_two_parts_of_its_order_in_its_one_part_attr_delivers_bo
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--thread", thread, "--parts", SSQL, FOOTERS)
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--kind", "answer", "--thread", thread, "--parts", SSQL, FOOTERS)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -558,7 +558,7 @@ CAUSE_REPORT = (
 )
 
 
-def test_a_report_delivers_each_part_its_part_attr_names_with_no_judge_of_its_words_but_an_incidents_unlive_fix(
+def test_a_report_naming_an_incidents_parts_delivers_none_since_each_is_work_he_ordered_and_asks_no_judge(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, jev: Jev
 ) -> None:
     thread = "1794200000.000100"
@@ -571,11 +571,10 @@ def test_a_report_delivers_each_part_its_part_attr_names_with_no_judge_of_its_wo
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:fix;o1:cause"})
     dry = talk.say(demo, {"text": CAUSE_REPORT, "thread_ts": thread, "order": "o1", "record": "682974", "dry_run": True})
-    assert dry.endswith('; o1 "cause": would be delivered')
-    assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
+    assert dry.endswith("; o1 progress line, no part delivered")
     line = talk.say(demo, {"text": CAUSE_REPORT, "thread_ts": thread, "order": "o1", "record": "682974"})
-    assert line.startswith(f'POSTED {answer}; o1 "cause": posted {answer}')
-    assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": None, "fix": None, "cause": answer}
+    assert line.startswith(f"POSTED {answer}; o1 progress line, no part delivered: {answer}")
+    assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
     assert jev.asked == []
 
 

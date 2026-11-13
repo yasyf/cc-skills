@@ -1661,11 +1661,11 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of an order neither an answer order nor limited to options, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
-    gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
-    if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
+    gaps = {job_id: job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs}
+    if stuck := [gap for job_id, job in jobs if (gap := gaps[job_id]) and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
     if (
         jobs
@@ -1681,10 +1681,12 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         )
     if state.delivered(data, order_id, part):
         return None
-    if part != state.IMMEDIATE_FIX and any(job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
+    if part != state.IMMEDIATE_FIX and any(job["kind"] in state.WORK_KINDS and job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
         return None
+    if carried := [gaps[job_id] for job_id, _ in state.carriers(data, order_id, part)]:
+        return None if None in carried else SETTLING if SETTLING in carried else carried[-1]
     if jobs:
-        return None if None in gaps else SETTLING if SETTLING in gaps else gaps[-1]
+        return SETTLING if SETTLING in gaps.values() else unbuilt(order_id, part, jobs)
     if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR:
         return None
     if not (design := order["parts"][part]["design"]):
@@ -1692,6 +1694,18 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if order["options_only"] or any(after in order["parts"] and not state.delivered(data, order_id, after) for after in order["parts"][part]["after"]):
         return None
     return f"{design}'s design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
+
+
+def unbuilt(order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:
+    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: the builder to start, waiting on the reader still at work, or the sort that makes a question of his an answer order."""
+    held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in jobs)
+    reading = [job_id for job_id, job in jobs if job["kind"] == "reader" and job["state"] not in state.FINISHED_JOB_STATES]
+    waits = f" --waits {reading[-1]}" if reading else ""
+    named = shlex.quote(part)
+    return (
+        f"no builder carries this work, only {held}: start one with drive job add builder --order {order_id} --part {named} --goal '<what it builds>'{waits},"
+        f" or add it to a builder with drive job set <builder> --part {named}; when it asks only for an answer, drive order set {order_id} --kind answer"
+    )
 
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:

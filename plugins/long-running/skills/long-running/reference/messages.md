@@ -111,7 +111,10 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - The handler records each post on an order through the post itself,
   `say(order=<o>, record=<the report's seq>)`, in whatever thread it goes, which delivers each part
   the report's `part` attr names, or each part of an order its `close` attr names, whatever the
-  post's words say, and makes a thread the order holds not yet one of its threads. A progress
+  post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
+  work he ordered, every part of an order neither an answer order nor limited to options, since
+  only a builder or codex job returning `DONE` does, so `record_lines` refuses a report naming one
+  on an order it does not close. A progress
   line's report names neither, whatever job it names, and carries `progress=true`, since
   `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
   on an order of one part as on one of several. An incident and every alert's order joined to it

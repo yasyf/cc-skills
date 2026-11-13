@@ -242,7 +242,8 @@ question.
   its `LANE … died` line says so. A PR's next step goes to its lane by `drive pr wake`, as its
   stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
-  `ORPHAN`s even when another job or a posted answer carries them. So does an open PR from GitHub on
+  `ORPHAN`s even when another job or a posted answer carries them, as does work he ordered that only
+  a reader, a design with no builder, his card or a post holds. So does an open PR from GitHub on
   the job's branch or its lane's that the drive does not track.
 
 **Resume and launch.** `drive job resume` and `drive job launch` are one relaunch under the job's

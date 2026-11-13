@@ -366,10 +366,9 @@ check's verdict, or from the order when none ran.
 
 ## What he hears
 
-Each line is a `report` to the communicator, with `--attr part=<o>:<part>` on one delivering a part, such as the
-first check or the cause, and `--attr progress=true` on every other. The `fix` part is delivered only once the fix runs where the
-incident hurt: by a report after its fix is recorded live, by the release shipping its fix job's change or a builder on it returning `DONE`, or by one closing the incident, so
-`record_lines` refuses an earlier report naming it and `say` marks it on no other post, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
+Each line is a `report` to the communicator with `--attr progress=true`, or `--attr close=<o>` on the one closing the incident. Every
+part of an incident, its first check, its cause and its `fix`, is work he ordered, which only its builder or codex job returning `DONE` delivers, so
+`record_lines` refuses a report naming one in its `part` attr and `say` marks none on a post; the incident lasts until its fix runs where it hurt, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
 the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. A report on an open incident goes out the moment it is written: the one
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
 me". These rules bind the communicator, its handlers and any reader that posts for it.

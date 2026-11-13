@@ -364,7 +364,7 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
 
 
 def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool_runs(run: Run, demo: str, no_calls: None) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--kind", "answer", "--parts", "cause", "fix")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
