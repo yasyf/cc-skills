@@ -1300,7 +1300,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict, str | None]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, and set the job waiting on it; the question keeps the words of its `Holds:` line, which hold from landing only the PRs of jobs working a change they name, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match or Jev reading is asked. One refused stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, and set the job waiting on it; the question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing only the PRs of jobs working a change they name, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match or Jev reading is asked. One refused stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again."""
     from drive import superseded, view
 
     text = limits.ask_block(text)
@@ -1325,12 +1325,14 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             f'{job_id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
             f" and what in the target tree forces a choice #{unnamed[0]} did not make, such as what that tree lacks"
         )
-    parts = [part for order_id in [job["order"], *job["carries"]] for part in data["orders"][order_id]["parts"]]
-    if asked.holds and job["kind"] != "design" and not state.names_part(asked.holds, parts):
+    orders = [job["order"], *job["carries"]]
+    parts = [part for order_id in orders for part in data["orders"][order_id]["parts"]]
+    holds = asked.holds and state.held_words(data, asked.holds, orders)
+    if holds and job["kind"] != "design" and not state.names_part(holds, parts):
         raise DriveError(
             f"`Holds: {asked.holds}` names no change of {job_id}'s orders, so his card would hold nothing from landing: name each change its"
-            f" options alter by its words, of {'; '.join(json.dumps(part, ensure_ascii=False) for part in parts)}, or write `Holds: none: <why>`"
-            f" ({limits.HOLDS_RULING})"
+            f" options alter by its words, of {'; '.join(json.dumps(part, ensure_ascii=False) for part in parts)}, or a PR the drive tracks"
+            f" on them by its link or #N, or write `Holds: none: <why>` ({limits.HOLDS_RULING})"
         )
     if found_elsewhere := elsewhere(data, job_id, asked.title):
         raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
@@ -1350,17 +1352,17 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
         reworded = [other for other in job["questions"] if other["refused"] and (state.same_question(asked.title, other["title"]) or superseded.shared(asked.title, other["title"]))]
         undrawn = [other for other in job["questions"] if other["closed"] and not (other["card"] or other["waits"]) and state.same_question(asked.title, other["title"])]
         if answer:
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, closed=answer["closed"] | {"at": state.stamp()}, holds=asked.holds)
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, closed=answer["closed"] | {"at": state.stamp()}, holds=holds)
             replaced = [*twins, *reworded, *undrawn]
             job["updated"] = state.stamp()
         elif refused:
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, holds=asked.holds)
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, holds=holds)
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded, *undrawn]
             job["updated"] = state.stamp()
         else:
             withdrawn = superseded.redrawable(data, asked.title)
             held = next((twin for twin in [*twins, *withdrawn] if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
-            question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, holds=asked.holds)
+            question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, holds=holds)
             if held:
                 question.update(waits=held["waits"], card=held["card"])
             replaced = [*twins, *withdrawn, *reworded, *undrawn]

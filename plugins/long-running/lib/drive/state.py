@@ -957,6 +957,18 @@ def names_part(holds: str, parts: Iterable[str]) -> bool:
     return bool(said) and any(part.casefold() in said for part in parts)
 
 
+def held_words(data: dict, holds: str, order_ids: Iterable[str]) -> str:
+    """A question's `Holds:` words with, for each PR the drive tracks on these orders that they name by its link, its owner/name#N key or a bare #N, the parts it serves appended: those `drive pr set --part` names, else the parts its job works on its order, so a lane that names its PR names its change."""
+    orders = set(order_ids)
+    named = [
+        pr
+        for key, pr in data["prs"].items()
+        if pr["order"] in orders and re.search(rf"{re.escape(pr_url(key).removeprefix('https://'))}\b|{re.escape(key)}\b|(?<![\w/-])#{key.rpartition('#')[2]}\b", holds)
+    ]
+    served = [part for pr in named for part in pr["parts"] or sorted(worked(data, pr["job"], pr["order"])) if not names_part(holds, [part])]
+    return "; ".join([holds, *dict.fromkeys(served)])
+
+
 def worked(data: dict, job_id: str, order_id: str) -> set[str]:
     """The parts of an order a job works on: those it delivers and the changes of it it designed."""
     return {*job_parts(data["jobs"][job_id], order_id), *designed(data, job_id, order_id)}

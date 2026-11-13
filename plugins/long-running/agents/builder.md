@@ -472,7 +472,8 @@ Holds: <each change of the order its options alter, in that change's words; or n
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
-  of the order. His open card then holds from landing only the PRs of jobs
+  of the order, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask`
+  keeps as the parts that PR serves. His open card then holds from landing only the PRs of jobs
   working a change it names, so a card on another subject holds no PR its options leave alone, and
   `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders. His pick: "Each question names the changes it holds,
