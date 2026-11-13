@@ -24,6 +24,7 @@ from captain_hook import (
     Block,
     Confirm,
     Event,
+    FileFixture,
     HookResult,
     Input,
     Rewrite,
@@ -110,6 +111,11 @@ for script in scripts:
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
 HANDLER_TURN = TURN.with_name("handler.jsonl")
+HIS_DM_HOME = FileFixture(
+    home=True,
+    name=".claude/plugins/installed_plugins.json",
+    content=json.dumps({"plugins": {"cc-slack@cc-slack": [{"installPath": str(TURN.with_name("cc-slack"))}]}}),
+)
 HANDLER_SESSION = "handler-fixture"
 RELAYED_ORDER = "Post it in o598's thread if it has one, else at his DM root"
 THREAD = "1794378983.440769"
@@ -654,6 +660,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            file=HIS_DM_HOME,
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"reason": "he is away and this is news, not an answer", "allow": False, "refusal": "His order asks for the fix, not news of it while he is away."},
@@ -664,6 +671,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            file=HIS_DM_HOME,
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": TimeoutError("codex timed out after 19s")},
@@ -674,6 +682,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            file=HIS_DM_HOME,
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")},
@@ -684,6 +693,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            file=HIS_DM_HOME,
             root_transcript=[T.user(TAP_ASKED, timestamp=SAID_AT.isoformat()), T.assistant("will do")],
             decide=JEV_UNSURE,
             llm={"reason": "he asked to hear when it waits on his tap", "allow": True, "relied_on": [said_evidence(TAP_ASKED, SAID_AT, "prompt").id]},
