@@ -1,6 +1,7 @@
 import itertools
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -536,9 +537,13 @@ def configured(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def saved_on_github(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
-    """The branches GitHub holds under saved/<lane>/, by lane, as its one matching-refs read names them; none until a test saves some."""
+    """The branches GitHub holds under saved/<lane>/, by lane, or with every under saved/<lane>-<n>/ of each later attempt of that lane too, as its one matching-refs read names them; none until a test saves some."""
     held: dict[str, list[str]] = {}
-    monkeypatch.setattr(github, "saved_branches", lambda repo, lane: list(held.get(lane, [])))
+
+    def saved_branches(repo: str, lane: str, every: bool = False) -> list[str]:
+        return [branch for saved, branches in held.items() if saved == lane or every and re.fullmatch(rf"{re.escape(lane)}-\d+", saved) for branch in branches]
+
+    monkeypatch.setattr(github, "saved_branches", saved_branches)
     return held
 
 

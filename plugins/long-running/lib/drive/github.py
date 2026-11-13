@@ -393,10 +393,12 @@ def checkout_repo(checkout: str) -> str:
     return repo_name(run(["git", "-C", checkout, "remote", "get-url", "origin"]))
 
 
-def saved_branches(repo: str, lane: str) -> list[str]:
-    """Each branch repo holds on GitHub under saved/<lane>/, as `saved/<lane>/<name> at <its short sha>`, by one matching-refs read."""
-    refs = json.loads(read(f"{repo}'s saved/{lane}/ branches", ["gh", "api", f"repos/{repo}/git/matching-refs/heads/saved/{lane}/"]))
-    return [f"{ref['ref'].removeprefix('refs/heads/')} at {ref['object']['sha'][:10]}" for ref in refs]
+def saved_branches(repo: str, lane: str, every: bool = False) -> list[str]:
+    """Each branch repo holds on GitHub under saved/<lane>/, or with every under saved/<lane>-<n>/ of each later attempt of that lane too, as `saved/<lane>/<name> at <its short sha>`, by one matching-refs read."""
+    prefix = f"saved/{lane}" if every else f"saved/{lane}/"
+    refs = json.loads(read(f"{repo}'s {prefix} branches", ["gh", "api", f"repos/{repo}/git/matching-refs/heads/{prefix}"]))
+    named = [(ref["ref"].removeprefix("refs/heads/"), ref["object"]["sha"][:10]) for ref in refs]
+    return [f"{branch} at {sha}" for branch, sha in named if re.match(rf"saved/{re.escape(lane)}(-\d+)?/", branch)]
 
 
 def fetched(clone: str, branch: str) -> str:

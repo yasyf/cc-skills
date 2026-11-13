@@ -1687,6 +1687,40 @@ def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
         yield
 
 
+def job_lock_held(name: str, job_id: str) -> bool:
+    """Whether another process holds the job's own lock now, by one try that keeps nothing it takes."""
+    path = drive_dir(name) / "jobs" / f"{job_id}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+    return False
+
+
+@contextmanager
+def launch_waits(name: str, job_id: str) -> Iterator[None]:
+    """Mark a drive job launch --local by its pid in jobs/<j>.launch for as long as it waits for the job's lock and runs, so a resume holding that lock stands down before it wakes, messages or starts anything; the mark goes when the launch returns, unless a later launch replaced it."""
+    path = drive_dir(name) / "jobs" / f"{job_id}.launch"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{os.getpid()}\n")
+    try:
+        yield
+    finally:
+        if path.read_text().strip() == str(os.getpid()):
+            path.unlink()
+
+
+def launch_waiting(name: str, job_id: str) -> int | None:
+    """The pid of a live drive job launch --local, other than this process, that launch_waits marks waiting for the job's lock or holding it."""
+    try:
+        pid = int((drive_dir(name) / "jobs" / f"{job_id}.launch").read_text())
+    except FileNotFoundError:
+        return None
+    return pid if pid != os.getpid() and alive(pid) else None
+
+
 @contextmanager
 def writing(name: str) -> Iterator[None]:
     """Hold the drive's lock for a write, moving a drive.json an older install saved into the drive's database first."""
