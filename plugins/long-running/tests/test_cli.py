@@ -7277,6 +7277,9 @@ def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
     assert [line.split("|")[1].strip() for line in out.splitlines()] == ["`TAP Approve …`", "`TAP Hold …`"]
     assert len(out) < len((cli.PAGES / "coordinator.md").read_text()) / 10
     assert run("manual", "coordinator", "nothing-names-this")[0] == 2
+    code, out = run("manual", "coordinator", "An order, in an owner record")
+    assert code == 0
+    assert [line.split("|")[1].strip() for line in out.splitlines()] == ["An order, in an `owner` record"]
 
 
 def test_drive_manual_prints_the_bullet_carrying_words_no_row_names(run: Run) -> None:
@@ -7314,6 +7317,8 @@ def test_page_parts_prints_each_part_carrying_the_words_once() -> None:
             "",
             "A paragraph about a hand",
             "repair.",
+            "",
+            "A `hand` repair in code marks.",
         ]
     )
     assert cli.page_parts(page, "HAND  repair") == [
@@ -7322,8 +7327,9 @@ def test_page_parts_prints_each_part_carrying_the_words_once() -> None:
         "## Hand repair\n\n```sh\n# not a heading\n```",
         "| row | a hand repair in its second cell |",
         "A paragraph about a hand\nrepair.",
+        "A `hand` repair in code marks.",
     ]
-    assert cli.page_parts(page, "clocks") == ["\n".join(page.splitlines()[2:12])]
+    assert cli.page_parts(page, "clocks") == cli.page_parts(page, "`clocks`") == ["\n".join(page.splitlines()[2:12])]
     assert cli.page_parts(page, "absent words") == []
 
 
