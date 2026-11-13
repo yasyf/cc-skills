@@ -342,7 +342,7 @@ def test_a_report_on_an_open_incident_names_none_of_its_parts_since_each_is_work
     assert state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", "close": "o1"})) is None
     with state.edit(demo) as data:
-        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
+        data["orders"]["o1"]["recovered"] = state.stamp()
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
     assert state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
 
