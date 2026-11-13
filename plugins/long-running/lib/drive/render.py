@@ -70,8 +70,8 @@ COMMUNICATOR_RULES = (
     (
         "A handler's line comes back as one cci done record from lane handler when its session ends: MISSING <path>"
         " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; any"
-        " other line is context for his next message. The handler tool answers `handed to <id>` for a record on the"
-        " message of his, in the thread or on the re chain a live handler is at work on, which that handler takes at"
+        " other line is context for his next message. The handler tool answers `handed to <id>` for a brief, his words"
+        " or a record, on the message of his, in the thread or on the re chain a live handler is at work on, which that handler takes at"
         " its next step and covers in its post, and refuses only a second copy of the same record or message; either"
         " needs nothing more."
     ),
