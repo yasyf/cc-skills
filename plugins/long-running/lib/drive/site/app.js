@@ -16,6 +16,8 @@ const GROUPS = {
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
 const HAPPENED = { order: 'You asked', answer: 'You answered', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
+const LEVEL_IN = 2.2;
+const LEVEL_OUT = 2.4;
 const DECIDED = { tap: 'You tapped', answered: 'You picked', undone: 'You took back' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
 const HISTORY_FILTERS = [
@@ -72,6 +74,7 @@ const KEY_SHEET = [
     [['o'], 'Open the pull request on GitHub'], [['q'], 'Ask about it, or answer in your own words'], [['e'], 'Explain more, or show less'],
     [['f'], 'Next filter: All, PRs, Decisions'], [['[', ']'], 'Previous or next project'], [['⌘Z'], 'Take back the newest answer that still shows Undo'],
   ]],
+  ['Now', [[['scroll', 'pinch'], 'Zoom around the pointer, into a project or workstream and back out'], [['⇧ scroll', '←', '→', '↑', '↓'], 'Pan'], [['+', '−'], 'Zoom in or out']]],
   ['A pull request card', [[['←', '→'], 'Switch between Show me, The change and Context, with a tab focused']]],
   ['Writing to Claude', [[['↵'], 'Send'], [['⇧↵'], 'Start a new line']]],
   ['Jump', [[['↑', '↓'], 'Choose a match'], [['↵'], 'Open it']]],
@@ -908,10 +911,24 @@ function nowScreen() {
   const task = list?.find((entry) => entry.id === taskId) ?? null;
   const keys = [project, stream].filter((key) => key !== undefined);
   const scope = task ? [task] : list ?? (streams ? [...streams.values()].flat() : null);
-  return `<div class="eyebrow">Now</div>
+  const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${keys.length ? scopeWork(scope, project, stream) : ''}${story(scope)}</aside>`;
+  return `<div class="now-head"><div class="eyebrow">Now</div>
     <h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'All projects')}</h1>
-    <p class="lead"${keys.length ? ' hidden' : ''}>${keys.length ? '' : esc(nowHeadline())}</p>
-    <div class="now-grid">${nowCanvas(tree, project, stream, task)}${story(scope)}</div>`;
+    <p class="lead"${keys.length ? ' hidden' : ''}>${keys.length ? '' : esc(nowHeadline())}</p></div>
+    ${nowCanvas(tree, project, stream, task, side)}`;
+}
+
+function scopeWork(scope, project, stream) {
+  const asks = shownQueue('all', project, stream ?? null);
+  const queued = new Set(asks.map((item) => item.pr).filter(Boolean));
+  const open = new Map(scope.flatMap((entry) => entry.prs.filter((pr) => pr.state === 'open' && !queued.has(pr.url)).map((pr) => [pr.url, pr])));
+  const prs = model.review.filter((entry) => open.has(entry.url));
+  const rows = prs.map((entry) => `<li class="qrow"><button class="qrow-main linkish" data-pr="${esc(entry.key)}" data-tip="${esc([entry.title, prSaid(open.get(entry.url)), entry.job_said].filter(Boolean).join('\n'))}"><span class="type-label">${LABEL.tap}</span><span class="qrow-title">${esc(bare(entry.title))}</span><small>${esc(prSaid(open.get(entry.url)))}</small></button></li>`);
+  return `<section class="scope-work">
+    <div class="eyebrow">Here <span class="count">${counted(asks.length, 'thing waits', 'things wait')} on you · ${counted(prs.length, 'other open PR')}</span></div>
+    ${asks.length ? queueList(asks, -1, 'all') : ''}${rows.length ? `<ol class="queue-list">${rows.join('')}</ol>` : ''}
+    <a class="more" href="#/queue/all${scopeQuery(project, stream ?? null)}">Queue filtered to this ›</a>
+  </section>`;
 }
 
 function nowHeadline() {
@@ -951,7 +968,7 @@ function trail() {
   return steps.map(([name, to], i) => (i === steps.length - 1 ? `<strong aria-current="page">${esc(name)}</strong>` : `<a href="${esc(to)}">${esc(name)}</a>`)).join('<span aria-hidden="true">/</span>');
 }
 
-function nowCanvas(tree, project, stream, task) {
+function nowCanvas(tree, project, stream, task, side) {
   const level = stream !== undefined ? 'stream' : project !== undefined ? 'project' : 'all';
   const regions = [...tree].map(([key, streams]) => region(key, streams, project, stream)).join('');
   const live = model.counts.live;
@@ -962,6 +979,7 @@ function nowCanvas(tree, project, stream, task) {
       <div class="world" style="${placed(nowCamera.at)}">${regions || `<p class="empty small">Nothing is open now${live ? `; ${counted(live, 'feature')} went live in the last day, in History` : ''}.</p>`}</div>
       ${task ? taskSheet(task, project, stream) : ''}
     </div>
+    ${side}
   </section>`;
 }
 
@@ -970,7 +988,7 @@ function region(key, streams, project, stream) {
   const here = key === project;
   const open = list.filter((entry) => entry.state !== 'live').length;
   return `<div class="region${key === NONE ? ' unfiled' : ''}${project !== undefined && !here ? ' aside' : ''}" data-cam-key="${esc(key)}" data-href="${zoomHref('now', key)}">
-    <a class="region-head" href="${zoomHref('now', key)}"${project === undefined || !here ? '' : ' tabindex="-1"'}>
+    <a class="region-head" href="${zoomHref('now', key)}" data-tip="${esc(groupTip(fileName(key), list))}"${project === undefined || !here ? '' : ' tabindex="-1"'}>
       <span class="zoom-mark" aria-hidden="true">${key === NONE ? '?' : esc([...fileName(key)][0].toUpperCase())}</span>
       <span class="region-name"><b>${esc(fileName(key))}</b><small>${esc(`${counted(streams.size, 'workstream')}: ${[...streams.keys()].map(fileName).join(', ')}`)}</small></span>
       ${needs(list)}
@@ -984,12 +1002,24 @@ function streamBox(project, key, list, here) {
   const asks = asksOf(list).sort((a, b) => new Date(a.asked) - new Date(b.asked));
   const tasks = list.toSorted((a, b) => RANK.indexOf(a.state) - RANK.indexOf(b.state) || new Date(b.updated) - new Date(a.updated));
   return `<div class="stream${key === NONE ? ' unfiled' : ''}${here ? ' here' : ''}" data-cam-key="${esc(project)}/${esc(key)}" data-href="${zoomHref('now', project, key)}">
-    <a class="stream-head" href="${zoomHref('now', project, key)}"${here ? ' tabindex="-1"' : ''}><b>${esc(fileName(key))}</b><small>${esc(counted(list.length, 'task'))} · ${openOf(list)}</small>${needs(list)}${stateBar(list)}</a>
+    <a class="stream-head" href="${zoomHref('now', project, key)}" data-tip="${esc(groupTip(fileName(key), list))}"${here ? ' tabindex="-1"' : ''}><b>${esc(fileName(key))}</b><small>${esc(counted(list.length, 'task'))} · ${openOf(list)}</small>${needs(list)}${stateBar(list)}</a>
     <div class="stream-body"${here ? '' : ' inert'}>
       ${asks.length ? `<h3 class="sec">Your asks <span class="count">${asks.length}</span></h3><div class="task-list">${asks.map(askRow).join('')}</div>` : ''}
       <h3 class="sec">Tasks <span class="count">${tasks.length}</span></h3><div class="task-list">${tasks.map((entry) => taskRow(entry, zoomHref('now', project, key, entry.id))).join('')}</div>
     </div>
   </div>`;
+}
+
+function groupTip(name, list) {
+  const states = RANK.map((state) => [state, list.filter((entry) => entry.state === state).length]).filter(([, n]) => n).map(([state, n]) => `${n} ${STOP_WORDS[state].toLowerCase()}`);
+  const asks = asksOf(list).length;
+  const newest = list.toSorted((a, b) => new Date(b.updated) - new Date(a.updated))[0];
+  return [name, states.join(' · '), asks ? `${counted(asks, 'decision')} for you` : '', newest ? `Newest: ${newest.title}${newest.now ? `: ${newest.now}` : ''}, ${clock(newest.updated)}` : ''].filter(Boolean).join('\n');
+}
+
+function taskTip(entry) {
+  const prs = entry.prs.filter((pr) => pr.state === 'open').map((pr) => `${prKey(pr.url)}: ${prSaid(pr)}, ${pr.review === 'none' ? 'no review' : pr.review}`);
+  return [entry.title, `${STOP_WORDS[entry.state]}${entry.now ? `: ${entry.now}` : ''}, ${clock(entry.updated)}`, ...prs, entry.cards.length ? `Waits on you: ${counted(entry.cards.length, 'decision')}` : ''].filter(Boolean).join('\n');
 }
 
 function openOf(list) {
@@ -1020,6 +1050,7 @@ function taskSheet(entry, project, stream) {
     <div class="sheet-bar"><span class="eyebrow">Task</span><a class="linkish" href="${zoomHref('now', project, stream)}">Close</a></div>
     <h2 class="sheet-title">${esc(entry.title)}</h2>
     ${taskBody(entry)}
+    ${story([entry], 'Latest')}
   </aside>`;
 }
 
@@ -1030,10 +1061,17 @@ let dragged = false;
 let fitter = null;
 let framer = null;
 let gesture = null;
+let stepped = 0;
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 function placed(at) {
   return at ? `transform:scale(${at.k}) translate(${-at.x}px, ${-at.y}px);--k:${at.k}` : 'visibility:hidden';
+}
+
+function panNow(dx, dy) {
+  cancelAnimationFrame(nowCamera.flying);
+  nowCamera.at = { ...nowCamera.at, x: nowCamera.at.x + dx / nowCamera.at.k, y: nowCamera.at.y + dy / nowCamera.at.k };
+  aim(nowCamera);
 }
 
 function aim(cam) {
@@ -1069,9 +1107,10 @@ function fitTo(box, viewport, level) {
   const w = viewport.clientWidth;
   const h = viewport.clientHeight;
   const room = Math.min(w / (box.w * (1 + 2 * pad)), h / (box.h * (1 + 2 * pad)), 1.15);
-  const k = level === 'all' ? Math.min(w / box.w, 1.15) : Math.max(room, Math.min(w / (box.w * (1 + 2 * pad)), READABLE));
+  const k = level === 'all' ? Math.min(w / box.w, 1.15) : level === 'readable' ? Math.max(room, READABLE) : Math.max(room, Math.min(w / (box.w * (1 + 2 * pad)), READABLE));
   const top = box.h * k > h ? box.y - box.h * pad : box.y + box.h / 2 - h / k / 2;
-  return { k, x: box.x + box.w / 2 - w / k / 2, y: top };
+  const left = box.w * k > w ? box.x - box.w * pad : box.x + box.w / 2 - w / k / 2;
+  return { k, x: left, y: top };
 }
 
 function fitOf(view) {
@@ -1083,8 +1122,10 @@ function fitOf(view) {
   if (view.closest('.canvas.now[data-level="all"]')) return { k: 1, x: 0, y: 0 };
   const { box, unit } = focused(view);
   const sheet = view.querySelector('.task-sheet');
-  const room = { clientWidth: view.clientWidth - (sheet && view.clientWidth - sheet.offsetWidth >= 420 ? sheet.offsetWidth : 0), clientHeight: view.clientHeight };
-  const fit = fitTo({ x: 0, y: 0, w: box.w * unit, h: box.h * unit }, room, $('#main .canvas').dataset.level);
+  const side = sheet ?? (narrow.matches ? null : view.parentElement.querySelector(':scope > .now-side'));
+  const room = { clientWidth: view.clientWidth - (side && view.clientWidth - side.offsetWidth >= 420 ? side.offsetWidth : 0), clientHeight: view.clientHeight };
+  const level = $('#main .canvas').dataset.level;
+  const fit = fitTo({ x: 0, y: 0, w: box.w * unit, h: box.h * unit }, room, view.closest('.canvas.now') && level === 'project' ? 'readable' : level);
   const chosen = view.querySelector('.topo-node.lane.on');
   const k = (chosen ? 1 : Math.min(1, room.clientWidth / (box.w * unit * 1.05))) * unit;
   if (fit.k * unit >= k || !(chosen || (narrow.matches && view.closest('.work')))) return { k: fit.k * unit, x: box.x + fit.x / unit, y: box.y + fit.y / unit };
@@ -1197,6 +1238,27 @@ function zoomAround(view, factor, px, py, ms = 0) {
   aim(cam);
 }
 
+function stepLevel(view, k, px, py) {
+  const ratio = k / fitOf(view).k;
+  const to = ratio >= LEVEL_IN ? openedAt(view, px, py) : ratio <= 1 / LEVEL_OUT ? up() : null;
+  if (!to) return false;
+  stepped = performance.now() + 600;
+  go(to);
+  return true;
+}
+
+function openedAt(view, px, py) {
+  const { world, at } = nowCamera;
+  const x = at.x + px / at.k;
+  const y = at.y + py / at.k;
+  const level = view.closest('.canvas').dataset.level;
+  const boxes = level === 'all' ? world.querySelectorAll(':scope > .region') : level === 'project' ? world.querySelectorAll('.region:not(.aside) .stream') : [];
+  return [...boxes].find((el) => {
+    const box = boxOf(el, world);
+    return x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
+  })?.dataset.href;
+}
+
 function grip(points, view) {
   const r = view.getBoundingClientRect();
   const all = [...points.values()];
@@ -1219,7 +1281,7 @@ function askRow(card) {
 function taskRow(entry, href = `#/feature/${entry.id}`) {
   const merged = entry.prs.filter((pr) => pr.state === 'merged').length;
   const facts = [entry.prs.length ? `${merged} of ${counted(entry.prs.length, 'PR')} merged` : '', entry.cards.length ? `${counted(entry.cards.length, 'decision')} for you` : ''].filter(Boolean).join(' · ');
-  return `<a class="task-row" href="${esc(href)}">
+  return `<a class="task-row" href="${esc(href)}" data-tip="${esc(taskTip(entry))}">
     <span class="task-mark t-${STOP_TONES[entry.state]}" aria-hidden="true"></span>
     <span class="task-body"><b>${esc(entry.title)}</b>${entry.now ? `<small>${esc(entry.now.replace(REPORT_WORD, '').replace(PR_LINK, '#$1'))}</small>` : ''}</span>
     <span class="task-facts">${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}${facts ? `<small>${esc(facts)}</small>` : ''}</span>
@@ -1228,16 +1290,18 @@ function taskRow(entry, href = `#/feature/${entry.id}`) {
 }
 
 function momentText(entry) {
+  if (entry.kind === 'heard') return `<b class="what">${esc(entry.detail)}</b> ${reportLine(entry.text)}`;
   const text = FEATURE_KINDS.has(entry.kind) ? featureLink(entry.feature, entry.text) : link(entry.text, entry.url);
   return `<b class="what">${DECIDED[entry.kind] ? `${DECIDED[entry.kind]} ${esc(entry.detail)} on` : HAPPENED[entry.kind]}</b> ${text}`;
 }
 
-function story(scope) {
+function story(scope, title = 'The live story') {
   const read = slice(`/api/story${scope ? `?${new URLSearchParams({ ids: scope.map((entry) => entry.id).join(',') })}` : ''}`);
   const told = read?.ok ? read.moments : [];
-  return `<aside class="story" aria-label="The live story">
-    <div class="eyebrow">The live story</div>
-    ${!read?.ok ? notRead(read) : told.length ? `<ol>${told.map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>` : '<p class="meta">Nothing has happened here yet.</p>'}
+  const tip = (entry) => (featureOf(entry.feature) ? ` data-tip="${esc(taskTip(featureOf(entry.feature)))}"` : '');
+  return `<aside class="story" aria-label="${title}">
+    <div class="eyebrow">${title}</div>
+    ${!read?.ok ? notRead(read) : told.length ? `<ol>${told.map((entry) => `<li${tip(entry)}><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>` : '<p class="meta">Nothing has happened here yet.</p>'}
     <a class="more" href="#/history">All of history ›</a>
   </aside>`;
 }
@@ -1479,7 +1543,7 @@ function jobRow(job) {
   const quiet = minutesSince(job.updated);
   const stall = isStalled(job) ? `<span class="badge red">quiet ${ago(job.updated)}</span>` : '';
   const facts = [JOB_STATES[job.state] ?? job.state, job.kind, job.where, `last word ${quiet < 1 ? 'just now' : `${ago(job.updated)} ago`}`, job.state === 'built' ? `built on ${job.branch}` : '', job.waits ? `waits on ${counted(job.waits, 'card or job', 'cards or jobs')}` : '', job.prs ? counted(job.prs, 'PR') : ''];
-  return `<li class="job ${esc(job.state)}">
+  return `<li class="job ${esc(job.state)}" data-tip="${esc([`${job.kind} ${job.id}: ${JOB_STATES[job.state] ?? job.state}`, job.goal, job.word ? `${clock(job.word.at)}: ${job.word.text}` : ''].filter(Boolean).join('\n'))}">
     <span class="dot"></span>
     <div class="body">
       <div class="title">${esc(job.goal)} ${stall}</div>
@@ -1915,10 +1979,13 @@ function goJump(row) {
 function strip() {
   const { picks, taps } = waiting();
   const open = model.incidents.length;
-  const reports = model.bug_reports.filter((report) => report.stage !== 'told').length;
+  const reports = model.bug_reports.filter((report) => report.stage !== 'told');
+  const stale = (list) => list.filter((each) => isStale(featureOf(each.id))).length;
+  const split = (list) => (stale(list) ? `, ${stale(list)} stale` : '');
+  const tip = (list) => list.map((each) => `${featureOf(each.id).title}: ${isStale(featureOf(each.id)) ? 'stale' : 'moving'}`).join('\n');
   return [
-    open ? `<button type="button" class="al bad" popovertarget="incidents">${open} ${open === 1 ? 'incident' : 'incidents'} open</button>` : '',
-    reports ? `<button type="button" class="al warn" popovertarget="bug-reports">${reports} ${reports === 1 ? 'bug report' : 'bug reports'} open</button>` : '',
+    open ? `<button type="button" class="al bad" popovertarget="incidents" data-tip="${esc(`${counted(open, 'incident')} open\n${tip(model.incidents)}`)}">${open} ${open === 1 ? 'incident' : 'incidents'} open${split(model.incidents)}</button>` : '',
+    reports.length ? `<button type="button" class="al warn" popovertarget="bug-reports" data-tip="${esc(`${counted(reports.length, 'bug report')} open\n${tip(reports)}`)}">${reports.length} ${reports.length === 1 ? 'bug report' : 'bug reports'} open${split(reports)}</button>` : '',
     picks ? `<a class="al" href="#/queue/question">${picks} ${picks === 1 ? 'decision' : 'decisions'} for you</a>` : '',
     taps ? `<a class="al" href="#/queue/tap">${taps} ${taps === 1 ? 'PR' : 'PRs'} to tap</a>` : '',
   ].filter(Boolean).join('');
@@ -1937,6 +2004,15 @@ function motion(entry) {
   return { asks, moving: running || prs, facts };
 }
 
+function isStale(entry) {
+  const { asks, moving } = motion(entry);
+  return !asks && !moving;
+}
+
+function lastMove(entry, orphaned) {
+  return [isStale(entry) ? '' : `last move ${clock(entry.updated)}`, orphaned ? `watch said ORPHAN ${clock(orphaned)}` : ''];
+}
+
 function popRow(id, title, facts) {
   return `<li><a href="#/feature/${esc(id)}"><span class="inc-title">${esc(title)}</span><span class="meta">${facts.filter(Boolean).join(' · ')}</span></a></li>`;
 }
@@ -1945,10 +2021,11 @@ function incidentList() {
   const rows = model.incidents.map((incident) => {
     const entry = featureOf(incident.id);
     const { asks, moving, facts } = motion(entry);
-    return { rank: [asks ? 0 : 1, moving ? 0 : 1, -Date.parse(entry.updated)], html: popRow(incident.id, entry.title, [`Since ${clock(incident.created)}`, ...facts]) };
+    return { rank: [asks ? 0 : 1, moving ? 0 : 1, -Date.parse(entry.updated)], html: popRow(incident.id, entry.title, [`Since ${clock(incident.created)}`, ...facts, ...lastMove(entry, incident.orphaned)]) };
   });
   rows.sort((a, b) => a.rank.map((value, i) => value - b.rank[i]).find(Boolean) ?? 0);
-  return `<div class="inc-head"><b>${rows.length} ${rows.length === 1 ? 'incident' : 'incidents'} open</b><span>Waiting on you first, then the ones moving</span></div><ul>${rows.map((row) => row.html).join('')}</ul>`;
+  const stale = model.incidents.filter((incident) => isStale(featureOf(incident.id))).length;
+  return `<div class="inc-head"><b>${rows.length} ${rows.length === 1 ? 'incident' : 'incidents'} open</b><span>${rows.length - stale} moving · ${stale} stale, with no job, card or PR on it. Waiting on you first, then the ones moving</span></div><ul>${rows.map((row) => row.html).join('')}</ul>`;
 }
 
 function bugReportList() {
@@ -1957,7 +2034,7 @@ function bugReportList() {
   const stages = BUG_STAGES.map(([stage, , short]) => [short, reports.filter((report) => report.stage === stage).length]).filter(([, n]) => n).map(([short, n]) => `${n} ${short}`);
   const rows = reports.map((report) => {
     const said = BUG_STAGES.find(([stage]) => stage === report.stage)[1];
-    const facts = report.stage === 'told' ? [] : motion(featureOf(report.id)).facts;
+    const facts = report.stage === 'told' ? [] : [...motion(featureOf(report.id)).facts, ...lastMove(featureOf(report.id), report.orphaned)];
     return popRow(report.id, report.title, [said, `reported ${clock(report.created)}`, ...facts]);
   });
   return `<div class="inc-head"><b>${open} ${open === 1 ? 'bug report' : 'bug reports'} open</b><span>${stages.join(' · ')}, each open until its reporter is told the fix is live</span></div><ul>${rows.join('')}</ul>`;
@@ -2111,7 +2188,7 @@ function featureScreen(id) {
   if (!entry) return '<p class="empty">This feature is no longer on the dashboard. <a href="#/now">Back to Now</a></p>';
   return `<div class="eyebrow">Task</div>
     <h1 class="h1 zoom-title">${esc(entry.title)}</h1>
-    <div class="now-grid"><div class="zoom-body">${taskBody(entry)}</div>${story([entry])}</div>`;
+    <div class="now-grid"><div class="zoom-body">${taskBody(entry)}</div>${story([entry], 'Latest')}</div>`;
 }
 
 function taskBody({ id }) {
@@ -2130,7 +2207,7 @@ function taskBody({ id }) {
   ].filter(Boolean);
   const shipped = entry.parts.filter((part) => part.delivered).length;
   const merged = entry.prs.filter((pr) => pr.state === 'merged').length;
-  return `<div class="kick">${pill(HEADS[entry.state], STOP_TONES[entry.state])}${entry.holdup ? `<span class="holdup">${holdupLine(entry.holdup)}</span>` : ''}</div>
+  return `<div class="kick">${pill(HEADS[entry.state], STOP_TONES[entry.state])}${entry.holdup ? `<span class="holdup">${holdupLine(entry.holdup)}${entry.holdup.at ? ` <small class="meta">${clock(entry.holdup.at)}</small>` : ''}</span>` : ''}</div>
       <blockquote class="said">${esc(entry.text)}</blockquote>
       <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
       <h2 class="sec">What it ships <span class="count">${shipped} of ${entry.parts.length} delivered</span></h2>
@@ -2168,7 +2245,7 @@ function partRow(part) {
 }
 
 function jobLine(job) {
-  return `<li class="line"><span class="line-text"><b>${esc(job.kind)} ${esc(job.id)}</b> ${esc(job.goal)}${job.said ? `<br>${reportLine(job.said, job.state)}` : ''}</span><small class="meta">${clock(job.updated)}</small></li>`;
+  return `<li class="line" data-tip="${esc(`${job.kind} ${job.id}\n${job.goal}`)}"><span class="line-text"><b>${esc(job.kind)} ${esc(job.id)}</b> ${job.word ? reportLine(job.word.text, job.state) : esc(job.goal)}</span><small class="meta">${clock(job.word?.at ?? job.updated)}</small></li>`;
 }
 
 function measure() {
@@ -2191,8 +2268,9 @@ function render() {
   const { screen, id } = route();
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   const at = { feature: 'now', file: 'work' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
-  const counts = { queue: model.counts.queue };
-  $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''}>${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count" aria-label="${counts[name]} waiting on you">${counts[name]}</b>` : ''}</a>`).join('');
+  const counts = { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today };
+  const said = { queue: 'waiting on you', now: 'jobs running', work: 'lanes at work', history: 'merged today' };
+  $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''} data-tip="${esc([label, counts[name] ? `${counts[name]} ${said[name]}` : '', name === 'now' && model.incidents.length ? `${counted(model.incidents.length, 'incident')} open` : ''].filter(Boolean).join('\n'))}">${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count${name === 'queue' ? '' : ' soft'}" aria-label="${counts[name]} ${said[name]}">${counts[name]}</b>` : ''}${name === 'now' && model.incidents.length ? `<i class="alarm" aria-label="${counted(model.incidents.length, 'incident')} open"></i>` : ''}</a>`).join('');
   morphChildren($('#crumb'), Object.assign(document.createElement('nav'), { innerHTML: trail() }));
   const raised = strip();
   morphChildren($('#alerts'), Object.assign(document.createElement('div'), { innerHTML: raised }));
@@ -2493,7 +2571,9 @@ document.addEventListener('click', (event) => {
   if (tool) {
     const view = tool.closest('.canvas, .visual-host').querySelector('.viewport, .frame');
     if (tool.dataset.cam === 'fit') return flyTo(camOf(view), fitOf(view), 420);
-    return zoomAround(view, tool.dataset.cam === 'in' ? 0.7 : 1 / 0.7, view.clientWidth / 2, view.clientHeight / 2, 260);
+    const factor = tool.dataset.cam === 'in' ? 0.7 : 1 / 0.7;
+    if (view.closest('.canvas.now') && stepLevel(view, zoomed(view, nowCamera.at.k / factor), view.clientWidth / 2, view.clientHeight / 2)) return;
+    return zoomAround(view, factor, view.clientWidth / 2, view.clientHeight / 2, 260);
   }
   const spot = !event.target.closest('a, button, .task-sheet') && event.target.closest('#main .viewport [data-href]');
   if (spot) {
@@ -2646,18 +2726,16 @@ document.addEventListener('click', (event) => {
 document.addEventListener('wheel', (event) => {
   const view = event.target.closest('#main .viewport, .frame');
   if (!view) return;
-  if (!(event.ctrlKey || event.metaKey || view.closest('.lb-stage'))) {
-    if (!view.matches('.viewport')) return;
-    const tall = view.querySelector('.world').offsetHeight - view.clientHeight / nowCamera.at.k;
-    if ($('#main .canvas').dataset.level !== 'all' || tall <= 0) return;
-    event.preventDefault();
-    cancelAnimationFrame(nowCamera.flying);
-    nowCamera.at = { ...nowCamera.at, y: Math.min(tall, Math.max(0, nowCamera.at.y + event.deltaY / nowCamera.at.k)) };
-    return aim(nowCamera);
-  }
+  const now = view.closest('.canvas.now');
+  const pinched = event.ctrlKey || event.metaKey;
+  if (!(pinched || now || view.closest('.lb-stage'))) return;
   event.preventDefault();
+  if (now && performance.now() < stepped) return;
+  if (now && event.shiftKey && !pinched) return panNow(event.deltaX, event.deltaY);
   const r = view.getBoundingClientRect();
-  zoomAround(view, Math.exp(event.deltaY * (event.ctrlKey ? 0.01 : 0.0016)), event.clientX - r.left, event.clientY - r.top);
+  const [px, py] = [event.clientX - r.left, event.clientY - r.top];
+  zoomAround(view, Math.exp(event.deltaY * (event.ctrlKey ? 0.01 : 0.0016)), px, py);
+  if (now) stepLevel(view, nowCamera.at.k, px, py);
 }, { passive: false });
 window.addEventListener('scroll', () => {
   if (touched) hideSource();
@@ -2700,6 +2778,16 @@ document.addEventListener('keydown', (event) => {
   if (free && event.key === '?') {
     event.preventDefault();
     return openKeys();
+  }
+  const zoomKey = { '+': 'in', '=': 'in', '-': 'out' }[event.key];
+  if (free && screen === 'now' && zoomKey) {
+    event.preventDefault();
+    return $(`#main .canvas [data-cam="${zoomKey}"]`).click();
+  }
+  const pan = { ArrowLeft: [-80, 0], ArrowRight: [80, 0], ArrowUp: [0, -80], ArrowDown: [0, 80] }[event.key];
+  if (free && screen === 'now' && pan && !event.target.closest?.('.now-side, .task-sheet')) {
+    event.preventDefault();
+    return panNow(...pan);
   }
   if (free && screen === 'queue') {
     const step = { ArrowLeft: -1, ArrowRight: 1, k: -1, j: 1 }[event.key];

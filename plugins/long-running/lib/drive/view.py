@@ -73,6 +73,8 @@ HISTORY_PAGE = 80
 HISTORY_SHOWN = {"all": None, "prs": {"merged"}, "you": {"order", "answer", "tap", "answered", "undone"}, "said": {"said"}}
 STORY_KINDS = {"order", "live", "merged", "tap"}
 STORY_LINES = 6
+HEARD_LINES = 8
+NAMED = re.compile(r"\b[oj]\d+\b")
 LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
 TAP_CLAIM = re.compile(
     r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|approv(?:e|al))\b",
@@ -267,7 +269,9 @@ def plain(text: str, limit: int) -> str:
 
 
 def said(text: str | None) -> str:
-    return cut(without_records(text or ""), NOW_CHARS + 1)
+    """A line as a row shows it: its record ids taken out, or as written when every sentence names one, so a line that says something never shows blank."""
+    kept = without_records(text or "")
+    return cut(kept if kept.strip() else text or "", NOW_CHARS + 1)
 
 
 def order_title(order: dict) -> str:
@@ -411,12 +415,12 @@ def asked_by(drive: dict, found: dict) -> dict[str, str | None]:
     return asker
 
 
-def rail(drive: dict, item: dict, reports: set[str]) -> dict:
+def rail(drive: dict, item: dict, reports: set[str], heard: dict[str, list[dict]]) -> dict:
     """What the dashboard draws beside a question card beyond the card itself: what it holds up, the job that asked it with the files the drive keeps for it, and his recorded answers the drive matched to the card, newest first."""
     key = item["card"].get("waits") or message_key(item["answer"])
     answers = sorted((answer for answer in drive["answers"].values() if key in answer["cards"]), key=lambda answer: state.parse_time(answer["at"]), reverse=True)
     return item["rail"] | {
-        "asker": item["job"] and job_entry(item["job"], drive["jobs"][item["job"]], reports),
+        "asker": item["job"] and job_entry(item["job"], drive["jobs"][item["job"]], reports, heard),
         "answers": [{"words": answer["words"], "at": answer["at"], "mark": (answer["cards"][key] or {}).get("mark")} for answer in answers],
     }
 
@@ -602,9 +606,22 @@ def blocking(drive: dict, jobs: list[dict], prs: list[dict], found: dict) -> lis
     return [{"title": card["question"], "url": card["url"], "asked": card["asked"]} for card in held]
 
 
-def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: dict) -> dict:
+def served_prs(drive: dict) -> dict[str, dict[str, dict]]:
+    """Each order's PRs by key: its jobs' own, each `drive pr set --serves` points at it, and each PR of a job that took it over or carries the order, the orders `state.served_orders` checks a PR against, in one pass over the jobs."""
+    keys = {pr["url"]: key for key, pr in drive["prs"].items()}
+    served: dict[str, dict[str, dict]] = {}
+    for key, pr in drive["prs"].items():
+        for order_id in filter(None, (pr["order"], pr.get("serves"))):
+            served.setdefault(order_id, {})[key] = pr
+    for job in drive["jobs"].values():
+        for url in filter(keys.__contains__, job["prs"]):
+            for order_id in (job["order"], *job["carries"]):
+                served.setdefault(order_id, {})[keys[url]] = drive["prs"][keys[url]]
+    return served
+
+
+def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: dict, prs: list[dict]) -> dict:
     jobs = [drive["jobs"][job_id] for job_id in order["jobs"]]
-    prs = [pr for pr in drive["prs"].values() if pr["order"] == order_id]
     return {
         "id": order_id,
         "title": order_title(order),
@@ -624,7 +641,8 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
 
 
 def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
-    features = [feature(drive, order_id, order, moment, found) for order_id, order in drive["orders"].items() if shown(order, moment)]
+    served = served_prs(drive)
+    features = [feature(drive, order_id, order, moment, found, list(served.get(order_id, {}).values())) for order_id, order in drive["orders"].items() if shown(order, moment)]
     features.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     features.sort(key=lambda entry: (entry["due"] is None, entry["due"] and state.parse_time(entry["due"])))
     spellings = {}
@@ -643,7 +661,7 @@ def build(drive: dict, found: dict, moment: datetime) -> dict:
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
 
 
-def job_entry(job_id: str, job: dict, reports: set[str]) -> dict:
+def job_entry(job_id: str, job: dict, reports: set[str], heard: dict[str, list[dict]]) -> dict:
     return {
         "id": job_id,
         "feature": job["order"],
@@ -653,6 +671,7 @@ def job_entry(job_id: str, job: dict, reports: set[str]) -> dict:
         "where": job.get("where") or "local",
         "said": said(job["said"]),
         "updated": job["updated"],
+        "word": newest_word(job_id, job, heard),
         "prs": len(job["prs"]),
         "branch": job["branch"],
         "waits": len(job["waits"]),
@@ -781,9 +800,10 @@ def review(drive: dict, found: dict) -> list[dict]:
     return entries
 
 
-def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str]) -> dict:
-    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose history the drive keeps, which holds every return each took."""
+def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str], heard: dict[str, list[dict]]) -> dict:
+    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order, jobs and the newest records naming them; reports names the jobs whose history the drive keeps, which holds every return each took, and heard holds the newest records naming each order and job, newest first."""
     model = build(drive, found, moment) | {"cards": source}
+    served = served_prs(drive)
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
     for entry in (entry for group in model["status"] for entry in group["features"]):
         order = drive["orders"][entry["id"]]
@@ -791,22 +811,26 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
             "text": order["text"],
             "note": said(order.get("note")),
             "created": order["created"],
-            "jobs": [job_entry(job_id, drive["jobs"][job_id], reports) for job_id in order["jobs"]],
+            "jobs": [job_entry(job_id, drive["jobs"][job_id], reports, heard) for job_id in order["jobs"]],
             "parts": [part_entry(drive, entry["id"], part) for part in order["parts"]],
             "where": where_it_is(drive, order),
-            "holdup": holdup(drive, entry, found),
+            "holdup": holdup(drive, entry, found, served, heard),
+            "heard": heard_of(heard, [entry["id"], *order["jobs"]]),
         }
     for item in (item for item in model["queue"] if item["kind"] == "question"):
-        item["rail"] = rail(drive, item, reports)
-    active = [job_entry(job_id, job, reports) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
+        item["rail"] = rail(drive, item, reports, heard)
+    active = [job_entry(job_id, job, reports, heard) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
+    told = history(drive, events, found["team_url"])
+    today = day_of(model["at"])
     return model | {
+        "counts": model["counts"] | {"jobs": sum(job["state"] == "running" for job in drive["jobs"].values()), "lanes": len(active), "merged_today": sum(entry["kind"] == "merged" and day_of(entry["at"]) == today for entry in told)},
         "progress": progress(drive),
         "work": active,
-        "history": history(drive, events, found["team_url"]),
+        "history": told,
         "review": review(drive, found),
-        "incidents": incidents(drive),
-        "bug_reports": bug_reports(drive, moment),
+        "incidents": [entry | {"orphaned": orphaned(heard, entry["id"])} for entry in incidents(drive)],
+        "bug_reports": [entry | {"orphaned": orphaned(heard, entry["id"])} for entry in bug_reports(drive, moment, served)],
         "channel": drive["slack"]["channel"],
     }
 
@@ -843,11 +867,35 @@ def where_line(text: str, job_id: str | None, job_state: str | None, at: str) ->
     return {"text": " ".join(without_records(text).split()) or " ".join(text.split()), "job": job_id, "state": job_state, "at": at}
 
 
-def holdup(drive: dict, entry: dict, found: dict) -> dict | None:
+def heard_line(record: dict) -> dict:
+    """A cci record as a page tells it: its seq, when, the lane that posted it, its kind and its words as a line."""
+    return {"seq": record["seq"], "at": state.stamp(state.parse_time(record["at"])), "lane": record["lane"], "kind": record["kind"], "text": said(record["text"])}
+
+
+def heard_of(heard: dict[str, list[dict]], ids: list[str]) -> list[dict]:
+    """The newest HEARD_LINES records naming any of ids, newest first, each once."""
+    lines = {line["seq"]: line for key in ids for line in heard.get(key, [])}
+    return sorted(lines.values(), key=lambda line: line["seq"], reverse=True)[:HEARD_LINES]
+
+
+def orphaned(heard: dict[str, list[dict]], order_id: str) -> str | None:
+    """When the watch last said nothing works on the order, from the newest records naming it."""
+    return next((line["at"] for line in heard.get(order_id, []) if line["text"].startswith("ORPHAN")), None)
+
+
+def newest_word(job_id: str, job: dict, heard: dict[str, list[dict]]) -> dict | None:
+    """The newest thing a job said, as its text and time: its newest record, or its last report when that came later."""
+    lines = [{"text": line["text"], "at": line["at"]} for line in heard.get(job_id, [])[:1]]
+    if job["said"]:
+        lines.append({"text": said(job["said"]), "at": job["updated"]})
+    return max(lines, key=lambda line: state.parse_time(line["at"]), default=None)
+
+
+def holdup(drive: dict, entry: dict, found: dict, served: dict[str, dict[str, dict]], heard: dict[str, list[dict]]) -> dict | None:
     """What a task waits on, agreeing with the state it shows: the failed job or red PR blocking it, the job on it, his answer or tap, a PR's checks or wait, the job it waits behind, or its proof once merged; card and pr name what the phrase opens."""
     order_id = entry["id"]
     jobs = sorted(((job_id, drive["jobs"][job_id]) for job_id in drive["orders"][order_id]["jobs"]), key=lambda pair: state.parse_time(pair[1]["updated"]), reverse=True)
-    prs = [(key, pr) for key, pr in drive["prs"].items() if pr["order"] == order_id and pr["state"] == "open"]
+    prs = [(key, pr) for key, pr in served.get(order_id, {}).items() if pr["state"] == "open"]
     match entry["state"]:
         case "live":
             return None
@@ -858,6 +906,8 @@ def holdup(drive: dict, entry: dict, found: dict) -> dict | None:
             return waits_on(f"red checks on #{key.partition('#')[2]}", pr=key, url=pr["url"])
         case "running":
             job_id, job = newest_job(jobs, "running")
+            if word := newest_word(job_id, job, heard):
+                return waits_on(f"{job['kind']} {job_id}: {word['text']}", at=word["at"])
             return waits_on(f"{job['kind']} {job_id} is on it: {cut(job['goal'], TITLE_CHARS)}")
         case "merged":
             return waits_on("waits on proof it works where you use it")
@@ -883,8 +933,8 @@ def newest_job(jobs: list[tuple[str, dict]], *states: str) -> tuple[str, dict] |
     return next(((job_id, job) for job_id, job in jobs if job["state"] in states), None)
 
 
-def waits_on(text: str, card: str | None = None, pr: str | None = None, url: str | None = None) -> dict:
-    return {"text": text, "card": card, "pr": pr, "url": url}
+def waits_on(text: str, card: str | None = None, pr: str | None = None, url: str | None = None, at: str | None = None) -> dict:
+    return {"text": text, "card": card, "pr": pr, "url": url, "at": at}
 
 
 def incidents(drive: dict) -> list[dict]:
@@ -893,13 +943,10 @@ def incidents(drive: dict) -> list[dict]:
     return [{"id": order_id, "title": order_title(order), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
 
 
-def bug_reports(drive: dict, moment: datetime) -> list[dict]:
+def bug_reports(drive: dict, moment: datetime, served: dict[str, dict[str, dict]]) -> list[dict]:
     """Each shown order fixing a bug someone reported, oldest report first, at the stage it reached on the way to its reporter hearing the fix is live."""
-    prs: dict[str, list[dict]] = {}
-    for pr in drive["prs"].values():
-        prs.setdefault(pr["order"], []).append(pr)
     reported = sorted(((order_id, order) for order_id, order in drive["orders"].items() if state.reported_bug(order) and shown(order, moment)), key=lambda item: state.parse_time(item[1]["created"]))
-    return [{"id": order_id, "title": order_title(order), "created": order["created"], "stage": bug_stage(order, prs.get(order_id, []))} for order_id, order in reported]
+    return [{"id": order_id, "title": order_title(order), "created": order["created"], "stage": bug_stage(order, list(served.get(order_id, {}).values()))} for order_id, order in reported]
 
 
 def bug_stage(order: dict, prs: list[dict]) -> str:
@@ -919,7 +966,7 @@ def glance(card: dict) -> dict:
 
 
 def outline(entry: dict) -> dict:
-    return {key: value for key, value in entry.items() if key not in ("text", "jobs", "parts", "where", "holdup")} | {"running": sum(job["state"] == "running" for job in entry["jobs"])}
+    return {key: value for key, value in entry.items() if key not in ("text", "jobs", "parts", "where", "holdup", "heard")} | {"running": sum(job["state"] == "running" for job in entry["jobs"])}
 
 
 def summary(model: dict) -> dict:
@@ -969,6 +1016,9 @@ def history_page(model: dict, day: str | None, show: str, page: int) -> dict:
 
 
 def story(model: dict, ids: set[str] | None) -> list[dict]:
-    """The newest STORY_LINES orders, launches, merges and taps of the features named, or of the whole drive."""
-    told = (entry for entry in model["history"] if entry["kind"] in STORY_KINDS and (ids is None or entry["feature"] in ids))
-    return list(itertools.islice(told, STORY_LINES))
+    """The newest STORY_LINES moments of the features named, of every kind and with each record naming them, or the whole drive's newest orders, launches, merges and taps."""
+    if ids is None:
+        return list(itertools.islice((entry for entry in model["history"] if entry["kind"] in STORY_KINDS), STORY_LINES))
+    heard = [{"at": line["at"], "kind": "heard", "text": line["text"], "detail": line["lane"], "url": None, "feature": entry["id"]} for group in model["status"] for entry in group["features"] if entry["id"] in ids for line in entry["heard"]]
+    told = [entry for entry in model["history"] if entry["feature"] in ids]
+    return sorted([*told, *heard], key=lambda entry: state.parse_time(entry["at"]), reverse=True)[:STORY_LINES]

@@ -43,6 +43,7 @@ SITE = Path(__file__).resolve().parent / "site"
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 CHANGE_POLL_SECONDS = 2
 REBUILD_GAP_SECONDS = 3
+HEARD_SINCE = "1d"
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -290,6 +291,8 @@ class Board:
         self.held: dict[str, threading.Event] = {}
         self.assistant = review.Assistant(name)
         self.database: sqlite3.Connection | None = None
+        self.heard: dict[str, list[dict]] = {}
+        self.records = 0
 
     def stamp(self) -> tuple[int, ...]:
         """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json and his stored cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
@@ -298,7 +301,7 @@ class Board:
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
         self.read_history()
         paths = (state.state_path(self.name), state.cards_path(self.name))
-        return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events))
+        return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
         """Keep each event of the board's history the events log gained since the last read."""
@@ -313,10 +316,29 @@ class Board:
         reports = {path.name.removesuffix(".replies.jsonl") for path in (state.drive_dir(self.name) / "jobs").glob("*.replies.jsonl")}
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
-        model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
+        with self.changed:
+            heard = dict(self.heard)
+        model = view.board(drive, found, source, self.events, state.now(), reports, heard) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
         self.reports = reports
         self.show(model)
         self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
+
+    def hear(self) -> None:
+        """Keep the newest HEARD_LINES records naming each order and job, by its order and job attrs and the ids its words name, from the last HEARD_SINCE of the drive's records and each `cci watch` delivers after, watching afresh RESTART_SECONDS after a watch ends."""
+        while True:
+            with self.changed:
+                self.heard = {}
+            with subprocess.Popen(["cci", "watch", "--drive", self.name, "--json", "--since", HEARD_SINCE], stdout=subprocess.PIPE, text=True) as watch:
+                for line in watch.stdout:
+                    record = json.loads(line)
+                    attrs = record["fields"].get("attrs") or {}
+                    named = {*view.NAMED.findall(record["text"]), *filter(None, (attrs.get("order"), attrs.get("job")))}
+                    told = view.heard_line(record)
+                    with self.changed:
+                        for key in named:
+                            self.heard[key] = [told, *self.heard.get(key, [])][: view.HEARD_LINES]
+                        self.records += 1
+            time.sleep(RESTART_SECONDS)
 
     def show(self, model: dict) -> None:
         """Hand every open page the summary of model, keeping model whole for the screens that read their own part of it."""
@@ -648,6 +670,7 @@ def serve(name: str, port: int, inherited: list[int]) -> None:
         socket.create_server((address, port), family=socket.AF_INET6 if ":" in address else socket.AF_INET) for address in [LOOPBACK] + (net.ips if net else [])
     ]
     servers = [Server(sock, page, certificate if sock.getsockname()[0] != LOOPBACK else None) for sock in listening]
+    threading.Thread(target=board.hear, daemon=True).start()
     for server in servers:
         server.socket.set_inheritable(True)
         threading.Thread(target=server.serve_forever, daemon=True).start()
