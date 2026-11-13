@@ -892,7 +892,7 @@ def test_holding_a_report_tells_its_writer_each_correction_cci_already_holds_re_
 ) -> None:
     cci_corrections["669950"] = ["669952"]
     told: list[list[str]] = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: told.append(argv) or json.dumps({"seq": 669957}))
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: told.append(argv) or json.dumps({"seq": 669957}))
     assert talk.hold(demo, "669950", {"writer": "root"}, "o1") == "669957"
     assert told[0][-1] == talk.HELD.format(seq="669950") + "; the catch-up carries it, corrected by record 669952"
 
@@ -980,7 +980,7 @@ def test_a_held_report_is_told_to_the_coordinator_session_that_wrote_it_else_the
         data["subcoordinators"]["Iris"] = {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
     told = []
 
-    def cci(argv: list[str], checkout: Path) -> str:
+    def cci(argv: list[str], checkout: Path, env: dict | None = None) -> str:
         told.append(argv[argv.index("--to") + 1])
         return json.dumps({"seq": 800 + len(told)})
 

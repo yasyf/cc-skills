@@ -557,3 +557,8 @@ def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, boun
         said = done.stderr.strip().splitlines()
         raise ReadError(f"{named} exited {done.returncode}: {said[-1] if said else 'no output'}")
     return done.stdout
+
+
+def posting() -> dict[str, str]:
+    """The environment every drive `cci post` runs in: this process's own with `CCI_PARENT_SESSION` set, which cci reads only for whether it is set, as a post made for another session, so it binds the session running the drive to no lane, whatever lane the post names, and never refuses it as the second binder of a lane a live session holds."""
+    return os.environ | {"CCI_PARENT_SESSION": "drive"}

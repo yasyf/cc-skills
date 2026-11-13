@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import uuid
 
-from drive import cli, limits, render, settled, state, superseded, talk, view
+from drive import cli, limits, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -788,13 +788,14 @@ def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> l
 
 
 def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
-    """Post the records as one cci batch from the lane, and return each one's seq."""
+    """Post the records as one cci batch from the lane, binding the session running it to no lane, and return each one's seq."""
     try:
         done = subprocess.run(
             ["cci", "post", "--drive", name, "--lane", lane, "--batch", "-"],
             input=json.dumps(posts),
             capture_output=True,
             text=True,
+            env=reads.posting(),
             timeout=POST_SECONDS,
             check=False,
         )

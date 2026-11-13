@@ -401,6 +401,15 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
 
 
+def test_a_drive_post_from_a_session_holding_no_lane_posts_as_another_sessions_lane_without_binding_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    envs: list[dict] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: envs.append(kwargs["env"]) or subprocess.CompletedProcess(argv, 0, "#41\n", ""))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "orca-worker")
+    assert tools.sent(demo, "platform", [{"kind": "evidence", "to": [f"root@{demo}"], "text": "j1 asked"}]) == ["#41"]
+    [env] = envs
+    assert (env["CLAUDE_CODE_SESSION_ID"], bool(env["CCI_PARENT_SESSION"])) == ("orca-worker", True)
+
+
 def test_a_record_names_the_one_seq_it_answers_and_one_naming_several_is_refused_before_any_record_posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#44\n", ""))

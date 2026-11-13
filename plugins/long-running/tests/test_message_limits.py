@@ -2236,7 +2236,7 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
         data["orders"]["o2"]["incident"] = True
     told = []
 
-    def cci(argv: list[str], checkout: Path) -> str:
+    def cci(argv: list[str], checkout: Path, env: dict | None = None) -> str:
         if argv[1] == "show":
             return json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": {"700": "o1", "710": "o2"}[argv[2]]}}})
         told.append(argv)
