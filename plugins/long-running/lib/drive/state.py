@@ -614,6 +614,11 @@ def load(name: str) -> dict:
     return refuse_newer(name, whole(path, lambda saved: shaped(name, saved)))
 
 
+def bare_seq(seq: str | None) -> str | None:
+    """A cci record's seq as the drive keeps it, digits alone: drives saved before every seq was read from cci's JSON kept the `#` cci prints before one."""
+    return seq and seq.removeprefix("#")
+
+
 def refuse_newer(name: str, data: dict) -> dict:
     if (saver := data.get("saved_by")) and version_order(saver) > version_order(VERSION):
         raise NewerDrive(f"the {name} drive was saved by long-running {saver}, newer than this {VERSION}, which may misread it: run the newest install's drive")
@@ -657,6 +662,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             held = order.pop("reporter", None)
             order["reporters"] = [held] if held else []
         order.setdefault("watch", None)
+        order["closed_on"] = bare_seq(order["closed_on"])
+        for watched in filter(None, (order["quiet"], order["watch"])):
+            watched["record"] = bare_seq(watched["record"])
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
             order["thread"] = saved_thread(data, order)
@@ -691,6 +699,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             job["undelivered"] = []
         for kept in job["undelivered"]:
             kept.setdefault("request", str(uuid.uuid5(uuid.NAMESPACE_OID, f"{job['created']} {kept['seq']} {kept['at']}")))
+            kept["seq"] = bare_seq(kept["seq"])
         if flags := job.get("brief_flags"):
             if "handoff" not in flags:
                 flags["handoff"] = briefed_handoff(job.get("brief"))
@@ -761,6 +770,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("carried", {})
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
+    if data["catch_up"]:
+        data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
     keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
@@ -780,6 +791,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
                 settled = question.pop("settled")
                 question["closed"] = settled and new_close("answered", None, None, seq=settled.get("seq"), answer=settled.get("answer"), ruling=settled.get("ruling"), at=settled["at"])
             question.setdefault("closed", None)
+            if question["closed"]:
+                question["closed"]["seq"] = bare_seq(question["closed"]["seq"])
             question.setdefault("holds", None)
             question.setdefault("replaced", None)
             question.setdefault("recorded", [])

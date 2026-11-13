@@ -757,7 +757,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
     try:
         done = subprocess.run(
             ["cci", "post", "--drive", name, "--lane", lane, "--batch", "-"],
-            input=json.dumps(posts),
+            input=json.dumps([item | {"json": True} for item in posts]),
             capture_output=True,
             text=True,
             env=reads.posting(),
@@ -768,7 +768,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
         raise DriveError(f"cci post: {error}") from None
     if done.returncode:
         raise DriveError(f"{done.stdout}{done.stderr}".strip())
-    return [line.split()[0] for line in done.stdout.splitlines() if line.strip()]
+    return [str(json.loads(line)["seq"]) for line in done.stdout.splitlines() if line.strip()]
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:

@@ -652,7 +652,7 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
         return None
-    seq = tool_input.get("record")
+    seq = report.get("seq")
     posted = posted_order(drive, tool_input, order_id)
     held = (
         f" Report {seq} is marked held: `drive status` lists it until the catch-up posts, and record {talk.hold(drive['name'], seq, report, posted)}"

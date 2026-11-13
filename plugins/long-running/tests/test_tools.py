@@ -432,16 +432,16 @@ def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_re
 
 def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
-    ok = subprocess.CompletedProcess([], 0, "#41\n#42\n", "")
+    ok = subprocess.CompletedProcess([], 0, '{"seq": 41}\n{"seq": 42}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
     records = [{"kind": "answer", "text": "Ring", "waits": "demo:j2-7", "undone": True}, {"kind": "defect", "text": "cc-slack delete hides --url"}]
-    assert tools.run("record", demo, {"records": records}) == "1 answer #41\n2 defect #42"
+    assert tools.run("record", demo, {"records": records}) == "1 answer 41\n2 defect 42"
     assert posted == [
         (
             ["cci", "post", "--drive", "demo", "--lane", "root", "--batch", "-"],
             [
-                {"kind": "answer", "to": ["communicator@demo"], "text": "undone: Ring", "attr": {"job": "j2", "waits": "demo:j2-7", "undone": "Ring"}},
-                {"kind": "defect", "to": ["meta@demo"], "text": "cc-slack delete hides --url"},
+                {"kind": "answer", "to": ["communicator@demo"], "text": "undone: Ring", "attr": {"job": "j2", "waits": "demo:j2-7", "undone": "Ring"}, "json": True},
+                {"kind": "defect", "to": ["meta@demo"], "text": "cc-slack delete hides --url", "json": True},
             ],
         )
     ]
@@ -457,31 +457,40 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
 
 def test_a_drive_post_from_a_session_holding_no_lane_posts_as_another_sessions_lane_without_binding_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     envs: list[dict] = []
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: envs.append(kwargs["env"]) or subprocess.CompletedProcess(argv, 0, "#41\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: envs.append(kwargs["env"]) or subprocess.CompletedProcess(argv, 0, '{"seq": 41}\n', ""))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "orca-worker")
-    assert tools.sent(demo, "platform", [{"kind": "evidence", "to": [f"root@{demo}"], "text": "j1 asked"}]) == ["#41"]
+    assert tools.sent(demo, "platform", [{"kind": "evidence", "to": [f"root@{demo}"], "text": "j1 asked"}]) == ["41"]
     [env] = envs
     assert (env["CLAUDE_CODE_SESSION_ID"], bool(env["CCI_PARENT_SESSION"])) == ("orca-worker", True)
 
 
+def test_each_posted_records_seq_is_read_from_the_record_cci_prints_as_json_so_it_carries_no_hash(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    batches: list[list[dict]] = []
+    printed = "".join(json.dumps({"seq": seq, "num": f"#{seq}", "kind": "report"}) + "\n" for seq in (697593, 697594))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: batches.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess(argv, 0, printed, ""))
+    quiet = {"kind": "report", "to": [f"communicator@{demo}"], "text": "POST o1 has gone quiet"}
+    assert tools.sent(demo, "watch", [quiet, quiet]) == ["697593", "697594"]
+    assert batches == [[quiet | {"json": True}, quiet | {"json": True}]]
+
+
 def test_a_record_names_the_one_seq_it_answers_and_one_naming_several_is_refused_before_any_record_posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#44\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 44}\n', ""))
     defect = {"kind": "defect", "text": "drive record crashes after posting"}
     with pytest.raises(DriveError, match="re names one seq, not 2: cci stores one record per seq"):
         tools.run("record", demo, {"records": [defect, defect | {"re": ["672196", "672234"]}]})
     assert posted == []
-    assert tools.run("record", demo, {"records": [defect | {"re": "672234"}]}) == "1 defect #44"
+    assert tools.run("record", demo, {"records": [defect | {"re": "672234"}]}) == "1 defect 44"
     assert [[record["re"] for record in records] for records in posted] == [[["672234"]]]
 
 
 def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text_atop_its_body(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
-    ok = subprocess.CompletedProcess([], 0, "#43\n", "")
+    ok = subprocess.CompletedProcess([], 0, '{"seq": 43}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
     defect = "cc-slack delete hides --url: " + "the card stays up after its delete and the dashboard keeps it, " * 6
     assert len(defect) > 400
-    assert tools.run("record", demo, {"records": [{"kind": "defect", "text": defect, "body": "seen on the run page"}]}) == "1 defect #43"
+    assert tools.run("record", demo, {"records": [{"kind": "defect", "text": defect, "body": "seen on the run page"}]}) == "1 defect 43"
     [[sent]] = posted
     assert len(sent["text"]) <= limits.RECORD_CHARS and sent["text"].startswith("cc-slack delete hides --url:") and sent["text"].endswith("…")
     assert sent["body"] == f"{defect.strip()}\n\nseen on the run page"
@@ -489,13 +498,13 @@ def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text
 
 def test_a_defect_quoting_his_messages_clock_time_or_a_builds_start_posts_since_it_goes_between_sessions(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#45\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 45}\n', ""))
     defects = (
         "record refused his 3:40 PM pick beside https://acme.slack.com/archives/D123/p1794526841094869, nothing posted",
         "say {started:j1}: two posts say the SandSQL release started 9:52 AM, but build 15020 started 11:30 AM; the job's start was printed as the release's.",
     )
     for defect in defects:
-        assert tools.run("record", demo, {"records": [{"kind": "defect", "text": defect}]}) == "1 defect #45", defect
+        assert tools.run("record", demo, {"records": [{"kind": "defect", "text": defect}]}) == "1 defect 45", defect
     assert [sent["text"] for [sent] in posted] == [limits.first_line(defect) for defect in defects]
 
 
@@ -513,7 +522,7 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         records = json.loads(kwargs["input"])
         posted.append((argv[argv.index("--lane") + 1], records))
-        return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
 
     monkeypatch.setattr(subprocess, "run", post)
     open_cards(monkeypatch, "demo:j1-7")
@@ -540,7 +549,7 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         records = json.loads(kwargs["input"])
         posted.append((argv[argv.index("--lane") + 1], records))
-        return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
 
     tooling = "1794200000.000300"
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--thread", THREAD)
@@ -605,7 +614,7 @@ def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_a
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         records = json.loads(kwargs["input"])
         posted.append((argv[argv.index("--lane") + 1], records))
-        return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
 
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
@@ -645,7 +654,7 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
         if not cci["up"]:
             return subprocess.CompletedProcess(argv, 1, "", "cci: daemon unreachable")
         posted.extend(json.loads(str(kwargs["input"])))
-        return subprocess.CompletedProcess(argv, 0, f"{672014 + len(posted)}\n", "")
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"seq": 672014 + len(posted)}) + "\n", "")
 
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -703,7 +712,7 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
         if argv[:2] != ["cci", "post"]:
             return subprocess.CompletedProcess(argv, 0, "", "")
         posted.extend(json.loads(str(kwargs["input"])))
-        return subprocess.CompletedProcess(argv, 0, f"{677100 + len(posted)}\n", "")
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"seq": 677100 + len(posted)}) + "\n", "")
 
     monkeypatch.setattr(subprocess, "run", post)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -747,7 +756,7 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if argv[:2] == ["cci", "post"]:
             posted.extend(json.loads(str(kwargs["input"])))
-        return subprocess.CompletedProcess(argv, 0, f"#{len(posted)}\n", "")
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"seq": len(posted)}) + "\n", "")
 
     monkeypatch.setattr(subprocess, "run", post)
     open_cards(monkeypatch)
@@ -783,7 +792,7 @@ def recording(monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if argv[:2] == ["cci", "post"]:
             posted.extend(json.loads(str(kwargs["input"])))
-        return subprocess.CompletedProcess(argv, 0, f"#{len(posted)}\n", "")
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"seq": len(posted)}) + "\n", "")
 
     monkeypatch.setattr(subprocess, "run", post)
     open_cards(monkeypatch)
@@ -815,8 +824,8 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     assert (posted, list(state.load(demo)["orders"])) == ([], ["o1"])
     shared["attrs"]["title"] = "Browser views on run details"
     said = tools.run("record", demo, {"records": [shared]}).splitlines()
-    assert (said[0], said[1].startswith("1 job set: "), said[-1]) == ("1 order add: o2", True, "1 owner #1")
-    assert tools.run("record", demo, {"records": [shared]}).splitlines() == ["1 owner #2"]
+    assert (said[0], said[1].startswith("1 job set: "), said[-1]) == ("1 order add: o2", True, "1 owner 1")
+    assert tools.run("record", demo, {"records": [shared]}).splitlines() == ["1 owner 2"]
     orders, carries = state.load(demo)["orders"], state.load(demo)["jobs"]["j1"]["carries"]
     own = orders["o2"]
     assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], [held["link"] for held in own["reporters"]]) == (
@@ -846,7 +855,7 @@ def test_a_report_he_shares_in_the_message_an_open_order_came_from_gives_that_or
     posted = recording(monkeypatch, run)
     shared = {"kind": "owner", "text": words, "url": asked, "thread": "1794533521.061139", "about": "his work", "attrs": {"order": "o1", "reporter": report}}
     said = tools.run("record", demo, {"records": [shared]}).splitlines()
-    assert (said[0].startswith("1 order set: "), said[-1]) == (True, "1 owner #1")
+    assert (said[0].startswith("1 order set: "), said[-1]) == (True, "1 owner 1")
     orders = state.load(demo)["orders"]
     assert (list(orders), list(orders["o1"]["parts"]), [held["link"] for held in orders["o1"]["reporters"]], posted[0]["attr"]["order"]) == (["o1"], [state.whole_order(words)], [report], "o1")
     another = "https://acme.slack.com/archives/C0TEAM/p1794533400000100"
@@ -983,13 +992,13 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
 def test_his_answer_is_held_verbatim_on_the_job_it_answers_naming_the_option_his_card_recommended(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n#62\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n{"seq": 62}\n', ""))
     open_cards(monkeypatch, "demo:j1-7")
     answers = [{"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}, {"kind": "answer", "text": "Ring", "waits": "demo:j1-8", "undone": True}]
     tools.run("record", demo, {"records": answers})
     [kept] = state.load(demo)["jobs"]["j1"]["undelivered"]
     assert (kept["seq"], kept["words"], kept["said"], bool(kept["request"])) == (
-        "#61",
+        "61",
         f'His answer on card demo:j1-7 ({UNDER_CARD}), verbatim: "the lazy copy, no sweeper"; the card recommended "Ring"',
         None,
         True,
@@ -1003,14 +1012,14 @@ def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_cal
     run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
     run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
     posted: list[list[dict]] = []
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#51\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 51}\n', ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     answer = {"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}
     assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which ring?" answered, closing its card']
     assert answered == [] and posted == []
     assert tools.run("record", demo, {"records": [answer]}).splitlines() == [
-        "1 answer #51",
-        '1 j1\'s question "Which ring?" ended answered by #51',
+        "1 answer 51",
+        '1 j1\'s question "Which ring?" ended answered by 51',
         f"demo:j1-7: his card {CARD} now shows his words with no buttons, its question answered",
     ]
     assert answered == [("card-answer", "--card", CARD, "--label", "the lazy copy, no sweeper", "--settled", "--other", "--via", UNDER_CARD)]
@@ -1036,15 +1045,15 @@ def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_w
         tooler.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
         run("start", demo, "--role", "meta")
         run("job", "add", "builder", "--order", "o2", "--goal", "build the cards")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     feedback = {"kind": "owner", "text": "wat the fuck thats not acceptbale", "url": UNDER_CARD, "about": "drive"}
-    assert tools.run("record", demo, {"records": [feedback]}) == "1 owner #61"
+    assert tools.run("record", demo, {"records": [feedback]}) == "1 owner 61"
     assert (answered, view.open_questions(state.load(demo)["jobs"]["j1"]) != []) == ([], True)
     rework = {"kind": "owner", "text": "no, keep the runs flat", "url": UNDER_CARD, "about": "his work"}
     assert tools.run("record", demo, {"records": [rework]}).splitlines() == [
-        "1 owner #61",
-        '1 j1\'s question "Which ring?" ended withdrawn by #61',
+        "1 owner 61",
+        '1 j1\'s question "Which ring?" ended withdrawn by 61',
         f"demo:j1-7: his card {CARD} now shows his words with no buttons, its question withdrawn",
     ]
     tooling = {"kind": "owner", "text": "this card should say why", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "about": "drive"}
@@ -1059,7 +1068,7 @@ def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_to
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
     with monkeypatch.context() as tooler:
         tooler.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
         run("start", demo, "--role", "meta")
@@ -1069,7 +1078,7 @@ def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_to
     answered = open_cards(monkeypatch, "demo:j1-7")
     words = "I clciked undo and nothign happened"
     feedback = {"kind": "owner", "text": words, "thread_card": "demo:j1-7", "about": "drive", "order": {"words": f'{state.POST_FEEDBACK} "{words}"', "title": "Undo drew nothing"}}
-    assert tools.run("record", demo, {"records": [feedback]}).splitlines()[-1] == "1 owner #61"
+    assert tools.run("record", demo, {"records": [feedback]}).splitlines()[-1] == "1 owner 61"
     data = state.load(demo)
     assert (answered, view.open_questions(data["jobs"]["j1"]) != [], data["orders"]["o2"]["text"]) == ([], True, feedback["order"]["words"])
     rework = {"kind": "owner", "text": "this card should say why", "thread_card": "demo:j1-7", "about": "drive", "order": "o1"}
@@ -1083,11 +1092,11 @@ def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_t
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
     run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
     run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#52\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 52}\n', ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     card = f"{CARD[:-2]}01"
     said = tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "attrs": {"waits": "demo:j2-8"}}]})
-    assert said.splitlines() == ["1 answer #52", '1 j2\'s question "Which ring?" ended answered by #52', f"demo:j2-8: his card {card} now shows his words with no buttons, its question answered"]
+    assert said.splitlines() == ["1 answer 52", '1 j2\'s question "Which ring?" ended answered by 52', f"demo:j2-8: his card {card} now shows his words with no buttons, its question answered"]
     assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", card)]
 
 
@@ -1103,7 +1112,7 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
 
     def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         posted.append(json.loads(str(kwargs["input"])))
-        return subprocess.CompletedProcess(argv, 0, "672342\n", "")
+        return subprocess.CompletedProcess(argv, 0, '{"seq": 672342}\n', "")
 
     monkeypatch.setattr(subprocess, "run", cci)
     open_cards(monkeypatch)
@@ -1137,7 +1146,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder
         data["jobs"]["j1"]["undelivered"] = [{"seq": "673013", "words": "one card", "at": state.stamp(), "said": None}]
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
     shown = {"seq": "673125"}
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, f"{shown['seq']}\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, json.dumps(shown) + "\n", ""))
     open_cards(monkeypatch)
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "one subject has one card", "waits": "demo:j1-673100", "ruling": "73060f0"}]})
     drive = state.load(demo)
@@ -1163,10 +1172,10 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     pr = "https://github.com/Forge-AI/monorepo/pull/54084"
     run("pr", "add", pr, "--job", "j1", *LEAD)
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
     answered = open_cards(monkeypatch, prs=(pr,))
     asked = {"kind": "owner", "text": "Why is this card gone when the PR is approved?", "url": f"{PR_CARD}?thread_ts=1794200000.000900", "about": "his work"}
-    assert tools.run("record", demo, {"records": [asked]}) == "1 owner #61"
+    assert tools.run("record", demo, {"records": [asked]}) == "1 owner 61"
     assert (withdrawals.asked, answered) == ([], [])
     pr_entry = state.load(demo)["prs"]["Forge-AI/monorepo#54084"]
     assert (pr_entry["wants_tap"], pr_entry["rework"]) == (True, None)
@@ -1210,13 +1219,13 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     view.refresh_cards(demo)
     answered: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: answered.append(argv) or {})
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#684800\n#684801\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 684800}\n{"seq": 684801}\n', ""))
     records = [{"kind": "owner", "text": text, "url": UNDER_CARD, "thread_card": "demo:j1-684776", "about": "his work", "ruling": ruling} for text, ruling in ((RULED, "8427b3c"), (DROPPED, "cabb099"))]
     said = tools.run("record", demo, {"records": records})
     assert said.splitlines()[:4] == [
-        "1 owner #684800",
-        "2 owner #684801",
-        f'1 j1\'s question "{titles["demo:j1-684776"]}" ended withdrawn by #684800',
+        "1 owner 684800",
+        "2 owner 684801",
+        f'1 j1\'s question "{titles["demo:j1-684776"]}" ended withdrawn by 684800',
         f"demo:j1-684776: his card {CARD} now shows his words with no buttons, its question withdrawn",
     ]
     keys = ["demo:j1-684682", *(f"o1:{part}" for part in parts), "Forge-AI/monorepo#54101", "Forge-AI/monorepo#54102"]
