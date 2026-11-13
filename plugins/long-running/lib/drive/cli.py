@@ -5152,10 +5152,11 @@ def parsed(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A verb a newer install's save refused before this process changed anything, a drive row, a post or any command but a read, by state.WROTE, runs again on the newest install with the stdin it read and its lane's mark; one run inside another verb, as an MCP call's ops are, raises for that call to run again whole."""
+    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A verb a newer install's save refused before this process changed anything, a drive row, a post or any command but a read, by state.WROTE, and a launch or resume refused whatever it changed, by relaunching, runs again on the newest install with the stdin it read, its lane's mark and the mark of the process state.detach started; one run inside another verb, as an MCP call's ops are, raises for that call to run again whole while it changed nothing. A refusal that remains exits 2 by refused, which a launch or resume state.detach started also writes on the drive's events for the watch."""
     if argv is None:
         install.reopen(sys.argv[1:])
     args = parsed(argv)
+    detached = os.environ.pop(state.DETACHED_ENV, None)
     if lane := os.environ.pop(reads.SPRITE_LANE, None):
         own = os.environ[state.OWN_JOB_ENV]
         if refused := reads.lane_refusal(args, parsed, os.environ["LONG_RUNNING_DRIVE"], own):
@@ -5170,12 +5171,25 @@ def main(argv: list[str] | None = None) -> int:
     except state.NewerDrive as error:
         if not state.WROTE and argv is not None and install.upgraded():
             raise
-        if not state.WROTE and argv is None:
-            if lane:
-                os.environ[reads.SPRITE_LANE] = lane
+        if argv is None and (not state.WROTE or relaunching(args)):
+            os.environ.update({mark: value for mark, value in ((reads.SPRITE_LANE, lane), (state.DETACHED_ENV, detached)) if value})
             install.reopen(sys.argv[1:], "".join(STDIN) if STDIN else None)
-        print(f"drive: {error}", file=sys.stderr)
-        return 2
+        return refused(args, error, detached)
     except VERB_ERRORS as error:
-        print(f"drive: {error}", file=sys.stderr)
-        return 2
+        return refused(args, error, detached)
+
+
+def relaunching(args: argparse.Namespace) -> bool:
+    """Whether the verb is a launch or resume, which runs again whole on the newest install after a newer install's save refused it, whatever it changed: each step it takes before a worker starts is kept once, a lane's death once per dispatch and a held text once under its Orca request id, a worker an earlier run started is adopted from the receipt its attempt keeps and never started twice, and a refusal after a worker started hands its receipt to the newest install's `drive job started` or `drive job sent`."""
+    return args.run in (job_launch, job_resume)
+
+
+def refused(args: argparse.Namespace, error: Exception, detached: str | None) -> int:
+    """Print the verb's refusal and exit 2. A launch or resume state.detach started, which only the watch runs, also writes the refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
+    print(f"drive: {error}", file=sys.stderr)
+    if detached and relaunching(args):
+        name = state.resolve(args.drive)
+        order = state.saved_job(name, args.id)["order"]
+        heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)
+        state.append_event(name, watch.RELAUNCH_REFUSED, job=args.id, order=order, verb=args.action, refusal=str(error), log=detached, lane=heard)
+    return 2

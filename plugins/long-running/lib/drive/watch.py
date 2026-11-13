@@ -39,6 +39,7 @@ TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDE
 LANE = "watch"
 READS_LOG = "reads.log"
 RELAUNCHES_LOG = "relaunches.log"
+RELAUNCH_REFUSED = "relaunch_refused"
 PROOFS_LOG = "proofs.log"
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
 UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
@@ -935,6 +936,8 @@ def event_line(event: dict, prs: dict) -> str:
         return f"{LANDER}{event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
+    if event["kind"] == RELAUNCH_REFUSED:
+        return f"EVENT {RELAUNCH_REFUSED} drive job {event['verb']} {event['job']}, which the watch ran, refused: {event['refusal']}; its output is in the drive's {event['log']} [{event['order']} {event['job']}]"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
