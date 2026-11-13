@@ -1798,7 +1798,7 @@ done({ listed, chips, scoped, waits, sent });
     assert seen == {
         "listed": ["1", "2"],
         "chips": ["All projects2", "Drive1", "Iris1"],
-        "scoped": {"hash": "#/queue/all?project=Drive", "title": "fix the lock", "listed": 0},
+        "scoped": {"hash": "#/queue/all?project=Drive", "title": "Fix the lock", "listed": 0},
         "waits": "After your Approve it still waits: its review reads none",
         "sent": [{"pr": "a/b#7", "label": "Approve", "head": "abc"}],
     }
@@ -2582,6 +2582,8 @@ const tap = async (el) => {
   el.click();
   await wait(50);
 };
+fact().scrollIntoView({ block: 'center' });
+await wait(100);
 await tap(fact());
 const opened = { open: open(), says: tip.textContent.startsWith('Waiting on you for') };
 await tap(fact());
@@ -2597,7 +2599,7 @@ fact().dispatchEvent(new PointerEvent('pointerover', { pointerType: 'mouse', bub
 fact().dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
 done({ opened, again, elsewhere, scrolled, hovered: open() });
-""", board(queue=[QUESTION | {"since": "2026-11-10T23:00:00-08:00"}]), "390,844")
+""", board(queue=[{"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": "2026-11-10T23:00:00-08:00", "holds": 0, "blocks": []}]), "390,844")
     assert seen == {"opened": {"open": True, "says": True}, "again": False, "elsewhere": False, "scrolled": False, "hovered": True}
 
 

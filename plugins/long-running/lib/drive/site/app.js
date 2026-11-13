@@ -683,7 +683,7 @@ function priorityChips(item) {
 function decisionRail(item) {
   const card = item.card;
   const rail = item.rail ?? { held: [], asker: null, answers: [] };
-  const tasks = item.blocks.map(({ id }) => featureOf(id));
+  const tasks = item.blocks.map(({ id }) => featureOf(id)).sort((a, b) => (b.id === rail.asker?.feature) - (a.id === rail.asker?.feature));
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
   return `<aside class="context-rail decision-sidebar" aria-label="About this decision">
     <div class="eyebrow">Need something before deciding?</div>
