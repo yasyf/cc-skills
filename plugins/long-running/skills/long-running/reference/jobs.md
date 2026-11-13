@@ -66,7 +66,7 @@ Contents:
 ## Start one on this Mac
 
 1. Add the job and write its brief in one `job` call:
-   `[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", ruling: ["<answer id>"]}}]`.
+   `[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", native: "<his surface, with links, or none>", interactions: "<his user stories on it, one per ;>", ruling: ["<answer id>"]}}]`.
 2. Start it with the Agent tool: `subagent_type` `long-running:builder`, `long-running:reader` or
    `codex:codex-wrapper`, `run_in_background: true`, a short `description`, and the line the
    `brief` op printed as the whole `prompt`. The agent reads its brief file itself, so the brief
@@ -323,16 +323,18 @@ before it sends or starts.
 ## The brief
 
 The brief is the job's whole context, the same here and on a Sprite. The `brief` op writes each line
-below from what the drive holds, `Runs as`, `Release`, `Handoff`, `Plan` and `Incident` from the call's fields
-when given, and prints `Read your brief first: <path>`. It has no field for `Native` or
-`Would he ask`: for a job whose result he sees or uses, add those two lines to the prompt below the
-line it printed.
+below from what the drive holds, `Runs as`, `Release`, `Handoff`, `Plan`, `Incident`, `Native`,
+`Interactions` and `Would he ask` from the call's fields when given, and prints
+`Read your brief first: <path>`. A brief whose `native` names his surface needs `interactions`
+naming his user stories on it, and the op refuses one Jev reads as steps with no result he must see,
+by his words "you're supposed to proactively view and click through every user story and have strict
+acceptance critera for yourself".
 
 ```
 Order (his words): <verbatim; for drive tooling, its order's own "Drive tooling: …" words>
 Serves: <"port of #N", "drive tooling" for a fix to a tool the drive runs on, under its own order and never his feature order's, or "his order" when the Order line asks for this build; a job for anything else is never started>
 Goal: <the deliverable, one sentence>
-Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a recording of each click, since data fetched from an API proves no screen>
+Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story, since data fetched from an API proves no screen>
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads a pass in a Goal that runs none>
 Release: <only for a job that starts a release: the one `tools/ci release start` or `tools/ci release hotfix` it may run, its targets and `--env` as it runs them, a start always naming `--env`; the `landing_guard` hook refuses a job's start or hotfix of any other targets or envs, and, outside an incident, one no `tools/ci release plan` at the same flags passed before in that job>
@@ -341,7 +343,7 @@ Decisions that bind: <each ruling the call's ruling field names and each that se
 Research: <a build order's reader only: the Researched: block this build needs>
 Researched: <a build order's builder, designer or codex lane only: the reader job whose kept report holds the order's rulings, what exists and its open questions>
 Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>
-Interactions: <when Native names his surface: each click or step he takes on the result, which the builder walks through and records; its order is proven done by that recording or the live post>
+Interactions: <when Native names his surface: his user stories on the result, one per `;`, each what he does, a click, key or hover, and what he must then see; its job writes each story's strict acceptance criteria into its proof file before building, which `drive pr add` refuses its PR without, and proves each with a picture or recording on the installed surface, which a builder's or codex job's `DONE` and `drive job prove` need one per story, Jev reading the proof against those criteria; its order is proven done by them or the live post>
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>
 Plan: <the plan section this implements, quoted>
 Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; when no rollback stops the harm, the stop ships the immediate fix at once as an incident fix; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, which deletes any immediate fix and leaves no pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case standing; a card of his that blocks it never stops it, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with tools/ci release unfreeze <id>; start the build at the fix commit the regular way, by the release rule of reference/incidents.md that `drive job brief` adds to a builder's line, and report its link; the approve hold, which the job reads, is the only check and other reads run while it builds; return the inputs to a write-up, not the write-up; and last, the rule its kind follows on a choice, word for word, which `drive job brief` adds and `brief_refusal` refuses an incident brief without: a codex lane's "a choice never stops it: write the ASK block to a file in your scratch, build its recommended option in the same run, and return your result with an ASK: <that file> line, which puts his card up as you return; never BLOCKED on a choice", a builder's "a choice never stops it: keep the ASK block with drive job ask the moment the fork shows, which puts his card up, then build its recommended option in the same run and open its PR, which lands on that option while his card stays open; never BLOCKED on a choice">
@@ -387,9 +389,11 @@ title is the question and his words are in its body.
 
 His words are never the whole spec. A job whose result he sees or uses does three things its brief's
 `Native`, `Decisions that bind` and `Would he ask` lines start it on. It reads that platform's own
-docs and builds on what the platform already does over anything hand-made. It searches his recorded
-answers on the whole area and quotes each one it follows. Before it returns, it meets its result as
-he will, on that surface, and closes each thing he would still have to ask for.
+docs and builds on what the platform already does over anything hand-made, and its visual design is
+codex's, by his words "get codex to design and stop doing the bare minimum". It searches his recorded
+answers on the whole area and quotes each one it follows. Before it returns, it clicks through each
+user story on that surface as he will, against the criteria it wrote first, and closes each thing he
+would still have to ask for.
 
 His approval of a release starts it, right then. His order or card pick to ship, release or approve a
 release, or the coordinator's record of either, approves starting that release, never what its approve

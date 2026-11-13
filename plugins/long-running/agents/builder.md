@@ -60,6 +60,13 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      [table](https://docs.slack.dev/reference/block-kit/blocks/table-block) and
      [data table](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) blocks, and
      [link unfurls](https://docs.slack.dev/messaging/unfurling-links-in-messages).
+     Its visual design, the layout, hierarchy, type and spacing of each view, is codex's: ask
+     `codex-ask` with those docs, his words and each user story, and build its design, never a draft
+     of your own, by his words "get codex to design and stop doing the bare minimum". Before any
+     code, write each user story on the brief's `Interactions:` line into your proof file as strict
+     acceptance criteria, what he sees first, the result of each click, key or hover, and its empty
+     and error states, and keep it with `drive job set <your job> --repro <file>`; `drive pr add`
+     refuses your PR until it is kept.
 3. Design choices are his. One is a choice neither the brief's `Plan` nor his answers settle between two
    reasonable shapes that cost a lot to switch once built (a data layout or file format, a schema or
    migration shape, a lock, queue or scheduler, a public or Sand-facing API shape, a new background
@@ -135,8 +142,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
      builder from the package's directory, `remote-builder exec --lane cargo --machine linux -- check -p <crate>`
      or `remote-builder exec --lane go --machine mac -- vet ./...`, and push once it passes.
-5. Before you open the PR, meet the result as he will (the post, card, page or command itself) and
-   ask whether he would still have to ask for anything. Look for a piece his words implied but did
+5. Before you open the PR, click through each user story on the result as he will meet it (the
+   post, card, page or command itself), save one picture of each, view each picture yourself against
+   that story's criteria, and ask whether he would still have to ask for anything. Look for a piece his words implied but did
    not name, a hand-made stand-in for a native piece, a name with no link, a number with no meaning,
    a step left for him. Close each gap inside the order yourself, starting from the brief's `Would he ask:` line;
    a gap that is a design fork goes back as `ASK`.
@@ -179,7 +187,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
-     with each changed plugin's `bin/` first on `PATH`. A fix to red CI proves itself in that file
+     with each changed plugin's `bin/` first on `PATH`. On a brief naming user stories it clicks each
+     on the installed surface, asserts its criteria and prints the path of each picture it saves:
+     `drive job prove` takes `BLOCKED` on output picturing fewer stories than the brief names, or one
+     Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
      with `drive pr ci <its PR's url>`, which exits 0 only once the first run not cancelled of each
      workflow from its merge commit's own run on concluded success, never by a local test run, which
      passes while the default branch stays red, nor by a run the file picks itself, which can be the
@@ -426,7 +437,7 @@ listing decisions that block nothing is not a result.
 
 | Result | When |
 | --- | --- |
-| `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
+| `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, or a picture or recording of each user story the brief's `Interactions:` line names (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`, one picture per story, and the proof file of their criteria, Jev reading each story's proof against them. |
 | `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch's check judges its change against his words at its head. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
 | `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; his card, drawn at `drive pr add`, shows it ready for his Approve. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names and each card your `drive job ask` put up in this run, by its waits id or Slack link, which `drive status <your job>` shows. Its lines name the option built for each card and what his other picks would change. |
@@ -511,11 +522,14 @@ Holds: <each change of the order its options alter, in that change's words; or n
   `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders. His pick: "Each question names the changes it holds,
   kept with it".
-- The summary's first line says what the card is: the work it serves, as `{order:<o>}`, which his
+- The summary tells the decision's story, by his words "its almost like each one needs to tell a
+  story": its first line says what the card is, the work it serves, as `{order:<o>}`, which his
   card draws as his order's own words linked to its thread, `port of #N` as the text of that PR's
-  link, or Drive tooling, and what his pick changes for him, said as "your pick". `drive job ask`
-  refuses a first line missing either, by his words on a card that opened on its findings: "what is
-  this and what the fuck are you talking about". It counts the words his card draws for each
+  link, or Drive tooling, and what his pick changes for him, said as "your pick"; then why it comes
+  up now, and each option's description its downstream impact. The question is a whole sentence,
+  never a cut headline, and nothing on the card is a raw link, path or id. `drive job ask` refuses a
+  first line missing either, by his words on a card that opened on its findings: "what is this and
+  what the fuck are you talking about", and a card Jev reads as telling no story. It counts the words his card draws for each
   reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
   words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description

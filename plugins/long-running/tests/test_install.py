@@ -1218,6 +1218,24 @@ def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, 
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
 
 
+@pytest.mark.parametrize(("printed", "taken"), [("ran on the queue", "failed"), ("/tmp/press-j.png /tmp/hover-a-card.png", "done")])
+def test_a_proof_of_something_he_sees_takes_done_only_once_its_output_pictures_each_user_story(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], printed: str, taken: str
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    script.write_text(f"#!/bin/sh\necho '{printed}'\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"}
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    assert job["state"] == taken
+    if taken == "failed":
+        assert job["said"].startswith(
+            f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3: its brief names 2 user stories"
+            " and its proof pictures or records 0 of them"
+        )
+
+
 def test_a_pr_merged_and_proved_before_the_watch_reads_it_names_its_close_report_by_the_title_drive_pr_add_read(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], on_github: dict
 ) -> None:

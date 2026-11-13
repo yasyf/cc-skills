@@ -50,7 +50,10 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   anything hand-made. Block Kit's
   [data visualization block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block)
   draws a chart and its [table block](https://docs.slack.dev/reference/block-kit/blocks/table-block)
-  draws rows, so he never has to say "slack ltieraly has the native … vertsion of this".
+  draws rows, so he never has to say "slack ltieraly has the native … vertsion of this". Its visual
+  design, how each view lays out its information, is codex's: name each user story and its strict
+  acceptance criteria on your `Native:` line, and leave the layout to the codex job the coordinator
+  starts on it, by his words "get codex to design and stop doing the bare minimum".
 
 ## The design
 
@@ -133,11 +136,14 @@ Holds: <each change of the order its options alter, in that change's words; or n
   `Holds: none: <why>` holds nothing. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".
-- The summary's first line says what the card is: the work it serves, as `{order:<o>}`, which his
+- The summary tells the decision's story, by his words "its almost like each one needs to tell a
+  story": its first line says what the card is, the work it serves, as `{order:<o>}`, which his
   card draws as his order's own words linked to its thread, `port of #N` as the text of that PR's
-  link, or Drive tooling, and what his pick changes for him, said as "your pick". `drive job ask`
-  refuses a first line missing either, by his words on a card that opened on its findings: "what is
-  this and what the fuck are you talking about". It counts the words his card draws for each
+  link, or Drive tooling, and what his pick changes for him, said as "your pick"; then why it comes
+  up now, and each option's description its downstream impact. The question is a whole sentence,
+  never a cut headline, and nothing on the card is a raw link, path or id. `drive job ask` refuses a
+  first line missing either, by his words on a card that opened on its findings: "what is this and
+  what the fuck are you talking about", and a card Jev reads as telling no story. It counts the words his card draws for each
   reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
   words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description
