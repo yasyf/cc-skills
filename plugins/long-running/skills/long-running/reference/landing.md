@@ -136,18 +136,16 @@ for its repository says, then return `DONE <proof>`.
 
 ## yasyf/* repositories
 
-No tap: by his standing rule a `yasyf/*` PR merges without asking, and by his words "can merge past CI
-on personal repos and fix reds after the fact" it merges without waiting on CI, but never while a check
-fails at its head, by his words "tooling fixes merge early only when no check is failing on their own
-change".
+No tap: by his standing rule a `yasyf/*` PR merges without asking, once every check at its head
+passed, so a change whose own tests fail never reaches `main`.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
-   needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `ready` while
-   its checks run or pass and `red` once one fails, and the watch starts the drive's lander on it within
+   needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `grading` while
+   its checks run, `ready` once they pass and `red` once one fails, and the watch starts the drive's lander on it within
    one GitHub read of `ready`: a process of its own, outliving your turn, that reads its checks from GitHub
    again and merges it with `gh pr merge <n> -R <repo> --squash --admin --match-head-commit <head>` at the
-   head that read found no check failing on, records the merge sha on the PR, then runs `drive install` from it for
+   head that read found every check passed on, records the merge sha on the PR, then runs `drive install` from it for
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
    plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
    `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal

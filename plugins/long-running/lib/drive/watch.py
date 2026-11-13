@@ -2593,7 +2593,7 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
 
 
 def landed(watcher: Watcher) -> None:
-    """Stop each lander on a PR the watch hears that a hold of his came on since it started, and start the drive's lander on each once its stage reads ready, within one GitHub read of it getting there: green and cleared by his Approve or an exempt class, or a yasyf/* one its builder reported with no check failing at its head, which a head its builder pushes since its lander's try reaches again."""
+    """Stop each lander on a PR the watch hears that a hold of his came on since it started, and start the drive's lander on each once its stage reads ready, within one GitHub read of it getting there: green and cleared by his Approve or an exempt class, or a yasyf/* one its builder reported once every check at its head passed, which a head its builder pushes since its lander's try reaches again."""
     data = state.load(watcher.name)
     keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
     land.halt(watcher.name, keys, watcher.cards)

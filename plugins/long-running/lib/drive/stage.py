@@ -76,10 +76,10 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("red", BUILDER, failing)
     if holds := held(data, pr, cards):
         return Stage("held", HIM, holds)
-    if state.ships_untapped(data, key):
-        return Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
+    if state.ships_untapped(data, key):
+        return Stage("ready", LANDER, f"its builder reported it and its checks passed at {pr['head'][:7]}, so the lander merges it with --admin")
     if (flaky := land.flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "open":
         return Stage(
             "waiting",
@@ -113,7 +113,7 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, pr: dict) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused its merge for a conflict with its base, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused its merge for a conflict with its base, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, a check its fresh read found still running, which grading() reads until it passes, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
     lander = pr["lander"]
     if not lander or lander["head"] != pr["head"] or land.running(pr) or land.refused(pr) or land.conflicted(pr):
         return None

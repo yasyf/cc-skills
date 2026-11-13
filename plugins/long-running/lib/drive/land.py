@@ -36,7 +36,8 @@ NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
 UNREAD = "not landed: a GitHub read failed before it queued or merged anything, so the next watch pass lands it again"
-RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, UNREAD)
+RUNNING = "its checks still run"
+RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, UNREAD, f"not landed: {RUNNING}")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
@@ -310,7 +311,7 @@ def held_landers(data: dict, keys: list[str], cards: dict) -> dict[int, str]:
 
 
 def unmergeable(key: str, read: dict) -> str | None:
-    """Why a yasyf/* PR may not merge at the head GitHub holds now: it is not open, is a draft, carries the hold label, sits on another branch than its repository's default, or a check fails there, by his words that tooling fixes merge early only when no check is failing on their own change."""
+    """Why a yasyf/* PR may not merge at the head GitHub holds now: it is not open, is a draft, carries the hold label, sits on another branch than its repository's default, or a check there failed or still runs, so the lander merges only a head every check passed on."""
     if read["state"] != "OPEN":
         return f"it is {read['state'].lower()}"
     if read["isDraft"]:
@@ -319,13 +320,15 @@ def unmergeable(key: str, read: dict) -> str | None:
         return "it carries the hold label"
     if read["baseRefName"] != (default := github.default_branch(github.repo_of(key))):
         return f"it sits on {read['baseRefName']}, not {default}"
-    if failed := github.failing(read["checks"]):
-        return f"its checks fail at {read['headRefOid'][:7]}: {', '.join(failed)}"
+    if (verdict := github.checks(read["checks"], [])) == "fail":
+        return f"its checks fail at {read['headRefOid'][:7]}: {', '.join(github.failing(read['checks']))}"
+    if verdict == "pending":
+        return f"{RUNNING} at {read['headRefOid'][:7]}"
     return None
 
 
 def admin_merged(name: str, key: str) -> str:
-    """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, while any check still runs, and pinned to that head so a push since the read merges nothing; what came of it."""
+    """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, and pinned to that head so a push since the read merges nothing; what came of it."""
     reads, refused = github.fetch([key])
     if refused:
         return f"not landed: {cut(str(refused), SAID_CHARS)}"
@@ -350,7 +353,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds no check failing on, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check passed on, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -363,7 +366,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     if holding := held(data, keys, view.live_cards(name)):
         outcome = f"{HELD}: {holding}"
     elif state.merges_untapped(keys[0]):
-        outcome = f"would merge it with {' '.join(MERGE)} --admin once no check fails at its head, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
+        outcome = f"would merge it with {' '.join(MERGE)} --admin once every check at its head passed, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
     else:
         try:
             below = uncleared_below(data, keys)
