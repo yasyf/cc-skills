@@ -32,7 +32,7 @@ from conftest import (
     git_in,
     staged,
 )
-from drive import artifacts, cli, github, orca, place, reads, render, state, watch
+from drive import artifacts, cli, github, orca, place, reads, render, state, tools, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -2326,11 +2326,11 @@ def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_l
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a stopped job is sent nothing: {args}"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a stopped job takes no worker start from a PR wake"))
     posted = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: posted.append(argv) or "")
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["#9"])
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{remote} for j1")
-    [argv] = posted
-    assert argv[argv.index("--to") + 1] == f"root@{remote}"
-    assert argv[argv.index("--text") + 1] == (
+    [(lane, record)] = posted
+    assert (lane, record["kind"], record["to"]) == ("watch", "handoff", [f"root@{remote}"])
+    assert record["text"] == (
         f"STAGE {line}; no live job answers for it and its job j1 is stopped, so no wake starts it: close it, or move it to a live job with"
         f" drive pr add {url} --job <j>"
     )
@@ -3107,7 +3107,7 @@ def test_a_lane_questions_job_line_posts_the_question_whole_as_its_records_body(
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     [line] = watch.run_pass(watching, T0)
     posted = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, stdin=None: posted.append((argv[argv.index("--topic") + 2 :], stdin)) or "")
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None, stdin=None: posted.append((argv[argv.index("--topic") + 2 :], stdin)) or "")
     assert watch.sent(watching, "root", [line], T0) == []
     assert posted == [([*(["--path", "-"] if whole else []), "--text", line], question if whole else None)]
 

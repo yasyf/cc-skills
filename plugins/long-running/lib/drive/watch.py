@@ -1921,12 +1921,14 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
     if job["state"] in ("waiting", "built"):
-        if found := refused_card(job_id, job, data):
-            owner, refused = found
+        if found := unposted_card(job_id, job, data):
+            owner, unposted = found
             whose = "its" if owner == job_id else f"{owner}'s"
+            if not unposted["refused"]:
+                return f'{job_id} waits on a card never posted: {whose} question "{cut(unposted["title"], 80)}" kept in {unposted["file"]} did not draw, and the watch draws it again on its next read'
             return (
-                f'{job_id} waits on a card never posted: {state.refused_by(refused)} refused {whose} question "{cut(refused["title"], 80)}" kept in {refused["file"]}:'
-                f" {cut(refused['refused'].removeprefix('refused: '), 160)}"
+                f'{job_id} waits on a card never posted: {state.refused_by(unposted)} refused {whose} question "{cut(unposted["title"], 80)}" kept in {unposted["file"]}:'
+                f" {cut(unposted['refused'].removeprefix('refused: '), 160)}"
             )
         if asked := unanswered(job_id, job, moment):
             return asked
@@ -1947,10 +1949,11 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     return f"{job_id} {job['state']}"
 
 
-def refused_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None:
-    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused."""
+def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None:
+    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused, or whose draw failed, kept with no card and no refusal and folded into no other, which `draw_questions` draws again."""
     asked = [*((job_id, question) for question in view.open_questions(job)), *view.drawn_on(data, *job["waits"])]
-    return next(((owner, question) for owner, question in asked if question["refused"] and question["closed"] is None), None)
+    unposted = [(owner, question) for owner, question in asked if question["closed"] is None and (question["refused"] or question["file"] and not (question["card"] or question["replaced"]))]
+    return next((found for found in unposted if found[1]["refused"]), None) or next(iter(unposted), None)
 
 
 def merged_gap(job_id: str, data: dict) -> str:
@@ -2447,7 +2450,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         asked = asked_whole(watcher.name, line)
         argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if asked else []), "--text", line]
         try:
-            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), stdin=asked)
+            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=asked)
         except reads.ReadError as error:
             unsent.append(line)
             refusal = error

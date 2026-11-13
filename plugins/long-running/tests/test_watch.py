@@ -597,7 +597,7 @@ def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the wat
 def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -> list[list[str]]:
     sent, queue = [], list(outcomes or [])
 
-    def post(argv: list[str], checkout: Path, stdin: str | None = None) -> str:
+    def post(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
         if queue and not queue.pop(0):
             raise reads.ReadError("cci post exited 1: no drive demo")
         sent.append(argv)
@@ -2174,6 +2174,24 @@ def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_n
     assert watch.run_pass(watcher(demo), T0) == [
         f'ORPHAN o1 "ship the watch": j1 waits on a card never posted: drive job ask refused its question "{asked}" kept in /drive/asks/j1-ab.md:'
         " these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`"
+    ]
+
+
+def test_a_built_job_whose_card_did_not_draw_is_said_to_wait_on_a_card_never_posted_while_the_watch_draws_it_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+
+    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+        raise slack.SlackError("dm-status: database is locked")
+
+    monkeypatch.setattr(cli, "ask_card", lambda name, job_id, file: {"waits": "demo:j1-7"})
+    monkeypatch.setattr(cli, "post_ask", locked)
+    asked = "How many clone processes may a SandSQL server run at once?"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        question = state.new_question("/drive/asks/j1-ab.md", asked, state.stamp(T0)) | {"waits": "demo:j1-7"}
+        data["jobs"]["j1"].update(state="built", branch="clone-cap", questions=[question], updated=state.stamp(T0 - timedelta(minutes=10)))
+    assert watch.run_pass(watcher(demo), T0) == [
+        f'ORPHAN o1 "ship the watch": j1 waits on a card never posted: its question "{asked}" kept in /drive/asks/j1-ab.md did not draw, and the watch draws it again on its next read'
     ]
 
 
@@ -5307,7 +5325,7 @@ MONITOR = "https://app.datadoghq.com/monitors/315028134"
 def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> list[list[str]]:
     calls = []
 
-    def run(argv: list[str], checkout: Path, stdin: str | None = None) -> str:
+    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
         calls.append(argv)
         return json.dumps([{"id": int(monitor), "status": status} for monitor, status in statuses.items()]) if argv[0] == "pup" else ""
 

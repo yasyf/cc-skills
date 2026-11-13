@@ -131,7 +131,7 @@ def close_report(name: str, order_id: str, text: str) -> str:
     """Write the report closing the order a post answers, its words the post's, from the communicator's lane, before the post goes out, so say claims the order's close for it; its seq."""
     argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "report", "--attr", f"close={order_id}", "--json", "--text", text]
     try:
-        return str(json.loads(reads.run(argv, Path.cwd()))["seq"])
+        return str(json.loads(reads.run(argv, Path.cwd(), reads.posting()))["seq"])
     except reads.ReadError as error:
         raise DriveError(f"nothing posted: {order_id}'s closing report could not be written: {error}") from None
 
@@ -166,7 +166,7 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
     corrected = agents.corrections(name, [seq]).get(seq, [])
     text = HELD.format(seq=seq) + (f"; the catch-up carries it{render.corrected_by(corrected)}" if corrected else "")
     try:
-        told = str(json.loads(reads.run([*argv, "--json", "--text", text], Path.cwd()))["seq"])
+        told = str(json.loads(reads.run([*argv, "--json", "--text", text], Path.cwd(), reads.posting()))["seq"])
     except reads.ReadError as error:
         raise DriveError(f"report {seq} could not be marked held: {error}") from None
     with state.edit(name) as data:

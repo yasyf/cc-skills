@@ -411,7 +411,7 @@ def start_kept(name: str, handler: str) -> str:
     except reads.ReadError as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
-        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd())
+        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
     return f"started {handler}"
 
@@ -541,7 +541,7 @@ def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
-    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]))
+    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]), reads.posting())
     remove_session(payload)
 
 

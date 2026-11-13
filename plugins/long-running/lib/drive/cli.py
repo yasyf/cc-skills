@@ -2731,7 +2731,7 @@ def releaded(pr: dict) -> str:
 
 def pr_wake(args: argparse.Namespace) -> int:
     """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent. A PR no live job carries whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes to that session the same way, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
-    from drive import stage, view
+    from drive import stage, tools, view
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
@@ -2759,7 +2759,7 @@ def pr_wake(args: argparse.Namespace) -> int:
         else f"STAGE {text}; no live job answers for it and its job {pr['job']} is {job['state']}, so no wake starts it: close it, or move it to a live job with drive pr add {pr['url']} --job <j>"
     )
     topic = f"wake-{key}-{pr['head'][:10]}"
-    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "handoff", "--to", f"{lane}@{name}", "--topic", topic, "--text", said], Path(data["roles"]["coordinator"]["cwd"]))
+    tools.sent(name, "watch", [{"kind": "handoff", "to": [f"{lane}@{name}"], "topic": topic, "text": said}])
     return emit(args, f"{key}: sent to {lane}@{name} for {job_id or pr['job']}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
