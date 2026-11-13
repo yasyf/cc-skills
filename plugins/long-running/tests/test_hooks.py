@@ -499,14 +499,14 @@ def test_a_step_never_replaces_a_remote_jobs_dispatch(
     assert (job["agent"], job["where"], job["dispatch"]) == (None, "remote", "ctx_lane0001")
 
 
-@pytest.mark.parametrize("agent_type", ["codex:codex-wrapper", "long-running:builder"])
-def test_a_codex_relay_or_an_incidents_second_lane_builder_holds_the_codex_job_its_brief_names(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str
+@pytest.mark.parametrize(("agent_type", "holder"), [("codex:codex-wrapper", None), ("long-running:builder", "a-9")])
+def test_an_incidents_second_lane_builder_holds_the_codex_job_its_brief_names_and_a_codex_agent_never_does(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str, holder: str | None
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "codex", "--order", "o1", "--goal", "fix it")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type=agent_type)))
-    assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"
+    assert state.load("demo")["jobs"]["j1"]["agent"] == holder
 
 
 def test_a_step_leaves_a_job_another_agent_runs_and_a_stopped_job_the_agent_its_stop_left_on_it_as_they_are(
@@ -777,15 +777,15 @@ def test_an_incident_lanes_brief_carries_the_rule_its_kind_follows_on_a_choice_a
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Alerts", "chat turns fail on sand 0.162.3983", "--incident", "--parts", "fix", "first check")
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix the codex lane built")
     stopping = "Order: chat turns fail on sand 0.162.3983\nIncident: record 674295\n4. If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR\nDrive: demo, order o1, job j1"
-    reason = scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", stopping))
-    assert reason.startswith("refused, no agent started: j1 works on o1, an incident, which a choice never stops, by his words \"fix ur tooling")
+    reason = brief.brief_refusal("demo", state.load("demo"), "j1", stopping)
+    assert reason.startswith("j1 works on o1, an incident, which a choice never stops, by his words \"fix ur tooling")
     assert reason.endswith(f'its brief\'s Incident: line carries, word for word, "{state.INCIDENT_CHOICE["codex"]}"')
     ruled = stopping.replace("record 674295", f"record 674295; {state.INCIDENT_CHOICE['codex']}")
-    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", ruled)).startswith(
-        "refused, no agent started: j1's brief stops it on a choice, \"If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR\""
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", ruled).startswith(
+        "j1's brief stops it on a choice, \"If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR\""
     )
     building = ruled.replace("4. If something is lost, stop and return `BLOCKED <what is lost>` with 2 to 4 options, before any PR", "4. Build the fix and open its PR, then return READY <pr url>")
-    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", building)) is None
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", building) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", building.replace("job j1", "job j3"))).startswith("refused, no agent started: j3 works on o1, an incident")
     builder = building.replace(state.INCIDENT_CHOICE["codex"], state.INCIDENT_CHOICE["builder"]).replace("job j1", "job j3")
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", builder)) is None
@@ -823,13 +823,17 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
         'j3 builder waiting on "the copy": build what j2\'s research finds: the copy',
     )
     bare = "Order: Drive tooling: copy one store\nDrive: demo, order o1, job {}"
-    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) is None
-    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j4"))).startswith(
-        "refused, no agent started: j4 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) == (
+        "refused, no agent started: j1 is a codex job, whose codex-ask run drive job launch j1 starts itself on its brief,"
+        " its reply's state a field codex cannot leave out, so no agent relays it"
+    )
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", bare.format("j1")) is None
+    assert brief.brief_refusal("demo", state.load("demo"), "j4", bare.format("j4")).startswith(
+        "j4 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j2", "-")
-    assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", f"Researched: j2\n{bare.format('j4')}")) is None
+    assert brief.brief_refusal("demo", state.load("demo"), "j4", f"Researched: j2\n{bare.format('j4')}") is None
 
 
 def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(

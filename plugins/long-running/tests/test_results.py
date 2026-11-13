@@ -8,12 +8,13 @@ import no_file_tools
 import one_line_result
 import pytest
 import quiet_turn
-from conftest import RESEARCH, CodexAsk
-from drive import cli, render, state
+from conftest import RESEARCH, CodexAsk, codex_reply
+from drive import cli, codex, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
 POST = "https://acme.slack.com/archives/D1/p1"
 HANDLER = {"agent_type": "long-running:handler"}
+REAL_CODEX_GAP = watch.codex_gap
 TOOL_RESULT = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}
 
 
@@ -145,15 +146,53 @@ def test_a_reader_explaining_a_403_has_not_ended_on_a_refused_read(demo: str, ru
 
 
 
-def relay_ran(reply: Path) -> list[dict]:
-    """A codex relay's codex-ask call and the output codex-ask printed into its tool result as the run started."""
-    printed = f"REPLY_FILE: {reply}\nLOG_FILE: {reply.parent / 'codex-q-1.log'}\nAWAIT: codex-ask --await {reply.parent}"
-    return [called("Bash", command="codex-ask - <<'QUESTION'"), {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": printed}]}}]
+def codex_job(run: Run, *flags: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "review the fix", *flags)
+    run("job", "add", "codex", "--order", "o1", "--goal", "review")
 
 
-def codex_job(run: Run) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "review the fix")
-    run("job", "add", "codex", "--order", "o1", "--goal", "review", "--agent", "a-7")
+def launched(demo: str, run: Run, tmp_path: Path) -> Path:
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text(f"Order (his words): review the fix\nGoal: review\nDrive: {demo}, order o1, job j1\n")
+    assert run("job", "launch", "j1", str(brief))[0] == 0
+    return Path(state.load(demo)["jobs"]["j1"]["codex_run"])
+
+
+def watched(demo: str, job_id: str = "j1") -> dict:
+    with state.edit(demo) as data:
+        if isinstance(gap := REAL_CODEX_GAP(job_id, data["jobs"][job_id]), watch.Answered):
+            gap.take(demo, data, job_id)
+    return state.load(demo)["jobs"][job_id]
+
+
+def test_drive_job_launch_starts_a_codex_jobs_codex_ask_run_on_its_brief_with_its_final_message_held_to_a_state_line_and_report(
+    demo: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
+) -> None:
+    codex_job(run)
+    folder = launched(demo, run, tmp_path)
+    scratch = state.drive_dir(demo) / "scratch" / "j1"
+    assert folder == scratch / "codex"
+    assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(scratch / codex.SCHEMA_FILE), "-"]
+    assert (folder / "question").read_text() == (tmp_path / "j1.brief.md").read_text()
+    schema = json.loads((scratch / codex.SCHEMA_FILE).read_text())
+    assert (schema["required"], schema["properties"]["state"]["enum"]) == (["state", "line", "report"], [*state.RESULT_STATES, "BUILT"])
+    assert (state.load(demo)["jobs"]["j1"]["state"], watched(demo)["state"]) == ("running", "running")
+    assert cli.main(["job", "launch", "j1", str(tmp_path / "j1.brief.md")]) == 2
+    assert f"j1: refused, not launched: codex-ask: lane {folder} is busy" in capsys.readouterr().err
+
+
+def test_an_incidents_codex_job_launches_on_codex_asks_fast_tier_once_its_brief_carries_the_incident_rule(
+    demo: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "runs never start", "--incident", "--parts", "fix", "cause")
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text("Order: runs never start\nIncident: record 674295\n4. Build the fix and open its PR, then return READY <pr url>\nDrive: demo, order o1, job j1\n")
+    assert cli.main(["job", "launch", "j1", str(brief)]) == 2
+    assert "j1: refused, not launched: j1 works on o1, an incident, which a choice never stops" in capsys.readouterr().err
+    assert "codex_run" not in state.load(demo)["jobs"]["j1"]
+    brief.write_text(brief.read_text().replace("record 674295", f"record 674295; {state.INCIDENT_CHOICE['codex']}"))
+    assert run("job", "launch", "j1", str(brief))[0] == 0
+    assert "--incident" in (Path(state.load(demo)["jobs"]["j1"]["codex_run"]) / "argv").read_text().splitlines()
 
 
 @pytest.mark.parametrize(
@@ -161,54 +200,69 @@ def codex_job(run: Run) -> None:
     [
         (
             "completed",
-            "UNPROVEN — the column is null on 3 of 40 rows\nThe rest of the answer\n",
+            codex_reply("HANDOFF", "the keyed SandSQL page builds in ~/wt/keyed-pages on branch keyed-pages, uncommitted: a builder ships it", "SLUG: sandsql\nCHANGE: dashboard/src/iris/pages keyed by slug"),
+            "",
+            "stopped",
+            "HANDOFF the keyed SandSQL page builds in ~/wt/keyed-pages on branch keyed-pages, uncommitted: a builder ships it",
+        ),
+        (
+            "completed",
+            codex_reply("DONE", "the SoFi LLM gateway rolled back to 0.41.2", "CHECK: /healthz answers 200 on 0.41.2"),
+            "",
+            "done",
+            "DONE the SoFi LLM gateway rolled back to 0.41.2",
+        ),
+        (
+            "completed",
+            "REPLY_FILE: /scratch/j3010/keyed-pages/reply.txt\nSLUG: sandsql\n",
             "",
             "failed",
-            "BLOCKED codex-ask completed, its reply refused: its first line sets no state: it opens DONE, READY, PUSHED,"
-            " `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF",
+            "BLOCKED codex-ask completed, its reply refused: it is not the JSON its schema requires, a state, line and report",
         ),
-        ("completed", "\nBLOCKED codex edits, Claude ships\n", "", "failed", "BLOCKED codex edits, Claude ships"),
-        ("completed", "ASK Should the fix drop the column?\n", "", "waiting", None),
-        ("completed", "HANDOFF unfinished: the scope needs his pick\n", "", "stopped", "HANDOFF unfinished: the scope needs his pick"),
-        ("completed", "DONE reviewed: no findings\n", "", "done", "DONE reviewed: no findings"),
+        ("completed", codex_reply("BLOCKED", "codex edits, Claude ships"), "", "failed", "BLOCKED codex edits, Claude ships"),
+        ("completed", codex_reply("ASK", "Should the fix drop the column?"), "", "waiting", None),
         ("died", "", '{"type":"turn.started"}\n{"type":"error","message":"stream disconnected"}\n', "failed", 'BLOCKED codex-ask died: {"type":"error","message":"stream disconnected"}'),
         ("running", "", "", "running", None),
     ],
 )
-def test_a_codex_jobs_state_comes_from_the_codex_ask_run_its_relay_asked_never_the_relays_words(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk, ran: str, reply: str, log: str, taken: str, said: str | None
+def test_a_codex_jobs_state_comes_from_the_state_field_of_the_run_its_launch_started_and_its_return_lands_on_its_own_job(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, ran: str, reply: str, log: str, taken: str, said: str | None
 ) -> None:
     codex_job(run)
-    replied = codex_ask.run(ran, reply, log)
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(agent_stop(f"REPLY_FILE: {replied}\nCodex answered.", tmp_path, *relay_ran(replied)))))
-    one_line_result.main()
-    assert json.loads(capsys.readouterr().out)["decision"] == "block"
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"], state.report_text(demo, "j1").strip()) == (taken, said, reply.strip() if ran == "completed" else "")
+    codex_ask.end(launched(demo, run, tmp_path), ran, reply, log)
+    job = watched(demo)
+    kept = state.report_text(demo, "j1").strip()
+    assert (job["state"], job["said"]) == (taken, said)
+    if ran != "completed":
+        assert kept == ""
+    elif reply.startswith("{"):
+        answer = json.loads(reply)
+        assert kept == f"{answer['state']} {answer['line']}\n{answer['report']}".strip()
+    else:
+        assert kept == reply.strip()
 
 
 @pytest.mark.parametrize(
-    ("reply", "taken", "joins"),
+    ("report", "taken", "joins"),
     [
-        ("DONE the handover delays the mint\n", "failed", None),
-        ("DONE the handover delays the mint\n**FIX:** o2\n", "done", "o1"),
+        ("", "failed", None),
+        ("**FIX:** o2", "done", "o1"),
     ],
 )
 def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_reads_that_order_live(
-    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, reply: str, taken: str, joins: str | None
+    demo: str, run: Run, codex_ask: CodexAsk, report: str, taken: str, joins: str | None
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL mint endpoint failing", "--incident", "--parts", "fix", "cause")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the handover", "--kind", "build")
-    run("job", "set", "j2", "--agent", "a-7")
-    one_line_result.take_codex(agent_stop(reply.splitlines()[0], tmp_path, *relay_ran(codex_ask.run("completed", reply))))
-    data = state.load(demo)
-    job = data["jobs"]["j2"]
-    assert (job["state"], data["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, reply.strip())
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["codex_run"] = str(codex_ask.run("completed", codex_reply("DONE", "the handover delays the mint", report)))
+    job = watched(demo, "j2")
+    assert (job["state"], state.load(demo)["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, f"DONE the handover delays the mint\n{report}".strip())
     if taken == "failed":
         assert job["said"].startswith(f"BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
 
 
-def test_a_codex_relays_reply_file_pointer_sets_no_state_on_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_reply_file_pointer_reported_on_a_codex_job_sets_no_state(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     codex_job(run)
     monkeypatch.setattr("sys.stdin", io.StringIO("REPLY_FILE: /runs/codex-ask.1/codex-r-1\nCodex answered.\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
@@ -224,48 +278,20 @@ def test_a_codex_done_on_a_surface_its_brief_names_is_taken_only_with_a_picture_
     codex_job(run)
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\n")
-    with state.edit(demo) as data:
-        data["jobs"]["j1"] |= {"brief_flags": {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"}, "repro": str(proof)}
     shots = [tmp_path / f"story{number}.png" for number in range(1, pictures + 1)]
     for shot in shots:
         shot.write_bytes(b"\0")
-    reply = f"DONE the queue redrawn\nCHECK: {' '.join(map(str, shots))}\n"
-    one_line_result.take_codex(agent_stop(reply.splitlines()[0], tmp_path, *relay_ran(codex_ask.run("completed", reply))))
-    job = state.load(demo)["jobs"]["j1"]
+    reply = codex_reply("DONE", "the queue redrawn", f"CHECK: {' '.join(map(str, shots))}")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {
+            "brief_flags": {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"},
+            "repro": str(proof),
+            "codex_run": str(codex_ask.run("completed", reply)),
+        }
+    job = watched(demo)
     assert job["state"] == taken
     if taken == "failed":
         assert job["said"].startswith("BLOCKED codex-ask completed, its reply refused: its brief names 2 user stories and its proof shows 1 of them")
-
-
-def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
-    codex_job(run)
-    own = codex_ask.run("completed", "DONE reviewed: no findings\n")
-    other = codex_ask.run("completed", "BLOCKED another relay's run\n")
-    read_back = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": f"DONE reviewed\nIt quoted:\nREPLY_FILE: {other}\n"}]}}
-    one_line_result.take_codex(agent_stop("DONE reviewed: no findings", tmp_path, *relay_ran(own), called("Bash", command=f"cat {own}"), read_back))
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"]) == ("done", "DONE reviewed: no findings")
-
-
-def test_a_codex_relay_whose_lane_folder_holds_a_later_run_sets_nothing(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
-    codex_job(run)
-    own = codex_ask.run("completed", "DONE the first relay's answer\n")
-    (own.parent / "meta").write_text(f"{own.parent / 'codex-r-later'}\n{own.parent / 'codex-q-later.log'}\n{{}}\n")
-    one_line_result.take_codex(agent_stop("DONE the first relay's answer", tmp_path, *relay_ran(own)))
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["said"]) == ("running", None)
-
-
-def test_a_codex_relay_whose_run_codex_ask_cannot_read_is_still_held_to_one_line_and_left_to_the_watch(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
-) -> None:
-    codex_job(run)
-    own = codex_ask.run("completed", "DONE reviewed\n")
-    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text("#!/bin/sh\necho 'codex-ask: no run at that folder' >&2\nexit 2\n")
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(agent_stop(f"REPLY_FILE: {own}\nCodex answered.", tmp_path, *relay_ran(own)))))
-    one_line_result.main()
-    assert json.loads(capsys.readouterr().out)["decision"] == "block"
-    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
 
 
 def test_a_communicator_turn_writes_no_text_between_its_tool_calls(communicator: str, tmp_path: Path) -> None:

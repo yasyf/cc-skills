@@ -515,6 +515,7 @@ def kept_transcripts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
 @pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
+    monkeypatch.setattr(watch, "codex_gap", lambda job_id, job: None)
     monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
     monkeypatch.setattr(orca, "task_title", lambda run, task: f"lane-of-{task}")
@@ -788,6 +789,20 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
 
 FAKE_CODEX_ASK = """#!/bin/sh
 run="$2"
+if [ "$1" = --dispatch ]; then
+  run="$3"
+  if [ "$(cat "$run/state" 2>/dev/null)" = running ]; then
+    echo "codex-ask: lane $run is busy" >&2
+    exit 1
+  fi
+  mkdir -p "$run"
+  printf '%s\\n' "$@" > "$run/argv"
+  cat > "$run/question"
+  printf running > "$run/state"
+  : > "$run/codex-r-1"
+  printf '%s\\n%s\\n{}\\n' "$run/codex-r-1" "$run/codex-q-1.log" > "$run/meta"
+  exit
+fi
 printf '{"lane":".","state":"%s","reply_file":"%s","reply_size":1,"log_file":"%s","question":"q","question_files":1}\\n' \\
   "$(cat "$run/state")" "$(sed -n 1p "$run/meta")" "$(sed -n 2p "$run/meta")"
 """
@@ -795,7 +810,7 @@ printf '{"lane":".","state":"%s","reply_file":"%s","reply_size":1,"log_file":"%s
 
 @dataclass
 class CodexAsk:
-    """Run folders shaped as codex-ask writes them, read by a codex-ask whose `--collect` prints the state each folder's `state` file holds."""
+    """Run folders shaped as codex-ask writes them, made by a codex-ask whose `--dispatch` starts a run going and whose `--collect` prints the state each folder's `state` file holds."""
 
     runs: Path
     made: int = 0
@@ -804,11 +819,21 @@ class CodexAsk:
         self.made += 1
         folder = self.runs / f"codex-ask.{self.made}"
         folder.mkdir()
-        (folder / "state").write_text(state)
         (folder / f"codex-r-{self.made}").write_text(reply)
         (folder / f"codex-q-{self.made}.log").write_text(log)
         (folder / "meta").write_text(f"{folder / f'codex-r-{self.made}'}\n{folder / f'codex-q-{self.made}.log'}\n{{}}\n")
-        return folder / f"codex-r-{self.made}"
+        (folder / "state").write_text(state)
+        return folder
+
+    def end(self, folder: Path, state: str, reply: str = "", log: str = "") -> None:
+        reply_file, log_file = (folder / "meta").read_text().splitlines()[:2]
+        Path(reply_file).write_text(reply)
+        Path(log_file).write_text(log)
+        (folder / "state").write_text(state)
+
+
+def codex_reply(state: str, line: str, report: str = "") -> str:
+    return json.dumps({"state": state, "line": line, "report": report})
 
 
 @pytest.fixture

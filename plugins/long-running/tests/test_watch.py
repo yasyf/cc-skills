@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
+from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
 from drive import card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -1686,6 +1686,7 @@ def test_drive_watch_project_starts_only_from_its_sub_coordinators_session_and_p
 
 
 REAL_LOCAL_GAP = watch.local_gap
+REAL_CODEX_GAP = watch.codex_gap
 CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
 
 
@@ -2301,93 +2302,76 @@ def test_a_local_agent_is_judged_by_its_transcript(
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
 
 
-def relayed(reply: Path, ended: str) -> list[dict]:
-    """A codex relay's transcript: its codex-ask call, the output codex-ask printed as the run started, and the line it ended its turn on."""
-    printed = {"type": "user", "message": {"content": [{"type": "tool_result", "content": f"REPLY_FILE: {reply}\nLOG_FILE: {reply.parent / 'codex-q-1.log'}"}]}}
-    return [CALLING, printed, ended_on(ended)]
-
-
 @pytest.mark.parametrize(
-    ("ran", "quiet", "gap"),
+    ("ran", "gap"),
     [
-        ("running", timedelta(minutes=45), None),
-        ("pending", timedelta(minutes=10), None),
-        ("completed", timedelta(minutes=10), "j1's codex-ask run completed and its result is not recorded"),
-        ("died", timedelta(minutes=10), "j1's codex-ask run died and its result is not recorded"),
+        ("running", None),
+        ("pending", None),
+        ("completed", "j1's codex-ask run completed and its result is not recorded"),
+        ("died", "j1's codex-ask run died and its result is not recorded"),
     ],
 )
-def test_a_codex_relay_that_ended_its_turn_is_judged_by_the_codex_ask_run_it_asked(
-    demo: str, tmp_path: Path, codex_ask: CodexAsk, ran: str, quiet: timedelta, gap: str | None
-) -> None:
-    write_transcript(tmp_path / "config", relayed(codex_ask.run(ran, "DONE reviewed\n"), "Codex is still running. I'll wait for the notification."), quiet)
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+def test_a_codex_job_is_judged_by_the_codex_ask_run_its_launch_recorded(demo: str, codex_ask: CodexAsk, ran: str, gap: str | None) -> None:
+    job_of = {"kind": "codex", "codex_run": str(codex_ask.run(ran, codex_reply("DONE", "reviewed")))}
+    assert REAL_CODEX_GAP("j1", job_of) == gap
 
 
-def test_a_codex_relay_whose_run_codex_ask_cannot_read_names_its_error(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
-    reply = codex_ask.run("completed", "DONE reviewed\n")
-    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text("#!/bin/sh\necho 'codex-ask: no run at that folder' >&2\nexit 2\n")
-    write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run could not be read: codex-ask: no run at that folder"
-
-
-def test_a_codex_relay_that_read_back_a_reply_naming_a_scratch_file_is_judged_by_its_codex_ask_run(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
-    run = codex_ask.run("completed", "DONE reviewed\n")
-    scratch = tmp_path / "scratch" / "j1"
-    scratch.mkdir(parents=True)
-    (scratch / "reply.md").write_text("DONE reviewed\n")
-    read_back = {"type": "user", "message": {"content": [{"type": "tool_result", "content": f"REPLY_FILE: {scratch / 'reply.md'}\nDONE reviewed"}]}}
-    write_transcript(tmp_path / "config", [*relayed(run, "Reading the reply.")[:2], read_back, ended_on("Codex is done.")], timedelta(minutes=10))
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run completed and its result is not recorded"
+def test_a_codex_job_no_launch_started_names_the_launch_that_starts_it(demo: str) -> None:
+    assert REAL_CODEX_GAP("j1", {"kind": "codex"}) == "j1 has no codex-ask run: drive job launch j1 starts it on its brief"
 
 
 @pytest.mark.parametrize(
     ("printed", "gap"),
     [
-        ("", None),
-        ('{"reply_file":"/a"}\n{"reply_file":"/b"}\n', None),
+        ("", "j1's codex-ask run could not be read: codex-ask --collect printed no record:"),
         ("codex-ask 1.15.3\n", "j1's codex-ask run could not be read: codex-ask --collect printed no record: codex-ask 1.15.3"),
     ],
 )
-def test_a_codex_ask_collect_printing_no_record_of_the_reply_ends_no_watch_pass(
-    demo: str, tmp_path: Path, codex_ask: CodexAsk, printed: str, gap: str | None
-) -> None:
-    reply = codex_ask.run("completed", "DONE reviewed\n")
+def test_a_codex_ask_collect_printing_no_record_of_the_run_ends_no_watch_pass(demo: str, tmp_path: Path, codex_ask: CodexAsk, printed: str, gap: str) -> None:
+    folder = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
     (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text(f"#!/bin/sh\nprintf '%s' '{printed}'\n")
-    write_transcript(tmp_path / "config", relayed(reply, "Codex is still running."), timedelta(minutes=10))
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+    assert REAL_CODEX_GAP("j1", {"kind": "codex", "codex_run": str(folder)}) == gap
 
 
-def test_a_codex_relay_that_asked_codex_nothing_is_parked_like_any_agent(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
-    write_transcript(tmp_path / "config", [CALLING, RESULT, PARKED], timedelta(minutes=45))
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == (
-        'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no codex-ask run: SendMessage from the session that started it wakes it, and drive job resume j1 <the event> from any other'
-    )
+def test_a_codex_job_whose_run_codex_ask_cannot_read_names_its_error(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    folder = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
+    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text("#!/bin/sh\necho 'codex-ask: no run at that folder' >&2\nexit 2\n")
+    assert REAL_CODEX_GAP("j1", {"kind": "codex", "codex_run": str(folder)}) == "j1's codex-ask run could not be read: codex-ask: no run at that folder"
 
 
-def test_a_codex_job_run_again_after_its_run_was_taken_waits_on_a_new_run_rather_than_retaking_the_old(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
-    reply = codex_ask.run("completed", "DONE reviewed\n")
-    write_transcript(tmp_path / "config", relayed(reply, "Codex is done."), timedelta(minutes=45))
+def test_a_codex_job_run_again_after_its_run_was_taken_waits_on_its_next_launch_rather_than_retaking_the_old(demo: str, codex_ask: CodexAsk) -> None:
+    folder = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
+    reply = folder / "codex-r-1"
     taken = state.stamp(datetime.fromtimestamp(reply.stat().st_mtime).astimezone() + timedelta(seconds=1))
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex", "returned": None}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run completed and its result is not recorded"
-    assert REAL_LOCAL_GAP("j1", job_of | {"returned": taken}, state.load(demo), state.now()) == (
-        'j1\'s agent ended its turn 45 minutes ago on "Codex is done." with no codex-ask run: SendMessage from the session that started it wakes it, and drive job resume j1 <the event> from any other'
-    )
+    job_of = {"kind": "codex", "codex_run": str(folder), "returned": None}
+    assert REAL_CODEX_GAP("j1", job_of) == "j1's codex-ask run completed and its result is not recorded"
+    assert REAL_CODEX_GAP("j1", job_of | {"returned": taken}) == "j1's codex-ask run completed before its last return: drive job launch j1 starts its next"
 
-def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its_relay_ended_on(
+
+def test_an_incidents_second_lane_builder_is_judged_by_its_transcript_until_the_codex_run_beside_it_ends(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
 ) -> None:
     monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
-    reply = codex_ask.run("completed", "DONE two of three findings hold\nFinding 1\n")
-    write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    write_transcript(tmp_path / "config", [CALLING, FINISHED], timedelta(minutes=10))
+    folder = codex_ask.run("running")
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex", "codex_run": str(folder)}
+    assert watch.agent_gap("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT
+    codex_ask.end(folder, "completed", codex_reply("DONE", "reviewed"))
+    assert isinstance(watch.agent_gap("j1", job_of, state.load(demo), state.now()), watch.Answered)
+
+
+def codex_running(demo: str, folder: Path) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
-        data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(kind="codex", agent=None, codex_run=str(folder), updated=state.stamp(state.now() - timedelta(minutes=10)))
+
+
+def test_the_watch_takes_a_codex_jobs_result_from_the_state_line_and_report_its_completed_run_returned(
+    demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "two of three findings hold", "Finding 1\n")))
     assert watch.run_pass(watcher(demo), state.now()) == []
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["said"], state.report_text(demo, "j1")) == ("done", "DONE two of three findings hold", "DONE two of three findings hold\nFinding 1\n")
@@ -2396,16 +2380,12 @@ def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its
 def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_named_kept_as_its_run_is_taken_so_his_card_goes_up_as_it_returns(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
 ) -> None:
-    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     monkeypatch.setattr(watch.view, "cards", lambda name: view.NO_CARDS)
     block = tmp_path / "scratch" / "ask.md"
     block.parent.mkdir()
     block.write_text(SHORT_ASK)
-    reply = codex_ask.run("completed", f"DONE built one snapshot file per finished run on branch snapshot-file\nASK: {block}\n")
-    write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
-    with state.edit(demo) as data:
-        data["prs"][KEY]["state"] = "merged"
-        data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
+    codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "built one snapshot file per finished run on branch snapshot-file", f"ASK: {block}")))
     kept = state.drive_dir(demo) / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
     assert watch.run_pass(watcher(demo), state.now()) == [
         f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept in {kept} and its ask record posted,"
@@ -2801,7 +2781,7 @@ def completed_run(folder: Path, reply: str) -> codex.Run:
     return codex.Run("completed", folder / "codex-r-1", folder / "codex-q-1.log")
 
 
-def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_its_relays_pointer_and_a_stop_until_the_work_it_was_given_is_delivered(
+def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_reported_on_it_and_a_stop_until_the_work_it_was_given_is_delivered(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -2815,7 +2795,7 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_its_relays_point
         data["jobs"]["j4"] = job(goal="build on the page kit", state="waiting", said="waits on j2", waits=["j2"])
         data["orders"]["o1"]["jobs"].append("j4")
     with state.edit(demo) as data:
-        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.1", f"{handoff}\n"))
+        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.1", codex_reply("HANDOFF", handoff.removeprefix("HANDOFF "))))
     data = state.load(demo)
     assert (data["jobs"]["j3"]["state"], data["jobs"]["j3"]["said"]) == ("stopped", handoff)
     pointer = "REPLY_FILE: /runs/codex-ask.1/codex-r-1"
@@ -2828,7 +2808,7 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_its_relays_point
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("FREE ")]
     assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j4")] == [["j3"], ["j2"]]
     with state.edit(demo) as data:
-        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.2", "DONE built the page kit\n"))
+        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.2", codex_reply("DONE", "built the page kit")))
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")] == [
         "FREE j1 o1: j3 answered or done, nothing else holds it",
         "FREE j4 o1: j2 answered or done, nothing else holds it",

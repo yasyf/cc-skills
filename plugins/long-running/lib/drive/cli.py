@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, codex, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -687,7 +687,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.incident and not order["incident"] and not any(state.INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
             raise DriveError(
                 f'{args.id}: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "{state.INCIDENT_FIX}"'
-                f" part with --parts and record its job with drive job add codex --order {args.id} --part {state.INCIDENT_FIX} --agent <id> first"
+                f" part with --parts and record its job with drive job add codex --order {args.id} --part {state.INCIDENT_FIX} first, then start it with drive job launch <its job>"
             )
         if args.incident is not None:
             order["incident"] = args.incident
@@ -2026,13 +2026,41 @@ def ruling_words(answer_id: str, checkout_dir: Path) -> str:
 def transcript_line(job_id: str, job: dict) -> str | None:
     if job.get("where") == "remote" and job.get("dispatch") and not artifacts.lane_transcript(job):
         return f"{job_id} {job['kind']}, a remote lane: drive job replies {job_id}"
+    if job.get("codex_run"):
+        return f"{job_id} codex, its codex-ask run: {job['codex_run']}"
     path = artifacts.transcript(job)
     return f"{job_id} {job['kind']}: {path}" if path else None
 
 
 def job_launch(args: argparse.Namespace) -> int:
     """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or that another session holds; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
-    return relaunch(args, state.resolve(args.drive), None)
+    name = state.resolve(args.drive)
+    if find(state.load(name)["jobs"], args.id, "job")["kind"] == "codex":
+        return codex_launch(args, name)
+    return relaunch(args, name, None)
+
+
+def codex_launch(args: argparse.Namespace, name: str) -> int:
+    """Start a codex job's codex-ask run on this Mac from this session's folder on its brief, with no agent relaying it, refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
+        data = state.load(name)
+        job = data["jobs"][args.id]
+        if job["waits"]:
+            raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
+        if not (args.brief or job.get("brief")):
+            raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
+        written = named_text(args.brief or job["brief"], "brief file")
+        role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+        if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, written):
+            raise DriveError(f"{args.id}: refused, not launched: {refused}")
+        try:
+            folder = codex.ask(name, args.id, written, data["orders"][job["order"]]["incident"])
+        except codex.CodexError as error:
+            raise DriveError(f"{args.id}: refused, not launched: {error}") from None
+        with state.edit(name) as data:
+            data["jobs"][args.id]["codex_run"] = str(folder)
+            state.start(data["jobs"][args.id])
+    return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
 
 
 def job_resume(args: argparse.Namespace) -> int:
@@ -4268,7 +4296,9 @@ def parser() -> argparse.ArgumentParser:
             " A lane whose worker ended starts its next as drive job resume does, with no message. A job held by an Agent another"
             " session started, which this session cannot SendMessage, or by an agent on this Mac whose last response ended on an API"
             " error or a refusal, starts on a handoff brief carrying the job's brief, that agent's branch, last line, report and PRs,"
-            " and the job is recorded as this session's lane."
+            " and the job is recorded as this session's lane. A codex job starts no worker: its codex-ask run starts here with"
+            " --dispatch on its brief and --schema holding its final message to a state, line and report, which the watch takes as its"
+            " return once the run ends."
         ),
     )
     verb.add_argument("id", help="the job")

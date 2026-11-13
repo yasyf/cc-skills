@@ -65,10 +65,11 @@ Contents:
 
 1. Add the job and write its brief in one `job` call:
    `[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", native: "<his surface, with links, or none>", interactions: "<his user stories on it, one per ;>", ruling: ["<answer id>"]}}]`.
-2. Start it with the Agent tool: `subagent_type` `long-running:builder`, `long-running:reader` or
-   `codex:codex-wrapper`, `run_in_background: true`, a short `description`, and the line the
-   `brief` op printed as the whole `prompt`. The agent reads its brief file itself, so the brief
-   never passes through your context.
+2. Start it with the Agent tool: `subagent_type` `long-running:builder` or `long-running:reader`,
+   `run_in_background: true`, a short `description`, and the line the `brief` op printed as the
+   whole `prompt`. The agent reads its brief file itself, so the brief never passes through your
+   context. A codex job runs no agent: start it with `drive job launch <j>`, as
+   [Codex jobs](#codex-jobs) says.
 3. Pass no model, so the agent runs on the Opus its definition sets, or `model: "sonnet"` only for a
    reader whose question is a one-fact lookup. A design job's model is in [Design first](design.md).
 
@@ -94,8 +95,8 @@ The brief's `Drive:` line names the job, or, when it names none, the job `--agen
 the agent on. The agent's first Bash, Read, Write or Edit call, or its stop, records the agent on that
 job, and its first call after a prompt that reached it after its return, such as a `SendMessage`,
 marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
-`long-running:designer` on a design job, and `codex:codex-wrapper` or an incident's second-lane
-`long-running:builder` on a codex job; a call or stop after its return with no such prompt leaves
+`long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
+a codex job; a call or stop after its return with no such prompt leaves
 the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, `drive job resume`, and `drive job set <j> --agent` naming a worker other
 than the one recorded. Only the agent a stop left on its job keeps the stop, so that agent's later return is refused. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
@@ -107,7 +108,7 @@ only when `drive handler --answer` adds a read-only question's reader job with t
 `agent`. `drive job set <j> --agent <the dispatch the job records>` puts a
 remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite
 Orca shows for that dispatch, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
-but a codex job, and nothing else does: the stop sends back a line not kept, `drive job set` refuses
+an agent holds, and nothing else does but a codex job's run: the stop sends back a line not kept, `drive job set` refuses
 every state but `stopped`, and `drive job report` refuses, naming the fix, a job still stopped, a line
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 whose `Fork:` line names a file keeping no question of the job, and a reader's `DESIGN` that
@@ -124,17 +125,24 @@ the PR merges or closes or the release is out; a release wait whose service `too
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
 | `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his a job on its parts asked |
 
-A codex job's state comes from the codex-ask run its relay asked, never from the relay's line. At the
-relay's stop, and on each watch pass once its turn ended, the drive runs `codex-ask --collect` on the
-run folder of the newest `REPLY_FILE:` line codex-ask printed into the relay's tool results. A
-completed run's reply sets the state its first line opens with by the table above, as every job's
-line does, so a `HANDOFF` stops the job and a `READY` waits on its PR, with that line as the said
-line and the whole reply kept as the job's report; a reply `drive job report` would refuse, such as
-one opening with no result, sets failed on `BLOCKED codex-ask completed, its reply refused:` and
-why; a failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run
-still going sets nothing and raises no gap, whatever the relay ended on. The relay keeps no report:
-its own `REPLY_FILE:` line opens with no result, which `drive job report` refuses. A relay that
-asked codex nothing is parked like any agent below.
+### Codex jobs
+
+A codex job runs no agent. `drive job launch <j>` starts its codex-ask run on this Mac from the
+session's folder, `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
+scratch>/codex-result.json` on the job's brief, with `--incident` on an incident, after the checks
+the Agent hooks run on every other job's brief, and records the run folder on the job. The
+`scratch_folder` hook refuses a `codex:` agent started on a codex job's brief. The schema holds
+codex's final message to three required fields: `state`, a result word of the table above, `line`,
+the rest of the result line, and `report`, the return below it, so no reply lacks its state.
+
+Once the run ends, the watch reads it with `codex-ask --collect` and takes it as the job's return.
+A completed run's `state` and `line` set the state and said line by the table above, as every job's
+line does, so a `HANDOFF` stops the job and a `READY` waits on its PR, and the line and report are
+kept as the job's report. A reply `drive job report` would refuse, such as a cause naming no fix,
+sets failed on `BLOCKED codex-ask completed, its reply refused:` and why, with the reply kept; a
+failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
+going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
+`HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
 
 The watch reads the agent's transcript, never the stored state, and takes no result. A running job
 whose agent ended its turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier

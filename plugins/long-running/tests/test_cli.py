@@ -808,8 +808,8 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
         0,
         (
             "o4\n"
-            'j6 on "fix": start its agent now, its brief ending Drive: demo, order o4, job j6\n'
-            'j7 on "first check": start its agent now, its brief ending Drive: demo, order o4, job j7\n'
+            'j6 on "fix": start it now with drive job launch j6 -, its brief on stdin ending Drive: demo, order o4, job j6\n'
+            'j7 on "first check": start it now with drive job launch j7 -, its brief on stdin ending Drive: demo, order o4, job j7\n'
             f"{state.INCIDENT_BRIEF}\n"
             "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1"
         ),
@@ -874,8 +874,8 @@ def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_recor
         0,
         (
             "o1 record 5f6b2b5\n"
-            'j1 on "fix": start its agent now, its brief ending Drive: demo, order o1, job j1\n'
-            'j2 on "first check": start its agent now, its brief ending Drive: demo, order o1, job j2\n'
+            'j1 on "fix": start it now with drive job launch j1 -, its brief on stdin ending Drive: demo, order o1, job j1\n'
+            'j2 on "first check": start it now with drive job launch j2 -, its brief on stdin ending Drive: demo, order o1, job j2\n'
             f"{state.INCIDENT_BRIEF}"
         ),
     )
@@ -933,7 +933,7 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     run("incident", "open", "table moves rerun on every write", *FILED)
-    assert run("incident", "stop", "o1") == (0, f'j4 on "stop": start its agent now, its brief ending Drive: demo, order o1, job j4\n{state.INCIDENT_BRIEF}')
+    assert run("incident", "stop", "o1") == (0, f'j4 on "stop": start it now with drive job launch j4 -, its brief on stdin ending Drive: demo, order o1, job j4\n{state.INCIDENT_BRIEF}')
     data = state.load("demo")
     assert (list(data["orders"]["o1"]["parts"]), data["jobs"]["j4"]["kind"]) == (["fix", "rollback", "cause", "stop"], "codex")
     assert cli.main(["incident", "stop", "o1"]) == 2

@@ -292,8 +292,8 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     for part in parts.keys() & set(state.job_parts(job, order_id)):
                         parts[part].update(orphan_said=state.stamp(moment), orphan_gap=FREED)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
-                unlaunched = f", not started yet: drive job launch {job_id} starts it" if job.get("where") == "remote" and not job.get("dispatch") else ""
-                unstarted = f"; Read your brief first: {job['brief']}" if job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
+                unlaunched = f", not started yet: drive job launch {job_id} starts it" if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch")) else ""
+                unstarted = f"; Read your brief first: {job['brief']}" if job["kind"] != "codex" and job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         redraws = []
         for key, pr in data["prs"].items():
@@ -1441,7 +1441,7 @@ def said_last(entry: dict) -> str:
 
 
 class Answered(str):
-    """A running codex job's gap when its relay ended its turn after the codex-ask run it asked ended, carrying that run, which the watch takes as the job's result; a run whose reply predates the job's last return was taken already, so a finished job given a new part waits on a new run."""
+    """A running codex job's gap once the codex-ask run `drive job launch` started for it ended, carrying that run, which the watch takes as the job's result."""
 
     run: codex.Run
 
@@ -1452,6 +1452,30 @@ class Answered(str):
 
     def take(self, name: str, data: dict, job_id: str) -> None:
         codex.take(name, data, job_id, self.run)
+
+
+def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    """A running local job's gap: a codex job's from its codex-ask run, and while an incident's second-lane builder holds it beside that run, the builder's once the run has not ended, so whichever delivers first sets the job; any other job's from its agent's transcript."""
+    if job["kind"] == "codex" and (job.get("codex_run") or not job.get("agent")):
+        gap = codex_gap(job_id, job)
+        if isinstance(gap, Answered) or not job.get("agent"):
+            return gap
+    return local_gap(job_id, job, data, moment)
+
+
+def codex_gap(job_id: str, job: dict) -> str | None:
+    """A running codex job's gap from the codex-ask run its launch recorded: its run once it ended, which the watch takes, none while it goes, and why when codex-ask cannot read it, when no launch started one, or when its ended run was taken before the job ran again, which only its next launch answers."""
+    if not job.get("codex_run"):
+        return f"{job_id} has no codex-ask run: drive job launch {job_id} starts it on its brief"
+    try:
+        run = codex.run_of(job)
+    except codex.CodexError as error:
+        return f"{job_id}'s codex-ask run could not be read: {cut(str(error), 100)}"
+    if not run.ended:
+        return None
+    if job.get("returned") and run.reply.stat().st_mtime <= state.parse_time(job["returned"]).timestamp():
+        return f"{job_id}'s codex-ask run {run.state} before its last return: drive job launch {job_id} starts its next"
+    return Answered(job_id, run)
 
 
 def codex_asks(name: str, job_id: str) -> list[str]:
@@ -1509,14 +1533,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     turn = last_turn(path)
     if turn and agents.ended(turn):
         line = said_last(turn)
-        if job["kind"] == "codex":
-            try:
-                run = codex.newest_run(path)
-            except codex.CodexError as error:
-                return f"{job_id}'s codex-ask run could not be read: {cut(str(error), 100)}"
-            if run and not (job.get("returned") and run.reply.stat().st_mtime <= state.parse_time(job["returned"]).timestamp()):
-                return Answered(job_id, run) if run.ended else None
-        elif state.result_state(job, line):
+        if state.result_state(job, line):
             return (
                 f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"; only drive job report {job_id} - sets it,'
                 " or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
@@ -1524,8 +1541,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         if quiet >= QUIET_FOR and agents.died(turn):
             return f'{job_id}\'s agent stopped {minutes(quiet)} minutes ago on {turn["message"]["stop_reason"]}: "{cut(line, 100)}"; drive job resume {job_id} <the event> relaunches it on a Sprite with a handoff'
         if quiet >= QUIET_FOR:
-            missing = "codex-ask run" if job["kind"] == "codex" else "result line"
-            return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no {missing}: SendMessage from the session that started it wakes it, and drive job resume {job_id} <the event> from any other'
+            return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no result line: SendMessage from the session that started it wakes it, and drive job resume {job_id} <the event> from any other'
         return None
     if quiet >= QUIET_FOR:
         return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"
@@ -1589,7 +1605,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
@@ -1604,7 +1620,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not remote:
                 if running and (call := held_call(job_id, job, data, moment)):
                     held[job_id] = call
-                gap = running and local_gap(job_id, job, data, moment)
+                gap = running and agent_gap(job_id, job, data, moment)
                 if isinstance(gap, Answered):
                     taken[job_id] = gap
                     heads.pop(job_id, None)
@@ -1917,7 +1933,7 @@ def prove(name: str, job_id: str) -> int:
 
 
 def unstarted(job: dict) -> bool:
-    return job["state"] == "running" and job.get("where") != "remote" and not job.get("agent")
+    return job["state"] == "running" and job.get("where") != "remote" and not job.get("agent") and not job.get("codex_run")
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
