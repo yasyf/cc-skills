@@ -206,7 +206,41 @@ def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict(de
         reads[KEY] = read(mergeable=mergeable)
         said.append(watch.run_pass(watching, T0 + timedelta(minutes=2 * minute)))
     conflict = [f"PR {KEY}: conflicts with its base [o1 j1]"]
-    assert said == [conflict, [], [], [], [], conflict]
+    assert said == [conflict, [], [], conflict, [], conflict]
+
+
+REPLAYED_55220 = "Forge-AI/monorepo#55220"
+STACKED_BASE = "durable-agents-j1389-send-user-question"
+CONFLICTS_WITH_BASE = f"it conflicts with its base {STACKED_BASE}"
+
+
+def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_his_approve_while_github_reads_unknown_and_turns_red_once_it_answers_conflicting(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
+) -> None:
+    conflicting_at = T0 + timedelta(minutes=2)
+    with state.edit(demo) as data:
+        data["prs"][REPLAYED_55220] = state.new_pr(state.pr_url(REPLAYED_55220), "j1", "o1") | {
+            "head": "5e95abf000",
+            "base": STACKED_BASE,
+            "checks": "pass",
+            "review": "approved",
+            "conflict": True,
+            "card": CARD,
+            "checked": CHECKED | {"head": "5e95abf000"},
+            "stage": {"name": "red", "owner": stage.BUILDER, "why": CONFLICTS_WITH_BASE, "since": state.stamp(T0 - timedelta(hours=2, minutes=55)), "woke": state.stamp(T0 - timedelta(minutes=22))},
+        }
+    pushed = {"headRefOid": "c388588e73", "baseRefName": STACKED_BASE, "checks": GREEN, "reviewDecision": "APPROVED"}
+    reads = {REPLAYED_55220: read(**pushed, mergeable="UNKNOWN")}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    assert f"PR {REPLAYED_55220}: new head c388588 [o1 j1]" in watch.run_pass(watching, T0)
+    pr = state.load(demo)["prs"][REPLAYED_55220]
+    assert (pr["conflict"], pr["stage"]["name"], pr["stage"]["owner"], pr["stage"]["why"], woken) == (False, "card", stage.HIM, "green, waits on his Approve", [])
+    reads[REPLAYED_55220] = read(**pushed, mergeable="CONFLICTING")
+    assert f"PR {REPLAYED_55220}: conflicts with its base [o1 j1]" in watch.run_pass(watching, conflicting_at)
+    pr = state.load(demo)["prs"][REPLAYED_55220]
+    assert (pr["stage"]["name"], pr["stage"]["why"]) == ("red", CONFLICTS_WITH_BASE)
+    assert woken == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(conflicting_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
 
 
 def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

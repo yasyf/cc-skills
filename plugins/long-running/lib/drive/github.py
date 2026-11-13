@@ -19,7 +19,6 @@ PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
-CONFLICTS = {"CONFLICTING": True, "MERGEABLE": False}
 PRODUCTION = re.compile(r"^Production: (?P<names>.+)$", re.MULTILINE)
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
@@ -202,7 +201,7 @@ def rule_reviews(repository: dict) -> int:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict only while GitHub answers CONFLICTING, since its UNKNOWN after a push or a base move is no answer for the head it reads."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -218,9 +217,8 @@ def live(read: dict, stored: dict) -> dict:
         "hold_label": HOLD_LABEL in read["labels"],
         "native": [member for member, status in read["native"] if status != "closed"],
         "reviews_required": read["required_reviews"],
+        "conflict": read["mergeable"] == "CONFLICTING",
     }
-    if read["mergeable"] in CONFLICTS:
-        fields["conflict"] = CONFLICTS[read["mergeable"]]
     return fields
 
 
