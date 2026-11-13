@@ -1114,7 +1114,7 @@ done({
     assert seen["needs"] == ["1 question for you"]
     assert re.fullmatch(
         r"0 features went live in the last day, 1 is moving and 0 are blocked; 2 decisions and 1 PR to tap wait on you,"
-        r" the oldest since Nov 10 9:30 PM \(\d+[hd]\)\. 1 of the decisions holds no open task\.",
+        r" the oldest since Nov 10 9:30 PM \((?:\d+h|\d+d(?: \d+h)?)\)\. 1 of the decisions holds no open task\.",
         seen["headline"],
     )
 
