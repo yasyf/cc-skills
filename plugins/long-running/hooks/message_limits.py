@@ -757,7 +757,7 @@ def own_calls(payload: dict) -> dict[str, str]:
     for row in agents.tail(agents.transcript(payload)):
         for part in agents.parts(row):
             if part.get("type") == "tool_use" and part.get("name") not in DM_POSTS | CHANNEL_POSTS:
-                calls[part["id"]] = f"{part['name'].rpartition('__')[2]} {json.dumps(part.get('input'), ensure_ascii=False)}"
+                calls[part["id"]] = f"{part['name']} {json.dumps(part.get('input'), ensure_ascii=False)}"
             elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls:
                 results[calls[part["tool_use_id"]]] = ("error: " if part.get("is_error") else "") + result_text(part)
     return results

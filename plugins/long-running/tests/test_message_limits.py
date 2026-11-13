@@ -754,7 +754,7 @@ def tool(lane: Path, name: str, asked: dict, result: str) -> None:
 
 
 def shown(name: str, asked: dict, result: str) -> str:
-    return f"{name.rpartition('__')[2]} {json.dumps(asked, ensure_ascii=False)}\n{result}"
+    return f"{name} {json.dumps(asked, ensure_ascii=False)}\n{result}"
 
 
 def evidence(transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], **tool_input: object) -> list[dict]:
