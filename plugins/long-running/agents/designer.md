@@ -52,8 +52,8 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   draws a chart and its [table block](https://docs.slack.dev/reference/block-kit/blocks/table-block)
   draws rows, so he never has to say "slack ltieraly has the native … vertsion of this". Its visual
   design, how each view lays out its information, is codex's: name each user story and its strict
-  acceptance criteria on your `Native:` line, and leave the layout to the codex job the coordinator
-  starts on it, by his words "get codex to design and stop doing the bare minimum".
+  acceptance criteria on your `Native:` line, and leave the layout to the part's builder, which asks
+  `codex-ask` for it inside its own run, by his words "get codex to design and stop doing the bare minimum".
 
 ## The design
 

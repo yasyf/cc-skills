@@ -14,9 +14,11 @@ fundamentally right way for the target tree, never copied from the old PR's stor
 "port his visuals but always do it the fundamentally right way when it comes to modelng the data".
 So does a lock, queue, scheduler or other coordination, a public or Sand-facing API shape, or a new
 background process. When you cannot tell, it counts, because a wrong shape costs PRs he never saw.
-A visual design, how a page, card or post he sees lays out its information, is no designer's: it is
-a codex job's, briefed with the surface on `--native` and his user stories on `--interactions`, by his
-words "get codex to design and stop doing the bare minimum", and its builder builds that reply.
+A visual design, how a page, card or post he sees lays out its information, is no designer's and no
+codex job's: its builder, briefed with the surface on `--native` and his user stories on
+`--interactions`, asks `codex-ask` for the layout inside its own run, keeps each fork codex finds as
+his card with `drive job ask` and builds the recommended layout, by his words "get codex to design and
+stop doing the bare minimum", so no builder waits on a job holding its design.
 
 1. **One design job, first.** The part's first job is a read-only design job, worked out before
    he is asked; a builder writes the code later.

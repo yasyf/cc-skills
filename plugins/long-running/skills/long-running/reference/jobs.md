@@ -132,7 +132,8 @@ session's folder, `codex-ask --dispatch -s <the job's scratch>/codex --schema <t
 scratch>/codex-result.json` on the job's brief, with `--incident` on an incident, after the checks
 the Agent hooks run on every other job's brief, and records the run folder on the job. The
 `scratch_folder` hook refuses a `codex:` agent started on a codex job's brief. The schema holds
-codex's final message to three required fields: `state`, a result word of the table above, `line`,
+codex's final message to three required fields: `state`, a result word of the table above but
+`DESIGN`, since a visual design is its builder's own `codex-ask` call, `line`,
 the rest of the result line, and `report`, the return below it, so no reply lacks its state.
 
 Once the run ends, the watch reads it with `codex-ask --collect` and takes it as the job's return.

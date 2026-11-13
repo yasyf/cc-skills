@@ -175,7 +175,7 @@ def test_drive_job_launch_starts_a_codex_jobs_codex_ask_run_on_its_brief_with_it
     assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(scratch / codex.SCHEMA_FILE), "-"]
     assert (folder / "question").read_text() == (tmp_path / "j1.brief.md").read_text()
     schema = json.loads((scratch / codex.SCHEMA_FILE).read_text())
-    assert (schema["required"], schema["properties"]["state"]["enum"]) == (["state", "line", "report"], [*state.RESULT_STATES, "BUILT"])
+    assert (schema["required"], schema["properties"]["state"]["enum"]) == (["state", "line", "report"], [*(word for word in state.RESULT_STATES if word != "DESIGN"), "BUILT"])
     assert (state.load(demo)["jobs"]["j1"]["state"], watched(demo)["state"]) == ("running", "running")
     assert cli.main(["job", "launch", "j1", str(tmp_path / "j1.brief.md")]) == 2
     assert f"j1: refused, not launched: codex-ask: lane {folder} is busy" in capsys.readouterr().err

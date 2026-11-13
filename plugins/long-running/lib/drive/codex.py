@@ -18,10 +18,10 @@ RESULT = {
     "properties": {
         "state": {
             "type": "string",
-            "enum": [*state.RESULT_STATES, "BUILT"],
+            "enum": [*(word for word in state.RESULT_STATES if word != "DESIGN"), "BUILT"],
             "description": (
                 "The result your run ends on: DONE, finished and checked where it is used; READY or PUSHED, a PR is open; WAITING, it waits on a"
-                " release or PR; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
+                " release or PR; ASK, a choice his words leave open; BUILT, the recommended option built"
                 " on a branch while his card is open; BLOCKED, no route works; HANDOFF, the work is left for a builder to ship, such as edits left uncommitted."
             ),
         },
