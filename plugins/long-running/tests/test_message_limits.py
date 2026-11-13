@@ -1186,7 +1186,7 @@ def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_threa
     assert posted(unread, card=card, thread_ts="1.2") is None
     assert say(unread, edit=link(EDITED), text="Fixed.") is None
     assert posted(unread, text="Fixed.") is None
-    payload = call("slack_dm_status", unread, text="Fixed.", thread_ts="1.2")
+    payload = call("slack_dm_status", unread, text="Starting a handler on it.", thread_ts="1.2")
     del payload["agent_id"]
     assert message_limits.deny_reason(payload) is None
 
@@ -1204,7 +1204,7 @@ def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str
     assert "says only a number" in posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|#53618> landed.")
     assert "is a number he cannot open" in posted(transcript, text="Juniper's change, #53618, landed.")
     assert posted(transcript, text=TEAMMATES_PR, tap_prs=["https://github.com/Forge-AI/monorepo/pull/53618"]) is None
-    ack = call("slack_dm_status", transcript, text=TEAMMATES_PR)
+    ack = call("slack_dm_status", transcript, text=TEAMMATES_PR.replace("landed", "opened"))
     del ack["agent_id"]
     assert message_limits.deny_reason(ack) is None
 
@@ -1305,8 +1305,8 @@ def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str
 def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_his_own_words_are_not(talker: str, transcript: Path) -> None:
     caused = "Merged.\nThe runs failed because the pool was full"
     assert say(transcript, text=caused) == (
-        "refused: a line naming a cause carries {record:<seq>} of the record that measured it, on that line, or, in a handler's post, sits in claims"
-        " beside the read behind it: The runs failed because the pool was full"
+        "refused: a line naming a cause or telling him a state of work carries {record:<seq>} of the read that measured it, on that line, or, in a"
+        " handler's post, sits in claims beside the read behind it; a state no read of this turn measured says unverified: The runs failed because the pool was full"
     )
     assert say(transcript, text=caused, claims=[{"claim": "The runs failed because the pool was full", "read": "pool.go:40-52"}]) is None
     assert say(transcript, text='> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.') is None
@@ -1318,6 +1318,21 @@ def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_hi
         "Root cause: the pool.",
         "It is caused by the pool.",
     ]
+
+
+def test_a_state_of_work_told_by_a_session_posting_on_its_own_carries_the_read_that_measured_it_or_says_unverified(talker: str, transcript: Path) -> None:
+    covered = "The flood fix covers it."
+    own = call("slack_dm_status", transcript, text=f"Got it.\n{covered}") | {"tool_name": message_limits.SAY}
+    del own["agent_id"]
+    refused = message_limits.deny_reason(own)
+    assert refused.endswith(f"says unverified: {covered}") and refused.rule == message_limits.CAUSE_RULE
+    for told in ("The flood fix covers it, unverified.", "It goes live once he taps.", "Is the flood fix queued?", "The flood fix is not queued yet.", 'He asked "is it live?"'):
+        assert message_limits.deny_reason(own | {"tool_input": {"text": told}}) is None, told
+    assert refs.unread_states("Queued #55361 and #55355.\n#55538 is noise; #55513 merged and is live.\n> it merged") == [
+        "Queued #55361 and #55355.",
+        "#55538 is noise; #55513 merged and is live.",
+    ]
+    assert say(transcript, text=covered) is None
 
 
 def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_refuses_unjudged(talker: str, transcript: Path, checked: Checked) -> None:

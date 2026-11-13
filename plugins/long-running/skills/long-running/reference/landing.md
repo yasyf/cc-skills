@@ -14,6 +14,11 @@ for its repository says, then return `DONE <proof>`.
 - One PR is one feature-sized unit: amend review fixes and follow-ups into it with
   `ccx vcs ship --amend`. Open a second PR only when another job waits on part of the work or a review
   asks for the split.
+- Open PRs that change the same files land in a train, one at a time, oldest first. Each later one
+  gets `drive pr set <url> --waits <the earlier PR>` and rebases once onto the base that merge left,
+  never on every move of the base, since each push restarts every gate it waits on. Before opening a
+  PR, `gh pr list` and `gh pr diff <n> --name-only` find the open ones on its files; a change that
+  must ship with one of them is amended into it.
 - The default branch stays releasable, in his words "dev mustr always be releasable". No body section,
   card or refusal checks it, by his words "Get rid of the fucking releasable check no one asked for that
   remove it entirely".
@@ -390,7 +395,10 @@ hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `mer
 incident fix lands as [incidents.md](incidents.md) says.
 
 **Every red on your PR is yours**, whether your change or `dev` caused it, and while it waits on his tap
-too. Fix your own; for an
+too. First read the same check on `dev`'s newest run: a red `dev` shows too is inherited, and `dev`'s
+own gate is a gate of the drive's, so the first job to meet an inherited red names the merge on `dev`
+whose run first failed it, then finds the PR fixing it (`drive status`, `cci who --pr`) or opens that
+fix itself, one owner for every PR it blocks. Fix your own; for an
 inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
 a test flaked, whose cause may be in product code. Waiting on a fix in another PR, return `WAITING`
 naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or

@@ -638,6 +638,15 @@ restating it.
   card he tapped at 9:49 PM carried a false "disk full". `say` posts nothing while a line outside a
   fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it, unless a
   handler's post lists it in `claims`, where Jev checks it against the read beside it.
+- A line telling him a state of work, that it is fixed, covers his case, merged, landed, queued,
+  deployed or live, stands on a read of that state made in the same turn: the squash commit for
+  merged, the deployed build holding it for live, the queue's own readback for queued, and for
+  covers it, a run of the case he described, never a PR's title or a job's summary of its own work.
+  A handler lists each such line in `claims` beside that read. Any other session's post carries the
+  `{record:}` of the read on the line, or says unverified: `say` posts nothing while a line from a
+  session posting on its own tells a state with neither. A line found wrong after it went out is
+  reworded in place with `say(edit=<its permalink>, text=…)` the moment it is found, so no wrong
+  state stands in his DM.
 - A line about code, where it lives, what it does or why, stands on the posting session's own read
   of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
   shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
@@ -733,7 +742,8 @@ restating it.
 - Asks of a bug reporter: a bug thread gets its one fix-live note, and no card option offers to ask
   the reporter anything.
 - Messages with no new fact: react with `+1` to chatter instead of acking it, and post no "nothing
-  new" line.
+  new" line. A job's idle notice, a result repeating a state he already has, or one older than what
+  he was told since reaches no session's post to him.
 - Second copies: one post per thing, a correction rewords it in place with `say(edit=<its permalink>,
   text=…)`, and never text and a card for the same thing.
 - A promise without a record. A promised time is one the coordinator set with `--due` in the same

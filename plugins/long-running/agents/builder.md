@@ -55,8 +55,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      first and walk each strategy through it on paper before building any, and return `ASK` on a
      plan that leaves one for later with no answer of his, by his words "we should buiold the
      abstraction first, make sure it works by imaginign, then implement the strategies".
-   - Search the merged fixes in the area too. When yours would be the third fix for one symptom, make
-     it a class fix that deletes the earlier patches and list each in the PR body, since he ruled that
+   - Fix the class, not the case. Search the open PRs and merged fixes in the area for the class of
+     failure yours belongs to: an open PR already fixing that class takes your change, and you return
+     `WAITING` naming it rather than opening a second. Your fix removes the cause for every case of the
+     class, never adds this case's text or test beside the others, and when it would be the third fix
+     for one class it deletes the earlier patches and lists each in the PR body, since he ruled that
      three fixes for one thing call for a fundamental fix.
    - When he sees or uses what you build (a Slack post or card, the dashboard, a CLI he runs, a
      product UI), read that platform's docs for what it already does, from the brief's `Native:` line

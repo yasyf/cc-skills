@@ -521,7 +521,13 @@ transcript. A brief for such a job says so. A reproduction's scratch drive, one 
 `LONG_RUNNING_STATE`, gets no watch process from `drive start` or `drive watch`, so the file runs
 the watch's passes in-process with `watch.run_pass`.
 
-One deliverable per job, and no job waits on another. When B needs A merged, B starts on A's `DONE`.
+One deliverable per job, one job per deliverable, and no job waits on another. Before a job starts on
+a PR, branch, worktree or finding, read who holds it: `drive status` for the drive's jobs and PRs,
+and `cci who --pr <n>` for any session's claim on that PR. Work someone holds goes to its holder by
+`SendMessage`, `drive job resume`, or its order added with `--joins`, and no second job starts on it,
+since two owners each restack, watch and fix the same change and their PRs fold into one later. A job
+whose chain stops moving gets the watch's `STUCK` line once, by [The coordinator](coordinator.md),
+and its owner takes that line's NEXT step that turn. When B needs A merged, B starts on A's `DONE`.
 
 A sweep over many units is one job running a Workflow, and you start it: a builder has no Agent
 tool, so the session that owns a job starts every agent its work needs.
