@@ -383,13 +383,13 @@ def run_granted(command: list[str], granted: Grant) -> int:
     return GRANT_ENDED
 
 
-def end(group: subprocess.Popen, killed_by: float) -> None:
-    """End every process left in the command's group: SIGTERM, then SIGKILL once the command exits or the time.monotonic() clock reaches killed_by, and SIGKILL alone once it has."""
-    if killed_by > time.monotonic() and signal_group(group.pid, signal.SIGTERM):
+def end(group: subprocess.Popen, killed_by: float, stop: signal.Signals = signal.SIGTERM) -> tuple[str | None, str | None]:
+    """End every process left in the command's group: `stop`, then SIGKILL once the command exits and closes the pipes it holds or the time.monotonic() clock reaches killed_by, and SIGKILL alone once it has; what the command wrote to those pipes, all of it, what an earlier communicate that timed out read included."""
+    if killed_by > time.monotonic() and signal_group(group.pid, stop):
         with contextlib.suppress(subprocess.TimeoutExpired):
-            group.wait(timeout=killed_by - time.monotonic())
+            group.communicate(timeout=killed_by - time.monotonic())
     signal_group(group.pid, signal.SIGKILL)
-    group.wait()
+    return group.communicate()
 
 
 def signal_group(group: int, signum: int) -> bool:

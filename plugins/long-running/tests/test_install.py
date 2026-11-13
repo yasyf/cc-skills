@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from conftest import commit_files, git_in
-from drive import card, cli, dashboard, github, install, receiver, settled, state
+from drive import card, cli, dashboard, github, install, reads, receiver, settled, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -74,7 +74,6 @@ RESTART = ["capt-hook", "helper", "install"]
 BUILD = "b1u1d0f1x"
 URL = "https://github.com/yasyf/cc-skills/pull/7"
 HOOKS_URL = "https://github.com/yasyf/captain-hook/pull/709"
-RUN = subprocess.run
 
 
 def upgrade(binary: str) -> list[str]:
@@ -109,7 +108,6 @@ class FakeGit:
         self.versions: dict[str, str] = {}
         self.app = config / "Captain Hook.app" / "Contents" / "Info.plist"
         self.helper = "12.121.70"
-        self.proofs: set[str] = set()
         self.changed = f"{FOLDER}/lib/drive/install.py"
         self.drive_status = subprocess.CompletedProcess([], 0, "", "")
         self.tried: list[tuple[list[str], dict]] = []
@@ -163,8 +161,6 @@ class FakeGit:
     def run(self, cmd: list[str], **options: object) -> subprocess.CompletedProcess:
         if cmd[0] == "orca":
             return self.orca(cmd, options["timeout"])
-        if cmd[0] in self.proofs:
-            return RUN(cmd, **options)
         if cmd[3:] == ["rev-parse", "--path-format=absolute", "--git-common-dir"]:
             if cmd[2] in self.repos:
                 return subprocess.CompletedProcess(cmd, 0, f"{self.repos[cmd[2]]}\n", "")
@@ -1058,7 +1054,6 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     script = tmp_path / "proof.sh"
     script.write_text(f'#!/bin/sh\necho "ran on ${{PATH%%:*}}"\nexit {exits}\n')
     script.chmod(0o755)
-    git.proofs.add(str(script))
     start_drive("demo", coordinator=None)
     with state.edit("demo") as data:
         part = "Drive tooling: prove each install"
@@ -1106,11 +1101,13 @@ def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
     script = proving(config, tmp_path, git, 0)
     handed = []
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
-    real = subprocess.run
+    real, proof_run = subprocess.run, install.proof_run
+
+    def saved_meanwhile(repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
+        monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return proof_run(repro, path, deadline)
 
     def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] == str(script):
-            monkeypatch.setattr(state, "VERSION", "0.0.1")
         if argv[0] != str(newest):
             return real(argv, **kwargs)
         handed.append(argv[1:])
@@ -1119,6 +1116,7 @@ def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
         return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
 
     monkeypatch.setattr(install, "upgraded", lambda: newest)
+    monkeypatch.setattr(install, "proof_run", saved_meanwhile)
     monkeypatch.setattr(install.subprocess, "run", newer)
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
     [argv] = handed
@@ -1138,6 +1136,26 @@ def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.2: {script} exits 0")
     assert git.claude_calls() == []
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} {slack} live: {script} exits 0 on long-running@skills 1.0.2"
+
+
+@pytest.mark.parametrize(
+    ("proof", "last"),
+    [
+        ("#!/usr/bin/env -S python3 -I\nimport time\nprint('passed: one')\nprint('passed: two')\ntime.sleep(60)\n", "passed: two"),
+        ("#!/bin/sh\necho 'passed: one'\npython3 -I -c \"import time; print('passed: a python -I child'); time.sleep(60)\"\n", "passed: a python -I child"),
+    ],
+)
+def test_a_proof_file_past_its_deadline_keeps_every_line_it_printed_a_python_one_run_with_dash_i_included(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], proof: str, last: str
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {OLD_COMMIT}), 0)
+    script.write_text(proof)
+    started = time.monotonic()
+    install.prove("demo", "j1", 3)
+    assert time.monotonic() - started < reads.STOP_GRACE
+    kept = state.proof_path("demo", "j1")
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits past drive job prove's deadline on long-running@skills 1.0.2, its output {kept}: it printed no FAIL line"
+    assert kept.read_text().startswith(f"passed: one\n{last}\nTraceback")
 
 
 def test_a_proof_proves_the_prs_its_ready_names_while_the_job_also_holds_a_pr_closed_as_superseded(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
@@ -1420,21 +1438,21 @@ def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_
         '[ "${PATH%%:*}" = /cache/long-running/1.0.4/bin ] || { echo "drive.state.NewerDrive: the demo drive was saved by long-running 1.0.4, newer than this 1.0.3"; exit 1; }\n'
     )
     ran = []
+    proof_run = install.proof_run
 
     def land() -> None:
         plugins = json.loads((config / "plugins" / "installed_plugins.json").read_text())["plugins"]
         newer = {"scope": "user", "version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z", "installPath": "/cache/long-running/1.0.4", "gitCommitSha": BUILD}
         git.write_installed(plugins | {"long-running@skills": [newer]})
 
-    def run(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
-        done = git.run(cmd, **options)
-        if cmd[0] == str(script):
-            ran.append(done.stdout)
-            if lands == "while the proof file fails":
-                land()
+    def run(repro: str, path: str, deadline: float) -> subprocess.CompletedProcess[str]:
+        done = proof_run(repro, path, deadline)
+        ran.append(done.stdout)
+        if lands == "while the proof file fails":
+            land()
         return done
 
-    monkeypatch.setattr(install.subprocess, "run", run)
+    monkeypatch.setattr(install, "proof_run", run)
     monkeypatch.setattr(dashboard, "serving", lambda name, port: land() if lands == "while the dashboard hands over" else None)
     install.prove("demo", "j1", 900)
     assert ran[-1:] == ["ran on /cache/long-running/1.0.4/bin\n"] and len(ran) == runs
