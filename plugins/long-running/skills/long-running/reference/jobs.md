@@ -317,9 +317,17 @@ before it sends or starts.
   `cc-remote orca prepare --existing`, in the checkout the dead lane left, and the handoff and the
   output name why the save failed. A Sprite that refused a worker's tools is never run on again: it
   is kept, and the relaunch runs on a fresh Sprite.
+- When Orca cannot reach the lane's Sprite, its worker-show refused as `remote_runtime_unavailable`,
+  the resume, a launch and `drive pr wake` first wake that Sprite with `orca-reclaim.py --wake`,
+  which runs `cc-remote orca reconnect`, then read the lane again. A worker that takes messages gets
+  the text. Any other lane resumes its own Claude session there, as a dead lane above does, else
+  relaunches on that Sprite through `cc-remote orca prepare --existing`, in the checkout it left,
+  with no save. When that Sprite starts no worker, the relaunch runs on a
+  fresh Sprite from the job's pushed branches, after the save above, and the old Sprite is kept when
+  the save fails.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
-  Orca call, so an outage delays it and never drops it. When Orca cannot reach the lane, as while
-  its Orca remote runtime is down, or refuses the send, the resume exits 0 saying the text is held.
+  Orca call, so an outage delays it and never drops it. When Orca cannot tell whether the lane
+  lives, or refuses the send, the resume exits 0 saying the text is held.
   The watch, once Orca reads that worker alive and unfinished, runs `drive job resume <j>` with no
   text as a process of its own, which sends each held text under the id it was held with, so Orca
   replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
