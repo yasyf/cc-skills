@@ -77,6 +77,9 @@ echo "== df -k ~"; df -k ~
 echo "== /sys/fs/cgroup/memory.events"; cat /sys/fs/cgroup/memory.events
 echo "== dmesg | tail -n 50"; dmesg | tail -n 50
 """
+SPRITE_TRANSCRIPTS = 'tar -czf - -C "$HOME/.claude/projects" . || [ $? -eq 1 ]'
+UNKEPT = "unkept.txt"
+TRANSCRIPTS = ".transcripts"
 ANSWER_BYTES = 4096
 RELAY_BYTES = 64 * 1024
 RELAY_ROOM = 4096
@@ -331,8 +334,10 @@ def drive_files(drive: str, brief: str) -> dict[str, str | None]:
 
 
 def carried(drive: str, brief: str) -> str:
-    """Each drive file the brief names, whole under its heading, since a Sprite holds no copy of the drive to read one from."""
-    return "".join(f"\n# {heading}, which your brief names\n\n{text.strip()}\n" for heading, text in drive_files(drive, brief).items() if text is not None)
+    """Each drive file the brief names, whole under its heading, since a Sprite holds no copy of the drive to read one from, but a lane's transcript keep_transcripts kept, which runs to megabytes and the lane reads with READ."""
+    return "".join(
+        f"\n# {heading}, which your brief names\n\n{text.strip()}\n" for heading, text in drive_files(drive, brief).items() if text is not None and f"{TRANSCRIPTS}/" not in heading
+    )
 
 
 def uncarried(drive: str, job_id: str, brief: str) -> str | None:
@@ -789,6 +794,29 @@ def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> None:
     except (OSError, subprocess.TimeoutExpired) as error:
         said = f"{job['workspace']} could not be read: {error}\n"
     kept.write_text(said)
+
+
+def transcripts(drive: str, job_id: str, dispatch: str) -> Path:
+    """The folder in the drive's folder that keeps what keep_transcripts copied from the Sprite of the job's lane on this dispatch."""
+    return state.drive_dir(drive) / "jobs" / f"{job_id}.{dispatch}{TRANSCRIPTS}"
+
+
+def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str) -> Path | None:
+    """Copy whole to transcripts, before an end or a relaunch can destroy it, the ~/.claude/projects folder of the Sprite of the job's lane on this dispatch, every Claude Code transcript it holds, the worker's and any earlier lane's on that Sprite; a file the live worker wrote while tar read it, which GNU tar exits 1 for, is still kept. The worker's own transcript, the newest, or None when none was copied, a Sprite ssh cannot read leaving UNKEPT there saying why."""
+    kept = transcripts(drive, job_id, dispatch)
+    kept.mkdir(parents=True, exist_ok=True)
+    try:
+        done = on_sprite(job["workspace"], SPRITE_TRANSCRIPTS, b"", CALL_SECONDS)
+        if not done.returncode:
+            with tarfile.open(fileobj=io.BytesIO(done.stdout), mode="r:gz") as archive:
+                archive.extractall(kept, filter="data")
+            (kept / UNKEPT).unlink(missing_ok=True)
+            return max(kept.glob("*/*.jsonl"), key=lambda path: path.stat().st_mtime, default=None)
+        why = f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}"
+    except (OSError, subprocess.TimeoutExpired, tarfile.TarError) as error:
+        why = f"{job['workspace']} could not be read: {error}"
+    (kept / UNKEPT).write_text(f"{why}\n")
+    return None
 
 
 def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:

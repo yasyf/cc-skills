@@ -3,6 +3,7 @@ import io
 import itertools
 import json
 import os
+import shutil
 import subprocess
 import threading
 import uuid
@@ -12,8 +13,8 @@ from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
-from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, REAL_SAVED_BRANCHES, REAL_SESSION_OF, RESEARCH, Drawing, Jev, cloned, git_in, staged
-from drive import cli, github, orca, place, reads, render, state, watch
+from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, REAL_KEEP_TRANSCRIPTS, REAL_SAVED_BRANCHES, REAL_SESSION_OF, RESEARCH, Drawing, Jev, cloned, git_in, staged
+from drive import artifacts, cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -1101,16 +1102,17 @@ def test_resume_saves_what_a_dead_lanes_sprite_holds_to_github_and_hands_the_sav
     assert [(death["dispatch"], death["saved"]) for death in job["deaths"]] == [(DISPATCH, SAVED)]
 
 
-def test_resume_copies_a_dead_lanes_sprite_logs_before_it_saves_and_destroys_that_sprite(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_logs: list[tuple[str, str]]
+def test_resume_copies_a_dead_lanes_sprite_logs_and_transcripts_before_it_saves_and_destroys_that_sprite(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_logs: list[tuple[str, str]], kept_transcripts: list[tuple[str, str]]
 ) -> None:
     cloned(tmp_path, remote)
     steps = []
-    dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: steps.append(("save", list(kept_logs))) or SAVED)
+    dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: steps.append(("save", list(kept_logs), list(kept_transcripts))) or SAVED)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: steps.append(("destroy", list(kept_logs))) or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: steps.append(("destroy", list(kept_logs), list(kept_transcripts))) or f"destroyed {job['workspace']}")
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
-    assert steps == [("save", [("j1", DISPATCH)]), ("destroy", [("j1", DISPATCH)])]
+    kept = [("j1", DISPATCH)]
+    assert steps == [("save", kept, kept), ("destroy", kept, kept)]
 
 
 def test_a_dead_sprites_logs_are_copied_once_and_an_unreadable_sprite_leaves_why(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1212,6 +1214,52 @@ def test_a_session_that_does_not_resume_relaunches_the_lane_as_a_dead_lanes(
     assert f"(its worker exited, and its Claude session {J2504_SESSION} did not resume there: {refusal})" in out
     assert [(name, on, session) for name, _, on, session in launched] == [("j1-2.resume.md", J2504_SPRITES[1], J2504_SESSION), ("j1-2.md", relaunched_on, None)]
     assert "## Taking over from a lane that died" in orca.brief_of(launched[1][1])
+
+
+LANE_SESSION = [
+    {"type": "user", "message": {"role": "user", "content": "Lane durable-agents-j1: read the whole brief"}, "timestamp": "2026-11-13T08:00:00Z"},
+    {"type": "assistant", "message": {"role": "assistant", "id": "msg_1", "content": [{"type": "text", "text": "DEFECT: cci post refused it, full output below"}]}, "timestamp": "2026-11-13T08:01:00Z"},
+]
+
+
+def test_end_keeps_the_lanes_whole_transcript_before_its_sprite_is_destroyed_and_a_later_brief_names_the_kept_copy(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    home = tmp_path / "pool-one"
+    session = home / ".claude" / "projects" / "-home-sprite-monorepo" / "0b1c9e.jsonl"
+    (session.parent / "memory").mkdir(parents=True)
+    written = "".join(json.dumps(line) + "\n" for line in LANE_SESSION)
+    session.write_text(written)
+
+    def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
+        if not home.exists():
+            return subprocess.CompletedProcess([], 255, b"", b"Can't open user config file pool-one.ssh: No such file or directory")
+        return subprocess.run(["sh", "-c", command], input=given, capture_output=True, env={**os.environ, "HOME": str(home)}, check=False)
+
+    monkeypatch.setattr(orca, "keep_transcripts", REAL_KEEP_TRANSCRIPTS)
+    monkeypatch.setattr(orca, "on_sprite", on_sprite)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: shutil.rmtree(home) or f"destroyed pool-one dispatch {dispatch}")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-one")
+    assert run("job", "end", "j1") == (0, f"destroyed pool-one dispatch {DISPATCH}\nj1's lane ended; j1 stays waiting")
+    assert not home.exists()
+    job = state.load(remote)["jobs"]["j1"]
+    kept = orca.transcripts(remote, "j1", DISPATCH) / "-home-sprite-monorepo" / "0b1c9e.jsonl"
+    assert (artifacts.transcript(job), kept.read_text(), "transcript" in artifacts.kept("j1", job, set())) == (kept, written, True)
+    assert [turn["who"] for turn in artifacts.read(remote, "j1", job, "transcript")["turns"]] == ["Coordinator", "Claude"]
+    line = cli.transcript_line("j1", job)
+    assert line == f"j1 builder: {kept}"
+    assert orca.carried(remote, f"Transcripts:\n- {line}") == ""
+    assert "DEFECT: cci post refused it" in reads.read_drive_files(f"READ {kept}", remote)
+
+
+def test_a_sprite_whose_transcripts_cannot_be_read_leaves_why_where_they_would_be_kept(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refused = b"ssh: connect to host pool-asleep port 22: Connection refused\n"
+    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
+    assert REAL_KEEP_TRANSCRIPTS(remote, "j1", {"workspace": "pool-asleep"}, DISPATCH) is None
+    assert (orca.transcripts(remote, "j1", DISPATCH) / orca.UNKEPT).read_text() == "ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused\n"
 
 
 @pytest.mark.parametrize("seen", [False, True])
@@ -2604,11 +2652,13 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
 def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet_one_on_this_mac_by_its_dispatch_never_one_a_live_job_shares(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    for goal in ("on this mac", "still at work", "its run lives on", "just finished"):
+    for goal in ("on this mac", "still at work", "its run lives on", "just finished", "stopped by hand"):
         run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
     quiet = state.stamp(T0 - watch.QUIET_LANE)
+    ended = {"dispatch": DISPATCH, "workspace": "pool-one", "why": "ended by drive job end", "at": quiet, "ended": {"pid": 1, "at": quiet}}
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="done", workspace="pool-one")
+        data["jobs"]["j1"].update(state="done", workspace="pool-one", deaths=[ended])
+        data["jobs"]["j6"].update(state="stopped", workspace="pool-two", run="run_two", dispatch="ctx_two")
         data["jobs"]["j2"].update(state="failed", route=state.LOCAL_ROUTE, run="run_mac", dispatch="ctx_mac", updated=quiet)
         data["jobs"]["j3"].update(state="running", route=state.LOCAL_ROUTE, run="run_live", dispatch="ctx_live", updated=quiet)
         data["jobs"]["j4"].update(state="stopped", route=state.LOCAL_ROUTE, run="run_live", dispatch="ctx_old", updated=quiet)
@@ -2616,9 +2666,12 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     workspaces = tmp_path / "cc-remote-workspaces"
     workspaces.mkdir()
     (workspaces / "pool-one.json").write_text("{}")
+    (workspaces / "pool-two.json").write_text("{}")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(state, "scratch", lambda: False)
     monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    ends: list[str] = []
+    monkeypatch.setattr(watch, "end_lane", lambda name, job_id: ends.append(job_id))
     started: list[tuple[str, ...]] = []
     finished = subprocess.CompletedProcess([], 0)
     finished.poll = lambda: 0
@@ -2627,7 +2680,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     watcher = watch.Watcher(remote, offset=state.events_end(remote))
     watch.release_lanes(watcher, T0)
     watch.release_lanes(watcher, T0)
-    assert started == [("destroy", "pool-one"), ("done", "run_mac", "ctx_mac")]
+    assert (started, ends) == ([("destroy", "pool-one"), ("done", "run_mac", "ctx_mac")], ["j6"])
 
 
 def test_end_of_a_finished_job_never_reads_its_sprite_and_keeps_the_parts_it_carried(
