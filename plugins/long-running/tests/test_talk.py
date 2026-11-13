@@ -392,6 +392,24 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
     assert [(event.get("channel"), event["prs"]) for event in said(demo)] == [(None, ["yasyf/cc-skills#7"])] * 2 + [("C9TEAM", ["yasyf/cc-skills#7"])]
 
 
+def test_a_stack_cards_thread_is_a_thread_of_each_order_its_prs_carry_out_not_only_the_order_that_opened_them(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "the list fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "an unrelated page", "--thread", "1794450000.000100")
+    building(demo)
+    with state.edit(demo) as data:
+        state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
+    stack = "1794493484.938019"
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": f"https://acme.slack.com/archives/D123/p{stack.replace('.', '')}"})
+    talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
+    data = state.load(demo)
+    assert [("D123", stack) in slack.order_threads(data, order, data["orders"][order]) for order in ("o1", "o2", "o3")] == [True, True, False]
+    assert state.thread_order(data, stack) == "o2"
+
+
 def test_a_pr_cards_line_that_fails_in_a_later_thread_says_the_card_went_out_so_none_is_posted_again(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -503,7 +521,7 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
     assert say("1794400000.000100", "o2") == ""
     assert say("1794200000.000100", "o3") == ", in thread 1794200000.000100, now one of its threads"
     data = state.load(demo)
-    assert [[thread for _, thread, _ in data["orders"][order]["asked_in"]] for order in ("o1", "o2", "o3")] == [["1794400000.000100"], [], ["1794200000.000100"]]
+    assert [[thread for _, thread, _, _ in data["orders"][order]["threads"]] for order in ("o1", "o2", "o3")] == [["1794400000.000100"], [], ["1794200000.000100"]]
     assert (state.thread_order(data, "1794400000.000100"), state.thread_order(data, "1794200000.000100")) == ("o1", "o3")
 
 
@@ -1084,7 +1102,7 @@ def test_a_report_closing_its_order_in_another_orders_thread_his_message_started
         0, f'o1 "the incident badge counts only live incidents": posted {answer}, in thread {his}, now one of its threads'
     )
     data = state.load(demo)
-    assert [where[:2] for where in data["orders"]["o1"]["asked_in"]] == [["D123", his]] and state.thread_order(data, his) == "o1"
+    assert [where[:2] for where in data["orders"]["o1"]["threads"]] == [["D123", his]] and state.thread_order(data, his) == "o1"
 
 
 def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_started_and_joins_it(
@@ -1105,7 +1123,7 @@ def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_s
     assert talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "order": "o1", "record": "677158"}) == (
         f"POSTED {answer}; o1 progress line, no part delivered: {answer}, in thread {his}, now one of its threads"
     )
-    assert [where[:2] for where in state.load(demo)["orders"]["o1"]["asked_in"]] == [["D123", his]]
+    assert [where[:2] for where in state.load(demo)["orders"]["o1"]["threads"]] == [["D123", his]]
 
 
 def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo: str, run: Callable[..., tuple[int, str]]) -> None:
@@ -1114,11 +1132,38 @@ def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--thread", thread)
     with state.edit(demo) as data:
         created = state.parse_time(data["orders"]["o2"]["created"])
+        del data["orders"]["o1"]["threads"]
         data["orders"]["o1"]["asked_in"] = [["D123", thread]]
         data["orders"]["o1"]["last_line"] = state.stamp(created + timedelta(minutes=3))
-    assert state.load(demo)["orders"]["o1"]["asked_in"] == [["D123", thread, state.stamp(created + timedelta(minutes=3))]]
+    assert state.load(demo)["orders"]["o1"]["threads"] == [["D123", thread, state.stamp(created + timedelta(minutes=3)), "posted"]]
     assert state.thread_order(state.load(demo), thread) == "o1"
     with state.edit(demo) as data:
         data["orders"]["o2"]["created"] = state.stamp(created + timedelta(minutes=5))
     assert state.thread_order(state.load(demo), thread) == "o2"
     assert state.thread_order(state.load(demo), "1794100000.000100") is None
+
+
+def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_so_a_line_under_it_records_there_and_his_words_there_go_to_that_order(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    question, card = "1794520890.022349", "1794526059.841239"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs")
+    building(demo)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
+    cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"})
+    talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
+    assert posts == [("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "land these")]
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    line = f"https://acme.slack.com/archives/D123/p1794532866928349?thread_ts={card}"
+    slack_thread.messages.append({"ts": "1794532866.928349", "thread_ts": card, "from_claude": True})
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": card})
+    assert talk.say(demo, {"text": "It merged.", "thread_ts": card, "order": "o1", "record": "681990"}) == f"POSTED {line}; o1 progress line, no part delivered: {line}"
+    data = state.load(demo)
+    assert slack.order_threads(data, "o1", data["orders"]["o1"]) == [("D123", question), ("D123", card)]
+    assert state.thread_order(data, card) == "o1"

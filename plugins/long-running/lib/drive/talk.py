@@ -270,11 +270,11 @@ def check(name: str, post: dict) -> None:
 
 
 def misplaced(data: dict, post: dict) -> str | None:
-    """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's, its own or one it was posted on in, in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
+    """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's, its own or one it keeps, in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
     if post.get("channel_id") or post.get("edit") or not (thread := post.get("thread_ts")):
         return None
     dm = data["slack"]["channel"]
-    place = next((where[0] for order in data["orders"].values() for where in [state.promise_thread(order), *order["asked_in"]] if where and where[1] == thread and where[0] != dm), None)
+    place = next((where[0] for order in data["orders"].values() for where in [state.promise_thread(order), *order["threads"]] if where and where[1] == thread and where[0] != dm), None)
     return place and f"nothing posted: thread {thread} is in channel {place}, not his DM, so pass channel_id {place} with it"
 
 
@@ -301,7 +301,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link; the post's permalink is then that line's."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -352,8 +352,10 @@ def posted(name: str, post: dict) -> dict:
         view.refresh_cards(name)
     else:
         reply |= {"sent": sent}
-    for place in [place for place in rest if place[0] == dm]:
-        linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept)
+    cards = [reply.get("card_permalink"), *(linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept) for place in rest if place[0] == dm)]
+    if stack:
+        with state.edit(name) as data:
+            state.join_pr_cards(data, stack, cards, state.stamp())
     label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
     for place in [place for place in rest if place[0] != dm]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
@@ -405,13 +407,14 @@ def shown_in(name: str, post: dict) -> str | None:
     return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 
-def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> None:
-    """Post a PR card's line in one more thread of his DM, where cc-slack links the card it drew under the line, and keep it for the dashboard; a failure says the card already went out, so nothing is posted again."""
+def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> str | None:
+    """Post a PR card's line in one more thread of his DM, where cc-slack links the card it drew under the line, and keep it for the dashboard; the card's link cc-slack names. A failure says the card already went out, so nothing is posted again."""
     try:
         reply = slack.cc_slack(*status(name, {"thread_ts": thread}, stack, [], sent))
     except slack.SlackError as error:
         raise slack.SlackError(f"posted {first} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
     state.append_event(name, "said", text=kept, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=stack, edited=False)
+    return reply.get("card_permalink")
 
 
 def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: str, label: str, kept: str, stack: list[str]) -> str:

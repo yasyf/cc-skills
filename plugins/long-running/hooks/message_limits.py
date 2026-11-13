@@ -30,6 +30,8 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
 CARD_ANSWERED = "his answer, as the card the bot drew in this thread shows it"
+ORDER_CARD = "his answer, as a card the bot drew in another thread of the order this post is on shows it"
+ORDER_MESSAGE = "his message in another thread of the order this post is on"
 EXPLAIN_TAP = re.compile(r"\*You asked for more at [^*\n]+\.\*")
 EXPLAIN_MORE = "Explain more"
 EXPLAIN_TAPPED = "his tap on the card's Explain more button, as the card the bot drew in this thread shows it, which asks for the reply that explains the card"
@@ -295,19 +297,19 @@ def unanswered(messages: list[dict]) -> list[dict]:
     return list(itertools.takewhile(lambda message: not message.get("from_bot"), reversed(messages)))[::-1]
 
 
-def thread_words(messages: list[dict]) -> list[dict]:
-    """His words in the thread the post goes to, each as the evidence Jev cites, those since the bot's last post marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
-    answers = {message["ts"] for message in unanswered(messages)}
+def thread_words(messages: list[dict], here: bool = True) -> list[dict]:
+    """His words in the thread the post goes to, or in another thread of the order it is on, each as the evidence Jev cites, those since the bot's last post in the post's own thread marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and, in the post's own thread, his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
+    answers = {message["ts"] for message in unanswered(messages)} if here else set()
     words = []
     for message in messages:
         said_at = slack.sent_at(message).isoformat()
         if not message.get("from_bot"):
-            detail = ANSWERED if message["ts"] in answers else "his message in the thread this post goes to"
+            detail = ANSWERED if message["ts"] in answers else "his message in the thread this post goes to" if here else ORDER_MESSAGE
             words.append({"id": f"slack:{message['ts']}", "source": "slack", "quote": message["text"], "said_at": said_at, "detail": detail})
             continue
         cards = [message["text"], *(share.get("text") or "" for share in message.get("shares") or [])]
-        taps = {answer: CARD_ANSWERED for card in cards for answer in CARD_ANSWER.findall(card)}
-        taps |= {EXPLAIN_MORE: EXPLAIN_TAPPED for card in cards if EXPLAIN_TAP.search(card)}
+        taps = {answer: CARD_ANSWERED if here else ORDER_CARD for card in cards for answer in CARD_ANSWER.findall(card)}
+        taps |= {EXPLAIN_MORE: EXPLAIN_TAPPED for card in cards if here and EXPLAIN_TAP.search(card)}
         words += [
             {"id": f"card:{message['ts']}:{index}", "source": "card", "quote": quote, "said_at": said_at, "detail": detail}
             for index, (quote, detail) in enumerate(taps.items())
@@ -370,16 +372,24 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to in his DM, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line."""
+    """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line."""
     if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := drive["slack"]["channel"]):
         return []
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
     try:
-        words = thread_words(thread_messages(payload, dm))
+        words = [*thread_words(thread_messages(payload, dm)), *order_words(drive, payload["tool_input"], dm)]
         shown = {word["id"] for word in words}
         return [*words, *(word for word in linked_words(payload["tool_input"].get("asked"), dm).values() if word["id"] not in shown), *ruled]
     except slack.SlackError:
         return ruled
+
+
+def order_words(drive: dict, tool_input: dict, dm: str) -> list[dict]:
+    """His words in each other thread in his DM of the order the post is on, as thread_words keeps them, since a post on an order answers his words in any of its threads, such as his order in its question card's thread answered under its PR card."""
+    if not (found := posted_order(drive, tool_input)):
+        return []
+    threads = [ts for channel, ts in slack.order_threads(drive, *found) if channel == dm and ts != tool_input.get("thread_ts")]
+    return [word for ts in threads for word in thread_words(slack.thread("--channel", dm, "--thread", ts, "--limit", str(slack.WHOLE_THREAD)), here=False)]
 
 
 def edited(payload: dict) -> dict | None:

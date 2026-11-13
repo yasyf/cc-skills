@@ -743,6 +743,28 @@ def test_a_drive_saved_with_one_change_a_part_waited_on_loads_it_as_the_list_of_
     assert {part: held["after"] for part, held in loaded.items()} == {"the interface": [], "the reads": ["the interface"], "the order": []}
 
 
+def test_an_order_an_older_install_saved_keeps_the_threads_posts_on_it_went_in_its_jobs_cards_and_its_pr_cards_at_his_dm_root_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    created = "2026-11-10T18:46:23-08:00"
+    data["orders"] = {
+        "o1": state.new_order("give the sprite what it needs", "terminal", None, {"give the sprite what it needs": state.new_part()}, created) | {"jobs": ["j1"]},
+        "o2": state.new_order("the run page", "slack:D123/1794200000.000100", ("D123", "1794200000.000100"), {"the run page": state.new_part()}, created),
+    }
+    for order in data["orders"].values():
+        del order["threads"]
+    data["orders"]["o2"]["asked_in"] = [["D123", "1794300000.000100"]]
+    card = state.new_question(None, "Which sprite?", created, card="https://acme.slack.com/archives/D123/p1794520890022349")
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "give it", ["give the sprite what it needs"], created) | {"questions": [card]}}
+    data["prs"] = {"yasyf/cc-skills#7": state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")}
+    state.create(data)
+    for link in ("https://acme.slack.com/archives/D123/p1794526059841239", "https://acme.slack.com/archives/D123/p1794200000000900?thread_ts=1794200000.000100"):
+        state.append_event("demo", "said", text="land these", url=link, card=link, prs=["yasyf/cc-skills#7", "yasyf/cc-skills#8"])
+    orders = state.load("demo")["orders"]
+    assert [[*where[:2], where[3]] for where in orders["o1"]["threads"]] == [["D123", "1794520890.022349", "question"], ["D123", "1794526059.841239", "pr"]]
+    assert (orders["o2"]["threads"], "asked_in" in orders["o2"]) == ([["D123", "1794300000.000100", created, "posted"]], False)
+
+
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")
