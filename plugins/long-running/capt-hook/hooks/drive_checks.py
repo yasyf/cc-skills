@@ -115,7 +115,8 @@ POST_RULES = """
       a PR body or an earlier answer is a claim to test against the code, never a read of it, even word for word: a
       design report saying the cloud reads straight from Postgres backs nothing about where the cloud reads.
     - A line about a number or state stands on the call or record that measured it, and a record backs a line only where
-      it measured what the line says.
+      it measured what the line says. A state the line tells as it stands now, still or yet stands on the newest read of
+      it, made before the post as every read is, unless a newer read or record shows it changed.
     - A line telling what a doc, record, thread, page or job's assignment says, naming that source, such as "j1880's
       report says", stands on the read of that source.
     A claim stands when such reads hold what it says, or on his words, and asks no more than its own words: a read
@@ -131,8 +132,8 @@ POST_RULES = """
     - A mechanism the line proposes, or a step it says needs no code, stands only on a read showing the system owns
       and controls that piece where it would run, by his words "we cant do that since we dont control the poloices on
       customer bucket": a lifecycle rule on a prefix of a team's bucket needs a read of who sets that bucket's policy.
-    - The handler's account of its own act, his words quoted back, and the drive's own state the post names through a
-      reference such as {pr:} or {card:} need no read.
+    - The handler's account of its own act, the time its next line is due, his words quoted back, and the drive's own
+      state the post names through a reference such as {pr:} or {card:} need no read.
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
 DRIVE_ASK = "drive.ask"
