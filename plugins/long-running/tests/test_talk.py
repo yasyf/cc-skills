@@ -19,6 +19,7 @@ from drive import (
     slack,
     state,
     talk,
+    tools,
     view,
     watch,
 )
@@ -413,10 +414,14 @@ def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_i
     assert said(demo)[0]["visuals"][0]["picture"] == str(sent)
 
 
-def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(demo: str, posts: list[tuple[str, ...]]) -> None:
+def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    defects: list[dict] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: defects.extend(records) or ["1"])
     line = talk.say(demo, {"text": "done", "order": "o1"})
     assert line.startswith(f"POSTED {POSTED}; not recorded on o1: only the communicator records a post")
     assert len(posts) == 1
+    [defect] = defects
+    assert (defect["kind"], defect["to"]) == ("defect", [f"meta@{demo}"]) and defect["text"].startswith(f"say posted {POSTED} but it was not recorded on o1")
 
 
 def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_it_goes(
