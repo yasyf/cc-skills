@@ -45,7 +45,7 @@ import re
 import subprocess
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
-from functools import cache
+from functools import cache, lru_cache
 from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
@@ -309,6 +309,7 @@ def read(name: str, moment: datetime) -> dict:
     return build(state.load(name), found, moment) | {"cards": source}
 
 
+@lru_cache(maxsize=4096)
 def plain(text: str, limit: int) -> str:
     """The first line of his words as a title: Slack links as their labels, with no record ids."""
     first = next((line for line in text.splitlines() if line.strip()), "")
@@ -318,6 +319,7 @@ def plain(text: str, limit: int) -> str:
     return cut(SPACES.sub("", COMMAS.sub(",", first)).strip(" ,"), limit)
 
 
+@lru_cache(maxsize=4096)
 def said(text: str | None) -> str:
     """A line as a row shows it: its record ids taken out, or as written when every sentence names one, so a line that says something never shows blank."""
     kept = without_records(text or "")
