@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import state
+from drive import procs, state
 from drive.render import clock
 
 LOG = re.compile(r"LOG\s+(https?://\S+)")
@@ -361,8 +361,7 @@ def signal_group(group: int, signum: int) -> bool:
 
 def live(group: int) -> bool:
     """Whether a process in the group is still running rather than exited and waiting to be reaped."""
-    listed = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, check=True).stdout
-    return any(int(pgid) == group and not stat.startswith("Z") for pgid, stat in (line.split() for line in listed.splitlines()))
+    return any(process.pgid == group and not process.zombie for process in procs.table())
 
 
 @contextlib.contextmanager

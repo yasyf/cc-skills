@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import install, limits, reads, render, state
+from drive import install, limits, procs, reads, render, state
 from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
@@ -300,14 +300,9 @@ def roster_workers() -> dict[str, dict]:
 
 
 def running(started: list[tuple[int, str | None]]) -> set[tuple[int, str | None]]:
-    """Each pid and the start its record keeps whose process runs and started then, as `claude agents` checks each record on its own: signal 0 reaches the pid, and `ps`, asked once for all of them, reports that start, or the record keeps none, or `ps` no longer lists the pid."""
+    """Each pid and the start its record keeps whose process runs and started then, as `claude agents` checks each record on its own: signal 0 reaches the pid, and its start, read in this process and printed as `TZ=UTC ps -o lstart=` prints it, is the one the record keeps, or the record keeps none, or no start can be read."""
     reached = [(pid, start) for pid, start in started if pid > 1 and signalled(pid)]
-    if not (asked := sorted({pid for pid, start in reached if start})):
-        return set(reached)
-    listing = subprocess.run(
-        ["ps", "-o", "pid=,lstart=", "-p", ",".join(map(str, asked))], capture_output=True, text=True, check=False, env=os.environ | {"LC_ALL": "C", "TZ": "UTC"}
-    ).stdout
-    starts = {int(pid): rest.strip() for pid, _, rest in (line.strip().partition(" ") for line in listing.splitlines() if line.strip())}
+    starts = {pid: procs.lstart(seconds, utc=True) for pid in {pid for pid, start in reached if start} if (seconds := procs.started(pid)) is not None}
     return {(pid, start) for pid, start in reached if not start or starts.get(pid, start) == start}
 
 

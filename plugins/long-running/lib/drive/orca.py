@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import IO, NamedTuple
 
-from drive import agents, github, render, state
+from drive import agents, github, procs, render, state
 from drive.install import config_dir
 from drive.state import DriveError
 
@@ -231,8 +231,7 @@ def live_pid(session: str) -> int | None:
 
 
 def parents() -> dict[int, int]:
-    listing = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, check=True).stdout
-    return {pid: ppid for pid, ppid in (map(int, line.split()) for line in listing.splitlines())}
+    return {process.pid: process.ppid for process in procs.table()}
 
 
 def holds(tree: dict[int, int], root: int, pid: int) -> bool:

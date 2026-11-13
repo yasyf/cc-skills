@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import IO
 
-from drive import picture
+from drive import picture, procs
 
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
@@ -1205,10 +1205,10 @@ def holders(path: Path) -> str:
         pids = [pid for pid in subprocess.run(["lsof", "-t", str(path)], capture_output=True, text=True, timeout=HOLDERS_SECONDS).stdout.split() if pid != str(os.getpid())]
         if not pids:
             return "no holder found"
-        listed = subprocess.run(["ps", "-o", "pid=,command=", "-p", ",".join(pids)], capture_output=True, text=True, timeout=HOLDERS_SECONDS).stdout.splitlines()
     except subprocess.TimeoutExpired:
         return f"its holders did not list within {HOLDERS_SECONDS}s"
-    return "; ".join(f"pid {line.strip()[:HOLDER_CHARS]}" for line in listed)
+    named = {pid: procs.command(int(pid)) for pid in pids}
+    return "; ".join(f"pid {f'{pid} {command}'[:HOLDER_CHARS]}" for pid, command in named.items() if command is not None)
 
 
 def save(name: str, data: dict) -> None:
