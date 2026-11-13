@@ -552,9 +552,11 @@ def record(seq: str) -> str:
 
 
 def takes(name: str, job_id: str, payload: dict) -> bool:
-    """Whether the job a brief names may take the agent whose step fired the hook, as hold decides it, read from that job's row and the drive's bindings alone, so an agent's every later step reads no whole drive."""
+    """Whether the job a brief names may take the agent whose step fired the hook, as hold decides it, read from that job's row and the drive's bindings alone, so an agent's every later step reads no whole drive; true for a row an older install saved without a field free reads, which only the whole drive's shaping fills in."""
     if (job := state.saved_job(name, job_id)) is None:
         return False
+    if not {"state", "agent", "where"} <= job.keys():
+        return True
     return free({"jobs": {job_id: job}} | state.saved(name), job_id, payload["session_id"], payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
 
 
