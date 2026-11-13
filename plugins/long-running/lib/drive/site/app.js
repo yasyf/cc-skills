@@ -549,10 +549,11 @@ function decisionCard(item, at, total) {
   const story = decisionStory(item.card);
   if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false });
   const state = decisionStates.get(key);
-  const option = story.options[state.selected];
+  const showing = picked?.card === key ? picked.index : state.selected;
+  const option = story.options[showing];
   const recommended = option.label === item.card.recommended;
   const metrics = option.metrics?.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
-  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : 'Selected outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
+  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
   const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' && choice.metrics?.length ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
@@ -1632,10 +1633,11 @@ function placeTip(tip, box, beside) {
 }
 
 function preview(choice) {
-  const index = Number(choice.dataset.preview);
-  if (picked?.card === choice.dataset.card && picked.index === index) return;
-  picked = { card: choice.dataset.card, index };
-  for (const each of choice.parentElement.querySelectorAll('.choice')) each.classList.toggle('on', each === choice);
+  const card = choice.dataset.card ?? choice.dataset.storyCard;
+  const index = Number(choice.dataset.preview ?? choice.dataset.storyPick);
+  if (picked?.card === card && picked.index === index) return;
+  picked = { card, index };
+  render();
 }
 
 function showSource(a) {
@@ -2597,6 +2599,7 @@ document.addEventListener('click', (event) => {
     const state = decisionStates.get(storyPick.dataset.storyCard);
     state.selected = Number(storyPick.dataset.storyPick ?? storyPick.dataset.storyPriority);
     if (storyPick.hasAttribute('data-story-priority')) state.step = 1;
+    picked = null;
     render();
     if (storyPick.hasAttribute('data-story-priority')) { const title = $('#main .decision-story h2'); title.tabIndex = -1; title.focus(); }
     return;
@@ -2738,14 +2741,14 @@ document.addEventListener('click', (event) => {
   }
 });
 document.addEventListener('mouseout', (event) => {
-  const choices = event.target.closest('#main .choices');
+  const choices = event.target.closest('#main .choices, #main .story-options');
   if (!choices || !picked || choices.contains(event.relatedTarget) || choices.contains(document.activeElement)) return;
   picked = null;
   render();
 });
 document.addEventListener('mouseover', (event) => {
   if (touched) return;
-  const choice = event.target.closest('#main .choice[data-preview]');
+  const choice = event.target.closest('#main .choice[data-preview], #main [data-story-pick]');
   if (choice) preview(choice);
   const cited = event.target.closest('a[data-src]');
   if (cited) return showSource(cited);
@@ -2759,12 +2762,16 @@ document.addEventListener('focusin', (event) => {
     expanded.add(folded.dataset.fold);
     render();
   }
-  if (event.target.matches('#main .choice[data-preview]')) preview(event.target);
+  if (event.target.matches('#main .choice[data-preview], #main [data-story-pick]')) preview(event.target);
   if (event.target.matches('a[data-src]')) showSource(event.target);
   else if (!touched && event.target.closest('[data-tip]')) showTip(event.target.closest('[data-tip]'));
 });
 document.addEventListener('focusout', (event) => {
   if (event.target.closest('a[data-src], [data-tip]')) hideSource();
+  const choices = event.target.closest('#main .choices, #main .story-options');
+  if (!choices || !picked || choices.contains(event.relatedTarget) || choices.matches(':hover')) return;
+  picked = null;
+  render();
 });
 window.addEventListener('message', heardReview);
 window.addEventListener('message', heardPage);

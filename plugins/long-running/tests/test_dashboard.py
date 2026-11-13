@@ -1397,6 +1397,35 @@ done({ first, after: said(), focused: document.activeElement.dataset.storyPick, 
     assert (seen["focused"], seen["title"]) == ("1", "Raise the limit?")
 
 
+def test_the_outcome_previews_the_path_he_hovers_or_focuses_and_returns_to_his_pick_when_he_leaves_it(tmp_path: Path) -> None:
+    hints = {"Raise it": "The bucket's per-prefix cap goes to 5,500 writes a second.", "Shard it": "Each team's journal writes under 16 prefixes."}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+const paths = () => [...document.querySelectorAll('#main [data-story-pick]')];
+const outcome = () => [document.querySelector('#main .story-outcome .eyebrow').textContent, document.querySelector('#main .story-outcome .story-hint')?.textContent, paths().findIndex((path) => path.getAttribute('aria-pressed') === 'true')];
+await until(() => document.querySelector('#main .story-outcome .story-hint'));
+const first = outcome();
+paths()[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+const hovered = outcome();
+paths()[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+await wait(50);
+const left = outcome();
+paths()[1].focus();
+await wait(50);
+const focused = outcome();
+document.querySelector('#main .decision-story').focus();
+await wait(50);
+const blurred = outcome();
+paths()[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+document.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+await wait(50);
+done({ first, hovered, left, focused, blurred, keyed: outcome() });
+""", board(queue=[QUESTION | {"card": QUESTION["card"] | {"hints": hints}}]))
+    picked, previewed = ["Recommended outcome", hints["Raise it"], 0], ["Previewed outcome", hints["Shard it"], 0]
+    assert seen == {"first": picked, "hovered": previewed, "left": picked, "focused": previewed, "blurred": picked, "keyed": picked}
+
+
 def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
     tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """
