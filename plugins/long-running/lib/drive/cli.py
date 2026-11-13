@@ -3426,7 +3426,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
         return None
     data = state.load(name)
     for wait in waits:
-        pr = release["pr"] if (release := state.RELEASE_WAIT.fullmatch(wait)) else wait
+        pr = state.waited_pr(wait)
         if state.PR_KEY.fullmatch(pr) and pr not in data["prs"]:
             raise DriveError(f"--waits {wait}: the drive tracks no PR {pr}; drive pr add it to its job first")
     cards = [wait for wait in waits if state.card_wait(data, wait)]
@@ -3439,8 +3439,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges, or once it closes unmerged on the job that opened it, or release:<service>:<owner>/<repo>#<n>, the release of"
-                " that service carrying that PR"
+                " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, held until the release of that service carrying"
+                " that PR is out, either one moving to the change of the job that opened the PR once it closes unmerged"
             )
     if refused := unreached(name, data, waits):
         raise DriveError(f"--waits {refused}")
