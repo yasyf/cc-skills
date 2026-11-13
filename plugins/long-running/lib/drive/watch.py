@@ -338,10 +338,8 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed = {order_id: order["close_report"] for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if not owed:
         return []
-    from drive import tools
-
     try:
-        tools.sent(watcher.name, LANE, list(owed.values()))
+        reported(watcher, list(owed.values()))
     except state.DriveError as error:
         return failed(watcher, "close reports", "close report post to the communicator", error, moment)
     watcher.failures.pop("close reports", None)
@@ -349,6 +347,13 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for order_id in owed:
             data["orders"][order_id]["close_report"] = None
     return []
+
+
+def reported(watcher: Watcher, records: list[dict]) -> list[str]:
+    """Post the watch's reports in one cci batch, each addressed to the communicator, whose handlers post them, so no coordinator's or the meta session's channel carries one; their seqs."""
+    from drive import tools
+
+    return tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
 
 
 def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> list[str]:
@@ -370,16 +375,13 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
     ]
     record = {
         "kind": "report",
-        "to": [f"communicator@{watcher.name}"],
         "topic": f"watch-recovered-{head}",
         "attr": {"close": ",".join(group)} | ({"thread": incident["thread"][1]} if incident["thread"] else {}),
         "text": f"POST incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live; post the Live line in its thread",
         "body": "\n".join(facts) + "\n",
     }
-    from drive import tools
-
     try:
-        tools.sent(watcher.name, LANE, [record])
+        reported(watcher, [record])
     except state.DriveError as error:
         return failed(watcher, f"close of {head}", f"close report post of {head} to the communicator", error, moment)
     watcher.failures.pop(f"close of {head}", None)
@@ -999,9 +1001,7 @@ def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime
         "text": f"POST {named} had no line to him in {minutes} minutes: post where {'it stands' if one else 'each stands'} now in its thread",
         "body": "\n".join(facts) + "\n",
     }
-    from drive import tools
-
-    [seq] = tools.sent(watcher.name, LANE, [record])
+    [seq] = reported(watcher, [record])
     return seq
 
 
@@ -1893,9 +1893,7 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
         *orders,
     ]
     text = f"POST his catch-up since {when(owed['since'])}: {len(orders)} orders with news, {len(held)} reports held for it"
-    from drive import tools
-
-    [seq] = tools.sent(watcher.name, LANE, [{"kind": "report", "attr": {"catch_up": "true"}, "text": text, "body": "\n".join(facts) + "\n"}])
+    [seq] = reported(watcher, [{"kind": "report", "attr": {"catch_up": "true"}, "text": text, "body": "\n".join(facts) + "\n"}])
     return seq
 
 

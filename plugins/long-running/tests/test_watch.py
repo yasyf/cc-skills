@@ -767,7 +767,7 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     assert calls == []
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
     [(report, body), (start, _)] = calls
-    assert (report["text"], report["topic"], "to" in report) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", False)
+    assert (report["text"], report["topic"], report["to"]) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", [f"communicator@{demo}"])
     assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
     assert {f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}", "PRs, as the watch last read them from GitHub: 1", shown_pr(demo, KEY)} <= set(body.splitlines())
     assert "674295" not in body
@@ -962,7 +962,7 @@ def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_thr
     assert watch.catch_up_lines(watching, BACK) == []
     [(report, body), (start, _)] = calls
     assert report["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
-    assert ("to" not in report, report["kind"], report["attr"]) == (True, "report", {"catch_up": "true"})
+    assert (report["to"], report["kind"], report["attr"]) == ([f"communicator@{demo}"], "report", {"catch_up": "true"})
     assert f"- {render.order_line('o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
     assert start[:4] == ["claude", "--bg", "--agent", "long-running:handler"]
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}"
