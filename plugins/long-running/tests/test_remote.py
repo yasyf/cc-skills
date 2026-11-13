@@ -1946,6 +1946,24 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
 
 
 @pytest.mark.parametrize(
+    ("question", "whole"),
+    [
+        ("Which fixture keeps the hold test deterministic?\nA: freeze state.now in conftest\nB: pass T0 through run_pass", True),
+        ("Which fixture keeps the hold test deterministic?\nLOG https://buildkite.com/forge/test/builds/1 is red on it", True),
+        ("Which fixture keeps the hold test deterministic?", False),
+    ],
+)
+def test_a_lane_questions_job_line_posts_the_question_whole_as_its_records_body(question: str, whole: bool, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", question)])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    [line] = watch.run_pass(watching, T0)
+    posted = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, stdin=None: posted.append((argv[argv.index("--topic") + 2 :], stdin)) or "")
+    assert watch.sent(watching, "root", [line], T0) == []
+    assert posted == [([*(["--path", "-"] if whole else []), "--text", line], question if whole else None)]
+
+
+@pytest.mark.parametrize(
     ("sent", "asked", "taken"),
     [
         ("BUILT lane/built, waits on demo:j1-7-a", None, "built"),

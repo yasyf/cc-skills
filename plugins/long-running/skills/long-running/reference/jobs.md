@@ -227,7 +227,8 @@ question.
   log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
-  to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
+  to answer, its first line, whose record carries the whole question as its body, which cci's read
+  tool prints; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
   `drive job resume` reads each such log ahead of your text, so start no reader for it. One
   no resume answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
   the job has, since a card drawn before the question asks him something else; when he answered
