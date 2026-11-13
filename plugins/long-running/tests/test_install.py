@@ -1234,7 +1234,7 @@ def test_a_proof_of_something_he_sees_takes_done_only_once_its_output_pictures_e
     if taken == "failed":
         assert job["said"].startswith(
             f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3: its brief names 2 user stories"
-            " and its proof pictures or records 0 of them"
+            " and its proof shows 0 of them"
         )
 
 
