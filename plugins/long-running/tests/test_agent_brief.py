@@ -166,6 +166,19 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
         "Goal: free the stuck rows\nRepair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls",
     ):
         assert start("j1", lines) is None
+    shared_alert = (
+        "Order (his words): I thoguth we fixed OOMs? Shared from Datadog in <#C0822AHFY3G>: Executor OOM Run Crash Count (16Gi)\n"
+        "Serves: his order\n"
+        "Goal: a retry of a run forks the newest attempt in its chain whose journal is in the team's bucket: change 1 of design j2810\n"
+        "Where: Forge-AI/monorepo, one new branch off dev; go/sand/next/internal/vm_run/fork.go\n"
+        "Plan: Design j2810 (drive job report j2810, read it whole first)\n"
+        "Incident: Every release a drive job starts starts the regular way, `tools/ci release start <target> --from <sha>`\n"
+        "Transcripts:\n- j2333 builder: read the 500s in Datadog APM, then tools/ci mac-box prove\n"
+        "Drive: demo, order o1, job j1"
+    )
+    assert agent_brief.deny_reason(started("long-running:builder", shared_alert)).startswith(
+        "refused: this Mac is 63% busy, at or over its 50% limit, so j1 starts on a Sprite: drive job launch j1 <brief>."
+    )
     assert start("j2", "Goal: fix the run page") is None
     monkeypatch.setattr(place, "busy", lambda: 0.4)
     assert start("j1", "Goal: fix the run page") is None

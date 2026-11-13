@@ -10,6 +10,12 @@ BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.(?:brief|handoff)\.md\b|/\S+/orca/task
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would he ask|Plan|Incident):[ \t]*(.+)$", re.MULTILINE)
+FIELD = re.compile(
+    r"^(Order \(his words\)|Serves|Goal|Done when|Where|Runs as|Release|Handoff|Decisions that bind|Research|Researched|Answer"
+    r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
+    re.MULTILINE,
+)
+STEP_FIELDS = frozenset({"Goal", "Done when", "Where", "Release", "Handoff", "Plan"})
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
@@ -65,6 +71,13 @@ def carried(prompt: str) -> str:
     """An agent's prompt with the brief file drive job brief wrote read in after it, when the prompt names one."""
     named = BRIEF_FILE.search(prompt)
     return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
+
+
+def job_steps(text: str) -> str:
+    """The fields of a brief naming the steps its job runs, its Goal, Done when, Where, Release, Handoff and Plan, each from its label up to the next field drive job brief writes, never his Order words, the rulings, the incident rule or earlier jobs' transcripts."""
+    starts = list(FIELD.finditer(text))
+    ends = [found.start() for found in starts[1:]] + [len(text)]
+    return "\n".join(text[found.start() : end] for found, end in zip(starts, ends, strict=True) if found[1] in STEP_FIELDS)
 
 
 def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
