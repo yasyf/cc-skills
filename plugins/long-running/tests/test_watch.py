@@ -4665,18 +4665,18 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_keeping_no_proof_and
     assert provers == []
 
 
+@pytest.mark.parametrize(("fix", "sha"), [("Forge-AI/monorepo#55420", "485f9f408150"), ("Forge-AI/monorepo#55448", "6ec574a4f779")])
 def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_reporter_is_owed_no_fix_live_note(
-    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]], fix: str, sha: str
 ) -> None:
     serve(monkeypatch, {})
-    fix = "Forge-AI/monorepo#55420"
     merged_ready(demo, fix, None)
     with state.edit(demo) as data:
-        data["prs"][fix]["merged_sha"] = "485f9f408150"
+        data["prs"][fix]["merged_sha"] = sha
         data["orders"]["o1"]["reporter"] = state.reporter(REPORTED)
     watching = watcher(demo)
     lines = [line for minutes in (0, 11, 40) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
-    assert [line for line in lines if line.startswith(f"PR {fix}: {install.MERGED_DONE}: {fix} at 485f9f408150; no proof kept")]
+    assert [line for line in lines if line.startswith(f"PR {fix}: {install.MERGED_DONE}: {fix} at {sha}; no proof kept, since only a release holding {sha} puts it live")]
     assert not [line for line in lines if line.startswith("TELL ")]
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporter"]["tell_said"]) == ("done", None, None)
@@ -4685,8 +4685,9 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
     assert provers == []
 
 
-def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close_while_a_closed_one_or_a_yasyf_commit_keeps_them(demo: str) -> None:
-    commit, tooling = "https://github.com/Forge-AI/monorepo/commit/485f9f408150", "https://github.com/yasyf/cc-skills/commit/ccc333ddd444"
+@pytest.mark.parametrize("sha", ["485f9f408150", "6ec574a4f779"])
+def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close_while_a_closed_one_or_a_yasyf_commit_keeps_them(demo: str, sha: str) -> None:
+    commit, tooling = f"https://github.com/Forge-AI/monorepo/commit/{sha}", "https://github.com/yasyf/cc-skills/commit/ccc333ddd444"
     with state.edit(demo) as data:
         data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporter": state.reporter(REPORTED) | {"tell_said": state.stamp(T0)}}
         data["orders"]["o2"] = order(state="done", proof=commit, closed_on="689100", jobs=[])
