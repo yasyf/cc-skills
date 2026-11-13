@@ -726,9 +726,6 @@ def answered(ask: dict) -> dict:
                 action_ts=ask["action_ts"],
                 lane=state.heard_lane(data, entry["order"]),
             )
-        from drive import stage
-
-        members = [*members, *stage.adopt(data)]
     if ask["label"] == "Approve":
         from drive import land, view
 

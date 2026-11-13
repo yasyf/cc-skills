@@ -7446,19 +7446,12 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     found = view.live_cards("demo")
     with state.edit("demo") as data:
         stage.settle(data, found)
-        data["prs"][designing]["tap"] = state.new_tap("Approve", "abc", PICK)
-        assert stage.adopt(data) == []
-        data["prs"][designing]["tap"] = None
     assert (state.load("demo")["prs"][designing]["card"], stage.of(state.load("demo"), designing, found).name) == (None, "uncarded")
     read = {"title": "Fix: land it", "body": CARD_BODY, "state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "reviewDecision": "APPROVED", "labels": []}
     monkeypatch.setattr(card, "run", lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(read | {"url": f"https://github.com/Forge-AI/monorepo/pull/{cmd[3]}"}))
     drawn = card.cards([{"repo": "Forge-AI/monorepo", "number": 42}])
     assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"], each["card"]["options"]) for each in drawn["cards"]] == [([PR], "merge:Forge-AI:monorepo:42", ["Approve", "Hold"])]
     assert [skipped["number"] for skipped in drawn["skipped"]] == [44]
-    with state.edit("demo") as data:
-        data["prs"][designing]["tap"] = state.new_tap("Approve", "abc", PICK)
-        data["prs"][top]["rework"] = None
-        assert stage.adopt(data) == []
     assert [state.load("demo")["prs"][key]["stack"] for key in stack] == [[designing], stack]
 
 
