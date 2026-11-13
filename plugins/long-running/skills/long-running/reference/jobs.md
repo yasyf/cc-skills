@@ -299,17 +299,19 @@ before it sends or starts.
   drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
   hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
   send, and the next message tries again. On a finished worker on this Mac, it starts the job's
-  next worker in its terminal, on the Run and terminal Orca shows for that worker. On a finished
-  worker whose Sprite is still up, it prepares that Sprite again with
+  next worker in its terminal, on the Run and terminal Orca recorded for that worker, kept even
+  when Orca's read shows no terminal because it could not tie it to the worker's process. On a
+  finished worker whose Sprite is still up, it prepares that Sprite again with
   `cc-remote orca prepare <Sprite> --existing`, which gives it the tool payload and keys a fresh
   Sprite gets, and starts the next worker there in the checkout the last one left, on a Run this
   terminal makes. A finished worker is read before its liveness, which Orca cannot always tell
   once a worker is done; when Orca no longer finds
-  that terminal or worktree, or no longer holds that terminal connected, the worker counts as
+  that terminal or worktree, or shows that terminal no longer connected, the worker counts as
   dead, and when its Sprite refuses the tools a worker needs, or was made from a cc-remote config
   other than the one the default branch holds now, as the SHA-256 its launch recorded on the job
   shows, that Sprite is passed over as a dead one's. A dead worker, or one whose
-  Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a fresh Sprite
+  Sprite's Orca environment is gone, as `drive job end` leaves it, or no longer paired with this
+  Mac's Orca (`peer_changed`), is relaunched on a fresh Sprite
   on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
   relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
   the launcher copies the new handoff onto it, unless that Sprite's own install refused the tools

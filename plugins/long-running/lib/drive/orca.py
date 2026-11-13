@@ -36,6 +36,7 @@ GONE = {
     "dispatch_not_found": "Orca no longer holds its worker",
     "Unknown environment": "Orca no longer holds its Sprite's environment",
     "selector_not_found": "Orca no longer holds its worker's terminal or worktree",
+    "peer_changed": "Orca no longer pairs with its Sprite's server",
 }
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
 START_TIMEOUT_MS = "600000"
@@ -565,8 +566,8 @@ def placement(worker: dict) -> dict:
 
 
 def run_of(worker: dict) -> dict:
-    """The Run and task a worker-show's dispatch belongs to and its terminal, which a job records beside that dispatch, so it never keeps a Run its dispatch is not on."""
-    return {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
+    """The Run and task a worker-show's dispatch belongs to and the terminal Orca recorded for its worker, which a job records beside that dispatch, so it never keeps a Run its dispatch is not on."""
+    return {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["worker"]["agentTerminalHandle"]}
 
 
 def task_title(run: str, task: str) -> str:
@@ -609,7 +610,7 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(drive: str, job: dict) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal connected, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and one whose terminal is no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite. OrcaError when Orca cannot tell either way."""
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite. OrcaError when Orca cannot tell either way."""
     try:
         return shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
@@ -639,14 +640,16 @@ def woken(drive: str, job: dict, unreached: str) -> LaneEnd | None:
 
 
 def shown_end(job: dict, shown: dict) -> LaneEnd | None:
-    branch = ((shown.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/") or None
+    observed = shown.get("terminal")
+    branch = ((observed or {}).get("branch") or "").removeprefix("refs/heads/") or None
     if why := death(shown):
         return LaneEnd(why, branch, None)
     if (finished := shown["worker"]["state"]) in FINISHED:
-        if not shown["terminal"]["connected"]:
-            return LaneEnd(f"its worker {finished}, and its terminal {shown['terminal']['handle']} is no longer connected", branch, None)
+        terminal = shown["worker"]["agentTerminalHandle"]
+        if observed and not observed["connected"]:
+            return LaneEnd(f"its worker {finished}, and its terminal {terminal} is no longer connected", branch, None)
         why = f"its worker {finished}, and Orca sends nothing to a finished worker {ON_MAC if state.on_mac(job) else 'on a Sprite'}"
-        return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"], shown["terminal"]["handle"], shown["dispatch"]["runId"])
+        return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"], terminal, shown["dispatch"]["runId"])
     if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
         raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
     return None
