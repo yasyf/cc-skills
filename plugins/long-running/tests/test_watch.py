@@ -5648,6 +5648,29 @@ def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_i
     assert calls == [[KEY]] * 4
 
 
+def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again_reads_uncarded_and_is_redrawn_in_place_never_drawn_anew(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, redraws: Redraws
+) -> None:
+    url = state.pr_url(KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(wants_tap=True, card=CARD)
+    shut = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "This PR no longer waits on your tap.", "replaced_by": ""}
+    shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
+    monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
+    serve(monkeypatch, {KEY: read(checks=GREEN)})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    data = state.load(demo)
+    assert (data["prs"][KEY]["stage"]["name"], data["prs"][KEY]["card"], redraws.asked, draws.keys) == ("uncarded", CARD, [url], [])
+    assert data["prs"][KEY]["stage"]["why"] == "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
+    assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands"
+    shown.update(closed=[], pr_cards=[pr_card(KEY)])
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    data = state.load(demo)
+    assert (data["prs"][KEY]["stage"]["name"], draws.keys) == ("card", [])
+    assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands, which waits on your Approve on {view.link('its card', CARD)}"
+
+
 def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_builders_ready(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True

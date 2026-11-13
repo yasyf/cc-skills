@@ -161,6 +161,12 @@ def closed_card(found: dict, card: str) -> dict | None:
     return next((closed for closed in reversed(found["closed"]) if closed["waits"] == card or message_key(closed["url"]) == message_key(card)), None)
 
 
+def closed_in_place(found: dict, card: str) -> bool:
+    """Whether cc-slack keeps his card under this link closed with no answer, neither withdrawn nor replaced: a redraw took Approve and Hold off it once no PR on it asked his tap, and only a redraw in place opens it again."""
+    closed = None if card_open(card, found) else closed_card(found, card)
+    return closed is not None and not closed["answer"] and not closed["replaced_by"]
+
+
 def card_words(found: dict | None, source: str, card: str | None) -> str:
     """His card under this waits id or link as cc-slack's store holds it now: open since when, answered, withdrawn or redrawn, each by its link, or never drawn."""
     if found is None:
@@ -282,7 +288,7 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
     if wait in drive["prs"]:
         pr = drive["prs"][wait]
-        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr)) else "")
+        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
     listed = [*found["questions"], *found["pr_cards"]] if found else []
@@ -291,9 +297,11 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
     return f"you answer {link('your question card', wait)}" if wait.startswith("https://") else "you answer your question card"
 
 
-def tap_card(pr: dict) -> str | None:
-    """The link of his card on the PR while it offers him Approve, which is when the PR waits on his tap."""
-    return pr["card"] if state.asks_tap(pr) else None
+def tap_card(pr: dict, found: dict | None) -> str | None:
+    """The link of his card on the PR while it offers him Approve: the PR waits on his tap and cc-slack does not keep that card closed_in_place(), as it does from the redraw that took Approve off it until a redraw opens it again; with his cards unread, the card kept on the PR."""
+    if not (pr["card"] and state.asks_tap(pr)) or found is not None and closed_in_place(found, pr["card"]):
+        return None
+    return pr["card"]
 
 
 def pr_link(pr: dict) -> str:
