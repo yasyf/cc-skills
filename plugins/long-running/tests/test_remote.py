@@ -611,7 +611,7 @@ def test_launch_starts_a_brief_naming_a_step_only_this_mac_runs_only_on_this_mac
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], step: str, named: str
 ) -> None:
     cloned(tmp_path, demo)
-    (tmp_path / "brief.md").write_text(f"Drive: demo, order o1, job j1\n{step}\n")
+    (tmp_path / "brief.md").write_text(f"Goal: ship it\nHandoff: merged\n{step}\nDrive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
@@ -624,6 +624,31 @@ def test_launch_starts_a_brief_naming_a_step_only_this_mac_runs_only_on_this_mac
     assert state.load(demo)["jobs"]["j1"].get("launching") is None
     assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
     assert state.load(demo)["jobs"]["j1"]["route"] == state.LOCAL_ROUTE
+
+
+def test_launch_starts_on_a_sprite_a_brief_whose_mac_only_words_sit_only_in_his_order_the_incident_rule_and_earlier_jobs(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text(
+        "Order (his words): <https://x.slack.com/archives/C0822AHFY3G/p1794521905561409|alert> I thoguth we fixed OOMs? Shared from Datadog in"
+        " <#C0822AHFY3G>: *Monitor alert summary:* Executor OOM Run Crash Count (16Gi)\n"
+        "Serves: his order\n"
+        "Goal: a retry of a run forks the newest attempt in its chain whose journal is in the team's bucket: change 1 of design j2810, one PR off dev\n"
+        "Done when: READY: one PR off dev, green, carrying the design's tests\n"
+        "Where: Forge-AI/monorepo, one new branch off dev; go/sand/next/internal/vm_run/fork.go\n"
+        "Decisions that bind:\n- his answer \"read the OOMs in Datadog first\"\n"
+        "Plan: Design j2810 (drive job report j2810, read it whole first)\n"
+        "Incident: Every release a drive job starts starts the regular way, `tools/ci release start <target> --from <sha>`\n"
+        "Transcripts:\n- j2333 builder: read the 500s in Datadog APM, then tools/ci mac-box prove\n"
+        "Drive: demo, order o1, job j1\n"
+    )
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the retries")
+    run("job", "add", "builder", "--order", "o1", "--goal", "retry forks the newest saved attempt")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
 
 
 def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(

@@ -5,7 +5,7 @@ import sys
 import time
 from datetime import datetime
 
-from drive import agents, state, view, watch
+from drive import agents, brief, state, view, watch
 from drive.render import when
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
@@ -47,8 +47,8 @@ def limit() -> float:
 
 
 def mac_step(text: str) -> str | None:
-    """The first step a brief names that only this Mac runs, as the brief writes it, None for none: break-glass, a Mac box or test Mac, a devbox, db-read and a release verb sign in with this Mac's machine profile or Buildkite token, and a Datadog read with this Mac's Claude Code Datadog sign-in, none of which a Sprite holds."""
-    return found[0] if (found := MAC_ONLY.search(text)) else None
+    """The first step only this Mac runs that a brief's own step fields name, by brief.job_steps, as the brief writes it, None for none: break-glass, a Mac box or test Mac, a devbox, db-read and a release verb sign in with this Mac's machine profile or Buildkite token, and a Datadog read with this Mac's Claude Code Datadog sign-in, none of which a Sprite holds. His Order words, such as an alert shared from Datadog, the incident rule naming tools/ci release start and earlier jobs' lines name no step of this job."""
+    return found[0] if (found := MAC_ONLY.search(brief.job_steps(text))) else None
 
 
 def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str, str]:

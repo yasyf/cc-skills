@@ -92,7 +92,7 @@ def overloaded(data: dict, text: str) -> str | None:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once. A refused job whose brief this Mac alone runs, by place.MAC_ONLY, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
+    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once. A refused job whose brief this Mac alone runs, by place.mac_step, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
@@ -100,7 +100,7 @@ def crowded(name: str, data: dict, text: str) -> str | None:
         why = f"{job_id} waits its turn for a builder slot on this Mac, {places[job_id]}"
     elif not (why := place.crowded(data, job_id, moment)):
         return None
-    if job_id and not place.MAC_ONLY.search(text):
+    if job_id and not place.mac_step(text):
         return f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief names no step only this Mac runs, {place.MAC_ONLY_STEPS}: write this brief to a file and run drive job launch {job_id} <file>"
     if job_id in places:
         return f"refused: {why}{line(data)}"
