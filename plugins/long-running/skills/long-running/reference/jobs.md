@@ -225,9 +225,11 @@ question.
   reader keeps first the answer its own end leaves, then the one it finishes with, under its
   question's message id, so a refused reply sends the same answer again and a read stopped mid-run
   is answered as stopped, never run twice. A `LOG` answer leads each failed job's share with its failure lines, such as a
-  Go `--- FAIL:` line or a Rust `panicked at`, then each failure's own output, a Go test's lines
-  from its `=== RUN` and anything else's failure line with the two lines after it, then fills the
-  rest with the output's last characters. A test's failure often sits far before the end of its
+  Go `--- FAIL:` line or a Rust `panicked at`, a repeated one listed once with its count, then each
+  failure's own output, a Go test's lines from its `=== RUN` and anything else's failure line with
+  the lines indented under it, kept past its share as its failure lines, the two after each and its
+  `cause:` or `Caused by:` lines, so a database error printed far below a failed query still reaches
+  the builder, then fills the rest with the output's last characters. A test's failure often sits far before the end of its
   log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
