@@ -26,11 +26,15 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
 - Whether something he uses works is read where he uses it, never from API data.
 - Make every read the order names, whoever owns the data; his order authorizes it and a read
   writes nothing. A refusal sends you that turn down the staff route that opens it: an admin view,
-  the team's bucket, the `db-read` skill, or
+  the `db-read` skill, or
   `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, which runs the
-  read under this Mac's machine profile once its grant passes, with no sign-in and no card. Any
-  other AWS read, a pass box's key included, runs first under a profile `~/.aws/config` chains to
-  the machine certificate, and no card asks him for a sign-in, Touch ID or cc-sudo for one. An
+  read under this Mac's machine profile once its grant passes, with no sign-in and no card. A
+  team's data, its bucket's objects, Iris blobs and run journals included, is read only on a pass
+  box as the runs-reader service account, never on this Mac, a Sprite or after `drive break-glass`,
+  by his words "it shouldnt be reading iris blobs at all locally only with a service account on a
+  pass box": the `bash_guard` hook refuses such a read anywhere else and prints the pass box steps.
+  Any other AWS read, a pass box's key included, runs first under a profile `~/.aws/config` chains
+  to the machine certificate, and no card asks him for a sign-in, Touch ID or cc-sudo for one. An
   Iris session's `iris_sessions` row, read with `db-read`, names its team, whose bucket holds its
   journal under `iris/teams/<team>/sessions/<session id>/`; a `chatv2.json.zst` copy on disk reads
   with the `iris-thread` skill. A line ending on a refused read with neither skill tried is sent

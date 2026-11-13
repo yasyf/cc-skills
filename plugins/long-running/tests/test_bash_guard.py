@@ -288,3 +288,66 @@ def test_any_sessions_hook_helper_restart_waits_for_his_install_now_tap_on_the_c
     assert bash_guard.deny_reason(bash("brew upgrade yasyf/tap/ccx", session="ordinary")) is None
     answers.append({"id": "a2", "title": HELPER_CARD.format("12.121.70"), "body": f"Install now\n{HELPER_OPTIONS}", "tags": []})
     assert [bash_guard.deny_reason(bash(command, session="ordinary")) for command in restarts] == [None] * len(restarts)
+
+
+R2 = "https://4287159177eecb5f0a7e87cfe96ccde5.r2.cloudflarestorage.com"
+BLOBS = "s3://artifacts-prod/iris/teams/team_01demo/runs/blobs"
+
+
+def scratch(tmp_path: Path, folder: str) -> Path:
+    """j2386's scratch folder as its break-glass reads ran it: bucket-read5.sh fans its digests out 32 at a time to fetch-one.sh, which copies one blob from the artifacts bucket on R2."""
+    root = tmp_path / "j2386"
+    root.mkdir()
+    (root / "bucket-read5.sh").write_text(f"#!/bin/zsh\nset -euo pipefail\nS={folder}\nmkdir -p $S/blobs\nxargs -P 32 -n 1 zsh $S/fetch-one.sh < $S/digests-left.txt\n")
+    (root / "fetch-one.sh").write_text(f'#!/bin/zsh\nenv -u AWS_PROFILE AWS_ACCESS_KEY_ID="$K" aws --endpoint-url {R2} s3 cp "{BLOBS}/$1" "$S/blobs/$1" --only-show-errors\n')
+    return root
+
+
+@pytest.mark.parametrize("folder", ["/unused/elsewhere", "${0:A:h}"])
+def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass_and_xargs(demo: str, tmp_path: Path, folder: str) -> None:
+    root = scratch(tmp_path, str(tmp_path / "j2386") if folder.startswith("/") else folder)
+    builder = {"agent_id": "ad4fdaae757fd3b72", "agent_type": "long-running:builder"}
+    replay = 'drive break-glass j2386 --stack sandsql/plat-usw2-prod --reason "read-only: fetch the OOM run\'s blobs" -- zsh ./bucket-read5.sh'
+    reason = bash_guard.deny_reason(bash(replay, cwd=str(root), **builder))
+    assert reason.startswith("refused: this reads `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1` where the job runs")
+    assert '"it shouldnt be reading iris blobs at all locally only with a service account on a pass box"' in reason
+    assert "`AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job>" in reason
+    assert '`eval "$(./ci runs-reader grant --team <team id>)"`' in reason
+    assert bash_guard.deny_reason(bash(f"cd {root} && {replay}", cwd="/work", **builder)) == reason
+    assert bash_guard.deny_reason(bash(replay, cwd=str(root), session="ordinary")) is None
+
+
+def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_box_call_is_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refused = {
+        "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "artifacts-prod/iris/teams/team_01demo/sessions/",
+        f"aws --endpoint-url {R2} s3 cp --recursive --exclude '*' --include '*.ltx' s3://artifacts-prod/iris/teams/t/runs/wal/ ./wal": "artifacts-prod/iris/teams/t/runs/wal/",
+        "AWS_PROFILE=plat-prod aws s3 sync s3://frg-plat-usw2-prod-sandsql-replication/wal/team_1/ .": "frg-plat-usw2-prod-sandsql-replication/wal/team_1/",
+        "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com",
+        "aws s3 cp s3://forge-globex-artifact-bucket/iris/teams/t/x -": "forge-globex-artifact-bucket/iris/teams/t/x",
+        'B=artifacts-prod; for d in a b; do aws s3 cp "s3://$B/iris/teams/t/runs/blobs/$d" .; done': "artifacts-prod/iris/teams/t/runs/blobs/$d",
+        "rclone copy r2:artifacts-prod/iris/teams/t/runs/ ./runs --transfers 32": "artifacts-prod/iris/teams/t/runs/",
+        "gsutil -m cp gs://customer-bucket/iris/teams/t/x .": "customer-bucket/iris/teams/t/x",
+        "azcopy copy 'https://acct.blob.core.windows.net/iris/teams/t/x' ./x": "acct/iris/teams/t/x",
+        "sh -c 'aws s3 ls s3://$BUCKET/iris/'": "$BUCKET/iris/",
+    }
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    for command, location in refused.items():
+        assert bash_guard.deny_reason(bash(command, **builder)).startswith(f"refused: this reads `{location}` where the job runs"), command
+    passed = [
+        "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/latest.json -",
+        "aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/stacks/api/",
+        "aws s3 cp ./ci-linux s3://artifacts-prod/iris/teams/t/upload",
+        "aws s3 rm s3://artifacts-prod/iris/teams/t/runs/stuck.json",
+        "aws s3 ls",
+        "aws s3api get-bucket-notification-configuration --bucket $B",
+        "AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose j2386-oom --type r7i.4xlarge --delete-after 2026-11-14",
+        "AWS_PROFILE=plat-prod aws ssm send-command --region us-west-2 --instance-ids i-0abc --document-name AWS-RunShellScript"
+        ' --parameters \'commands=["eval \\"$(./ci runs-reader grant --team t)\\"","aws s3 cp s3://artifacts-prod/iris/teams/t/runs/blobs/x ."]\'',
+        "cat > /s/box.sh <<'EOF'\naws s3 cp s3://artifacts-prod/iris/teams/t/runs/blobs/x .\nEOF",
+        "grep -rn artifacts-prod /work/docs",
+    ]
+    assert [bash_guard.deny_reason(bash(command, **builder)) for command in passed] == [None] * len(passed)
+    assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/")).startswith("refused: this reads")
+    assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="ordinary")) is None
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="sprite")).startswith("refused: this reads")
