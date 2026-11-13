@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:1cc6b2df24aa — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:678006552bd0 — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -201,6 +201,7 @@ input.search{border:1px solid var(--line);background:var(--card);color:var(--ink
 .empty,.netmsg,.ir-keyempty{padding:var(--s-5) var(--s-1);color:var(--ink2);font-size:var(--t-base)}
 .netmsg{text-align:center;border:1px dashed var(--line);border-radius:var(--r-node)}
 .evmiss{margin:var(--s-3) 0;color:var(--ink2);font-size:var(--t-sm)}
+.keepnote{margin:var(--s-2) 0 0;padding:var(--s-2) var(--s-4);border-left:3px solid var(--warn);background:var(--warn-soft);color:var(--ink);font-size:var(--t-md);max-width:var(--measure)}
 .empty{border-bottom:1px solid var(--line)}
 .skip{position:fixed;left:var(--s-3);top:-64px;z-index:60;background:var(--card);border:1px solid var(--accent);color:var(--accent);padding:var(--s-3) var(--s-5);border-radius:var(--r-ctl);transition:top .15s}
 .skip:focus{top:var(--s-3);text-decoration:none}
@@ -1222,6 +1223,7 @@ html[data-theme=dark]:not([data-print]){
 <header class="doctop">
   <h1 id="docTitle"></h1>
   <p class="docsub" id="docSub" hidden></p>
+  <p class="keepnote" id="keepNote" hidden>ai-oncall's automatic draft, built from the incident record. The written retro replaces it once ai-oncall's writer lands.</p>
   <p class="docmeta" id="docMeta"></p>
   <div class="tags" id="docTags" hidden></div>
   <p class="draftnote" id="draftNote" hidden></p>
@@ -2139,6 +2141,7 @@ function renderDoctop(){
  const sub=$("#docSub");
  sub.textContent=META.subtitle||"";
  sub.hidden=!META.subtitle||plain(META.subtitle).toLowerCase()===plain(META.title||"").toLowerCase();
+ $("#keepNote").hidden=META.keeper!=="ai-oncall"||ongoing();
  const inc=META.incident||{};
  const pills=[];
  const st=STATUS_LBL[META.status]||(META.status?["p-dead",META.status]:null);
