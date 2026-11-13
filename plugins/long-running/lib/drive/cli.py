@@ -1743,26 +1743,26 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A question that ended, that `drive job ask` refused, or that a `Replaces:` line folded into another job's or its own later question, draws none under any waits id, by `settled.card_refusal`. A waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code."""
     from drive import superseded, view
 
-    asked = kept_ask(path)
     data = state.load(name)
     if folded_in := next((settled.card_refusal(asker, kept, path) for asker, each in data["jobs"].items() if (kept := state.kept_in(each, path)) and kept["replaced"]), None):
         raise DriveError(folded_in)
+    cards = view.live_cards(name) or view.NO_CARDS
     job_id = waits.partition(":")[2].partition("-")[0]
+    question = None
     if job := data["jobs"].get(job_id):
         question = state.kept_in(job, path) or next(
-            (question for other, question in reversed(asking(data, asked.title)) if other == job_id and question["file"]), None
+            (question for other, question in reversed(asking(data, kept_ask(path, None, cards).title)) if other == job_id and question["file"]), None
         )
         if question and (refused := settled.card_refusal(job_id, question, Path(question["file"]))):
             raise DriveError(refused)
-        if question and Path(question["file"]).resolve() != path.resolve():
+        if question:
             path = Path(question["file"])
-            asked = kept_ask(path)
         if question and question["waits"] and not any(other["waits"] == waits for other in job["questions"]):
             waits = question["waits"]
         if refused := superseded.redraw_refusal(data, job, waits, str(path)):
             raise DriveError(refused)
-    pr_cards = (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
-    if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), pr_cards):
+    asked = kept_ask(path, question, cards)
+    if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), cards["pr_cards"]):
         raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     found = refs.resolved(name, "\n".join([*asked.summary, *show_me, *asked.hints.values()]))
@@ -1778,17 +1778,19 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     return card
 
 
-def kept_ask(path: Path) -> limits.Question:
-    """The question an ASK file draws: one `drive job ask` kept, named for the hash of its words, read under the rules it was kept under, and any other, rebuilt from his card or never kept, held to every rule a new block meets; a kept file whose words no longer hash to its name was edited by hand and draws nothing, since only `drive job ask` changes a kept question."""
+def kept_ask(path: Path, question: dict | None, cards: dict) -> limits.Question:
+    """The question an ASK file draws. One the drive already asked, its question holding a waits id, draws again under the rules it was asked under, a file rebuilt from his card included, never the shape a new block meets; once the words `drive job ask` kept in its file changed since, it draws from his card as the drive stored it under that waits id, the words he read. Any other file `drive job ask` kept, named for the hash of its words, draws under the rules it was kept under, and one whose words changed since draws nothing, since only `drive job ask` changes a kept question; a file never kept is held to every rule a new block meets."""
     text = path.read_text()
-    if not (named := state.KEPT_ASK.fullmatch(path.stem)):
-        return limits.question(text)
-    if named["hash"] != state.ask_hash(text):
+    named = state.KEPT_ASK.fullmatch(path.stem)
+    asked = question and question["waits"]
+    if named and named["hash"] != state.ask_hash(text):
+        if shown := asked and next((shown["card"] for shown in cards["questions"] if shown["card"].get("waits") == asked), None):
+            return limits.redrawn(limits.rebuilt(shown, path.parent))
         raise DriveError(
             f"{path} no longer holds the words drive job ask kept there, so it draws no card: a kept question changes only through"
             f" drive job ask, which checks the new words against every rule, so keep them with drive job ask {named['job']} <file> and draw the file it prints"
         )
-    return limits.redrawn(text)
+    return limits.redrawn(text) if named or asked else limits.question(text)
 
 
 def cards_redraw(args: argparse.Namespace) -> int:

@@ -2362,22 +2362,61 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
 
 
-def test_job_card_refuses_a_kept_ask_edited_by_hand_until_drive_job_ask_keeps_the_new_words(
+def test_job_card_redraws_a_kept_ask_edited_by_hand_from_his_card_as_stored_and_refuses_it_while_no_card_is_stored(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     kept = Path(run("job", "ask", asking, "-")[1].splitlines()[0])
-    assert run("job", "card", str(kept), "--waits", "demo:j1-7")[0] == 0
+    code, printed = run("job", "card", str(kept), "--waits", "demo:j1-7")
+    assert code == 0
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["card"] = "https://acme.slack.com/archives/D123/p1794300000000100"
     trimmed = SHORT_ASK.replace("GET 2 page ranges\n", "")
     kept.write_text(trimmed)
     for argv in (["job", "card", asking], ["job", "card", str(kept), "--waits", "demo:j1-7"]):
         assert cli.main(argv) == 2
         assert f"{kept} no longer holds the words drive job ask kept there, so it draws no card" in capsys.readouterr().err
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [open_card(0, json.loads(printed))], "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    assert run("job", "card", asking) == (0, printed)
+    assert run("cards", "redraw") == (0, printed)
     monkeypatch.setattr("sys.stdin", io.StringIO(trimmed))
     rekept = run("job", "ask", asking, "-")[1].splitlines()[0]
     assert Path(rekept).name == f"j1-{state.ask_hash(trimmed)}.md"
-    assert run("job", "card", asking, "--waits", "demo:j1-7")[0] == 0
+    code, redrawn = run("job", "card", asking, "--waits", "demo:j1-7")
+    assert code == 0 and redrawn != printed
+
+
+def test_job_card_redraws_a_question_it_asked_in_words_kept_before_the_new_ask_shape_and_holds_a_file_no_question_keeps_to_that_shape(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old = (
+        "ASK Which layout should a finished run keep?\n"
+        "The run page guesses where each journal file's page map starts.\n"
+        "I recommend one snapshot file per finished run.\n"
+        "- One snapshot file per finished run, so its page opens in 3 requests (recommended)\n"
+        "- A map file beside each journal file, twice the objects\n"
+        "Findings:\n"
+        "Direct fix: none: rebuilt from the posted card\n"
+    )
+    rebuilt = state.rebuilt_ask("demo", "demo:j1-8")
+    rebuilt.parent.mkdir(exist_ok=True)
+    rebuilt.write_text(old)
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(rebuilt), "Which layout should a finished run keep?", state.stamp(), card=link) | {"waits": "demo:j1-8"})
+    unasked = tmp_path / "ask.md"
+    unasked.write_text(old)
+    assert cli.main(["job", "card", str(unasked), "--waits", "demo:j1-9"]) == 2
+    assert "the ASK is out of shape" in capsys.readouterr().err
+    code, printed = run("job", "card", asking, str(rebuilt), "--waits", "demo:j1-8")
+    assert (code, json.loads(printed)["waits"], json.loads(printed)["options"]) == (
+        0,
+        "demo:j1-8",
+        ["One snapshot file per finished run, so its page opens in 3 requests", "A map file beside each journal file, twice the objects"],
+    )
+    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(str(rebuilt), "demo:j1-8", link)]
 
 
 def test_job_card_from_a_relative_path_gives_the_question_kept_there_its_waits_id(
