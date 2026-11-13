@@ -683,7 +683,7 @@ function priorityChips(item) {
 function decisionRail(item) {
   const card = item.card;
   const rail = item.rail ?? { held: [], asker: null, answers: [] };
-  const tasks = item.blocks.map(({ id }) => featureOf(id));
+  const tasks = item.blocks.map(({ id }) => featureOf(id)).sort((a, b) => (b.id === rail.asker?.feature) - (a.id === rail.asker?.feature));
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
   return `<aside class="context-rail decision-sidebar" aria-label="About this decision">
     <div class="eyebrow">Need something before deciding?</div>
@@ -707,7 +707,7 @@ function decisionCard(item, at, total) {
   const recommended = option.label === item.card.recommended;
   const metrics = option.metrics?.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
   const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : 'Selected outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
-  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' && choice.metrics?.length ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">${i === state.selected ? '↗' : '→'}</span></button>`).join('')}</div>`;
+  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' && choice.metrics?.length ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...(story.options[0].metrics ?? []).map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...(choice.metrics ?? []).map((metric) => metric.value)])]) : ''}</div>`;
@@ -978,7 +978,7 @@ function nowScreen() {
   const metrics = [['Decisions', picks, 'warm', `#/queue/question${scopeQuery(project ?? null, stream ?? null)}`], ['PRs to approve', taps, 'you', `#/queue/tap${scopeQuery(project ?? null, stream ?? null)}`], ['Moving', entries.filter((entry) => entry.state === 'running').length, 'doing', null], ['Blocked', entries.filter((entry) => entry.state === 'blocked').length, 'bad', null], ['Live', entries.filter((entry) => entry.state === 'live').length, 'done', '#/history']];
   const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
   return `<div class="now-head"><div><div class="eyebrow">Now · ${keys.length ? 'In focus' : 'Across the drive'}</div><h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'What needs you')}</h1></div><div class="now-actions">${project !== undefined ? `<a class="map-btn" href="${zoomHref('now', ...keys.slice(0, -1))}">← Back</a>` : ''}<a class="map-btn primary" href="#/queue/all${scopeQuery(project ?? null, stream ?? null)}">Open queue →</a></div></div>
-    <div class="now-metrics">${metrics.map(([label, count, tone, href]) => `<${href ? 'a' : 'div'} class="metric t-${tone}"${href ? ` href="${esc(href)}"` : ''}><span>${label}</span><b>${count}</b>${href ? '<span class="metric-arrow" aria-hidden="true">↗</span>' : ''}</${href ? 'a' : 'div'}>`).join('')}</div>
+    <div class="now-metrics">${metrics.map(([label, count, tone, href]) => `<${href ? 'a' : 'div'} class="metric t-${tone}"${href ? ` href="${esc(href)}"` : ''}><span>${label}</span><b>${count}</b>${href ? '<span class="metric-arrow" aria-hidden="true">›</span>' : ''}</${href ? 'a' : 'div'}>`).join('')}</div>
     ${nowCanvas(tree, project, stream, task, side)}`;
 }
 
@@ -1118,7 +1118,7 @@ function region(key, streams, project, stream) {
   const open = list.filter((entry) => entry.state !== 'live').length;
   return `<div class="region${key === NONE ? ' unfiled' : ''}${project !== undefined && !here ? ' aside' : ''}" data-cam-key="${esc(key)}" data-href="${zoomHref('now', key)}">
     <a class="region-head" href="${zoomHref('now', key)}" data-tip="${esc(groupTip(fileName(key), list))}"${project === undefined || !here ? '' : ' tabindex="-1"'}>
-      <span class="zoom-mark" aria-hidden="true">↗</span>
+      <span class="zoom-mark" aria-hidden="true">›</span>
       <span class="region-name"><b>${esc(fileName(key))}</b><small>${esc(counted(streams.size, 'workstream'))}</small></span>
       ${needs(list)}
       <span class="region-open"><b>${open}</b><small>active</small>${stateBar(list)}</span>

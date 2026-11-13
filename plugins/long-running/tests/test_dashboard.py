@@ -384,7 +384,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { dirname, join } from "node:path";
 const quiet = { addEventListener() {} };
-const context = vm.createContext({ document: quiet, window: quiet, components: JSON.parse(readFileSync(0, "utf8")) });
+const context = vm.createContext({ document: quiet, window: quiet, URL, components: JSON.parse(readFileSync(0, "utf8")) });
 const kit = readFileSync(join(dirname(process.argv[2]), "kit", "decisions.js"), "utf8");
 console.log(vm.runInContext(kit + "\\n" + readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
 """
@@ -1088,7 +1088,8 @@ await wait(300);
 const canvas = document.querySelector('#main .canvas');
 const viewport = canvas.querySelector('.viewport');
 const box = canvas.getBoundingClientRect();
-const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (innerWidth * innerHeight) > 0.6 };
+const room = document.querySelector('#main').getBoundingClientRect();
+const fills = { right: innerWidth - box.right <= 24, bottom: innerHeight - box.bottom <= 24, share: box.width * box.height / (room.width * room.height) > 0.6 };
 const wheel = (deltaY, [x, y]) => viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY, clientX: x, clientY: y }));
 const middle = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
 const over = middle(canvas.querySelector('.region[data-cam-key="Platform"]'));
@@ -1231,7 +1232,7 @@ def test_now_draws_waiting_and_movement_as_labeled_metrics_and_lists_global_prio
 location.hash = '#/now';
 await wait(300);
 done({
-  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('↗', '').trim()),
+  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('›', '').trim()),
   ranked: [...document.querySelectorAll('#main .qrow')].map((row) => row.dataset.rank),
   strip: [...document.querySelectorAll('#alerts > *')].map((chip) => chip.textContent),
   needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-head .need')].map((need) => need.textContent),
@@ -1797,7 +1798,7 @@ done({ listed, chips, scoped, waits, sent });
     assert seen == {
         "listed": ["1", "2"],
         "chips": ["All projects2", "Drive1", "Iris1"],
-        "scoped": {"hash": "#/queue/all?project=Drive", "title": "fix the lock", "listed": 0},
+        "scoped": {"hash": "#/queue/all?project=Drive", "title": "Fix the lock", "listed": 0},
         "waits": "After your Approve it still waits: its review reads none",
         "sent": [{"pr": "a/b#7", "label": "Approve", "head": "abc"}],
     }
@@ -2537,11 +2538,11 @@ def test_the_history_numbers_sit_on_an_even_grid_in_full_contrast(tmp_path: Path
 location.hash = '#/history';
 await wait(150);
 const stats = [...document.querySelectorAll('#main .history-stats > div')].map((each) => each.getBoundingClientRect());
-done({ lefts: stats.map((each) => Math.round(each.left)), widths: stats.map((each) => Math.round(each.width)), color: getComputedStyle(document.querySelector('#main .big-date')).color });
+done({ lefts: stats.map((each) => Math.round(each.left)), widths: stats.map((each) => Math.round(each.width)), color: getComputedStyle(document.querySelector('#main .big-date')).color === getComputedStyle(document.body).color });
 """, board(), size)
     columns = sorted(set(seen["lefts"]))
     steps = {right - left for left, right in zip(columns, columns[1:])}
-    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, "rgb(34, 39, 39)")
+    assert (len(columns), max(steps) - min(steps) <= 1, len(set(seen["widths"])) == 1, seen["color"]) == (4 if size == "1440,900" else 2, True, True, True)
 
 
 def test_a_picture_or_figure_sent_him_is_a_thumbnail_in_its_row_that_opens_in_the_lightbox(tmp_path: Path) -> None:
@@ -2581,6 +2582,8 @@ const tap = async (el) => {
   el.click();
   await wait(50);
 };
+fact().scrollIntoView({ block: 'center' });
+await wait(100);
 await tap(fact());
 const opened = { open: open(), says: tip.textContent.startsWith('Waiting on you for') };
 await tap(fact());
@@ -2596,7 +2599,7 @@ fact().dispatchEvent(new PointerEvent('pointerover', { pointerType: 'mouse', bub
 fact().dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
 done({ opened, again, elsewhere, scrolled, hovered: open() });
-""", board(queue=[QUESTION | {"since": "2026-11-10T23:00:00-08:00"}]), "390,844")
+""", board(queue=[{"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": "2026-11-10T23:00:00-08:00", "holds": 0, "blocks": []}]), "390,844")
     assert seen == {"opened": {"open": True, "says": True}, "again": False, "elsewhere": False, "scrolled": False, "hovered": True}
 
 

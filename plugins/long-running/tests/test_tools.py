@@ -1038,6 +1038,8 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
         for ruling in ("8427b3c", "cabb099")
     ]
     dropped = ["demo:j1-684682", f"o1:{ELECTRON}", f"o1:{MONTY}", "Forge-AI/monorepo#54102"]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["agent"] = "agent-1"
     code, out = run("answer", "8427b3c", "--dropped", *dropped, "--stands", *(f"o1:{part}" for part in SANDSQL_PARTS), "Forge-AI/monorepo#54101", "--sent", "j1")
     assert (code, out.splitlines()) == (
         0,
