@@ -740,7 +740,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     report(monkeypatch, {"close": "o1"}, lane="watch")
     assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o1", "record": "684712"}).startswith(f"POSTED {answer}")
     report(monkeypatch, {"close": "o1"}, lane="meta")
-    refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: return NOTHING o1 closes on report 684712"
+    refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: send no close of o1, and a handler passed this one returns NOTHING o1 closes on report 684712"
     with pytest.raises(DriveError, match=re.escape(f"nothing posted: {refused}")):
         talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o1", "record": "684713"})
     assert len(sent) == 1

@@ -94,6 +94,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     posting = text.startswith("POST")
     yield None if OPENING.match(text) else UNOPENED
     yield dm_url(drive, record)
+    yield next((agents.Unjudged(refused) for order_id in state.closed_orders(attrs(record)) if (refused := state.second_close(drive, order_id, attrs(record)))), None)
     yield misnamed_part(drive, record)
     yield unfinished(drive, record) if posting else None
     yield not_thread(record)

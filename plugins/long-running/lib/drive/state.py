@@ -2024,6 +2024,19 @@ def closed_orders(report: dict) -> list[str]:
     return [order for order in ORDER_LIST.split(report.get("close") or "") if order]
 
 
+def second_close(data: dict, order_id: str, report: dict) -> str | None:
+    """Why a report closing an order closes nothing: another report already closes it, claimed by say before its post went out, by drive order set or by the watch's post of its own close report, or, for a report not posted yet, the close report drive job prove or the watch's DONE at a merge keeps on the order for the watch to post, so he reads one close of each order whoever wrote the second, such as the watch's close report and the meta session's on one DONE."""
+    order = data["orders"].get(order_id)
+    if not order or order_id not in closed_orders(report):
+        return None
+    waiting = order["close_report"] if report.get("seq") is None else None
+    closer = order["closed_on"] or (waiting and waiting["id"])
+    if not closer or closer == report.get("seq"):
+        return None
+    posting = "" if order["closed_on"] else ", which the watch posts on its next read,"
+    return f"refused, report {closer}{posting} already closes {order_id}, so this second close of it posts nothing: send no close of {order_id}, and a handler passed this one returns NOTHING {order_id} closes on report {closer}"
+
+
 def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str]]:
     """The order and part each item of a report's part attr names: `<order>:<part>` items separated by `;`, as `o491:fix;o504:increase the search worker's RAM`, so one post in a thread two orders share delivers on both; an item with no order before it is a part of order_id, the order the post is recorded on."""
     items = [(named[1], named[2].strip()) if (named := ORDER_PART.fullmatch(item.strip())) else (order_id, item.strip()) for item in PART_ITEMS.split(report.get("part") or "")]

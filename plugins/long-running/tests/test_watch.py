@@ -4497,6 +4497,35 @@ def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_i
     assert len(posts) == 4
 
 
+def test_the_watchs_close_report_is_its_orders_one_close_so_the_cci_post_hook_refuses_a_second_while_it_waits_and_once_it_is_posted(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import record_lines
+    from drive import tools
+
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["close_report"] = CLOSE_REPORT
+    meta = {
+        "session_id": "session-under-test",
+        "tool_name": "mcp__plugin_cc-inbox_cci__post",
+        "tool_input": {"kind": "report", "to": ["communicator@demo"], "attrs": {"close": "o1"}, "text": "POST captain-hook 12.121.76 is installed"},
+    }
+    waiting = record_lines.decision(meta)
+    assert (waiting["permissionDecision"], waiting["permissionDecisionReason"]) == (
+        "deny",
+        "refused, report install-proved-j1, which the watch posts on its next read, already closes o1, so this second close of it posts nothing:"
+        " send no close of o1, and a handler passed this one returns NOTHING o1 closes on report install-proved-j1",
+    )
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: ["688113"])
+    assert staged(watch.close_report_lines, watcher(demo), T0) == []
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["closed_on"], data["orders"]["o1"]["close_report"]) == ("688113", None)
+    assert record_lines.decision(meta)["permissionDecisionReason"].startswith("refused, report 688113 already closes o1, so this second close of it posts nothing")
+    watchs = {"close": "o1", "seq": "688113"}
+    assert (state.second_close(data, "o1", watchs), cli.claim_close(demo, watchs)) == (None, [])
+
+
 @pytest.mark.parametrize("count", [1, 100])
 def test_the_watch_reads_the_monitors_of_every_open_incident_whose_fix_is_live_in_one_search_a_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     serve(monkeypatch, {})
