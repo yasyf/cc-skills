@@ -151,6 +151,25 @@ def test_claude_codes_permission_prompt_on_a_drive_agents_command_is_refused(
     assert bash_guard.deny_reason(bash(unreadable, session="ordinary", hook_event_name="PermissionRequest", **elsewhere)) is None
 
 
+def test_claude_codes_permission_prompt_in_an_orca_lane_is_refused(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """j2871's read-only sqlite3 loop, which Claude Code's dangerous-rm check prompted on in bypass permissions mode because its parser cannot read zsh's `${(s:,:)cols}`."""
+    loop = (
+        "for db in ~/.cc-slack/dm-threads.db ~/.cc-slack/threads.db ~/.cc-slack/posts.db ~/.cc-slack/cards.db; do"
+        " for t in $(sqlite3 -readonly $db \"select name from sqlite_master where type='table'\"); do"
+        " cols=$(sqlite3 -readonly $db \"select group_concat(name) from pragma_table_info('$t')\");"
+        " for col in ${(s:,:)cols}; do sqlite3 -readonly $db \"select '$db', '$t', '$col' from $t where $col like '%thread_ts%' limit 1\"; done;"
+        " done; done"
+    )
+    prompt = bash(loop, session="lane", hook_event_name="PermissionRequest")
+    assert bash_guard.deny_reason(prompt) is None
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(prompt)))
+    bash_guard.main()
+    decided = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert decided == {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": bash_guard.UNSEEN_PROMPT}}
+    assert bash_guard.deny_reason(bash(loop, session="lane", hook_event_name="PreToolUse")) is None
+
+
 def test_drive_job_resume_runs_in_the_foreground_however_it_is_called(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     resume = 'drive job resume j3 "go"'
     foreground = {"command": resume, "run_in_background": False, "timeout": 20000}
