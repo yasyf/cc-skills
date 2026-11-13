@@ -137,5 +137,5 @@ done({ sandbox: frame.getAttribute('sandbox'), slice: heard[0], counts: [unpromp
         "slice": {"type": "seen", "features": ["o1"], "prs": [["tap:a/b#7", ["Approve", "Hold"]]]},
         "counts": [0, 0, 0],
         "posted": [["/api/tap", {"pr": "a/b#7", "label": "Approve", "head": "abc"}]],
-        "toast": "toast held",
+        "toast": "toast sending",
     }
