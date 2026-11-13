@@ -12,7 +12,7 @@ from pathlib import Path
 NUMBER = "<number>"
 REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
-    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
+    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { __typename login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
     "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } timelineItems(itemTypes: [LABELED_EVENT], last: 20) { nodes { ... on LabeledEvent { createdAt label { name } } } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
@@ -36,6 +36,7 @@ PRS_PER_QUERY = 25
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
+APP_PREFIX = "app/"
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 FLOOR = re.compile(r"ccx: GitHub rate limit floor: [^(]*\((?P<reset>[^)]+)\)")
 
@@ -135,6 +136,13 @@ def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
     return "query { " + " ".join(blocks) + " }"
 
 
+def author(node: dict | None) -> str:
+    """Who opened a PR, spelled as gh pr view spells it, so the drive stores one name whichever read it took: a GitHub App's login under app/, and a deleted account as ghost."""
+    if node is None:
+        return DELETED_AUTHOR
+    return f"{APP_PREFIX}{node['login']}" if node["__typename"] == "Bot" else node["login"]
+
+
 def flatten(node: dict) -> dict:
     """One PR's GraphQL node as the drive reads it, with ejected_at, when Trunk last put the trunk-failed label it carries on it, or None when it carries none."""
     commits = node["commits"]["nodes"]
@@ -153,7 +161,7 @@ def flatten(node: dict) -> dict:
         "mergeable": node["mergeable"],
         "title": node["title"],
         "lastEditedAt": node["lastEditedAt"],
-        "author": (node["author"] or {"login": DELETED_AUTHOR})["login"],
+        "author": author(node["author"]),
         "labels": labels,
         "ejected_at": max((event["createdAt"] for event in node["timelineItems"]["nodes"] if event["label"]["name"] == EJECTED_LABEL), default=None) if EJECTED_LABEL in labels else None,
     }

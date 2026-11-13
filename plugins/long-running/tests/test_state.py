@@ -620,6 +620,24 @@ def test_pr_key_rejects_non_pr_urls() -> None:
         state.pr_key("https://github.com/Forge-AI/monorepo/issues/123")
 
 
+@pytest.mark.parametrize(
+    ("author", "branch", "taken"),
+    [
+        ("yasyf", "lane", True),
+        (state.AI_ONCALL_LOGIN, "ai-oncall/incident-inc-2026-11-01-abc123-follow-up", True),
+        (state.AI_ONCALL_LOGIN, "ai-oncall-retro/inc-2026-11-01-abc123", True),
+        (state.AI_ONCALL_LOGIN, "vulcan/eng-1234-a-teammates-task", False),
+        (state.AI_ONCALL_LOGIN, "iris-evals-triage/2026-11-13", False),
+        ("poetic-vulcan", "ai-oncall/incident-inc-2026-11-01-abc123-follow-up", False),
+        ("app/trunk-io", "ai-oncall/incident-inc-2026-11-01-abc123-follow-up", False),
+        ("rowan", "ai-oncall/incident-inc-2026-11-01-abc123-follow-up", False),
+        (None, None, True),
+    ],
+)
+def test_foreign_takes_his_own_and_ai_oncalls_prs_and_refuses_a_teammates_or_any_other_apps(author: str | None, branch: str | None, taken: bool) -> None:
+    assert (state.foreign("Forge-AI/monorepo#56030", author, branch, []) is None) is taken
+
+
 def test_pr_url_round_trips() -> None:
     assert state.pr_url("yasyf/cc-skills#9") == "https://github.com/yasyf/cc-skills/pull/9"
 

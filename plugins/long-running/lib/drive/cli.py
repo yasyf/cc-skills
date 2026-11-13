@@ -3090,7 +3090,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     known = state.load(name)
     added = find(known["jobs"], job_id, "job")
     author = read["author"]["login"]
-    if why := state.foreign(key, author, [known["orders"][added["order"]]]) or state.pr_held_elsewhere(known, key, job_id):
+    if why := state.foreign(key, author, read["headRefName"], [known["orders"][added["order"]]]) or state.pr_held_elsewhere(known, key, job_id):
         raise DriveError(f"{key}: refused, nothing added: {why}")
     refuse_an_unkinded_title(key, read, port_of)
     refuse_an_undrawn_show_me(name, key, read)
@@ -3113,7 +3113,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
-        pr.update(order=job["order"], author=author, title=read["title"])
+        pr.update(order=job["order"], author=author, branch=read["headRefName"], title=read["title"])
         if port_of:
             pr.update(port_of=port_of, exempt="pure port", wants_tap=False)
         if exempt:

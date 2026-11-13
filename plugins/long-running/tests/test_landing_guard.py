@@ -437,7 +437,7 @@ def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool
 def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_names(drive_pr: str, on_github: dict, no_calls: None, command: str) -> None:
     approve(drive_pr)
     on_github["author"] = {"login": "rowan", "is_bot": False}
-    assert landing_guard.deny_reason(bash(command)) == f"Refused on purpose: {state.foreign(drive_pr, 'rowan', [])}. Land, enqueue, label and rebase nothing of it"
+    assert landing_guard.deny_reason(bash(command)) == f"Refused on purpose: {state.foreign(drive_pr, 'rowan', 'land-it', [])}. Land, enqueue, label and rebase nothing of it"
     assert landing_guard.deny_reason(bash(command, session_id="ordinary")) is None
     on_github["author"] = {"login": "yasyf", "is_bot": False}
     assert landing_guard.deny_reason(bash(command)) == (None if "stack-enqueue" in command else landing_guard.QUEUE_REASON.format(key=drive_pr))

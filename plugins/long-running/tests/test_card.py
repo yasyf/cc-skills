@@ -556,7 +556,7 @@ def test_no_card_is_drawn_for_a_pr_someone_else_opened_unless_the_order_it_serve
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["author"] = "rowan"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
-    assert (reply["cards"], [skipped["reason"] for skipped in reply["skipped"]]) == ([], [state.foreign("Forge-AI/monorepo#42", "rowan", [])])
+    assert (reply["cards"], [skipped["reason"] for skipped in reply["skipped"]]) == ([], [state.foreign("Forge-AI/monorepo#42", "rowan", None, [])])
     with state.edit(drive) as data:
         data["orders"]["o1"]["text"] = "land #42 once it is green"
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]

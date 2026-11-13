@@ -36,7 +36,7 @@ def node(**overrides: object) -> dict:
         "headRefName": "fix-the-thing",
         "title": "Fix the thing",
         "lastEditedAt": None,
-        "author": {"login": "yasyf"},
+        "author": {"__typename": "User", "login": "yasyf"},
         "reviewDecision": None,
         "latestOpinionatedReviews": {"nodes": []},
         "mergeable": "MERGEABLE",
@@ -450,6 +450,12 @@ def test_below_follows_a_native_stack_split_off_another_open_prs_branch_down_to_
     monkeypatch.setattr(github, "below", BELOW)
     assert github.below("Forge-AI/monorepo#54872") == [f"Forge-AI/monorepo#{number}" for number in (54355, 54378, 54404, 54866)]
     assert asked == [54872, 54866, 54404, 54355]
+
+
+def test_flatten_spells_an_apps_author_as_gh_pr_view_does_so_the_watch_stores_the_name_drive_pr_add_read() -> None:
+    authors = [{"__typename": "Bot", "login": "poetic-vulcan"}, {"__typename": "User", "login": "yasyf"}, None]
+    assert [github.flatten(node(author=author))["author"] for author in authors] == ["app/poetic-vulcan", "yasyf", "ghost"]
+    assert "author { __typename login }" in github.FIELDS
 
 
 def test_ejected_at_is_when_trunk_last_put_on_the_trunk_failed_label_a_pr_still_carries() -> None:

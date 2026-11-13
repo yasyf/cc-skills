@@ -6325,7 +6325,7 @@ def test_the_watch_drops_a_pr_someone_else_opened_that_no_order_of_his_names_onc
         data["jobs"]["j1"].update(prs=[state.pr_url(KEY), state.pr_url(OTHER)], waits=[f"release:api:{OTHER}"])
     withdrawals.cards.append(CARD)
     serve(monkeypatch, {KEY: read(), OTHER: read(headRefOid="ddddddd444", author="rowan")})
-    assert watch.run_pass(watcher(demo), T0) == [f"DROPPED {OTHER}: {state.foreign(OTHER, 'rowan', [])} [o1 j1]", f"CARD {CARD} withdrawn: {OTHER} is dropped"]
+    assert watch.run_pass(watcher(demo), T0) == [f"DROPPED {OTHER}: {state.foreign(OTHER, 'rowan', 'the-watch', [])} [o1 j1]", f"CARD {CARD} withdrawn: {OTHER} is dropped"]
     assert withdrawals.asked == [(state.pr_url(OTHER), "Dropped from the drive: rowan opened it, and the drive tracks no one else's PR unless your order names it")]
     data = state.load(demo)
     assert (list(data["prs"]), data["prs"][KEY]["stack"], data["jobs"]["j1"]["prs"], data["jobs"]["j1"]["waits"]) == ([KEY], [KEY], [state.pr_url(KEY)], [])
@@ -6356,11 +6356,11 @@ def test_a_pr_someone_else_opened_stays_refused_while_his_card_on_it_cannot_be_w
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
     with state.edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}
-    assert state.foreign_pr(state.load(demo), KEY) == state.foreign(KEY, "rowan", [])
+    assert state.foreign_pr(state.load(demo), KEY) == state.foreign(KEY, "rowan", "the-watch", [])
     with pytest.raises(state.DriveError, match="opened on GitHub by rowan"):
         land.run(demo, [KEY])
     monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda url, why: [])
-    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == [f"DROPPED {KEY}: {state.foreign(KEY, 'rowan', [])} [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == [f"DROPPED {KEY}: {state.foreign(KEY, 'rowan', 'the-watch', [])} [o1 j1]"]
     assert KEY not in state.load(demo)["prs"]
 
 

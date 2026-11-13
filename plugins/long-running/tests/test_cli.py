@@ -4886,7 +4886,7 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["author"] = {"login": "rowan", "is_bot": False}
     assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
-    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
+    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', 'land-it', [])}" in capsys.readouterr().err
     assert key not in state.load("demo")["prs"]
     with state.edit("demo") as data:
         data["orders"]["o1"]["text"] = "land #42 once it is green"
@@ -4895,8 +4895,23 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     with state.edit("demo") as data:
         data["orders"]["o1"]["text"] = "land it"
     assert cli.main(["pr", "set", PR, "--exempt", "test-only"]) == 2
-    assert f"{key}: refused, nothing set: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
+    assert f"{key}: refused, nothing set: {state.foreign(key, 'rowan', 'land-it', [])}" in capsys.readouterr().err
     assert state.load("demo")["prs"][key]["exempt"] is None
+
+
+def test_pr_add_and_set_take_ai_oncalls_pr_on_its_own_branch_and_refuse_the_same_app_on_a_teammates_task_branch(
+    run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    key = "Forge-AI/monorepo#42"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    on_github |= {"author": {"login": state.AI_ONCALL_LOGIN, "is_bot": True}, "headRefName": "vulcan/eng-1234-a-teammates-task"}
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    assert f"{key}: refused, nothing added: {state.foreign(key, state.AI_ONCALL_LOGIN, 'vulcan/eng-1234-a-teammates-task', [])}" in capsys.readouterr().err
+    on_github["headRefName"] = "ai-oncall/incident-inc-2026-11-01-abc123-follow-up"
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert {field: state.load("demo")["prs"][key][field] for field in ("author", "branch")} == {"author": state.AI_ONCALL_LOGIN, "branch": "ai-oncall/incident-inc-2026-11-01-abc123-follow-up"}
+    assert run("pr", "set", PR, "--exempt", "test-only")[0] == 0
 
 
 def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_or_a_sessionless_sprite_lane_and_its_opener_takes_it_back(

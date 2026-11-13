@@ -97,6 +97,8 @@ ABOUT_HIS_WORK = "his work"
 ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)
 GUARDED_OWNER = "forge-ai"
 HIS_LOGIN = "yasyf"
+AI_ONCALL_LOGIN = "app/poetic-vulcan"
+AI_ONCALL_BRANCHES = ("ai-oncall/", "ai-oncall-retro/")
 NO_TAP_OWNER = HIS_LOGIN
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 MONOREPO = "Forge-AI/monorepo"
@@ -2615,9 +2617,9 @@ def names_pr(words: str, key: str) -> bool:
     return any(bare == number if (bare := found.groups()[-1]) else pr_key(found[0]).casefold() == key.casefold() for found in PR_REF.finditer(words))
 
 
-def foreign(key: str, author: str | None, orders: Iterable[dict]) -> str | None:
-    """Why the drive may not track, card, tap or land a PR: someone other than him opened it on GitHub, and none of the orders of his it serves names it by link, key or #N; None for his own, one such an order names, or one whose author no GitHub read has given since this install, which the watch's next read does."""
-    if author is None or author.casefold() == HIS_LOGIN or any(names_pr(order["text"], key) for order in orders):
+def foreign(key: str, author: str | None, branch: str | None, orders: Iterable[dict]) -> str | None:
+    """Why the drive may not track, card, tap or land a PR: someone other than him opened it on GitHub, and none of the orders of his it serves names it by link, key or #N; None for his own, ai-oncall's, which the poetic-vulcan app opens on an ai-oncall/ or ai-oncall-retro/ branch as pr-reviewer's approvesAuthor reads it, one such an order names, or one whose author no GitHub read has given since this install, which the watch's next read does."""
+    if author is None or author.casefold() == HIS_LOGIN or author == AI_ONCALL_LOGIN and branch.startswith(AI_ONCALL_BRANCHES) or any(names_pr(order["text"], key) for order in orders):
         return None
     return (
         f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and no order of his it serves names it by link or #N: the drive"
@@ -2631,8 +2633,8 @@ def served(data: dict, pr: dict) -> Iterator[dict]:
 
 
 def foreign_pr(data: dict, key: str) -> str | None:
-    """Why the drive may not keep a PR it tracks, from the author its last GitHub read stored."""
-    return foreign(key, data["prs"][key]["author"], served(data, data["prs"][key]))
+    """Why the drive may not keep a PR it tracks, from the author and head branch its last GitHub read stored."""
+    return foreign(key, data["prs"][key]["author"], data["prs"][key]["branch"], served(data, data["prs"][key]))
 
 
 def drop_pr(data: dict, key: str) -> None:

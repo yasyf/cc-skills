@@ -361,7 +361,7 @@ def foreign_reason(key: str, shell: Shell) -> str | None:
     if (read := card.read(key)) is None:
         raise github.GithubError(f"could not read who opened {key}")
     judged = judged_by(key, shell.session)
-    why = state.foreign(key, read["author"]["login"], state.served(state.load(judged[0]), judged[1]) if judged else [])
+    why = state.foreign(key, read["author"]["login"], read["headRefName"], state.served(state.load(judged[0]), judged[1]) if judged else [])
     return why and f"Refused on purpose: {why}. Land, enqueue, label and rebase nothing of it"
 
 
