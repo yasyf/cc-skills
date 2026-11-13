@@ -519,6 +519,7 @@ def bound(data: dict) -> dict:
     for handler in data["handlers"].values():
         handler.setdefault("holds", None)
         handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
+        handler.setdefault("took", [])
         handler.setdefault("posted", [])
     for held in data["roles"].values():
         held.setdefault("terminal", None)

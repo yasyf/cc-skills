@@ -345,7 +345,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
             kept = held_now["record"] and held_now["record"] != entry["holds"]["record"]
             entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": left, "posted": []}
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": left, "took": [], "posted": []}
     if held and kept:
         return held, True
     if held:
@@ -457,18 +457,22 @@ def handed(briefs: list[str]) -> str:
 
 
 def take_handed(name: str, handler: str) -> list[str]:
-    """The briefs drive handler handed the handler since its last step, taken off its entry so each reaches it once."""
+    """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
     if not state.saved(name)["handlers"][handler]["handed"]:
         return []
     with state.edit(name) as data:
         entry = data["handlers"][handler]
         briefs, entry["handed"] = entry["handed"], []
+        entry["took"] += briefs
     return briefs
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on. A turn an API error ended, which Claude Code hands its StopFailure hook in place of Stop, is no end: the handler starts again."""
     name = state.session_drives(payload["session_id"])[0]
+    if payload["hook_event_name"] == "StopFailure":
+        restart_handler(name, payload)
+        return None
     try:
         if reason := refused(payload):
             return reason
@@ -476,6 +480,7 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
             ended_handler = data["handlers"][payload["agent_id"]]
             if briefs := ended_handler["handed"]:
                 ended_handler["handed"] = []
+                ended_handler["took"] += briefs
             else:
                 data["handlers"].pop(payload["agent_id"])
                 if job_id := state.agent_job(data, payload["agent_id"]):
@@ -484,13 +489,36 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
             return Unjudged(f"Refused on purpose: {handed(briefs)}")
     except state.NewerDrive:
         ended_handler = state.saved(name)["handlers"][payload["agent_id"]]
+    except Exception:
+        post_done(name, payload, state.saved(name)["handlers"][payload["agent_id"]])
+        raise
+    post_done(name, payload, ended_handler)
+
+
+def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [*posted, RETYPED.sub("", line).strip(" ;")]))
-    cwd = Path(payload["cwd"])
-    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], cwd)
+    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]))
+    remove_session(payload)
+
+
+def restart_handler(name: str, payload: dict) -> None:
+    """Start a handler whose turn an API error ended again at once, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as not started until its new session binds, so no brief meanwhile takes what it holds. A restart the error meets again ends the same way and starts again."""
+    kept = brief_path(name, payload["agent_id"])
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(opening(Path(payload["agent_transcript_path"])))
+    with state.edit(name) as data:
+        entry = data["handlers"][payload["agent_id"]]
+        entry.update(session=None, handed=[*entry["took"], *entry["handed"]], took=[])
+    state.detach(name, ["handler-start", payload["agent_id"]], "handlers.log")
+    remove_session(payload)
+
+
+def remove_session(payload: dict) -> None:
+    """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it."""
     own, _ = background_job(payload["handler_session"])
-    subprocess.Popen(["claude", "rm", own], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    subprocess.Popen(["claude", "rm", own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def ended(row: dict) -> bool:
@@ -507,10 +535,15 @@ def brief(payload: dict) -> str:
     """The prompt that started whoever made the call that fired a hook, an agent of the session or an Orca lane's session itself, the brief file it names and the cci record its Record: line names read in."""
     if not (path := transcript_of(payload)).is_file():
         return ""
-    with path.open() as handle:
-        content = next(row for line in handle if (row := json.loads(line)).get("type") == "user")["message"]["content"]
-    prompt = carried(content if isinstance(content, str) else " ".join(part.get("text", "") for part in content))
+    prompt = carried(opening(path))
     return f"{prompt}\n{record(named[1])}" if (named := RECORD.search(prompt)) else prompt
+
+
+def opening(transcript: Path) -> str:
+    """The prompt a session's transcript opens with, the brief it started on."""
+    with transcript.open() as handle:
+        content = next(row for line in handle if (row := json.loads(line)).get("type") == "user")["message"]["content"]
+    return content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
 
 
 def record(seq: str) -> str:
