@@ -1682,7 +1682,7 @@ location.hash = '#/queue/all';
 await wait(100);
 const rows = () => [...document.querySelectorAll('#main .queue-list .qrow-main small')].map((why) => why.textContent);
 const listed = rows();
-const chips = [...document.querySelectorAll('#main .scopes a')].map((chip) => chip.textContent);
+const chips = [...document.querySelectorAll('#main .scope-projects a')].map((chip) => chip.textContent);
 const press = (key) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 press(']');
 await wait(100);
@@ -1701,6 +1701,69 @@ done({ listed, chips, scoped, waits, sent });
         "scoped": {"hash": "#/queue/all?project=Drive", "title": "fix the lock", "listed": 0},
         "waits": "After your Approve it still waits: its review reads none",
         "sent": [{"pr": "a/b#7", "label": "Approve", "head": "abc"}],
+    }
+
+
+@pytest.mark.parametrize("size", ["1440,900", "390,844"])
+def test_queue_scope_nests_workstreams_in_the_project_keeps_counts_and_resets_without_losing_the_kind_filter(tmp_path: Path, size: str) -> None:
+    items = [
+        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453859{n:03}", "project": project, "workstream": stream}
+        for n, (project, stream) in enumerate([("Drive", "Dashboard"), ("Drive", "Jobs"), ("Iris", "Desktop")])
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/queue/question';
+await wait(100);
+const scope = () => document.querySelector('#queue-scope');
+const open = () => scope().querySelector('summary').click();
+const choose = async (label) => {
+  [...scope().querySelectorAll('a')].find((a) => a.firstElementChild.textContent === label).click();
+  await wait(100);
+};
+const onTop = () => [...scope().querySelectorAll('.scope-panel a')].every((a) => {
+  const box = a.getBoundingClientRect();
+  return a.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2));
+});
+const state = () => ({
+  open: scope().open,
+  label: scope().querySelector('.scope-label').textContent,
+  count: scope().querySelector('summary .n').textContent,
+  streams: [...scope().querySelectorAll('.scope-streams a')].map((a) => a.textContent),
+});
+const initial = state();
+open();
+await choose('Drive');
+const project = { ...state(), onTop: onTop() };
+const panel = scope().querySelector('.scope-panel').getBoundingClientRect();
+const inside = panel.left >= 0 && panel.right <= innerWidth;
+const focused = document.activeElement.textContent;
+await choose('Dashboard');
+const stream = state();
+open();
+await choose('All workstreams');
+const whole = state();
+open();
+await choose('Iris');
+const single = state();
+await push({ ...MODEL, queue: [...MODEL.queue, { ...MODEL.queue[2], answer: 'https://x.slack.com/archives/D1/p1794382453859309' }] });
+const updated = state();
+document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+const escaped = { open: scope().open, focused: document.activeElement === scope().querySelector('summary') };
+open();
+await choose('All projects');
+const reset = { ...state(), filter: location.hash.split('/')[2], focused: document.activeElement === scope().querySelector('summary') };
+done({ initial, project, inside, focused, stream, whole, single, updated, escaped, reset });
+""", board(queue=items), size)
+    assert seen == {
+        "initial": {"open": False, "label": "All projects", "count": "3", "streams": []},
+        "project": {"open": True, "label": "Drive", "count": "2", "streams": ["All workstreams2", "Dashboard1", "Jobs1"], "onTop": True},
+        "inside": True,
+        "focused": "All workstreams2",
+        "stream": {"open": False, "label": "Drive/Dashboard", "count": "1", "streams": ["All workstreams2", "Dashboard1", "Jobs1"]},
+        "whole": {"open": False, "label": "Drive", "count": "2", "streams": ["All workstreams2", "Dashboard1", "Jobs1"]},
+        "single": {"open": True, "label": "Iris", "count": "1", "streams": ["All workstreams1", "Desktop1"]},
+        "updated": {"open": True, "label": "Iris", "count": "2", "streams": ["All workstreams2", "Desktop2"]},
+        "escaped": {"open": False, "focused": True},
+        "reset": {"open": False, "label": "All projects", "count": "4", "streams": [], "filter": "question", "focused": True},
     }
 
 
