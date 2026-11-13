@@ -68,21 +68,50 @@ def test_a_restack_carries_a_check_kept_on_the_text_of_gh_pr_diff_to_the_compare
     assert state.load(demo)["prs"][KEY]["checked"] is None
 
 
-def test_a_moved_check_carries_beside_his_approve_on_a_head_never_read_which_keeps_no_patch_and_stays_on_its_head(
-    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+STORED_TAPS = {
+    "before patch was a field": {"label": "Approve", "at": "2026-11-12T16:11:40-08:00", "head": "head0", "source": "pressed the button"},
+    "a card press kept a patch": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "patch": "p0"},
+    "a later head read beside the patch": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "patch": "p0", "read": "head1"},
+    "adopted from its stack": {"label": "Approve", "at": "2026-11-12T18:30:00-08:00", "head": "head0", "source": "pressed the button", "action_ts": "1.2", "via": "Forge-AI/monorepo#41"},
+}
+
+
+def moved_check(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1")
     kept = subprocess.run(["git", "patch-id", "--stable"], input=SMALL.decode(), capture_output=True, text=True, check=True).stdout.split(" ")[0]
-    tap = {"label": "Approve", "at": state.stamp(), "head": "head0", "source": "pressed the card"}
-    with state.edit(demo) as data:
-        data["prs"][KEY] |= {"head": "head2", "checked": {"head": "head1", "orders": ["o1"], "patch": kept}, "tap": tap}
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": SMALL})
+    return {"head": "head2", "checked": {"head": "head1", "orders": ["o1"], "patch": kept}}
+
+
+@pytest.mark.parametrize("stored", list(STORED_TAPS))
+def test_a_moved_check_carries_beside_his_approve_in_each_shape_a_drive_stored_it_on_another_head_which_loads_without_patch_or_read(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, stored: str
+) -> None:
+    tap = STORED_TAPS[stored]
+    moved = moved_check(run, demo, monkeypatch)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= moved | {"tap": tap}
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    assert (pr["checked"]["head"], pr["tap"]) == ("head2", tap)
-    assert not served.unread(pr)
+    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "via": tap.get("via")}
+    assert (pr["checked"]["head"], pr["tap"], served.unread(pr)) == ("head2", loaded, False)
+
+
+def test_his_approve_recorded_by_pr_set_tapped_stays_on_its_head_through_a_push_that_carries_the_check(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    moved = moved_check(run, demo, monkeypatch)
+    link = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head1"
+    assert run("pr", "set", URL, "--tapped", "Approve", "--tap-source", link)[0] == 0
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= moved
+    assert served.carry(demo, [KEY]) == [KEY]
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None, "via": None})
 
 
 GAPS = (

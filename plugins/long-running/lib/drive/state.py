@@ -595,6 +595,8 @@ def load(name: str) -> dict:
         if (rework := pr.get("rework")) and "answer" in rework:
             pr["rework"] = {"by": rework["answer"], "words": rework["why"], "at": rework["at"]} if rework["head"] == pr["head"] else None
         pr.setdefault("rework", None)
+        if tap := pr["tap"]:
+            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap.get("via"), tap["at"])
     data.setdefault("answers", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
@@ -2111,6 +2113,11 @@ def rework(pr: dict, by: str, words: str) -> None:
 
 def rework_reason(pr: dict) -> str:
     return f'Being reworked to your words "{pr["rework"]["words"]}". A fresh card asks your tap once its builder says how they are met'
+
+
+def new_tap(label: str, head: str, source: str, action_ts: str | None = None, via: str | None = None, at: str | None = None) -> dict:
+    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, and the PR of its landing stack it came from."""
+    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "via": via}
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

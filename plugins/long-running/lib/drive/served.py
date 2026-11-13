@@ -155,7 +155,7 @@ def spawn(name: str, key: str) -> int:
 
 
 def carry(name: str, keys: list[str]) -> list[str]:
-    """Carry each PR's check, and his Approve, to a head that moved while its change stayed the one judged or approved, by `git patch-id --stable`, as a restack moves it, so his Approve lands a restacked PR at green with no check and none of either stands on a change nobody judged or approved; keep the patch his Approve was tapped on the first time its head is read, and compare none whose head moved before it was read, as `unread` does; the PRs whose check or Approve it carried."""
+    """Carry each PR's check to a head that moved while its change stayed the one judged, by `git patch-id --stable`, as a restack moves it, so no check stands on a change nobody judged; the PRs whose check it carried."""
     data = state.load(name)
     moved = [key for key in keys if unread(data["prs"][key])]
     if not moved:
@@ -167,35 +167,16 @@ def carry(name: str, keys: list[str]) -> list[str]:
             pr = data["prs"][key]
             if read["head"] != pr["head"] or not unread(pr):
                 continue
-            moved_to = patch(read["diff"])
-            stamp, tap, carried_here = pr["checked"], approval(pr), False
-            if stamp and stamp["head"] != pr["head"]:
-                carried_here = moved_to == stamp["patch"]
-                pr["checked"] = stamp | {"head": pr["head"]} if carried_here else None
-            if tap and tap["head"] == pr["head"]:
-                tap["patch"] = moved_to
-            elif tap and "patch" in tap and moved_to == tap["patch"]:
-                tap["head"] = pr["head"]
-                carried_here = True
-            elif tap and "patch" in tap:
-                tap["read"] = pr["head"]
-            if carried_here:
+            stamp = pr["checked"]
+            pr["checked"] = stamp | {"head": pr["head"]} if patch(read["diff"]) == stamp["patch"] else None
+            if pr["checked"]:
                 carried.append(key)
     return carried
 
 
 def unread(pr: dict) -> bool:
-    """Whether the change at the PR's head is still to be compared: a check stamped on another head, or his Approve with no patch kept on its own head, or one tapped on another head not yet compared with this one."""
-    stamp, tap = pr["checked"], approval(pr)
-    if stamp and stamp["head"] != pr["head"]:
-        return True
-    if not tap:
-        return False
-    return "patch" not in tap if tap["head"] == pr["head"] else "patch" in tap and tap.get("read") != pr["head"]
-
-
-def approval(pr: dict) -> dict | None:
-    return pr["tap"] if (pr["tap"] or {}).get("label") == "Approve" else None
+    """Whether a check stamped on another head is still to be compared with the change at the PR's head."""
+    return bool(pr["checked"]) and pr["checked"]["head"] != pr["head"]
 
 
 def patch(diff: bytes) -> str:

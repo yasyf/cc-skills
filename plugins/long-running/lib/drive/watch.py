@@ -1899,7 +1899,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Carry each heard PR's check against his words, and his Approve, to a head a restack moved, its change the one judged or approved, so his Approve lands it at green with no second judge, then redraw in place his open card carrying it; a diff read that fails is retried and said as any GitHub read is."""
+    """Carry each heard PR's check against his words to a head a restack moved, its change the one judged, so no second judge runs on it, then redraw in place his open card carrying it; a diff read that fails is retried and said as any GitHub read is."""
     data = state.load(watcher.name)
     try:
         carried = served.carry(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])])
