@@ -393,7 +393,7 @@ def test_a_first_launch_whose_brief_carries_his_answer_marks_its_job_sent_it_and
             data["answers"][answer_id] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, checkout, run_id, route, workspace: {field: f"{field}-1" for field in fields})
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields})
     assert run("job", "launch", "j1", "brief.md")[0] == 0
     answers = state.load(demo)["answers"]
     assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": None})

@@ -1232,7 +1232,7 @@ def test_now_draws_waiting_and_movement_as_labeled_metrics_and_lists_global_prio
 location.hash = '#/now';
 await wait(300);
 done({
-  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('↗', '').trim()),
+  metrics: [...document.querySelectorAll('#main .metric')].map((metric) => metric.textContent.replace('›', '').trim()),
   ranked: [...document.querySelectorAll('#main .qrow')].map((row) => row.dataset.rank),
   strip: [...document.querySelectorAll('#alerts > *')].map((chip) => chip.textContent),
   needs: [...document.querySelectorAll('#main .region[data-cam-key="Platform"] .region-head .need')].map((need) => need.textContent),
