@@ -37,9 +37,10 @@ communicator.
    driver until it lets go. Of the watches `cc-slack follows` lists, run
    `cc-slack unfollow <watch id>` for his DM channel's watch with no thread and each `dm` watch on
    its threads. Keep the alert channels' watches.
-3. Run the block's `Subscribe:` line; it replaces the driver's subscription.
-4. Start the communicator in its own Orca terminal with its command in [Start or resume](start.md),
-   whose prompt runs that page's steps 1 to 4.
+3. That `drive start` registered the driver's session with cci as the coordinator's, whose alias
+   owns the subscription that replaces the driver's.
+4. Start the communicator under cci and show it in its own Orca terminal with its lines in
+   [Start or resume](start.md), whose prompt runs that page's steps 1 to 4.
 5. A driver in no Orca terminal moves by [Into an Orca terminal](#into-an-orca-terminal).
 6. A question card he has not answered keeps its id, which names no job. The communicator forwards
    his answer with that id in the text, and the coordinator, which asked it, resumes the job that
@@ -54,9 +55,10 @@ meta session existed reads `meta: not started` in `drive status`, and its `Drive
 are the meta session's already, whoever held them before.
 
 1. Run `drive start <name> --role <its role>` again in the communicator's or the coordinator's
-   session: while no meta session is bound, it opens one in an Orca terminal of its own with the
-   command in [Start or resume](start.md), whose prompt binds it with `drive start <name> --role meta`.
-   Run that command yourself only when the start printed that the meta session did not start.
+   session: while no meta session is bound, it starts one under cci and shows it in an Orca terminal
+   of its own with the lines in [Start or resume](start.md), whose prompt binds it with
+   `drive start <name> --role meta`. Run those lines yourself only when the start printed that the
+   meta session did not start.
 2. From the moment it binds, the `record` tool and the post hooks send it each `defect` record, the
    `record` tool alone each `owner` record about the drive with the order it adds first, and the
    watch hands it its orders' lines.
@@ -64,10 +66,12 @@ are the meta session's already, whoever held them before.
 
 ## Into an Orca terminal
 
-A session moves into a fresh Orca terminal, resuming the same session, when its `drive status`
-line reads `in no Orca terminal`, as under tmux, `nohup` or `claude --bg`, or
+A session moves under cci and into a fresh Orca terminal, resuming the same session, when its
+`drive status` line reads `in no Orca terminal`, as under `nohup` or `claude --bg`, or
 `not visible in Orca until restarted into a terminal`. [Start or resume](start.md) sends one here
-for a model or build change too.
+for a model or build change too: cci starts it again with the command its last `drive start`
+registered. A session cci already runs in its tmux session that Orca does not show needs no move:
+step 5's command shows it, with no restart and no word from him.
 
 - Move a session only on his word naming it, because ending a session is his decision, which `drive move` records. A
   coordinator whose process has already exited is restarted at once by Start or resume, with no
@@ -80,9 +84,10 @@ for a model or build change too.
   or resume step 5 gives each job that needs one a fresh agent.
 
 1. Run `drive move <role> --his-word <the permalink of his message naming the move>`. It refuses
-   without his own message or while an incident order is open, records his word on the role, and
-   prints steps 2 to 4 with the role's lane, terminal, session and process id filled in; it stops
-   and starts nothing. Under tmux,
+   without his own message or while an incident order is open, records his word on the role,
+   registers its session with cci by its line in [Start or resume](start.md), and prints steps 2
+   to 4 with the role's lane, terminal, session and process id filled in; it stops and starts
+   nothing. Under tmux,
    `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_start_command}'`
    lists each pane with the `claude` line that started it.
 2. Ask the old session to let go, and wait for its reply: `cci post --lane <your lane> --kind ask
@@ -90,22 +95,24 @@ for a model or build change too.
    cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor
    if you run one, reply released, and take no more work."` His messages in the gap wait in
    `cc-slack dm-owed`, and records on the role's cci cursor.
-3. End the old session, which his word for the move covers: `tmux send-keys -t <pane> /exit Enter`
-   under tmux, `orca terminal send --terminal <old handle> --text /exit --enter` for an Orca
-   terminal, or `claude stop <id>` for a `claude --bg` session.
+3. End the old session, which his word for the move covers: `cci session type <drive>-<role> /exit`
+   for one cci runs, `tmux send-keys -t <pane> /exit Enter` under another tmux,
+   `orca terminal send --terminal <old handle> --text /exit --enter` for an Orca terminal, or
+   `claude stop <id>` for a `claude --bg` session.
 4. Wait until `ps -p <pid>` lists nothing, `<pid>` being the one whose
    `~/.claude/sessions/<pid>.json` names the session: a resume while the old process runs makes a
    copy under a new id answering for the same role, so a hook refuses it.
-5. Only then create the new terminal, resuming that session, by the command `drive manual migration` prints, its `<session env>` and `<session settings>` filled as in [Start or resume](start.md):
+5. cci session run then resumes that session in the tmux session `<drive>-<role>`, which the old
+   one's channel starts as it closes. Show it in a new terminal by the command `drive manual migration`
+   prints, which starts that tmux session itself when it is down:
 
    ```sh
-   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "<session env> claude --resume <session> -n <drive>-<role> --model <claude-fable-5-2 for the coordinator, claude-opus-5-5 for the communicator> --effort xhigh --permission-mode bypassPermissions --settings <session settings> --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
+   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "cci session attach <drive>-<role>" --json
    ```
 
-   A hook refuses a shell after the session in `--command`, such as `exec zsh -l`, which outlives
-   the session in the terminal. Its prompt runs Start or resume, which records the new terminal and
-   takes back the role's Slack watches, cci cursor and, for the coordinator, the drive's watch,
-   which `drive start` starts unless one runs.
+   Its resume prompt runs Start or resume, which records the new terminal and takes back the
+   role's Slack watches, cci cursor and, for the coordinator, the drive's watch, which
+   `drive start` starts unless one runs.
 6. Check the terminal as [Start or resume](start.md) checks a create, never by another restart.
    Then the role's `drive status` line reads `open it with: orca terminal switch --terminal
    <handle>`, and `orca terminal read --terminal <handle> --screen --json` shows the session at its

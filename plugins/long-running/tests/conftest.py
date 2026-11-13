@@ -39,6 +39,7 @@ REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
+REAL_REGISTER = agents.register
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -578,7 +579,6 @@ def meta_launches(monkeypatch: pytest.MonkeyPatch) -> MetaLaunches:
 @dataclass
 class WatchProcess:
     ensured: list[str] = field(default_factory=list)
-    listened: list[tuple[str, ...]] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
@@ -597,7 +597,6 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
         return f"the watch runs for {name}"
 
     monkeypatch.setattr(watch, "ensure", ensure)
-    monkeypatch.setattr(watch, "listen", lambda name, session, project=None: process.listened.append((name, session, project) if project else (name, session)))
     monkeypatch.setattr(launchd, "session_env", dict)
     return process
 
@@ -610,6 +609,25 @@ class Receiver:
     unadministered: set[str] = field(default_factory=set)
     refused: dict[str, Exception] = field(default_factory=dict)
     tried: list[str] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def registered(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    sessions: list[str] = []
+
+    def register(name: str, role: str, project: str | None, worktree: str, session: str) -> str:
+        sessions.append(session)
+        return f"{state.alias(name, role, project)} registered: cci session run keeps session {session} running in tmux"
+
+    monkeypatch.setattr(agents, "register", register)
+    return sessions
+
+
+@pytest.fixture(autouse=True)
+def tmux_shown(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    shown: dict[str, str] = {}
+    monkeypatch.setattr(orca, "tmux", lambda *args: shown.get(args[0], ""))
+    return shown
 
 
 @pytest.fixture(autouse=True)

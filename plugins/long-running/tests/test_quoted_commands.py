@@ -10,8 +10,8 @@ from itertools import takewhile
 from pathlib import Path
 
 import pytest
-from conftest import LANE_SPEC
-from drive import agents, cli, orca
+from conftest import LANE_SPEC, REAL_REGISTER
+from drive import agents, cli, orca, reads, state
 
 SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
@@ -137,19 +137,18 @@ def test_the_pages_quote_drive_commands() -> None:
 
 
 def session_starts(text: str) -> list[str]:
-    return [line.strip() for line in text.splitlines() if line.strip().startswith("orca terminal create") and " claude " in line]
+    return [line.strip() for line in text.splitlines() if line.strip().startswith("cci session register") and " claude " in line]
 
 
 def test_each_session_start_the_pages_quote_leaves_its_env_and_one_settings_to_drive_manual() -> None:
     starts = [line for page in PAGES for line in session_starts(page.read_text())]
-    assert len(starts) == 5
+    assert len(starts) == 4
     holed = f'--command "{agents.SESSION_ENV} claude '
     assert [line for line in starts if holed not in line or line.count("--settings") != 1 or f"--settings {agents.SESSION_SETTINGS_HOLE} " not in line] == []
 
 
-@pytest.mark.parametrize("page", ["start", "migration"])
-def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_valid_settings(page: str, capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.manual(argparse.Namespace(page=page, row=None)) == 0
+def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_valid_settings(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
     starts = session_starts(capsys.readouterr().out)
     assert starts
     lane = json.loads(LANE_SPEC.read_text())
@@ -178,13 +177,30 @@ def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest
         assert refusal.code == 0
 
 
-def test_the_meta_session_drive_start_opens_runs_the_command_start_or_resume_prints(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_meta_session_drive_start_opens_runs_the_lines_start_or_resume_prints(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    registered: list[tuple[list[str], Path]] = []
     created: list[tuple[str, ...]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: registered.append((argv, checkout)) or "demo-meta registered")
     monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": "term_meta"}})
     assert START_META("demo", "/w/demo", None) == "term_meta"
-    [request] = created
-    assert request[:6] == ("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta")
+    assert created == [("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta", "--command", "cci session attach demo-meta")]
     assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
-    [quoted] = [line for line in session_starts(capsys.readouterr().out) if "--title <drive>-meta " in line]
-    script = shlex.split(quoted.replace("<drive>", "demo"))
-    assert shlex.split(request[request.index("--command") + 1]) == shlex.split(script[script.index("--command") + 1])
+    [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith("cci session register <drive>-meta ")]
+    assert registered == [(shlex.split(quoted.replace("<drive>", "demo").replace("<worktree>", "/w/demo")), Path("/w/demo"))]
+
+
+def test_drive_start_registers_the_session_it_binds_by_its_line_in_start_or_resume(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    registered: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: registered.append(argv) or "demo-iris registered\n")
+    assert REAL_REGISTER("demo", "coordinator", "Iris", "/w/demo", "iris-1") == "demo-iris registered"
+    assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
+    [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith("cci session register <drive>-<lane> ")]
+    filled = quoted.replace("<drive>", "demo").replace("<lane>", "iris").replace("<project>", "Iris").replace("<worktree>", "/w/demo")
+    assert registered == [shlex.split(filled.replace(" --new ", " --session iris-1 "))]
+
+    def refuse(argv: list[str], checkout: Path) -> str:
+        raise reads.ReadError("cci session register: exit 1: alias demo-iris holds another session")
+
+    monkeypatch.setattr(reads, "run", refuse)
+    with pytest.raises(state.DriveError, match="cci did not register session iris-1 as the coordinator's, so nothing keeps it running or hearing its records: "):
+        REAL_REGISTER("demo", "coordinator", "Iris", "/w/demo", "iris-1")

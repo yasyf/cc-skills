@@ -243,9 +243,13 @@ def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run
     assert reason.startswith("refused: o1 is an open incident order, and ending the coordinator now stops it mid-incident")
     assert "`drive status o1` reads done" in reason
     assert bash_guard.deny_reason(bash("orca terminal send --terminal term_other --text /exit --enter")) is None
+    typed = f"cci session type {demo}-coordinator /exit"
+    assert bash_guard.deny_reason(bash(typed)).startswith("refused: o1 is an open incident order, and ending the coordinator now stops it mid-incident")
+    assert bash_guard.deny_reason(bash(f"cci session type {demo}-coordinator /compact")) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert bash_guard.deny_reason(bash(send)) is None
+    assert bash_guard.deny_reason(bash(typed)) is None
 
 
 def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_read(demo: str) -> None:

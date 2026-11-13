@@ -146,13 +146,16 @@ def call(*args: str) -> dict:
 
 
 def in_terminal() -> bool:
-    """Whether this session runs in an Orca terminal, directly or in a tmux started in one."""
-    return "ORCA_TERMINAL_HANDLE" in os.environ
+    """Whether Orca shows this session: it runs in an Orca terminal, or in tmux, which `cci session attach` shows in one."""
+    return "ORCA_TERMINAL_HANDLE" in os.environ or "TMUX" in os.environ
 
 
 def own_terminal() -> str | None:
-    """This session's Orca terminal, or None outside one; tmux inherits the handle of the terminal it started in."""
-    return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")
+    """This session's Orca terminal, or None outside one: under tmux, which inherits the handle of whatever terminal started its server, the one that last attached to its tmux session, which cci keeps in that session's environment."""
+    if "TMUX" not in os.environ:
+        return os.environ.get("ORCA_TERMINAL_HANDLE")
+    name, _, handle = tmux("show-environment", "ORCA_TERMINAL_HANDLE").strip().partition("=")
+    return handle if name == "ORCA_TERMINAL_HANDLE" and handle else None
 
 
 def speak_as_drive(drive: str) -> None:
@@ -200,43 +203,45 @@ def terminal(handle: str) -> dict:
 
 
 def holds_session(terminal: dict, session: str) -> bool:
-    """Whether the terminal's process tree holds the session's Claude Code process, so switching to it lands there."""
+    """Whether the terminal's process tree holds the session's Claude Code process, or a tmux client attached to the tmux session holding it, so switching to it lands there."""
     sweep = request("diagnostics", "memory")["worktrees"]
     pty = next((pty for worktree in sweep for pty in worktree["sessions"] if pty["sessionId"] == terminal["ptyId"]), None)
     if not pty:
         return False
     tree = parents()
-    return any(holds(tree, pty["pid"], pid) for pid in claude_pids(session))
+    pids = claude_pids(session)
+    held = {name for pane, name in tmux_rows("list-panes", "-a", "-F", "#{pane_pid} #{session_name}") if any(holds(tree, pane, pid) for pid in pids)}
+    clients = [client for client, name in tmux_rows("list-clients", "-F", "#{client_pid} #{session_name}") if name in held]
+    return any(holds(tree, pty["pid"], pid) for pid in [*pids, *clients])
+
+
+def tmux_rows(*args: str) -> list[tuple[int, str]]:
+    """Each pid and tmux session name a tmux list command prints."""
+    rows = (line.partition(" ") for line in tmux(*args).splitlines())
+    return [(int(pid), name) for pid, _, name in rows]
+
+
+def tmux(*args: str) -> str:
+    """What the tmux command prints, nothing when it fails or no tmux server runs."""
+    try:
+        ran = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=CALL_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return "" if ran.returncode else ran.stdout
 
 
 def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
-    """Start the drive's meta session in an Orca terminal of its own in the drive's worktree, by its command in Start or resume, unless the terminal an earlier drive start opened for it is still there; the new terminal's handle, or None."""
+    """Start the drive's meta session under cci in the drive's worktree and show it in an Orca terminal of its own, by its lines in Start or resume, unless the terminal an earlier drive start opened for it is still there; the new terminal's handle, or None."""
     if earlier:
         with contextlib.suppress(OrcaError):
             terminal(earlier)
             return None
-    settings = agents.session_settings({})
-    command = shlex.join(
-        [
-            *agents.env_words(settings),
-            "claude",
-            "-n",
-            f"{drive}-meta",
-            "--model",
-            MODEL,
-            "--effort",
-            EFFORT,
-            "--permission-mode",
-            "bypassPermissions",
-            "--settings",
-            json.dumps(settings, separators=(",", ":")),
-            "--channels",
-            "plugin:cc-inbox@cc-inbox",
-            "--",
-            f"/long-running {drive} as meta: run Start or resume for that role",
-        ]
-    )
-    return request("terminal", "create", "--worktree", f"path:{worktree}", "--title", f"{drive}-meta", "--command", command)["terminal"]["handle"]
+    register, show = (shlex.split(line) for line in agents.launch(drive, "meta", None, worktree))
+    try:
+        reads.run(register, Path(worktree))
+    except reads.ReadError as error:
+        raise OrcaError(str(error)) from None
+    return request(*show[1:-1])["terminal"]["handle"]
 
 
 def main_checkout(worktree: str) -> Path:

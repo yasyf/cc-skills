@@ -417,12 +417,13 @@ def datadog_cli(command: str, cwd: str) -> str | None:
     return DATADOG_READ if any(Path(words[0]).name == DATADOG_CLI for words in reached(command, Place(Path(cwd)))) else None
 
 
-def role_of(session: str | None = None, terminal: str | None = None) -> tuple[dict, str] | None:
-    """The drive and role whose recorded session or terminal this is."""
+def role_of(session: str | None = None, terminal: str | None = None, alias: str | None = None) -> tuple[dict, str] | None:
+    """The drive and role whose recorded session, terminal or cci alias this is."""
     for name in state.names():
         data = state.load(name)
         for role, held in state.bound_sessions(data).items():
-            if (session and held["session"] == session) or (terminal and held["terminal"] == terminal):
+            project = role.removeprefix("sub-coordinator ") if role.startswith("sub-coordinator ") else None
+            if (session and held["session"] == session) or (terminal and held["terminal"] == terminal) or (alias and state.alias(name, role, project) == alias):
                 return data, role
     return None
 
@@ -462,6 +463,8 @@ def ended_role(words: list[str]) -> tuple[dict, str] | None:
     named = verb(words)
     if named[:3] == ["orca", "terminal", "send"] and option(words, "--text") == "/exit":
         return role_of(terminal=option(words, "--terminal"))
+    if named[:3] == ["cci", "session", "type"] and named[4:] == ["/exit"]:
+        return role_of(alias=named[3])
     if named[:2] == ["claude", "stop"] and named[2:3]:
         return role_of(session=named[2])
     return None

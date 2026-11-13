@@ -232,6 +232,11 @@ def project_lane(project: str) -> str:
     return NOT_LANE.sub("-", project.lower()).strip("-")
 
 
+def alias(drive: str, role: str, project: str | None = None) -> str:
+    """The cci alias a role's session, or a project's sub-coordinator's, is registered under, which names its tmux session too."""
+    return f"{drive}-{project_lane(project) if project else role}"
+
+
 def watch_suffix(project: str | None) -> str:
     return f"-{project_lane(project)}" if project else ""
 

@@ -94,7 +94,7 @@ def test_coordinator_context_gives_rules_reads_and_monitor_but_no_order_list() -
     text = render.context(sample(), "coordinator")
     assert text.startswith("You are the coordinator of drive demo: ")
     assert "The communicator: not started." in text.splitlines()[0]
-    assert "cci subscribe --reader root --cursor coordinator" in text
+    assert "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-coordinator owns your subscription." in text
     for rule in render.COORDINATOR_RULES:
         assert rule in text
     assert "Ship the drive rewrite" not in text
@@ -109,7 +109,7 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     drive["roles"]["communicator"] = {"session": "s2", "cwd": "/work", "started": "2026-11-09T08:00:00-08:00"}
     text = render.context(drive, "communicator")
     assert text.startswith("You are the communicator of drive demo: you talk to him. The coordinator: session s1.")
-    assert "cci subscribe --reader communicator --cursor communicator" in text
+    assert "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-communicator owns your subscription." in text
     assert "o1" not in text
     for rule in render.COMMUNICATOR_RULES:
         assert rule in text
@@ -125,7 +125,7 @@ def test_the_meta_session_and_communicator_read_one_definition_of_drive_tooling(
     assert text.startswith(f"You are the meta session of drive demo: you hold drive tooling, {state.DRIVE_TOOLING}.")
     assert "The communicator: not started. The coordinator: session s1." in text.splitlines()[0]
     assert text.splitlines()[1] == "Hold no Slack channel."
-    assert "cci subscribe --reader meta --cursor meta" in text
+    assert "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-meta owns your subscription." in text
     for rule in render.META_RULES:
         assert rule in text
     assert text.endswith(render.FIRST_CALL["meta"])

@@ -179,7 +179,6 @@ def closed_cards(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, b
 REAL_ENSURE = watch.ensure
 REAL_FETCH = github.fetch
 REAL_RUN_PASS = watch.run_pass
-REAL_LISTEN = watch.listen
 REAL_SESSION_ENV = launchd.session_env
 
 
@@ -621,8 +620,8 @@ def test_the_watch_tells_the_communicator_once_each_time_the_coordinators_proces
         "handoff",
         f"communicator@{demo}",
         "DOWN the coordinator's Claude Code process has exited, so nothing hears the drive's records: restart it now, with no word"
-        " from him, by steps 5 to 7 of drive manual migration, Into an Orca terminal, creating the terminal resuming"
-        " session-under-test in /work, and tell him it was restarted, never that it is down",
+        " from him, by steps 5 to 7 of drive manual migration, Into an Orca terminal, creating the terminal that shows tmux session"
+        f" {demo}-coordinator, where cci session run resumes session-under-test in /work, and tell him it was restarted, never that it is down",
     )
     for moment, pid in enumerate((None, None, 4242, None)):
         live_sessions["session-under-test"] = pid
@@ -1531,7 +1530,7 @@ def test_a_launched_watch_takes_the_env_of_this_macs_claude_settings_so_each_rea
     assert seen == ["the settings token\n"]
 
 
-def test_a_drive_under_long_running_state_gets_no_watch_process_or_channel_and_a_watch_started_there_ends(
+def test_a_drive_under_long_running_state_gets_no_watch_process_and_a_watch_started_there_ends(
     demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
     started = []
@@ -1542,10 +1541,10 @@ def test_a_drive_under_long_running_state_gets_no_watch_process_or_channel_and_a
     assert cli.main(["watch", "--drive", demo]) == 0
     assert "watch.run_pass" in capsys.readouterr().out
     assert watch.main(demo) == 0
-    assert (started, watch_process.listened, state.pid_path(demo).exists()) == ([], [], False)
+    assert (started, state.pid_path(demo).exists()) == ([], False)
 
 
-def test_drive_watch_starts_the_watch_and_points_only_the_coordinators_channel_at_it(
+def test_drive_watch_starts_the_watch_from_any_roles_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
@@ -1554,7 +1553,7 @@ def test_drive_watch_starts_the_watch_and_points_only_the_coordinators_channel_a
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     assert cli.main(["watch", "--drive", demo]) == 0
     assert capsys.readouterr().out == f"the watch runs for {demo}\n" * 2
-    assert (watch_process.ensured, watch_process.listened) == ([demo, demo], [(demo, "session-under-test")])
+    assert watch_process.ensured == [demo, demo]
 
 
 def sub_coordinated(name: str, project: str = "Iris", session: str = "iris-1", cwd: str = "/work") -> None:
@@ -1671,7 +1670,7 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
     assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: OSError at watch\.py:\d+ in watching: disk full; its traceback is in {log}; its launch agent starts it again within 10 seconds", text)
 
 
-def test_drive_watch_project_starts_only_from_its_sub_coordinators_session_and_points_that_channel_at_it(
+def test_drive_watch_project_starts_only_from_its_sub_coordinators_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sub_coordinated(demo)
@@ -1680,12 +1679,7 @@ def test_drive_watch_project_starts_only_from_its_sub_coordinators_session_and_p
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     assert cli.main(["watch", "--drive", demo, "--project", "Iris"]) == 0
     assert cli.main(["watch", "--drive", demo]) == 0
-    assert (watch_process.ensured, watch_process.listened) == ([f"{demo} --project Iris", demo], [(demo, "iris-1", "Iris")])
-    subscribed = []
-    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout, env: subscribed.append((argv, env["CLAUDE_CODE_SESSION_ID"])))
-    REAL_LISTEN(demo, "iris-1", "Iris")
-    assert subscribed == [([*shlex.split(render.subscribe("coordinator", "Iris")), "--drive", demo], "iris-1")]
-    assert render.subscribe("coordinator", "Iris").startswith("cci subscribe --reader iris --cursor coordinator-iris --to-kind ")
+    assert watch_process.ensured == [f"{demo} --project Iris", demo]
 
 
 REAL_LOCAL_GAP = watch.local_gap
