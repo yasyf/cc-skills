@@ -46,8 +46,7 @@ def unchecked(record: dict, drives: list[dict]) -> str | None:
         return None
     return (
         f"refused: this ready record asks his tap on {'; '.join(found)}, whose change at that head is not checked against his words."
-        " Its builder's READY checks it through drive job report, or its order's holder runs"
-        " drive pr set <url> --serves <o> --design <asked:<his answer> or none>; the watch sends the ready record itself once each PR is checked"
+        " The watch's drive pr check judges it once its builder returns, and the watch sends the ready record itself once each PR is checked"
     )
 
 

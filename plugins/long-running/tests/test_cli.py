@@ -3272,29 +3272,22 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
     assert (job["state"], job["said"]) == ("waiting", f"PUSHED {PR}")
 
 
-def test_a_change_against_his_words_is_refused_at_its_ready_and_its_serves_and_a_head_checked_once_is_not_judged_again(
+def test_a_builders_ready_and_a_serves_are_kept_unjudged_and_only_the_watchs_check_judges_the_pr_once_at_its_head(
     run: Run, with_pr: str, on_github: dict, judge: Judge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     judge.against = [{"order": "o1", "words": "land it", "change": "api/run.ts keeps the staff flag"}]
-    refused = f'{with_pr} go against his words, judged from each PR\'s title and diff: o1 "land it": api/run.ts keeps the staff flag. Change the PRs'
-    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
-    assert (code, err.startswith(f"drive: j1: refused, nothing kept: {refused}")) == (2, True)
-    assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
-    err = capsys.readouterr().err
-    assert err.startswith(f"drive: {with_pr}: refused, nothing set: {refused}")
-    assert err.rstrip().endswith("Send it back by a fresh builder on j1 briefed with this refusal")
-    pr = state.load("demo")["prs"][with_pr]
-    assert (pr.get("serves"), pr["checked"], state.load("demo")["jobs"]["j1"]["state"]) == (None, None, "running")
-    assert 'o1, ' in judge.asked[0][0] and '"land it"' in judge.asked[0][0]
-    judge.against = []
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
+    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
+    pr = state.load("demo")["prs"][with_pr]
+    assert (judge.asked, pr["serves"], pr["checked"], state.load("demo")["jobs"]["j1"]["state"]) == ([], "o1", None, "waiting")
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
+    refused = f'{served.NOT_READY}: {with_pr} go against his words, judged from each PR\'s title and diff: o1 "land it": api/run.ts keeps the staff flag.'
+    assert state.load("demo")["prs"][with_pr]["checker"]["outcome"].startswith(refused)
+    judge.against = []
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o1"]
-    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
-    assert len(judge.asked) == 3
-    with state.edit("demo") as data:
-        data["prs"][with_pr]["head"] = "ccccccc333"
-    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
-    assert (len(judge.asked), state.load("demo")["prs"][with_pr]["checked"]["head"]) == (4, "ccccccc333")
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
+    assert len(judge.asked) == 2
 
 
 DOORS = {
@@ -3306,7 +3299,7 @@ DOORS = {
 }
 
 
-def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_against_that_part_and_the_answers_its_design_cites(
+def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_alone_against_that_part_and_the_answers_its_design_cites(
     run: Run, demo: str, judge: Judge, recorded: Answers, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one abstraction everything goes through", "--parts", "moved-table abstraction", "doors close", "partitioning")
@@ -3317,9 +3310,10 @@ def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_against_that_part_and_
     assert cli.main(["pr", "set", PR, "--part", "partitioning"]) == 2
     assert 'its job j1 delivers no part partitioning; its parts are "moved-table abstraction", "doors close"' in capsys.readouterr().err
     code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "asked:953a8c8", "--part", "moved-table abstraction")
-    assert (code, out.rstrip().endswith("delivers moved-table abstraction")) == (0, True)
+    assert (code, out.rstrip().endswith("delivers moved-table abstraction"), judge.asked) == (0, True, [])
+    assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
     said, changes = judge.asked[-1]
-    assert list(changes) == ["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]
+    assert list(changes) == ["Forge-AI/monorepo#42"]
     assert "this change delivers: moved-table abstraction\n  other changes deliver: doors close; partitioning\n" in said
     answered = said.rpartition("his answers the PRs cite for the design they make:\n")[2]
     assert answered.startswith("953a8c8, ") and answered.endswith(f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)\nOptions: Once Env::file_of reads env_id | Now"')
@@ -3328,11 +3322,49 @@ def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_against_that_part_and_
     assert (pr["parts"], pr["design"], pr["checked"]["orders"]) == (["moved-table abstraction"], "asked:953a8c8", ["o1"])
 
 
-def test_a_ready_is_judged_against_the_answers_its_design_line_names(
+def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_another_jobs_pr_carries_the_next(
+    run: Run, demo: str, judge: Judge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions, purpose = "The agent API reads and writes the sessions table", "Purpose moves to the chat's meta, set by an inbox message"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents", "agents live in the sessions table", "--parts", sessions, purpose)
+    run("job", "add", "builder", "--order", "o1", "--part", sessions, "--goal", "move the API")
+    run("job", "add", "builder", "--order", "o1", "--part", purpose, "--goal", "move purpose")
+    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", STACKED, "--job", "j2")
+    refused = {"order": "o1", "words": purpose, "change": "Agent.purpose still reads the agents table"}
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or ([] if f"other changes deliver: {purpose}" in said else [refused]))
+    assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
+    said, changes = judge.asked[-1]
+    assert (list(changes), f"this change delivers: {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
+    assert state.load(demo)["prs"]["Forge-AI/monorepo#42"]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at ")
+
+
+def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order_alone_and_its_builders_pushed_is_kept(
+    run: Run, with_pr: str, judge: Judge, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    grant = "Grant-opened role: each grant opens a role until it expires"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the guards admit a granted session", "--parts", grant)
+    with state.edit("demo") as data:
+        state.carry(data, "j1", "o2", [grant])
+    recorded.shown["3185177"] = DOORS | {"id": "3185177", "title": "How does a grant reach the guards?", "body": f"{grant}; the guards admit it then, never otherwise. One PR"}
+    judge.against = [{"order": "o1", "words": "land it", "change": "no moved table"}]
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or (list(judge.against) if '"land it"' in said else []))
+    assert run("pr", "set", PR, "--serves", "o2", "--design", "asked:3185177")[0] == 0
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n") == (0, "")
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
+    [(said, _)] = judge.asked
+    assert (state.served_orders(state.load("demo"), state.load("demo")["prs"][with_pr]), said.startswith("o2, "), '"land it"' in said) == (["o2"], True, False)
+    assert f"this change delivers: {grant}\n" in said and "3185177, " in said
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"PUSHED {PR}"
+    assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o2"]
+
+
+def test_a_ready_is_judged_by_the_watchs_check_against_the_answers_its_design_line_names(
     run: Run, with_pr: str, on_github: dict, judge: Judge, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     recorded.shown["953a8c8"] = DOORS
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nDESIGN: the doors stay open until Env::file_of reads env_id, by 953a8c8\n") == (0, "")
+    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     said = judge.asked[-1][0]
     assert said.startswith('o1, ') and f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)' in said
 

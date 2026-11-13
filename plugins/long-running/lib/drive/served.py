@@ -74,34 +74,31 @@ class Against(DriveError):
         )
 
 
-def check(name: str, keys: list[str], also: list[str], cited: list[str], setting: dict[str, dict]) -> None:
-    """Judge the change of the PRs in keys, read whole from GitHub at each head, title and diff and never the body, against the words of every order they serve and each order in also, and against each answer of his cited names or a PR's design cites, and keep each head checked; each order is judged for the parts its PRs name, else every part its job delivers, and every other PR its job carries, and each job a PR here was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses a PR. A PR's design and parts are those drive pr set kept, or those setting gives for a PR this call sets. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words."""
+def check(name: str, key: str, cited: list[str]) -> None:
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, and keep its head checked; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words."""
     data = state.load(name)
-    orders = list(dict.fromkeys([*(order_id for key in keys for order_id in state.served_orders(data, data["prs"][key])), *also]))
-    if all(state.checked(data, data["prs"][key]) and set(also) <= set(data["prs"][key]["checked"]["orders"]) for key in keys):
+    pr = data["prs"][key]
+    if state.checked(data, pr):
         return
-    changes = {key: change(key) for key in keys}
-    prs = [data["prs"][key] | setting.get(key, {}) for key in keys]
-    parts = [part for pr in prs for part in pr["parts"]]
-    answered = answers(data, [*cited, *(pr.get("design") or "" for pr in prs)], view.live_cards(name))
-    urls = {pr["url"] for pr in prs}
-    carried = (state.pr_key(url) for job in data["jobs"].values() if urls & set(job["prs"]) for url in job["prs"])
-    others = [key for key in dict.fromkeys(carried) if key not in keys and data["prs"][key]["state"] != "closed"]
-    if found := judged(name, words(data, data["jobs"][prs[0]["job"]], orders, parts, answered, others), changes):
-        raise Against(keys, "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found))
+    orders = state.served_orders(data, pr)
+    read = change(key)
+    answered = answers(data, [*cited, pr.get("design") or ""], view.live_cards(name))
+    carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
+    others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
+    if found := judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}):
+        raise Against([key], "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found))
     with state.edit(name) as data:
-        for key, read in changes.items():
-            data["prs"][key]["checked"] = {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
+        data["prs"][key]["checked"] = {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, as drive job report judges a READY made on this Mac, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a pass with no coordinator turn, his Approve lands the head that passed, and a refusal goes to its builder and sends his Approve of that head back to him; then redraw his open card in place, so it drops the check it waited on, or offers no Approve and says why. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a pass with no coordinator turn, his Approve lands the head that passed, and a refusal goes to its builder and sends his Approve of that head back to him; then redraw his open card in place, so it drops the check it waited on, or offers no Approve and says why. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named = pr["head"], state.stamp(), ""
     cited = [line for line in state.report_text(name, pr["job"]).splitlines() if line.startswith("DESIGN:")]
     try:
-        check(name, [key], [], cited, {})
+        check(name, key, cited)
     except Against as error:
         outcome, named = f"{NOT_READY}: {error}", error.named
     except DriveError as error:
@@ -204,13 +201,13 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change delivers: those its PRs name, with the order's other parts left to other changes, else every part of it the job delivers, shared with the job's other PRs when it has any; then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his the PRs cite."""
+    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his the PR cites."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
         order = data["orders"][order_id]
         parts = [part for part in state.job_parts(job, order_id) if not named or part in named]
-        rest = [part for part in order["parts"] if part not in parts] if named else []
+        rest = [part for part in order["parts"] if part not in parts] if named or parts else []
         lines.append(
             f'{order_id}, {order["created"]}: "{order["text"]}"'
             + (f"\n  {delivers}: {'; '.join(parts)}" if parts else "")
