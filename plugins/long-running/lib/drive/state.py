@@ -32,6 +32,7 @@ JOB_ID = re.compile(r"j\d+")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("long-running:builder",)}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
+BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 CHANGE_KINDS = ("builder", "codex")
 WORK_KINDS = (*CHANGE_KINDS, "design")
 INCIDENT_FIX = "fix"
@@ -653,8 +654,10 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             job["undelivered"] = []
         for kept in job["undelivered"]:
             kept.setdefault("request", str(uuid.uuid5(uuid.NAMESPACE_OID, f"{job['created']} {kept['seq']} {kept['at']}")))
-        if job.get("brief_flags") and "handoff" not in job["brief_flags"] and job["state"] not in FINISHED_JOB_STATES:
-            job["brief_flags"]["handoff"] = briefed_handoff(job.get("brief"))
+        if flags := job.get("brief_flags"):
+            if "handoff" not in flags:
+                flags["handoff"] = briefed_handoff(job.get("brief"))
+            job["brief_flags"] = {flag: [] if flag == "ruling" else None for flag in BRIEF_FLAGS} | flags
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
@@ -749,7 +752,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
 
 
 def briefed_handoff(path: str | None) -> str | None:
-    """The Handoff: line of a brief drive job brief wrote before it kept a handoff in brief_flags, so a live job's next re-brief keeps it."""
+    """The Handoff: line of a brief drive job brief wrote before it kept a handoff in brief_flags, so the job's next re-brief keeps it, a finished job's included, since drive job resume re-briefs a job in any state."""
     from drive import brief
 
     if not (path and Path(path).exists()):

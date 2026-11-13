@@ -1233,6 +1233,34 @@ def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each
     assert brief.endswith("which you act on now:\n\nShip it now")
 
 
+def test_a_dead_lane_briefed_before_the_release_and_mac_flags_relaunches_on_its_brief_rebuilt_with_them_blank(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo dev")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="sprite-old", state="waiting", said="READY https://github.com/Forge-AI/monorepo/pull/7")
+        for flag in ("release", "mac"):
+            del data["jobs"]["j1"]["brief_flags"][flag]
+    launched: dict = {}
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launched.update(brief=brief.read_text())
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "resume", "j1", "PR #7 review: answer the bot's warning")[0] == 0
+    brief = orca.brief_of(launched["brief"])
+    assert "Serves: his order\nGoal: remote builders\nDone when: merged\nWhere: Forge-AI/monorepo dev\n" in brief
+    assert brief.endswith("which you act on now:\n\nPR #7 review: answer the bot's warning")
+    flags = state.load(remote)["jobs"]["j1"]["brief_flags"]
+    assert (flags["release"], flags["mac"], flags["where"]) == (None, None, "Forge-AI/monorepo dev")
+
+
 def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_with_the_new_handoff(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
