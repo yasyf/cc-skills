@@ -393,21 +393,27 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
         return held, True
     if held:
         raise Busy(f"refused, no handler started: handler {held} is at work on {his}; this copy needs no handler of its own")
-    if folder := scratch(brief):
-        folder.mkdir(parents=True, exist_ok=True)
     try:
         prompt = briefed(handler_id) if briefed else brief
-        if not detached:
-            start_handler(name, handler_id, prompt)
-            return handler_id, False
-        kept = brief_path(name, handler_id)
-        kept.parent.mkdir(parents=True, exist_ok=True)
-        kept.write_text(prompt)
-        state.detach(name, ["handler-start", handler_id], "handlers.log")
+        state.after_save(name, lambda: started(name, handler_id, brief, prompt, detached))
     except (reads.ReadError, state.DriveError) as error:
         unstarted(name, handler_id)
         raise (error if isinstance(error, state.DriveError) else state.DriveError(f"claude --bg started no handler: {error}")) from None
     return handler_id, False
+
+
+def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool) -> list[str]:
+    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call, or detached from the prompt kept for `drive handler-start`."""
+    if folder := scratch(brief):
+        folder.mkdir(parents=True, exist_ok=True)
+    if not detached:
+        start_handler(name, handler_id, prompt)
+        return []
+    kept = brief_path(name, handler_id)
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(prompt)
+    state.detach(name, ["handler-start", handler_id], "handlers.log")
+    return []
 
 
 def to_coordinator(name: str, brief: str) -> None:

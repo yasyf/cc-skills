@@ -158,7 +158,10 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
     lands = {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}
     with pytest.raises(DriveError) as refused:
         tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"add": lands}]})
-    assert str(refused.value) == "2 job add refused: drive: --lands names the PRs a builder lands, which only a builder does; nothing written: fix it and send the whole call again"
+    assert str(refused.value).splitlines() == [
+        "refused, nothing written: 1 of 2 ops refused; fix each and send the whole call again",
+        '2 job add "read" refused: --lands names the PRs a builder lands, which only a builder does',
+    ]
     assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
     saves: list[str] = []
     save = state.save
@@ -168,12 +171,27 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
     assert state.load(demo)["jobs"]["j1"]["branch"] == "lr-fix"
 
 
-def test_a_dry_run_prints_each_command_and_changes_nothing(demo: str) -> None:
-    said = tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "https://github.com/a/b/pull/1", "tap": False, "why": "superseded", "waits": ["c1", "c2"]}}]})
-    assert said == "1 drive pr set https://github.com/a/b/pull/1 --waits=c1 --waits=c2 --no-tap --why=superseded"
-    flaky = tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "Forge-AI/monorepo#42", "flaky": ["TestX", "Forge-AI/monorepo#43"]}}]})
-    assert flaky == "1 drive pr set 'Forge-AI/monorepo#42' --flaky TestX 'Forge-AI/monorepo#43'"
-    assert tools.run("status", demo, {"dry_run": True, "ids": ["o1", "j2"]}) == "1 drive status o1 j2"
+def test_a_dry_run_refuses_each_op_the_call_refuses_prints_each_command_it_passes_and_keeps_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(demo)
+    order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
+    dry = tools.run("job", demo, {"dry_run": True, "ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}]}).splitlines()
+    assert dry[0].startswith("1 drive order add 'Fix the card' ")
+    assert dry[1:] == ["1 drive job add builder --order=o1 '--goal=fix it'", "2 drive job set j1 --branch=lr-fix"]
+    assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
+    tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}]})
+    for wait in ("the reporter's reply", "https://acme.slack.com/archives/D123/p1794300000000400"):
+        for dry_run in (True, False):
+            with pytest.raises(DriveError) as refused:
+                tools.run("job", demo, {"dry_run": dry_run, "ops": [{"set": {"id": "j1", "waits": [wait]}}]})
+            [head, line] = str(refused.value).splitlines()
+            assert head == "refused, nothing written: 1 of 1 ops refused; fix each and send the whole call again"
+            assert line.startswith(f"1 job set refused: --waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open")
+    assert tools.run("job", demo, {"dry_run": True, "ops": [{"set": {"id": "j1", "said": "pushed"}}]}) == "1 drive job set j1 --said=pushed"
+    assert state.load(demo)["jobs"]["j1"]["said"] is None
+    with pytest.raises(DriveError, match="1 pr set refused: no drive PR a/b#1: add it first"):
+        tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "https://github.com/a/b/pull/1", "tap": False, "why": "superseded"}}]})
+    assert tools.run("status", demo, {"dry_run": True, "ids": ["o1", "j1"]}) == "1 drive status o1 j1"
     assert state.load(demo)["prs"] == {}
 
 

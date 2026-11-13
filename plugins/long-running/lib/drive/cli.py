@@ -363,7 +363,7 @@ def incident_open(args: argparse.Namespace) -> int:
         order_id, order, started, incidents = added_order(args)
         argv = ["ccn", "investigation", "open", order["title"], "--body", f"{args.words}\n\nFrom {args.source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
         try:
-            record = json.loads(reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"])))["id"][:7]
+            record = state.unrehearsed(name, lambda: json.loads(reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"])))["id"][:7], "<record>")
         except reads.ReadError as error:
             raise DriveError(f"refused, nothing written: its evidence record did not open: {error}; fix that and run drive incident open again") from None
         with state.edit(name) as data:
@@ -401,7 +401,7 @@ def incident_freeze(args: argparse.Namespace) -> int:
     reason = f"{args.id}, {render.cut(order['text'], 80)}: held until its root fix releases"
     argv = [str(checkout_dir / "tools" / "ci"), "release", "freeze", *args.components, "--reason", reason, "--until", until, "--json"]
     try:
-        freeze = json.loads(reads.run(argv, checkout_dir))["freeze"]["id"]
+        freeze = state.unrehearsed(name, lambda: json.loads(reads.run(argv, checkout_dir))["freeze"]["id"], "<freeze>")
     except reads.ReadError as error:
         raise DriveError(f"{args.id}: no freeze set: {error}") from None
     with state.edit(name) as data:
@@ -2134,11 +2134,17 @@ def unready(data: dict, job: dict, line: str) -> str | None:
 
 
 def keep_repro(name: str, job_id: str, source: str) -> str:
+    """Where the drive keeps a job's reproduction file, copied there once the write naming it is kept."""
     path = named_file(source, "reproduction file")
     kept = state.repro_path(name, job_id, path.suffix)
-    kept.parent.mkdir(exist_ok=True)
-    if not kept.exists() or not kept.samefile(path):
-        shutil.copy(path, kept)
+
+    def copied() -> list[str]:
+        kept.parent.mkdir(exist_ok=True)
+        if not kept.exists() or not kept.samefile(path):
+            shutil.copy(path, kept)
+        return []
+
+    state.after_save(name, copied)
     return str(kept)
 
 
@@ -2230,7 +2236,6 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
     rulings = [*dict.fromkeys(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
-    scratch.mkdir(parents=True, exist_ok=True)
     fields = {
         "Order (his words)": order["text"] + carried,
         "Serves": flags["serves"],
@@ -2255,14 +2260,20 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
         "Drive": f"{name}, order {job['order']}, job {job_id}",
     }
     written = state.drive_dir(name) / "jobs" / f"{job_id}.brief.md"
-    written.parent.mkdir(exist_ok=True)
     lines = [
         f"{field}:" + ("".join(f"\n- {item}" for item in value) if isinstance(value, list) else f" {value}")
         for field, value in fields.items()
         if value
     ]
     text = "\n".join(lines) + "\n"
-    written.write_text(text)
+
+    def kept() -> list[str]:
+        scratch.mkdir(parents=True, exist_ok=True)
+        written.parent.mkdir(exist_ok=True)
+        written.write_text(text)
+        return []
+
+    state.after_save(name, kept)
     with state.edit(name) as data:
         data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data["jobs"][job_id], text))
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
@@ -2963,8 +2974,8 @@ def pr_add(args: argparse.Namespace) -> int:
     lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
     kept = state.load(name)["prs"].get(key, {}).get("lead")
     pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead)
-    drawn = releaded(pr) if pr["card"] and pr["lead"] != kept else drawn_card(name, key, pr)
-    return emit(args, f"{key}{drawn}", {"key": key, **state.load(name)["prs"][key]})
+    drawn = state.after_save(name, lambda: [releaded(pr) if pr["card"] and pr["lead"] != kept else drawn_card(name, key, pr)])
+    return emit(args, f"{key}{''.join(drawn)}", {"key": key, **state.load(name)["prs"][key]})
 
 
 def drawn_card(name: str, key: str, pr: dict) -> str:
@@ -3175,28 +3186,32 @@ def pr_set(args: argparse.Namespace) -> int:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
         for part in args.part if delivers else []:
             data["orders"][order]["parts"][part]["posted"] = pr["url"]
-    untapped = ""
-    if args.no_tapped:
-        repo, number = key.split("#")
-        state.append_event(
-            name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why, lane=state.heard_lane(data, order)
-        )
-        untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}"
+    untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}" if args.no_tapped else ""
+    lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
-    if why := withdrawal(args):
-        try:
-            withdrawn = slack.withdraw_pr_card(pr["url"], why)
-        except slack.SlackError as error:
-            raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
-    corrected = correct_card(name, key, pr["url"], *redrawn) if (redrawn := redraw_words(args, dropped)) else ""
+    told = state.after_save(name, lambda: set_outside(name, key, pr["url"], args, dropped, lane, withdrawn))
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
     now = state.load(name)
     stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
-    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
+    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + out + "".join(told)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
+
+
+def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped: dict | None, lane: str, withdrawn: list[str]) -> list[str]:
+    """What drive pr set does outside the drive once its write is kept, a line each: the hold the drive gave itself kept dropped on its events, his open card withdrawn when the PR no longer waits on his tap, each such card added to withdrawn, and each card of his carrying it redrawn in place to show what the set stored."""
+    if args.no_tapped:
+        repo, number = key.split("#")
+        state.append_event(name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why, lane=lane)
+    if why := withdrawal(args):
+        try:
+            withdrawn += slack.withdraw_pr_card(url, why)
+        except slack.SlackError as error:
+            raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
+    corrected = correct_card(name, key, url, *redrawn) if (redrawn := redraw_words(args, dropped)) else ""
+    return [*(f"\nwithdrew his card {card}: {why}" for card in withdrawn), corrected]
 
 
 def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool) -> None:

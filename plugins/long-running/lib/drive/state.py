@@ -14,7 +14,7 @@ import traceback
 import uuid
 from calendar import monthrange
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import AbstractContextManager, closing, contextmanager, suppress
+from contextlib import AbstractContextManager, closing, contextmanager, nullcontext, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -152,12 +152,16 @@ HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
 SLOW_HOLD_SECONDS = 2
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
+REHEARSING: set[str] = set()
 WROTE: set[str] = set()
 READ_ONLY = {
     "tmux": ("show-environment", "list-clients"),
     "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "repo show", "diagnostics memory"),
-    "cc-slack": ("thread", "history", "users", "check-post", "card render"),
+    "cc-slack": ("thread", "history", "users", "whoami", "check-post", "card render", "drive-cards"),
     "cci": ("show", "grep", "find", "digest", "state"),
+    "ccn": ("answer show", "answer list", "answer match", "answer search"),
+    "ci": ("release select",),
+    "security": ("find-generic-password",),
     "gh": ("pr view", "pr list", "pr checks", "pr diff", "run view", "run list", "repo view"),
 }
 GH_FIELDS = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"}
@@ -183,6 +187,10 @@ class NewerDrive(Exception):
     pass
 
 
+class Rehearsed(BaseException):
+    """A dry run's op reached a command that does more than read, which a dry run never starts: every check before it passed. A BaseException, so no handler's `except Exception` takes it for the command failing."""
+
+
 def reads_only(argv: list[str]) -> bool:
     """Whether a command the drive starts only reads, so a verb run again on the newest install after starting it changes nothing twice: git but a push, lsof, ps, a gh api call with no field or method, or a command READ_ONLY starts with, a gh one through ccx's GitHub gateway as itself."""
     program, words = Path(argv[0]).name, argv[1:]
@@ -196,9 +204,12 @@ def reads_only(argv: list[str]) -> bool:
 
 
 def outside(event: str, args: tuple) -> None:
-    """Keep in WROTE each command this process starts that does more than read, such as a Slack post, a cci record or an Orca send, which a run of its verb again would do twice."""
-    if event == "subprocess.Popen" and not reads_only([*args[1]]):
-        WROTE.add(Path(args[1][0]).name)
+    """Keep in WROTE each command this process starts that does more than read, such as a Slack post, a cci record or an Orca send, which a run of its verb again would do twice; in a dry run, which starts none, stop its op there with Rehearsed instead."""
+    if event != "subprocess.Popen" or reads_only(argv := [*args[1]]):
+        return
+    if REHEARSING:
+        raise Rehearsed(" ".join([Path(argv[0]).name, *argv[1:3]]))
+    WROTE.add(Path(argv[0]).name)
 
 
 sys.addaudithook(outside)
@@ -1857,20 +1868,32 @@ def edit(name: str) -> Iterator[dict]:
 
 
 @contextmanager
-def batch(name: str) -> Iterator[list[str]]:
-    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
+def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
+    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it takes no lock, saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    if name in BATCHED:
+        yield []
+        return
     after: list[str] = []
-    with writing(name):
+    with nullcontext() if dry else writing(name):
         BATCHED[name] = marshal.dumps(load(name))
         AFTER_SAVE[name] = []
+        if dry:
+            REHEARSING.add(name)
         try:
             yield after
-            save(name, marshal.loads(BATCHED[name]))
-            effects = AFTER_SAVE[name]
+            if not dry:
+                save(name, marshal.loads(BATCHED[name]))
+            effects = [] if dry else AFTER_SAVE[name]
         finally:
             del BATCHED[name], AFTER_SAVE[name]
+            REHEARSING.discard(name)
     for effect in effects:
         after += effect()
+
+
+def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:
+    """What a command that writes outside the drive gives a write that needs it first, such as an incident's evidence record's id: run's, or stand_in in a dry batch, which starts no such command."""
+    return stand_in if name in REHEARSING else run()
 
 
 def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
