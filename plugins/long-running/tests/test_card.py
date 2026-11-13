@@ -696,7 +696,7 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
     url = "https://acme.slack.com/archives/D123/p1794200000000100"
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [{"question": "Ring or knock?", "url": url, "card": {"waits": f"{drive}:j3-661440"}}]})
     view.refresh_cards(drive)
-    ok = subprocess.CompletedProcess([], 0, "661500\n", "")
+    ok = subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": url, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
@@ -704,7 +704,7 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
     ask({"answer": tap | {"undone": True, "action_ts": "1794200003.000100"}})
     ask({"answer": tap | {"waits": f"{drive}:hier-1", "label": "Keep both until Friday", "other": True, "action_ts": "1794200004.000100"}})
     batch = ["cci", "post", "--drive", drive, "--lane", "communicator", "--batch", "-"]
-    answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url}
+    answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url, "json": True}
     asked = {"job": "j3", "waits": f"{drive}:j3-661440"}
     assert posted == [
         (batch, [answer | {"text": "Ring", "attr": asked, "id": f"tap:{drive}:j3-661440:1794200001.000100"}]),
@@ -721,6 +721,7 @@ def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record_
                     "text": "Keep both until Friday",
                     "attr": {"maps": "none"},
                     "id": f"tap:{drive}:hier-1:1794200004.000100",
+                    "json": True,
                 }
             ],
         ),
@@ -748,7 +749,7 @@ def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_quest
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(drive)
     posted: list[list[dict]] = []
-    ok = subprocess.CompletedProcess([], 0, "661500\n", "")
+    ok = subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
@@ -773,7 +774,7 @@ def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[li
     view.refresh_cards(drive)
     answered: list[tuple[str, str, str, bool]] = []
     posted: list[list[dict]] = []
-    ok = subprocess.CompletedProcess([], 0, "661500\n", "")
+    ok = subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
     monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: answered.append((card, words, link, settled)) or {})
     return answered, posted
@@ -966,7 +967,7 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
     monkeypatch.setattr(state, "now", lambda: tapped)
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "661500\n", ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"seq": 661500}\n', ""))
     ask(tap)
     assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": False}
     assert state.load(drive)["catch_up"] == state.new_catch_up(heard, [])

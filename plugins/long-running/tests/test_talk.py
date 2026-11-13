@@ -959,6 +959,17 @@ def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: l
     )
 
 
+def test_a_post_citing_its_record_as_cci_prints_it_reads_its_corrections_by_the_seq_cci_keeps(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
+) -> None:
+    shown = {"seq": 669950, "num": "#669950", "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"orders": "o1"}}}
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps(shown))
+    cci_amendments["correction"]["669950"] = ["669952"]
+    assert talk.say(demo, {"text": "Each request reads 64 MiB.", "record": "#669950"}) == (
+        f"POSTED {POSTED}; cci holds corrections of report 669950, 669952: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
+    )
+
+
 def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_names_the_post_to_reword(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:

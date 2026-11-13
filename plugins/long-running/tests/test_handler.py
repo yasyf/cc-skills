@@ -357,10 +357,10 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     assert restarted not in state.load("demo")["handlers"]
 
 
-def test_the_watchs_brief_naming_a_record_as_cci_post_prints_it_holds_the_same_record_as_the_communicators(
+def test_the_watchs_brief_names_its_record_by_the_bare_seq_the_communicators_brief_names_so_both_hold_the_same_record(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict]
 ) -> None:
-    handler = tools.run("handler", "demo", {"brief": f"Record: #680562 Drive: demo Scratch: {tmp_path / 'quiet-#680562'}"}).removeprefix("started ")
+    handler = tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'quiet-680562'}"}).removeprefix("started ")
     assert state.load("demo")["handlers"][handler]["holds"]["record"] == "680562"
     with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 680562.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"})
@@ -379,7 +379,7 @@ LIVE_RECORDS = {
     "690002": {"kind": "correction", "re": 690001, "attrs": {}},
     "690839": {"kind": "done", "attrs": {}},
 }
-WATCH_QUIET = "Record: #678142 Drive: demo Scratch: {scratch}/quiet-#678142"
+WATCH_QUIET = "Record: 678142 Drive: demo Scratch: {scratch}/quiet-678142"
 COMMUNICATOR_QUIET = (
     "Record: 678142\nMessage (his words): none\nLink: none\nThread: 1794494004.895129\nDrive: demo\nPaths: none\nScratch: {scratch}/handler"
     "\nDeliverable: read incident o761's order and post where it stands now\nContext: watch-quiet report\nWaits: none"

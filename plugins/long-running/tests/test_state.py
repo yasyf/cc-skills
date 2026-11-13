@@ -820,6 +820,30 @@ def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed
     assert state.whole_order(f"{cut}two hours") == whole
 
 
+def test_each_seq_an_older_install_saved_with_the_hash_cci_prints_loads_as_its_digits(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    quiet = {"record": "#697593", "at": None, "handler": None, "heard": None, "news": {}}
+    watched = state.new_watch("slack:C0822AHFY3G/1794493064.110609", state.now()) | {"record": "#697594"}
+    order = state.new_order("fix it", "terminal", None, {"fix it": state.new_part()}, state.stamp())
+    data["orders"] = {"o1": order | {"jobs": ["j1"], "closed_on": "#697590", "quiet": quiet, "watch": watched}}
+    question = state.new_question(None, "Which ring?", state.stamp(), closed=state.new_close("answered", "Ring", None, seq="#697591"))
+    undelivered = {"seq": "#697592", "words": "Ring", "at": state.stamp(), "said": None, "request": "req-ring"}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "fix it", ["fix it"], state.stamp()) | {"questions": [question], "undelivered": [undelivered]}}
+    data["catch_up"] = state.new_catch_up(state.stamp(), ["o1"]) | {"record": "#697595"}
+    state.create(data)
+    loaded = state.load("demo")
+    order, job = loaded["orders"]["o1"], loaded["jobs"]["j1"]
+    assert (order["closed_on"], order["quiet"]["record"], order["watch"]["record"], job["questions"][0]["closed"]["seq"], job["undelivered"][0]["seq"], loaded["catch_up"]["record"]) == (
+        "697590",
+        "697593",
+        "697594",
+        "697591",
+        "697592",
+        "697595",
+    )
+
+
 def test_a_part_an_older_install_saved_with_a_kind_loads_without_it(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")

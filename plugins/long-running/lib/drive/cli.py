@@ -710,7 +710,7 @@ def order_set(args: argparse.Namespace) -> int:
                     " --withdrawn <his message> when he called it off"
                 )
         if args.state in state.CLOSED_ORDER_STATES:
-            order["closed_on"] = args.record
+            order["closed_on"] = report.get("seq")
         elif args.state and order["state"] in state.CLOSED_ORDER_STATES:
             order["closed_on"] = None
         if args.state:
@@ -866,7 +866,7 @@ def report_attrs(seq: str) -> dict:
     except reads.ReadError as error:
         raise DriveError(f"record {seq} could not be read: {error}") from None
     corrects = {"corrects": str(record["re"])} if record["kind"] == "correction" and record.get("re") else {}
-    return record["fields"].get("attrs", {}) | {"seq": seq, "writer": record["lane"], "written": record["at"]} | corrects
+    return record["fields"].get("attrs", {}) | {"seq": str(record["seq"]), "writer": record["lane"], "written": record["at"]} | corrects
 
 
 def order_posted(args: argparse.Namespace) -> int:

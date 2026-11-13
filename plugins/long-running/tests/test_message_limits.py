@@ -934,7 +934,7 @@ def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reac
     monkeypatch.setattr(
         refs.reads,
         "run",
-        lambda argv, checkout: json.dumps({"kind": "report", "lane": "root", "at": state.stamp(), "text": records[argv[2]], "refs": {}, "fields": {"attrs": {}}}),
+        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "text": records[argv[2]], "refs": {}, "fields": {"attrs": {}}}),
     )
     text = "A pack deletes the run's values in its range ({record:675192})."
     claims = [{"claim": "A pack deletes the run's values in its range", "read": "record:675300"}]

@@ -704,7 +704,7 @@ def test_a_launch_briefs_a_builder_none_briefed_and_carries_each_answer_it_holds
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     words = 'His answer on card demo:j9-7, verbatim: "Ring"; the card recommended "Knock"'
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["undelivered"] = [{"seq": "#9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}]
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}]
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     launched: list[str] = []
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
@@ -1202,7 +1202,7 @@ def test_a_launch_hands_the_job_of_an_agent_that_returned_holding_his_answer_to_
     launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, ENDED_TURN, timedelta(minutes=10))
     words = 'His answer on card demo:j1-7, verbatim: "Ring"'
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(said="WAITING Forge-AI/monorepo#54870", undelivered=[{"seq": "#9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}])
+        data["jobs"]["j1"].update(said="WAITING Forge-AI/monorepo#54870", undelivered=[{"seq": "9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}])
     assert run("job", "launch", "j1") == (
         0,
         "j1 started on Sprite workspace-2 as dispatch dispatch-2, taking over from its agent a1 on this Mac, which takes no message: it returned"
@@ -3011,7 +3011,7 @@ def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_l
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a stopped job is sent nothing: {args}"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a stopped job takes no worker start from a PR wake"))
     posted = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["9"])
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{remote} for j1")
     [(lane, record)] = posted
     assert (lane, record["kind"], record["to"]) == ("watch", "handoff", [f"root@{remote}"])
@@ -3070,7 +3070,7 @@ def test_a_pr_wake_for_a_builder_agent_of_a_sub_coordinators_session_hands_the_l
         data["jobs"]["j1"].update(agent="a8e6e8443b2472bdb", session="platform-1", prs=[url])
         data["prs"][key] = state.new_pr(url, "j1", "o1")
     posted = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
     line = f'PR {key}: NOT READY: o1 "ship the watch": watch.py stops the watch'
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
     [record] = posted

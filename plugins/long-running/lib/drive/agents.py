@@ -13,7 +13,7 @@ from typing import Self
 from drive import install, limits, procs, reads, render, slack, state, superseded
 from drive.brief import BRIEF_JOB, carried, heavier
 
-RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
+RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
 RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")

@@ -35,22 +35,23 @@ def say(name: str, post: dict) -> str:
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
+    seq = report.get("seq")
     known = state.load(name)
     order = cli.post_order(known, os.environ.get("CLAUDE_CODE_SESSION_ID"), post, report)
     if close and not order:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
-    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, post.get("record"), report):
+    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
-            raise DriveError(f"nothing posted: report {post['record']} is a catch-up, and the drive owes him none, since its last catch-up already posted")
+            raise DriveError(f"nothing posted: report {seq} is a catch-up, and the drive owes him none, since its last catch-up already posted")
         post = post | {"text": titled(known, post.get("text") or "") + waiting(name, known, post.get("text") or "")}
     if post.get("dry_run"):
         return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
     held = list(known["held"]) if report.get("catch_up") else []
-    amended = agents.amendments(name, [post["record"], *held] if post.get("record") else [])
+    amended = agents.amendments(name, [seq, *held] if seq else [])
     if close:
         report["seq"] = close_report(name, order, post.get("text") or "")
     claimed = cli.claim_close(name, report)
@@ -67,12 +68,12 @@ def say(name: str, post: dict) -> str:
             data["handlers"][handler]["posted"].append(line)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
-    if found := amended["correction"].get(post.get("record")):
-        line += f"; cci holds corrections of report {post['record']}, {', '.join(found)}: unless this post carries each, reword it with say(edit={reply['permalink']}, text=…)"
+    if found := amended["correction"].get(seq):
+        line += f"; cci holds corrections of report {seq}, {', '.join(found)}: unless this post carries each, reword it with say(edit={reply['permalink']}, text=…)"
     if report.get("catch_up"):
         line += released(name, reply["permalink"], amended)
     if order:
-        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": post.get("record"), "sent": reply.get("sent")}, report if close else None)
+        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": seq, "sent": reply.get("sent")}, report if close else None)
     if close:
         line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
     return line

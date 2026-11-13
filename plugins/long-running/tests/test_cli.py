@@ -3205,7 +3205,7 @@ def test_a_settled_question_tells_the_session_holding_its_order_in_one_record_th
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sent: list[tuple[str, list[dict]]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["9"])
     card = "https://acme.slack.com/archives/D123/p1794300000000100"
     title = "How should a finished run's files be laid out?"
     answered = state.new_question(None, title, state.stamp(), card=card, closed=state.new_close("answered", "One snapshot file", card))
@@ -3367,7 +3367,7 @@ def tapped_already_answered(run: Run, recorded: Answers, monkeypatch: pytest.Mon
     code, printed = run("job", "card", "j1")
     assert code == 0
     posted: list[dict] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
     card.question_answered({"waits": "demo:j1-7", "label": limits.ALREADY_ANSWERED, "url": TAPPED})
     return json.loads(printed), state.load("demo")["jobs"]["j1"], posted
 
@@ -3872,7 +3872,7 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
     def cci(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if argv[:2] == ["cci", "post"]:
             posted.extend(json.loads(str(kwargs["input"])))
-            return subprocess.CompletedProcess(argv, 0, "671985\n", "")
+            return subprocess.CompletedProcess(argv, 0, '{"seq": 671985}\n', "")
         return real(argv, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", cci)
@@ -8181,7 +8181,7 @@ def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_
     another_order_asking(run, monkeypatch)
     jev.changes = {"j3-9": 0.5}
     sent: list[tuple[str, list[dict]]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["9"])
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     unlinked, narrowed, loose = tmp_path / "unlinked.md", tmp_path / "narrowed.md", tmp_path / "loose.md"
     unlinked.write_text(SHORT_ASK)

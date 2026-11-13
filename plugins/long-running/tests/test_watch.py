@@ -169,7 +169,7 @@ def ready_records(monkeypatch: pytest.MonkeyPatch) -> list[list[dict]]:
     from drive import tools
 
     sent: list[list[dict]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["9"])
     return sent
 
 
@@ -1869,7 +1869,7 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
 def test_a_text_held_on_a_job_is_said_undelivered_ten_minutes_on_and_every_ten_minutes_after(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["undelivered"] = [{"seq": "#665156", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-held"}]
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "665156", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     watching = watcher(demo)
     line = (
         f'ANSWER undelivered j1: "ship the narrower fix", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
@@ -1891,7 +1891,7 @@ def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_bui
         return done.pid
 
     monkeypatch.setattr(state, "detach", detach)
-    held = [{"seq": "#9", "words": 'His answer on card demo:j1-7, verbatim: "Ring"', "at": state.stamp(T0), "said": None, "request": "req-ring"}]
+    held = [{"seq": "9", "words": 'His answer on card demo:j1-7, verbatim: "Ring"', "at": state.stamp(T0), "said": None, "request": "req-ring"}]
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
         data["jobs"]["j1"]["undelivered"] = held
@@ -2364,14 +2364,14 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
             kind="design",
             state="done",
             questions=[state.new_question(None, None, state.stamp(T0), card=CARD)],
-            undelivered=[{"seq": "#9", "words": "First", "at": state.stamp(T0 - timedelta(minutes=20)), "said": None, "request": "req-held"}],
+            undelivered=[{"seq": "9", "words": "First", "at": state.stamp(T0 - timedelta(minutes=20)), "said": None, "request": "req-held"}],
             updated=state.stamp(T0 - timedelta(minutes=10)),
         )
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     with state.edit(demo) as data:
-        data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "First", None, seq="#9", at=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "First", None, seq="9", at=state.stamp(T0 - timedelta(minutes=10)))
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
         'ORPHAN o2 "options: only the owning machine writes": j2\'s card is answered and no job carries his answer'
     ]
@@ -3271,7 +3271,7 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     asking(monkeypatch, demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", asked, seq="#9")
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", asked, seq="9")
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
 
 
@@ -3672,7 +3672,7 @@ def test_a_pr_waiting_on_his_tap_draws_his_card_from_the_watch_on_its_first_read
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     sent: list[tuple[str, list[dict]]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["9"])
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
     assert lines == [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]"]
@@ -4153,7 +4153,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
         state.take_result(data, "j2268", waiting)
     at(48, headRefOid="f222db8aaa", checks=RED)
     with state.edit(demo) as data:
-        data["jobs"]["j2268"]["questions"][-1]["closed"] = state.new_close("answered", "option 1", None, seq="#9")
+        data["jobs"]["j2268"]["questions"][-1]["closed"] = state.new_close("answered", "option 1", None, seq="9")
     at(50, headRefOid="f222db8aaa", checks=RED)
     assert blocked_why == f"it conflicts with its base dev, and its builder waits on his answer on [his question card]({card_link})"
     assert passes == [
@@ -4353,7 +4353,7 @@ def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_n
     assert land.open_cards(drive, "j1", drive["prs"][KEY], cards) == ([waits] if held else [])
     assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
     with state.edit(demo) as data:
-        data["jobs"][asker]["questions"][-1]["closed"] = state.new_close("answered", "Team", None, seq="#9")
+        data["jobs"][asker]["questions"][-1]["closed"] = state.new_close("answered", "Team", None, seq="9")
     assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
 
 
@@ -4367,7 +4367,7 @@ def test_a_question_kept_before_holds_lines_holds_every_change_of_its_own_job_so
     assert land.unready(state.load(demo), KEY, cards) == "held: his cards demo:j1-1-a on its work are open"
     assert land.start(demo, [KEY], cards) == []
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Team", None, seq="#9")
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Team", None, seq="9")
     assert land.start(demo, [KEY], cards) == [(KEY,)]
 
 
@@ -4442,7 +4442,7 @@ def holding_asks(name: str, holds: str) -> None:
 
 def holding_answered(name: str) -> None:
     with state.edit(name) as data:
-        data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Keep them", None, seq="#9")
+        data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Keep them", None, seq="9")
 
 
 @pytest.mark.parametrize(
@@ -6041,7 +6041,7 @@ def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_i
         said = staged(watch.close_report_lines, first, T0 + timedelta(minutes=minute))
     assert said == ["WATCH close report post to the communicator failed 3 times in a row: cci: --body-file: not a JSON value"]
     assert (posts, state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]] * 3, CLOSE_REPORT)
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: posts.append(records) or ["#9"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: posts.append(records) or ["9"])
     second = watcher(demo)
     assert staged(watch.close_report_lines, second, T0 + timedelta(minutes=3)) == []
     assert (posts[3:], state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]], None)
@@ -6531,7 +6531,7 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_
     [(argv, checkout)] = ran
     assert (argv[:4], checkout) == (["claude", "--bg", "--agent", "long-running:handler"], Path(coordinator["cwd"]))
     assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
-    assert argv[-1] == f"Record: #9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-#9'}"
+    assert argv[-1] == f"Record: 9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'stall-9'}"
     data = state.load(demo)
     assert ([entry["holds"]["record"] for entry in data["handlers"].values()], data["prs"][KEY]["stall"]["told"]) == (["9"], state.stamp(told_at))
     posts_to_communicator.append("9")

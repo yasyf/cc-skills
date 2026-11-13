@@ -399,7 +399,7 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
     from drive import tools
 
     seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
-    if closes := [(order_id, seq.removeprefix("#")) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
+    if closes := [(order_id, seq) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
         with state.edit(watcher.name) as data:
             for order_id, seq in closes:
                 data["orders"][order_id]["closed_on"] = data["orders"][order_id]["closed_on"] or seq
