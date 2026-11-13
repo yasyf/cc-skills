@@ -186,9 +186,10 @@ POST_RULES = """
       ids, not the panic saying a pack deletes them.
     - A line about every case, with each, every, all, always, never, by default or only, needs a read of what decides
       it, not of one case: a read of one table's history shadow backs nothing about each table.
-    - A mechanism the line proposes, or a step it says needs no code, stands only on a read showing the system owns
-      and controls that piece where it would run, by his words "we cant do that since we dont control the poloices on
-      customer bucket": a lifecycle rule on a prefix of a team's bucket needs a read of who sets that bucket's policy.
+    - A mechanism the line proposes, or a step it says needs no code, stands only on a read or his words showing
+      whether the system owns and controls that piece where it would run, by his words "we cant do that since we dont
+      control the poloices on customer bucket": a lifecycle rule on a prefix of a team's bucket needs a read of who
+      sets that bucket's policy, and a line ruling one out on those words of his, quoted, needs no read.
     - The handler's account of its own act, the time its next line is due, his words quoted back, and the drive's own
       state the post names through a reference such as {pr:} or {card:} need no read.
 """
