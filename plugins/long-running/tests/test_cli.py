@@ -30,6 +30,7 @@ from drive import (
     picture,
     place,
     reads,
+    refs,
     render,
     served,
     settled,
@@ -2183,6 +2184,33 @@ def test_j2806_a_question_asked_again_in_new_words_redraws_its_card_under_its_on
     job = state.load("demo")["jobs"]["j1"]
     assert ([(question["file"], question["waits"], question["card"]) for question in job["questions"]], job["waits"]) == ([(str(again), "demo:j1-7", slack_card(2))], ["demo:j1-7"])
     assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7"]
+
+
+def test_j3997_a_question_asked_again_in_new_words_whose_redraw_fails_stays_on_its_card_so_drop_refuses_it_his_answer_closes_it_and_say_links_it(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    run("job", "ask", asking, str(block))
+
+    def answered(name: str, job_id: str, file: Path, card: dict) -> str:
+        raise slack.SlackError(f'waiting card "{card["waits"]}" was answered with "Yes" at 12:31pm')
+
+    monkeypatch.setattr(cli, "post_ask", answered)
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
+    again = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(block.read_text())}.md"
+    assert run("job", "ask", asking, str(block)) == (
+        0,
+        f"{again}\nj1's card {slack_card(1)} under demo:j1-7 did not redraw, so it shows the words it last drew and his answer there answers this question:"
+        ' waiting card "demo:j1-7" was answered with "Yes" at 12:31pm',
+    )
+    data = state.load("demo")
+    assert [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j1"]["questions"]] == [(str(again), "demo:j1-7", slack_card(1))]
+    assert [(job_id, question["file"]) for job_id, question in view.drawn_on(data, slack_card(1))] == [("j1", str(again))]
+    assert refs.card([], data, "demo:j1-7")["url"] == slack_card(1)
+    assert cli.main(["job", "ask", asking, "--drop", str(again)]) == 2
+    assert f"is on his card {slack_card(1)}, which only his answer closes" in capsys.readouterr().err
+    assert state.kept_in(state.load("demo")["jobs"]["j1"], again) is not None
 
 
 def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_its_question_pointing_at_the_live_one(
