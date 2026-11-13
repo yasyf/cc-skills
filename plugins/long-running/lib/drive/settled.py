@@ -4,6 +4,7 @@ import json
 import mmap
 import re
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from functools import cache
@@ -25,6 +26,30 @@ QUOTED_CHARS = 400
 UNDECIDED = "none"
 DECIDES = 0.8
 DECIDE_SECONDS = 20
+UNSAID_HERE = (
+    " A bare option number, such as \"1\" or \"move to 3\", answers the card it was typed on and says nothing about this one;"
+    ' a question he asked says nothing unless it proposes a way, as "why not just X?" orders X.'
+)
+BREAKS_QUESTION = (
+    'Do his words rule out this option, so building it goes against what he said? The option: "{option}"{marked}. A standing'
+    " rule for a kind of work, such as that one kind of thing is like any other, rules out an option that treats that kind as"
+    " its own case. His ruling on root causes rules out the recommended option when it keeps the structure the findings name"
+    " behind a cap, timer, retry, exit, flag, pin or sweeper, unless his own pick or order chooses that option, since his pick"
+    " beats the root-cause preference. Pick the item whose words rule it out, or none when his words do not speak to what the"
+    " option does." + UNSAID_HERE
+)
+UNTAPPED_QUESTION = (
+    "Which item's words name an amount or a choice for what this card asks, such as 30 days or 64 rows, that the card gives"
+    " him no tap for, as an option or a question of its own? His words after he got a card without one: \"You didn't give me"
+    ' a tap for 30 day bonding how many times do I have to say this". Words he quotes from an alert, a log or another message'
+    " are not his. Pick none when the card offers a tap for each amount and choice his words name." + UNSAID_HERE
+)
+CARD_QUESTION = (
+    "Does the card itself, apart from what any one option builds, break one of his rulings below by the rule it carries: a Page"
+    " line shows a page the card links lacking what the card's words say that page shows, or its Root cause line breaks his"
+    " ruling on root causes? Pick the ruling it breaks, or none."
+)
+UNBROKEN = "His words do not rule it out."
 CHANGES = 0.15
 CHANGES_QUESTION = (
     "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
@@ -49,7 +74,6 @@ INCIDENT = "incident"
 TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
-AMOUNT = re.compile(r"(?<![\w.,:#/$-])(\d+(?:\.\d+)?)[- ]?([a-z]+)\b", re.IGNORECASE)
 NOTES = "\nNotes:"
 ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
 UNWORDED = re.compile(r"[\W_]+")
@@ -63,7 +87,6 @@ HIS_ANSWER = (
     " beside his question is how a store duplicating one that existed was built, his words: \"its a terieble duplicatgion and"
     ' was clerarly not throught through"'
 )
-UNOFFERED_RULING = 'his Nov 11 1:28 PM words "You didn\'t give me a tap for 30 day bonding how many times do I have to say this"'
 COMMON = {
     "about", "above", "after", "again", "being", "below", "between", "could", "doing", "during", "every", "first", "having", "later",
     "maybe", "might", "never", "other", "ought", "right", "should", "since", "still", "their", "there", "these", "thing", "things",
@@ -186,6 +209,44 @@ def shown(answer_id: str, cwd: str) -> dict:
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
 
 
+def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:
+    """Each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words rule out, his pick or order beating the root-cause preference, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. Jev giving no reading leaves the card to him, said on stderr."""
+    rules = limits.rule_words(case)
+    items = {word["id"]: word for word in [*words, *rules]}
+    cited = {UNDECIDED: UNBROKEN, **dict.fromkeys(items)}
+    parts = {f"breaks{number}": f'option "{option}"' for number, option in enumerate(asked.options, 1)} | {"untapped": "the card", "card": "the card"}
+    questions = {
+        **{
+            f"breaks{number}": {"label": {"instructions": BREAKS_QUESTION.format(option=option, marked=" (recommended)" if option == asked.recommended else ""), "options": cited}}
+            for number, option in enumerate(asked.options, 1)
+        },
+        **({"untapped": {"label": {"instructions": UNTAPPED_QUESTION, "options": {UNDECIDED: "The card offers a tap for each.", **dict.fromkeys(word["id"] for word in words)}}}} if words else {}),
+        "card": {"label": {"instructions": CARD_QUESTION, "options": {UNDECIDED: "It breaks none of them.", **dict.fromkeys(rule["id"] for rule in rules)}}},
+    }
+    heard = [{key: item[key] for key in ("id", "asked", "said", "rule") if key in item} for item in items.values()]
+    try:
+        read = jev({"state": {"card": case, "his_words": heard}, "questions": questions})
+    except Unheard as failure:
+        print(f"drive job ask: Jev gave no reading of this question against his words, so it goes to him: {failure}", file=sys.stderr)
+        return []
+    return [
+        {"part": parts[key], **items[found["choice"]]}
+        for key, found in read.items()
+        if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES
+    ]
+
+
+def broken_refusal(broken: list[dict], why: str | None) -> str | None:
+    """Why a question may not go to him: a part of it goes against his words, and no reason names those words and says why they do not."""
+    if not (named := [found for found in broken if found["id"] not in (why or "")]):
+        return None
+    listed = "\n".join(f'- {found["part"]} breaks {found["id"]}: asked "{cut(found["asked"], 200)}", he said "{cut(found["said"], QUOTED_CHARS)}"' for found in named)
+    return (
+        "refused: Jev reads his words as ruling out what this card offers him. Rewrite or drop each part below so the card"
+        " keeps his words, or ask again with --unsettled naming each id with why his words do not reach it.\n" + listed
+    )
+
+
 def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
     """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
     cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
@@ -275,67 +336,27 @@ def answered(data: dict, title: str) -> dict | None:
     )
 
 
-def own_words(data: dict, order_id: str, question: str) -> list[dict]:
-    """His words the drive quotes in the order, as limits.his_words reads them, when they share a rare word with the question; none for an order added from his own Slack message, whose words thread_words reads from that message, since the order's stored text can lose the line break between his words and the lines he quoted."""
+def order_words(data: dict, order_id: str) -> list[dict]:
+    """His words on the order, each without the lines he quoted with ">", which are another's: the words of his the drive quotes in an order not added from his own Slack message, as limits.his_words reads them, then each of his messages about it in its thread, the one that started it included, as state.message_order reads each, never one about another order sharing that thread, each by its message's ts, since an order's stored text can lose the line break between his words and the lines he quoted; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
     order = data["orders"][order_id]
-    if limits.from_his_message(order):
-        return []
-    text = limits.his_words(order)
-    return [{"link": f"{order_id}'s own words", "text": text, "shared": shared}] if (shared := sorted(rare(question) & rare(text))) else []
-
-
-def thread_words(data: dict, order_id: str, team_url: str, question: str) -> list[dict]:
-    """His messages about the order in its own thread, the message of his that started it included, as state.message_order reads each, never one about another order sharing that thread, each read as only his own lines, never one he quoted with ">" from an alert or another person, and sharing a rare word with the question, each with its permalink and the words shared; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
-    if not (where := state.promise_thread(data["orders"][order_id])):
-        return []
+    own = [] if limits.from_his_message(order) or not (said := limits.his_words(order)) else [{"id": order_id, "asked": "his words the order quotes", "said": said[:BODY_CHARS]}]
+    if not (where := state.promise_thread(order)):
+        return own
     try:
         messages = slack.thread("--channel", where[0], "--thread", where[1], "--limit", str(slack.WHOLE_THREAD))
     except slack.SlackError as error:
-        raise slack.SlackError(f"could not read the order's thread {where[1]} for his words that may settle this question, so nothing is kept; run it again: {error}") from None
-    asked = rare(question)
-    return [
-        {"link": f"{team_url}archives/{where[0]}/p{key}?thread_ts={where[1]}", "key": key, "text": text, "shared": shared}
+        raise slack.SlackError(f"could not read the order's thread {where[1]} for his words this question is judged against, so nothing is kept; run it again: {error}") from None
+    return own + [
+        {"id": f"p{message['ts'].replace('.', '')}", "asked": "his message in the order's thread", "said": said[:BODY_CHARS]}
         for message in messages
-        for key in [message["ts"].replace(".", "")]
-        for text in [unquoted(html.unescape(message["text"]))]
-        if message.get("from_user")
-        and (shared := sorted(asked & rare(text)))
-        and state.message_order(data, *where, message["ts"]) == order_id
+        for said in [unquoted(html.unescape(message["text"]))]
+        if message.get("from_user") and said and state.message_order(data, *where, message["ts"]) == order_id
     ]
 
 
 def unquoted(text: str) -> str:
-    """His own lines of a message, without those he quoted with ">", which are another's words."""
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">"))
-
-
-def unoffered_refusal(said: list[dict], offered: str) -> str | None:
-    """Why a question may not go to him: an amount a clause of the order's own words or of his message about it in its thread names, as "30 day bonding" names 30 days, is in neither its question nor an option, so he has no tap for what he named. Only a clause sharing a rare word with the question counts, since one message can name a cap of another subject beside a word the question uses."""
-    have = amounts(offered)
-    missing = {
-        amount: message
-        for message in said
-        for part in limits.CLAUSE_BREAK.split(read(message["text"]))
-        if rare(part) & set(message["shared"])
-        for amount in sorted(amounts(part) - have)
-    }
-    if not missing:
-        return None
-    listed = "\n".join(f'- {amount}: {message["link"]} "{cut(message["text"], 200)}"' for amount, message in missing.items())
-    return (
-        "refused: his words on this order name an amount this question offers no tap for. Give each its own option,"
-        f" in his words, or ask about it in the question ({UNOFFERED_RULING}).\n{listed}"
-    )
-
-
-def amounts(text: str) -> set[str]:
-    """Each amount the words name, as "30 days" and "30-day" both name 30 day."""
-    return {
-        f"{number} {unit.removesuffix('s') if unit in limits.MEASURES else unit}"
-        for number, word in AMOUNT.findall(read(text))
-        for unit in [word.casefold()]
-        if unit in limits.MEASURES or f"{unit}s" in limits.MEASURES
-    }
+    """His lines of a message, without those he quoted with ">", which are another's words."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">")).strip()
 
 
 def rare(text: str) -> set[str]:

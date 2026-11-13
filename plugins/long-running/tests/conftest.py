@@ -655,6 +655,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 class Jev:
     asked: list[dict] = field(default_factory=list)
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
+    ruled: dict[str, str] = field(default_factory=dict)
     changes: dict[str, float] = field(default_factory=dict)
     plain: set[str] = field(default_factory=set)
     illustrated: list[str] = field(default_factory=list)
@@ -663,6 +664,12 @@ class Jev:
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
+
+    def breaks(self, part: str, word_id: str) -> None:
+        self.ruled[part] = word_id
+
+    def judges(self, questions: dict) -> dict:
+        return dict.fromkeys(questions, self.answer) | {part: label(word_id, {"none": 0.1, word_id: 0.9}) for part, word_id in self.ruled.items()}
 
 
 def label(choice: str, probabilities: dict[str, float]) -> dict:
@@ -691,6 +698,8 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         if "changes" in request["questions"]:
             read = {"none": 0.9} | judged.changes
             return {"changes": label(max(read, key=read.__getitem__), read)}
+        if "card" in questions:
+            return judged.judges(questions)
         return {key: judged.answer for key in request["questions"]}
 
     monkeypatch.setattr(settled, "jev", answered)

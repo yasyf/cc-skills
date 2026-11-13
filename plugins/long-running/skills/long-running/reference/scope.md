@@ -101,9 +101,12 @@ question, copies only in the same words: no wrong skips; each skip below becomes
 once kept settled with no card on another answer of his draws its card when its job asks it again.
 An answer he gives later still settles the older cards it decides, through `drive answer`.
 
-It refuses a question that offers no tap for an amount his words on the order, or his messages about
-it in its thread, name, read from his Slack message as his own lines only, never one he quoted with `>`, by his words "You didn't give me a tap for 30 day bonding how many times do
-I have to say this". A tap approving a PR settles only that PR's landing. A block a refusal stops
+Every other question Jev reads, in one call, against his words on the order and his messages about
+it in its thread, without the lines he quoted from an alert or another's message. It refuses each
+option they rule out, his pick or order beating the root-cause preference, and a card offering no
+tap for an amount or choice they name, by his words "You didn't give me a tap for 30 day bonding how
+many times do I have to say this". The refusal names each part and the words it breaks: rewrite it,
+or ask again with `--unsettled` naming each id and why those words do not reach it. A tap approving a PR settles only that PR's landing. A block a refusal stops
 stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
 `drive job ask` posts no `ask` record for it, and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
@@ -137,15 +140,18 @@ mechanism such as polling, a push or an event a bare word, as "Polls only" does.
 
 A question card starts from the root cause, the structure that lets the defect happen, and
 recommends the option that removes it so the defect cannot occur, through one abstraction every
-caller goes through; an option keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is
-never the recommended one. The findings' `Root cause:` line names that structure and `First
+caller goes through, unless his own pick or order chooses another, which beats this preference; an
+option keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is the recommended one only
+when his pick chose it. The findings' `Root cause:` line names that structure and `First
 principles:` that option, or `Root cause:` reads `fixed: <that structure>, removed by <the merged
 PR's link>` on a card asking only whether to release that PR, `not found: <the job finding it>`, or
 `none: <why no defect is behind it>`, as on a pick between his designs or his approval of an action
-his rules hold for him, such as a benchmark run; `drive job ask` refuses a block without them, and
-Jev weighs each card by the part of the rule its `Root cause:` form names, and the words each page it
-links shows once Chrome opens it against what the card says that page shows, and prints its finding to the
-agent, refusing no card on it, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
+his rules hold for him, such as a benchmark run; `drive job ask` refuses a block without them. In the
+call that reads his words, Jev weighs each option and the card by the part of this rule its `Root cause:`
+form names, his words, and the words each page it links shows once Chrome opens it against what the card
+says that page shows; each option or part Jev is at least 0.8 sure breaks them refuses the card, naming
+the part and the words it breaks, until it is rewritten or `--unsettled` names each id with why those
+words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
