@@ -489,21 +489,22 @@ def rail(drive: dict, item: dict, reports: set[str], heard: dict[str, list[dict]
 
 
 def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
-    """A PR card in his queue, with each of its PRs as the drive holds it now, in the card's order, since a stacked PR can merge while the card still waits on him."""
+    """A PR card in his queue, with each of its PRs as the drive holds it now, in the card's order, since a stacked PR can merge while the card still waits on him: titled as the card is once it carries several, and naming as its PR the first still open, the one its pane opens."""
     if not card:
         return {"kind": "tap", "tasks": [pr["order"]], "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": [], "pr": pr["url"], "checks": pr["checks"], "prs": [pr_entry(pr)]}
     rows = [named_pr(drive["prs"], state.pr_key(row["url"])) for row in card["card"].get("prs") or []]
+    opened = next((row for row in rows if row["state"] == "open"), pr)
     return {
         "kind": "tap",
         "tasks": list(dict.fromkeys(row["order"] for row in rows if row["order"])) or [pr["order"]],
-        "title": pr_title(pr),
-        "detail": tap_detail(pr),
-        "pr": pr["url"],
-        "checks": pr["checks"],
+        "title": kind_and_title(card["card"]["title"])[1] if len(rows) > 1 else pr_title(pr),
+        "detail": tap_detail(opened),
+        "pr": opened["url"],
+        "checks": opened["checks"],
         "since": card["asked"],
         "due": None,
         "url": card["url"],
-        "links": [{"label": "Pull request", "url": pr["url"]}],
+        "links": [{"label": "Pull request", "url": opened["url"]}],
         "card": card["card"],
         "answer": card["url"],
         "thread": card_thread(card["url"]),
