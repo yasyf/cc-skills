@@ -721,6 +721,55 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
     assert len(sent) == 2
 
 
+
+def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_failed_post_gives_its_close_back(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, capsys: pytest.CaptureFixture[str]
+) -> None:
+    thread = "1794200000.000100"
+    for words in ("one fix-live post per order", "one fix-live post per order, again"):
+        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words, "--thread", thread, "--owner", "meta")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+    sent: list[tuple[str, ...]] = []
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"close": "o1"}, lane="watch")
+    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o1", "record": "684712"}).startswith(f"POSTED {answer}")
+    report(monkeypatch, {"close": "o1"}, lane="meta")
+    refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: return NOTHING o1 closes on report 684712"
+    with pytest.raises(DriveError, match=re.escape(f"nothing posted: {refused}")):
+        talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o1", "record": "684713"})
+    assert len(sent) == 1
+    capsys.readouterr()
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "684713"]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: o1: {refused}"
+
+    def failing(*argv: str) -> dict:
+        raise slack.SlackError("context deadline exceeded")
+
+    monkeypatch.setattr(slack, "cc_slack", failing)
+    report(monkeypatch, {"close": "o2"}, lane="watch")
+    with pytest.raises(slack.SlackError):
+        talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o2", "record": "686065"})
+    assert state.load(demo)["orders"]["o2"]["closed_on"] is None
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"close": "o2"}, lane="meta")
+    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o2", "record": "686070"}).startswith(f"POSTED {answer}")
+    report(monkeypatch, {"close": "o2"}, lane="watch")
+    with pytest.raises(DriveError, match="refused, report 686070 already closes o2"):
+        talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "order": "o2", "record": "686065"})
+    assert len(sent) == 2
+
+
+def test_a_report_the_away_check_held_posts_nothing_whatever_its_judge_read(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["held"] = {"684842": {"order": "o1", "at": state.stamp(), "told": "684843"}}
+    report(monkeypatch, {"close": "o1"}, lane="watch")
+    with pytest.raises(DriveError, match="nothing posted: report 684842 is held for his catch-up, which carries it: return NOTHING held for his catch-up"):
+        talk.say(demo, {"text": "The journal fix merged.", "record": "684842"})
+    assert (posts, said(demo)) == ([], [])
+
 def owe(name: str, *orders: str) -> str:
     with state.edit(name) as data:
         data["catch_up"] = state.new_catch_up(ASKED, list(orders))

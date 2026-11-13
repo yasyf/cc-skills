@@ -760,8 +760,9 @@ GET 2 page ranges
   never his, whatever they quote. Jev judges only the line each finding names, by its rule: the post
   goes out when no finding's rule holds against its line, or his words lift it, and comes back with
   Jev's reason when one does, never for saying more than his message asked. When Jev cannot finish,
-  because it errs, times out, or reads the transcript past capt-hook's deadline, each finding only
-  warns: the post goes out as written, and the session that posts it hears every finding beside it
+  because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or
+  a mark decides, the post's word count or his reading as away, still refuses, since no judgment lifts
+  it, and each other finding only warns: the post goes out as written, and the session that posts it hears every finding beside it
   and rewords the post in place when one holds. His pick: "Refusals only warn when the judge cannot
   finish: no post ever waits, but it goes out unchecked, as twice this morning". A session's account of
   its own act or mistake names no cause the cause rule asks a record for. An order or job id, such as
