@@ -247,7 +247,7 @@ RELEASE_START = (
     ),
     re.compile(r"\b(?:start(?:s|ed|ing)?|began|begun|begins?|kicked off|launched)\b", re.IGNORECASE),
 )
-REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|]+)(?:\|([^{}]+))?\}")
+REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|\\]+)(?:\\?\|([^{}]+))?\}")
 STAMPED = {
     "started": (
         re.compile(r"\b(?:j\d+|jobs?|builders?|readers?|designers?|handlers?|lanes?|agents?|workers?|codex)\b", re.IGNORECASE),
