@@ -32,6 +32,7 @@ RECLAIM_SECONDS = 300
 MAIL_LIMIT = 100
 FENCED = "consumer_fenced"
 UNREACHABLE = "remote_runtime_unavailable"
+UNLIVE = "its worker's liveness is"
 GONE = {
     "dispatch_not_found": "Orca no longer holds its worker",
     "Unknown environment": "Orca no longer holds its Sprite's environment",
@@ -361,14 +362,20 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | None, end: LaneEnd, since: str | None, here: bool = False) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended."""
+def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None) -> str:
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
     local = here or state.on_mac(job)
     how = "finished" if end.worktree else "died"
     if end.worktree and not here:
         where = f"You continue the job in its terminal and checkout {ON_MAC}, as it left them." if local else "You continue the job on the same Sprite, in the checkout it left as it was."
     elif since:
         where = f"You continue the job on the same Sprite, in the checkout it left as it was, since {since}. Read its git status and log before anything else."
+    elif unsaved:
+        where = (
+            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; what its Sprite held on no remote"
+            f" could not be saved ({unsaved}), so that Sprite is kept and none of that work reaches you. "
+            + (f"The job's earlier lanes saved on GitHub {', '.join(saved)}: fetch each, compare it with its pushed branch, and carry on from the newer. {PUSH_FIRST}" if saved else PUSH_FIRST)
+        )
     else:
         where = (
             f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
@@ -528,9 +535,11 @@ def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:
     return None if state.on_mac(job) else reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job)) or None
 
 
-def saved(drive: str, job_id: str, job: dict, checkout: Path) -> list[str]:
-    """Each branch every save of the job's lane pushed, as GitHub holds it now under saved/<that lane>/ in the repository the drive's checkout and its Sprite lanes clone, by one read, so no text a save printed ever names a branch that is missing; none for a lane on this Mac, which saves nothing."""
-    return [] if state.on_mac(job) else github.saved_branches(github.checkout_repo(str(checkout)), lane_of(drive, job_id, job))
+def saved(drive: str, job_id: str, job: dict, checkout: Path, every: bool = False) -> list[str]:
+    """Each branch every save of the job's lane pushed, or with every, of each lane the job ran in, as GitHub holds it now under saved/<that lane>/ in the repository the drive's checkout and its Sprite lanes clone, by one read, so no text a save printed ever names a branch that is missing; none for a lane on this Mac, which saves nothing."""
+    if state.on_mac(job):
+        return []
+    return github.saved_branches(github.checkout_repo(str(checkout)), lane_name(drive, job_id) if every else lane_of(drive, job_id, job), every)
 
 
 def lane_of(drive: str, job_id: str, job: dict) -> str:
@@ -615,16 +624,23 @@ def gone(error: OrcaError) -> str | None:
     return next((why for refusal, why in GONE.items() if refusal in str(error)), None)
 
 
-def lane_end(drive: str, job: dict) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite. OrcaError when Orca cannot tell either way."""
+def lane_end(drive: str, job: dict, wake: bool = True) -> LaneEnd | None:
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. OrcaError when Orca cannot tell either way."""
     try:
         return shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
         if why := gone(error):
             return LaneEnd(why, None, None)
+        if not wake and out_of_reach(error):
+            return LaneEnd(f"Orca could not reach its Sprite: {error}", None, None, unreached=True)
         if UNREACHABLE not in str(error):
             raise
         return woken(drive, job, f"Orca could not reach its Sprite: {error}")
+
+
+def out_of_reach(error: OrcaError) -> bool:
+    """Whether a worker-show refusal says Orca cannot reach the lane's Sprite or cannot show its worker live, rather than that the lane ended or Orca failed on this Mac."""
+    return UNREACHABLE in str(error) or UNLIVE in str(error)
 
 
 def woken(drive: str, job: dict, unreached: str) -> LaneEnd | None:
@@ -657,7 +673,7 @@ def shown_end(job: dict, shown: dict) -> LaneEnd | None:
         why = f"its worker {finished}, and Orca sends nothing to a finished worker {ON_MAC if state.on_mac(job) else 'on a Sprite'}"
         return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"], terminal, shown["dispatch"]["runId"])
     if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
-        raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
+        raise OrcaError(f"orca orchestration worker-show: {UNLIVE} {verdict}")
     return None
 
 

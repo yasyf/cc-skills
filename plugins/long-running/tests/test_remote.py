@@ -1,3 +1,4 @@
+import fcntl
 import hashlib
 import io
 import itertools
@@ -2181,7 +2182,7 @@ def test_a_launch_of_a_lane_whose_worker_finished_prepares_its_sprite_again_with
 
 
 def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_and_starts_its_next_in_a_fresh_worktree_on_this_mac(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], saved_on_github: dict[str, list[str]]
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_on_github: dict[str, list[str]]
 ) -> None:
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
@@ -2193,19 +2194,6 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_
     monkeypatch.setattr(orca, "bound_command", lambda *args: pytest.fail("a move to this Mac never starts its next worker in the Sprite's terminal"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
-
-    def unsaved(drive: str, job_id: str, job: dict, root: Path) -> str:
-        raise orca.OrcaError("cc-remote-reclaim exited 1: pool-one unreachable")
-
-    monkeypatch.setattr(orca, "save", unsaved)
-    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("nothing moves to this Mac while its Sprite's work is unsaved"))
-    assert cli.main(["job", "launch", "j1", "--local"]) == 2
-    assert capsys.readouterr().err == (
-        "drive: j1: not moved to this Mac, since what its Sprite pool-one holds on no remote could not be saved to GitHub:"
-        " cc-remote-reclaim exited 1: pool-one unreachable\n"
-    )
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["route"], job["dispatch"], "deaths" in job) == (None, DISPATCH, False)
     saves, launched = [], {}
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: saves.append(job["workspace"]) or "uncommitted changes in /home/sprite/monorepo (1 file), saved to Forge-AI/monorepo under saved/demo-j1/")
 
@@ -2226,6 +2214,108 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_
     assert "You take the job over in a fresh worktree on this Mac from its pushed branches; what it held on no remote was saved for you on GitHub as saved/demo-j1/wip at 1a2b3c4d5e." in brief
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], [death["workspace"] for death in job["deaths"]]) == (state.LOCAL_ROUTE, "dispatch-2", ["pool-one"])
+
+
+J7_REFS = [
+    {"ref": "refs/heads/saved/demo-j1-2/stash", "object": {"sha": "3c4d5e6f70bb"}},
+    {"ref": "refs/heads/saved/demo-j1/duckdb-spike", "object": {"sha": "28b5158400aa"}},
+    {"ref": "refs/heads/saved/demo-j10/other-job", "object": {"sha": "9f8e7d6c5bcc"}},
+]
+J7_SAVED = {"ref": "refs/heads/saved/demo-j1-3/tallies", "object": {"sha": "4d5e6f708122"}}
+
+
+@pytest.mark.parametrize(
+    ("save", "refs", "kept"),
+    [
+        (
+            unsaveable(UNREAD),
+            J7_REFS,
+            f"is kept, since what it holds on no remote could not be saved: {UNREAD}; the job's lanes saved on GitHub saved/demo-j1-2/stash at 3c4d5e6f70, saved/demo-j1/duckdb-spike at 28b5158400",
+        ),
+        (lambda drive, job_id, job, root: SAVED, [J7_SAVED, *J7_REFS], "held on no remote is saved on GitHub as saved/demo-j1-3/tallies at 4d5e6f7081; destroyed"),
+    ],
+    ids=["unsaved", "saved"],
+)
+def test_a_launch_local_of_a_job_whose_sprite_does_not_answer_moves_it_to_this_mac_with_no_wake_and_keeps_an_unsaved_sprite(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, save: Callable[..., str], refs: list[dict], kept: str
+) -> None:
+    workspace, dispatch, port = J2504_LANE
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
+    held = "Next event for builder j7, from the coordinator: the spike's numbers are in."
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(lane="demo-j1-3", undelivered=[{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}])
+    asked, released, marks = [], [], []
+
+    def matching_refs(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        asked.append(cmd[2].partition("/git/")[2])
+        prefix = "refs/heads/" + cmd[2].partition("/git/matching-refs/heads/")[2]
+        return json.dumps([ref for ref in refs if ref["ref"].startswith(prefix)])
+
+    unmarked = orca.launch
+
+    def marked(*args, **kwargs) -> dict:
+        marks.append((state.drive_dir(remote) / "jobs" / "j1.launch").read_text().strip())
+        return unmarked(*args, **kwargs)
+
+    monkeypatch.setattr(orca, "launch", marked)
+    monkeypatch.setattr(github, "saved_branches", REAL_SAVED_BRANCHES)
+    monkeypatch.setattr(github, "read", matching_refs)
+    monkeypatch.setattr(orca, "save", save)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    code, out = run("job", "launch", "j1", "--local")
+    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2")) == (0, True)
+    assert f"its lane on Sprite {workspace} was dead ({unreachable(port)}), and " in out
+    assert kept in out
+    assert (wakes, [(started["workspace"], started["session"]) for started in launches], marks) == ([], [(None, None)], [str(os.getpid())])
+    assert not (state.drive_dir(remote) / "jobs" / "j1.launch").exists()
+    brief = orca.brief_of(launches[0]["brief"])
+    assert brief.endswith(f"which you act on now:\n\n{held}")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], job["undelivered"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == (state.LOCAL_ROUTE, "dispatch-2", [], [(dispatch, workspace)])
+    if released:
+        assert (released, asked) == ([workspace], ["matching-refs/heads/saved/demo-j1-3/"])
+        return
+    assert asked == ["matching-refs/heads/saved/demo-j1"]
+    assert (
+        f"You take the job over in a fresh worktree on this Mac from its pushed branches; what its Sprite held on no remote could not be saved ({UNREAD}),"
+        " so that Sprite is kept and none of that work reaches you. The job's earlier lanes saved on GitHub saved/demo-j1-2/stash at 3c4d5e6f70,"
+        " saved/demo-j1/duckdb-spike at 28b5158400: fetch each, compare it with its pushed branch, and carry on from the newer."
+    ) in brief
+
+
+def test_a_resume_refuses_at_once_rather_than_queue_on_the_lock_another_verb_holds_while_orca_cannot_reach_the_lane(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
+    monkeypatch.setattr(state, "job_locked", lambda *args: pytest.fail("a resume refused before the lock never waits for it"))
+    lock = state.drive_dir(remote) / "jobs" / "j1.lock"
+    lock.parent.mkdir(exist_ok=True)
+    with open(lock, "a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        assert cli.main(["job", "resume", "j1", watch.UNREACHED]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1: refused, nothing sent or held: another drive verb holds its lock while Orca cannot reach its lane on its Sprite"
+        f" (orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{J2504_LANE[2]});"
+        " drive job launch j1 --local moves it to this Mac\n"
+    )
+    assert (wakes, launches, state.load(remote)["jobs"]["j1"]["undelivered"]) == ([], [], [])
+
+
+def test_a_resume_holding_the_lock_stands_down_before_it_wakes_or_starts_anything_while_a_launch_local_waits_for_it(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a resume standing down reads nothing of its lane"))
+    waiting = os.getppid()
+    (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
+    (state.drive_dir(remote) / "jobs" / "j1.launch").write_text(f"{waiting}\n")
+    assert cli.main(["job", "resume", "j1", watch.UNREACHED]) == 2
+    assert capsys.readouterr().err == (
+        f"drive: j1: stood down, nothing sent or started: drive job launch j1 --local, pid {waiting}, waits for its lock to move it to this Mac,"
+        " and its handoff carries the texts the job holds\n"
+    )
+    assert [held["words"] for held in state.load(remote)["jobs"]["j1"]["undelivered"]] == [watch.UNREACHED]
 
 
 def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_it_and_sends_that_worker_its_text(
