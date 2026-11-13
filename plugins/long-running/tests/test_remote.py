@@ -1998,7 +1998,7 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
     required = {"context": "buildkite/test", "state": "SUCCESS", "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
     pr_reads["Forge-AI/monorepo#7"] = {
         "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "baseRefName": "dev", "headRefName": "fix-x", "mergeCommit": None, "checks": [required], "reviewDecision": None,
-        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"], "required_reviews": 1,
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "ejected_at": None, "native": [], "required_checks": ["buildkite/test"], "required_reviews": 1,
     }
     taken = f"JOB j1 o1 READY {url}; Forge-AI/monorepo#7 is at abc1234 on GitHub, red, owed by its builder: forge-pr-reviewer approved nothing at abc1234"
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith(taken)]

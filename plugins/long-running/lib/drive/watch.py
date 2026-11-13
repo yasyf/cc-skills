@@ -127,7 +127,8 @@ def ids(pr: dict) -> str:
     return f"[{pr['order']} {pr['job']}]"
 
 
-def pr_changes(pr: dict, read: dict) -> list[str]:
+def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
+    """What moved on the PR since the watch last read it, saved onto its row; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes."""
     fresh = github.live(read, pr)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
@@ -140,7 +141,8 @@ def pr_changes(pr: dict, read: dict) -> list[str]:
         changes.append("conflicts with its base")
     if fresh["state"] != pr["state"]:
         changes.append(fresh["state"])
-    ejected = github.EJECTED_LABEL in read["labels"]
+    lander = pr["lander"]
+    ejected = bool(lander and entry["ejected_at"]) and state.parse_time(entry["ejected_at"]) > state.parse_time(lander["at"])
     if ejected and not pr["ejected"]:
         changes.append("ejected from the merge queue")
     pr.update(fresh, draft=read["isDraft"], merged_sha=read["mergeCommit"], ejected=ejected)
@@ -163,7 +165,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
-            changes = pr_changes(pr, read)
+            changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
             pr["required"]["read"] = state.stamp(moment)
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")

@@ -47,8 +47,8 @@ CARD_REASON = (
     " Land and enqueue nothing: return `WAITING {cards}`; the watch says FREE once he answers"
 )
 STACK_REASON = (
-    "Refused on purpose: {named} leaves out {left} of the stack his card drew, and a stack enqueues together, never"
-    " part alone. Name every open PR of it: `stack-enqueue {every}`"
+    "Refused on purpose: {named} leaves out {left} below it in its stack, which stack-enqueue queues with it."
+    " Name every PR it queues: `stack-enqueue {every}`"
 )
 COORDINATOR_STEP = (
     "Refused on purpose: the {who} does no order's work itself, so its turn never blocks, and `{step}` is such"
@@ -396,12 +396,11 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
 
 
 def stacked(keys: list[str], session: str) -> list[str]:
-    """The named PRs with every open PR his Approve lands with each, by land.together: the PRs of its card that share its stack, each stack bottom first."""
+    """The named PRs with the open PRs under each that stack-enqueue queues with it, by land.chain as land.unit reads it, each chain bottom first, never a PR above."""
     members: dict[str, None] = {}
     for key in keys:
         if judged := judged_by(key, session):
-            data = state.load(judged[0])
-            members |= dict.fromkeys(land.together(data, land.landing_stacks(data), state.pr_key(judged[1]["url"])))
+            members |= dict.fromkeys(land.chain(land.unders(state.load(judged[0])), state.pr_key(judged[1]["url"])))
     shown = {member.lower() for member in members}
     return [*members, *(key for key in keys if key.lower() not in shown)]
 

@@ -37,6 +37,7 @@ def node(**overrides: object) -> dict:
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
         "labels": {"nodes": []},
+        "timelineItems": {"nodes": []},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
         "stack": None,
     }
@@ -118,6 +119,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "title": "Fix the thing",
             "author": "yasyf",
             "labels": [],
+            "ejected_at": None,
             "native": [],
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
@@ -136,6 +138,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "title": "Fix the thing",
             "author": "ghost",
             "labels": ["hold"],
+            "ejected_at": None,
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
@@ -403,3 +406,9 @@ def test_below_follows_a_native_stack_split_off_another_open_prs_branch_down_to_
     monkeypatch.setattr(github, "below", BELOW)
     assert github.below("Forge-AI/monorepo#54872") == [f"Forge-AI/monorepo#{number}" for number in (54355, 54378, 54404, 54866)]
     assert asked == [54872, 54866, 54404, 54355]
+
+
+def test_ejected_at_is_when_trunk_last_put_on_the_trunk_failed_label_a_pr_still_carries() -> None:
+    added = {"nodes": [{"createdAt": at, "label": {"name": name}} for at, name in (("2026-11-11T09:00:00Z", github.EJECTED_LABEL), ("2026-11-12T01:35:00Z", "trunk-pending-failure"), ("2026-11-12T01:36:43Z", github.EJECTED_LABEL))]}
+    assert github.flatten(node(labels={"nodes": [{"name": github.EJECTED_LABEL}]}, timelineItems=added))["ejected_at"] == "2026-11-12T01:36:43Z"
+    assert github.flatten(node(timelineItems=added))["ejected_at"] is None
