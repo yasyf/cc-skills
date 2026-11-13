@@ -2234,8 +2234,8 @@ def session_drives(session: str) -> list[str]:
 
 
 def resolve(name: str | None = None) -> str:
-    """The drive a verb acts on: --drive, $LONG_RUNNING_DRIVE, this session's drive, or the only drive."""
-    chosen = name or os.environ.get("LONG_RUNNING_DRIVE")
+    """The drive a verb acts on: --drive, DRIVE_ENV, which every process the drive starts carries, this session's drive, or the only drive."""
+    chosen = name or os.environ.get(DRIVE_ENV)
     if chosen:
         if not exists(chosen):
             raise DriveError(f"no drive named {chosen}")

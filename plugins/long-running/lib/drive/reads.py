@@ -184,7 +184,7 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
             done = subprocess.run(
                 [str(DRIVE_BIN), *(here.get(word, word) for word in argv)],
                 cwd=checkout,
-                env=session | {"LONG_RUNNING_DRIVE": drive, state.OWN_JOB_ENV: job_id, SPRITE_LANE: "1"},
+                env=session | {state.DRIVE_ENV: drive, state.OWN_JOB_ENV: job_id, SPRITE_LANE: "1"},
                 input=shown_here(sent.get("stdin", ""), shown),
                 capture_output=True,
                 text=True,

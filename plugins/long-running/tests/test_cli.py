@@ -588,7 +588,7 @@ def test_status_places_a_session_while_claude_code_removes_a_session_file_it_lis
 
 def test_context_refuses_a_session_with_no_role(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "a-stranger")
-    monkeypatch.setenv("LONG_RUNNING_DRIVE", "demo")
+    monkeypatch.setenv(state.DRIVE_ENV, "demo")
     assert run("context")[0] == 2
 
 

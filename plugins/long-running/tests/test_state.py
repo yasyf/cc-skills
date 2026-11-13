@@ -435,7 +435,7 @@ def test_next_id_is_monotonic_past_gaps() -> None:
 def test_resolve_prefers_flag_then_env(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("alpha")
     make("beta")
-    monkeypatch.setenv("LONG_RUNNING_DRIVE", "beta")
+    monkeypatch.setenv(state.DRIVE_ENV, "beta")
     assert state.resolve("alpha") == "alpha"
     assert state.resolve() == "beta"
 
