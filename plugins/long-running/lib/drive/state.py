@@ -1825,13 +1825,38 @@ def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
     holder = order["owner"]
     if role is None or holder in (None, role):
         return None
-    session = (data["roles"].get(holder) or {}).get("session") or "not started"
-    lane = order_lane(data, order) if holder == "coordinator" else holder
     return (
-        f"{order_id} is the {title(holder)}'s order, session {session}: only the {title(holder)} adds its jobs, starts its agents,"
+        f"{order_id} is the {title(holder)}'s order, session {holding_session(data, order)[1]}: only the {title(holder)} adds its jobs, starts its agents,"
         f" checks its PRs and posts its reports; send the {title(holder)} the step as a handoff record on the drive's record tool instead,"
-        f' to "{lane}" and attrs {{"order": "{order_id}"}}'
+        f' to "{holding_lane(data, order)}" and attrs {{"order": "{order_id}"}}'
     )
+
+
+def pr_held_elsewhere(data: dict, key: str, job_id: str) -> str | None:
+    """Why a job may not take a PR the drive tracks: a job on an order another lane holds has it, and the PR's order sends its check, stage lines and wakes to that lane; compared by holding lane rather than session role, so two sub-coordinators, both of role coordinator, and a Sprite lane's call, with no session, are told apart. A job already carrying the PR, such as the one that opened it, takes it back."""
+    pr = data["prs"].get(key)
+    if pr is None or pr["url"] in data["jobs"][job_id]["prs"]:
+        return None
+    order_id = data["jobs"][job_id]["order"]
+    held, own = data["orders"][pr["order"]], data["orders"][order_id]
+    lane = holding_lane(data, held)
+    if lane == holding_lane(data, own):
+        return None
+    holder, session = holding_session(data, held)
+    return (
+        f"{pr['job']} holds it for {pr['order']}, the order of {holder}, session {session}, while {job_id} is on {order_id}, which {holding_session(data, own)[0]} holds:"
+        " the watch sends a PR's check, stage lines and wakes to the lane holding its order, so no job of another lane takes it;"
+        f" put {job_id}'s change up as a PR of its own stacked on {key}'s branch, or send {holder} the step as a handoff record"
+        f' on the drive\'s record tool, to "{lane}" and attrs {{"order": "{pr["order"]}"}}'
+    )
+
+
+def holding_session(data: dict, order: dict) -> tuple[str, str]:
+    """Who holds an order and its session, "not started" while none is bound: its project's sub-coordinator, else the role holding it, the top coordinator for an order heard at root."""
+    if holder_lane(order) is None and order["project"] in data["subcoordinators"]:
+        return f"the sub-coordinator for {order['project']}", data["subcoordinators"][order["project"]]["session"]
+    role = holder_lane(order) or "coordinator"
+    return f"the {title(role)}", (data["roles"].get(role) or {}).get("session") or "not started"
 
 
 def last_started(data: dict) -> str:

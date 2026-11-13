@@ -3848,6 +3848,46 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     assert state.load("demo")["prs"][key]["exempt"] is None
 
 
+def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_or_a_sessionless_sprite_lane_and_its_opener_takes_it_back(
+    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url, key = "https://github.com/Forge-AI/monorepo/pull/53447", "Forge-AI/monorepo#53447"
+    on_github["url"] = url
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "agents wake on their inbox")
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Agents", "the agent's chat lists under its env")
+    run("job", "add", "builder", "--order", "o1", "--goal", "wake agents on their inbox")
+    run("job", "add", "builder", "--order", "o2", "--goal", "list the agent's chat")
+    run("job", "add", "builder", "--order", "o1", "--goal", "take over the inbox wake")
+    run("pr", "add", url, "--job", "j1")
+    for project, session in (("Platform", "platform-1"), ("Iris", "iris-1")):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+        run("start", "demo", "--role", "coordinator", "--project", project)
+    held = state.pr_held_elsewhere(state.load("demo"), key, "j2")
+    assert held is not None
+    assert held.startswith("j1 holds it for o1, the order of the sub-coordinator for Platform, session platform-1, while j2 is on o2, which the sub-coordinator for Iris holds:")
+    assert held.endswith(f'put j2\'s change up as a PR of its own stacked on {key}\'s branch, or send the sub-coordinator for Platform the step as a handoff record on the drive\'s record tool, to "platform" and attrs {{"order": "o1"}}')
+    for session in ("iris-1", None):
+        if session:
+            monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+        else:
+            monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+        assert cli.main(["pr", "add", url, "--job", "j2", "--drive", "demo"]) == 2
+        assert f"{key}: refused, nothing added: {held}" in capsys.readouterr().err
+    data = state.load("demo")
+    assert (data["prs"][key]["job"], data["prs"][key]["order"], data["jobs"]["j2"]["prs"]) == ("j1", "o1", [])
+    assert "is the coordinator's order, session platform-1:" in (state.held_elsewhere(data, "o1", "meta") or "")
+    with state.edit("demo") as data:
+        data["prs"][key].update(job="j2", order="o2")
+        data["jobs"]["j2"]["prs"].append(url)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    assert cli.main(["pr", "add", url, "--job", "j3"]) == 2
+    assert "j2 holds it for o2, the order of the sub-coordinator for Iris, session iris-1, while j3 is on o1" in capsys.readouterr().err
+    assert run("pr", "add", url, "--job", "j1")[0] == 0
+    assert (state.load("demo")["prs"][key]["job"], state.load("demo")["prs"][key]["order"]) == ("j1", "o1")
+    assert run("pr", "add", url, "--job", "j3")[0] == 0
+    assert state.load("demo")["prs"][key]["job"] == "j3"
+
+
 def test_a_yasyf_pr_starts_one_lander_once_its_builders_ready_is_taken_with_its_proof_file_kept(
     run: Run, meta: str, tmp_path: Path, on_github: dict, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
