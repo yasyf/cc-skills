@@ -3972,6 +3972,24 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert watch.holder_line(line, state.load(demo)) == "meta"
 
 
+def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"kind": "answer", "reporter": state.reporter(REPORTED), "updated": state.stamp(T0 - timedelta(hours=5))}
+    watching = watcher(demo)
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
+    with state.edit(demo) as data:
+        for part in data["orders"]["o1"]["parts"].values():
+            part["posted"] = "https://acme.slack.com/archives/D123/p1794200300000100"
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
+    line = (
+        f"TELL o1: its answer is posted and nothing moved on it for 10 minutes, but {REPORTED}, the thread its question was asked in,"
+        " has not heard the answer: send its report with --attr close=o1, whose handler posts the answer there and records it with"
+        " drive order told o1 <its permalink>; done refuses until then"
+    )
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [line]
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
+
+
 def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:
     with state.edit(demo) as data:
         data["orders"]["o1"] |= {"reporter": state.reporter(REPORTED), "proof": "https://buildkite.com/forge/release/builds/14185"}

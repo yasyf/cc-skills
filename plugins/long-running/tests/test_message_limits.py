@@ -442,6 +442,25 @@ def test_a_bug_reports_thread_gets_its_fix_live_note_only_once_the_fix_is_proven
     assert message_limits.deny_reason(call("slack_reply", transcript, **note | {"thread_ts": "1794400000.000100"})) is None
 
 
+def test_a_shared_questions_thread_gets_its_answer_only_once_it_is_posted_to_him_and_only_once(run: Run, talker: str, transcript: Path, slack_thread: Thread) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "what is left for cloud Iris", "--kind", "answer", "--reporter", REPORTED)
+    note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "What is left for cloud Iris: the cut-over, then the cleanup."}
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)) == (
+        "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it."
+        " It goes once the answer is posted."
+    )
+    with state.edit("demo") as data:
+        for part in data["orders"]["o1"]["parts"].values():
+            part["posted"] = "https://acme.slack.com/archives/D123/p1794200300000100"
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)) is None
+    slack_thread.messages.append({"ts": "1794418000.000100", "thread_ts": "1794400100.000200", "from_claude": True})
+    told = "https://acme.slack.com/archives/C0REPORTS01/p1794418000000100?thread_ts=1794400100.000200"
+    assert run("order", "told", "o1", told)[0] == 0
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)) == (
+        f"Refused on purpose: this thread already heard the answer to its question, in {told}, and hears it once. Post nothing more there."
+    )
+
+
 def test_link_labels_count_as_the_words_he_reads(talker: str, transcript: Path) -> None:
     text = said(57) + " <https://github.com/yasyf/cc-skills/pull/1|the run page shows its history>"
     assert "63 words" in posted(transcript, text=text)

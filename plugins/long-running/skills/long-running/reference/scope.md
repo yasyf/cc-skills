@@ -72,7 +72,8 @@ closing a session he did not name. His order to post, a tap on a card included, 
 one post it names, and nothing asks him to approve it again. A post nobody ordered, such as a reply
 to a bug's reporter or a teammate, goes to him as a question card asking whether to send it, never
 one asking him to approve a post. The fix-live note the drive owes a bug's reporter in that report's
-thread once the fix is live is the one exception, by [messages.md](messages.md).
+thread once the fix is live, and the answer to a question someone asked him that he shares or links,
+which his share orders, are the two exceptions, by [messages.md](messages.md).
 
 ## A question for him
 

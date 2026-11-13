@@ -968,9 +968,10 @@ def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime
 
 
 def owes_tell(order: dict, moment: datetime) -> bool:
-    """Whether the thread an order's reporter asked in is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, and no note is recorded."""
+    """Whether the thread an order's reporter asked in is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded."""
     reporter = order["reporter"]
-    return bool(reporter and state.may_tell(order) and not reporter["told"] and not reporter["tell_said"] and moment - state.parse_time(order["updated"]) >= TELL_AFTER)
+    moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
+    return bool(reporter and state.may_tell(order) and not reporter["told"] and not reporter["tell_said"] and moment - state.parse_time(moved) >= TELL_AFTER)
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
