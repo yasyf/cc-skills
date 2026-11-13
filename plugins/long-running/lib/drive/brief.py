@@ -65,7 +65,7 @@ LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 OPENINGS = ("DONE", "READY", "PUSHED", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
-DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Exists:", "Change:", "Fork:", "Facts:")
+DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Exists:", "Change:", "Facts:")
 EXISTS = re.compile(r"^[ \t]*Exists:[ \t]*(.*)$", re.MULTILINE)
 CITED = re.compile(r"[\w.~-]*[/.][\w./-]*:\d+|https?://\S+")
 OWNED = re.compile(r"\b(?:extended|reused|deleted) by change (\d+)\b", re.IGNORECASE)
@@ -378,7 +378,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             "a design lane's report is the design in its shape, which the coordinator reads for its forks, and this one"
             f" lacks {', '.join(missing)}: DESIGN <the part, in a few words>, then Root cause: (the structure that lets the"
             " defect happen, or none: <why no defect is behind it>), Settled:, Native:, Exists:, a Change: line per PR its"
-            " builders open, a Fork: line per fork and Facts:"
+            " builders open and Facts:"
         )
     if job["kind"] == "design" and opening == "DESIGN" and (unowned := unowned_exists(name, data, job["order"], job["parts"], text)):
         return unowned
@@ -515,7 +515,7 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
         return (
             f'Jev reads this design as building less than his words "{cut(said["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({said["asked"]}) name, or later, with no fork asking him:'
             " building less than his words or an answer of his name is a fork whatever it costs to switch, so build it in, or keep it as a"
-            " fork with drive job ask and name it on a Fork: line"
+            " fork with drive job ask"
         )
     if shared["choice"] == "first" and shared["probabilities"]["first"] >= settled.DECIDES:
         return (

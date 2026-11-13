@@ -94,9 +94,9 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 Keep each fork as its own `ASK` block before you return. Pipe it with a quoted heredoc into
 `drive job ask --check -` first, which checks its words and the card cc-slack draws from it and draws each Show me picture, with
 no drive or job, and prints every fix, such as Mermaid's parse error for a diagram that does not draw, or `ready`, then into
-`drive job ask <your job> -`, which keeps it and prints the path for your `Fork:` line. A refusal is deliberate
+`drive job ask <your job> -`, which keeps it as a question of your job and prints its path. A refusal is deliberate
 and names every fix: apply them and run it again. It refuses a clock time typed for work already done anywhere the card draws, so
-name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query printed in Pacific on the line linking it, or in backticks as it printed it. A kept fork you leave out of your return, such as an earlier wording of one, counts as open until
+name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query printed in Pacific on the line linking it, or in backticks as it printed it. A kept fork you no longer ask, such as an earlier wording of one, counts as open until
 `drive job ask <your job> --drop <its path>` throws it away.
 
 ````
@@ -242,14 +242,11 @@ Native: <what the platform he sees it on already does for this part, with links,
 Exists: <each thing that already does or holds what this part touches, by path:line or link, ending extended by change N, reused by change N or deleted by change N, separated by ;, or none: <each search that found nothing>>
 Change: <what one PR of the design changes, in at most 80 characters with no backtick, double quote, $ or backslash>
 Change: <the next, the same way, ending (waits on change <N>) when it builds on change N of this list, or (waits on change <N> and change <M>) on several>
-Fork: <the path drive job ask printed for one fork>
-Fork: <the next, the same way, or "none" and why in one line>
 Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
 `drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
-`Root cause:`, `Settled:`, `Native:`, `Exists:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, a `Fork:`
-path that keeps no question of your job, an `Exists:` entry citing no `path:line` or link or naming
+`Root cause:`, `Settled:`, `Native:`, `Exists:`, `Change:` and `Facts:` lines, naming each one missing, an `Exists:` entry citing no `path:line` or link or naming
 no change of its list, an `Exists: none` naming no search or while the order's reader's `exists:`
 line names something, a design Jev reads as building less than his words or an answer of his name,
 or later, with no fork asking him, or as building a strategy before the abstraction it shares with
