@@ -54,6 +54,48 @@ def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while
     assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
 
 
+def test_a_save_that_changes_a_row_or_a_command_that_does_more_than_read_is_kept_as_written_so_its_verb_never_runs_twice(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo")
+    with state.edit("demo"):
+        pass
+    monkeypatch.setattr(state, "WROTE", set())
+    with state.edit("demo"):
+        pass
+    subprocess.run(["git", "--version"], check=True, capture_output=True)
+    assert state.WROTE == set()
+    with state.edit("demo") as data:
+        data["terminal"] = "a changed row"
+    subprocess.run([sys.executable, "-c", ""], check=True)
+    assert state.WROTE == {"drive", Path(sys.executable).name}
+
+
+@pytest.mark.parametrize(
+    ("argv", "reading"),
+    [
+        (["ccx", "vcs", "gh", "--max-age", "30s", "--", "pr", "view", "https://github.com/o/r/pull/1"], True),
+        (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/o/r/pulls/1/files", "--jq", ".[].filename"], True),
+        (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "-X", "POST", "repos/o/r/issues/1/comments"], False),
+        (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "-f", "query=mutation { x }"], False),
+        (["ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "merge", "--squash", "1"], False),
+        (["/plugins/cc-slack/1.0/bin/cc-slack", "thread", "--channel", "D1"], True),
+        (["/plugins/cc-slack/1.0/bin/cc-slack", "dm-status", "--text", "a post"], False),
+        (["/plugins/cc-slack/1.0/bin/cc-slack", "card", "render", "--card", "/dev/stdin"], True),
+        (["orca", "orchestration", "task-list", "--run", "run_1", "--json"], True),
+        (["orca", "orchestration", "send", "--to", "t1", "--json"], False),
+        (["cci", "show", "2065"], True),
+        (["cci", "post", "--batch", "-"], False),
+        (["tmux", "show-environment", "ORCA_TERMINAL_HANDLE"], True),
+        (["git", "-C", "/clone", "rev-parse", "HEAD"], True),
+        (["git", "-C", "/clone", "push", "origin", "lane"], False),
+        (["/plugins/long-running/1.0/bin/drive", "job", "read", "j1", "m1"], False),
+    ],
+)
+def test_only_a_command_that_reads_leaves_a_verb_free_to_run_again(argv: list[str], reading: bool) -> None:
+    assert state.reads_only(argv) is reading
+
+
 NEWER_RELEASE_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])

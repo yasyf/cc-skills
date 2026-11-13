@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
+from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
 from drive.install import PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, when
 
@@ -895,8 +895,20 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
         kept = [orca.sprite_answer(reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id), data["jobs"][job_id], message_id), None]
     except reads.ReadError as error:
         kept = [f"{question}: {error}"] * 2
-    keep_answer(name, job_id, message_id, kept)
+    answer_kept(name, job_id, message_id, kept)
     return kept
+
+
+def answer_kept(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
+    """Keep the answer a read came to; when a newer install saved the drive while it ran, the newest install's `drive job answered` keeps it, so the read never runs again."""
+    try:
+        keep_answer(name, job_id, message_id, kept)
+        return
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.read.{message_id}.json"
+    install.handed(newer, name, ["job", "answered", job_id], receipt, {"message": message_id, "answer": kept}, f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS)
 
 
 def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:

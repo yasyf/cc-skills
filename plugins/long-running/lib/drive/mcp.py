@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TextIO
 
 import drive
-from drive import cli, reads, state, tools
+from drive import cli, install, reads, state, tools
 from drive.install import config_dir, installed
 
 PLUGIN = "long-running@skills"
@@ -466,7 +466,7 @@ def told(key: str, code: int) -> None:
 
 
 def forked(request: dict, woken: int, wake: int) -> None:
-    """The forked call: its tool run as `drive tool` runs it, its lines and warnings written to the files the server reads, then exit with its code."""
+    """The forked call: its tool run as `drive tool` runs it, its lines and warnings written to the files the server reads, then exit with its code; one a newer install's save refused before it changed anything, by state.WROTE, runs again as the newest install's `drive tool` in this process."""
     signal.set_wakeup_fd(-1)
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     os.close(woken)
@@ -478,6 +478,11 @@ def forked(request: dict, woken: int, wake: int) -> None:
     try:
         print(cli.run_tool(request["tool"], request["arguments"]))
         code = 0
+    except state.NewerDrive as error:
+        if not state.WROTE:
+            install.reopen(["tool", request["tool"]], json.dumps(request["arguments"]))
+        print(f"drive: {error}", file=sys.stderr)
+        code = 2
     except cli.VERB_ERRORS as error:
         print(f"drive: {error}", file=sys.stderr)
         code = 2

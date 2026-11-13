@@ -53,6 +53,7 @@ CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
+STDIN: list[str] = []
 ANSWER_FIRST = (
     "his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one `report`"
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`; then keep your"
@@ -572,7 +573,13 @@ def named_file(source: str, what: str) -> Path:
 
 
 def named_text(source: str, what: str) -> str:
-    return sys.stdin.read() if source == "-" else named_file(source, what).read_text()
+    return stdin_text() if source == "-" else named_file(source, what).read_text()
+
+
+def stdin_text() -> str:
+    """What is left on stdin, kept in STDIN as well, so a verb run again on the newest install reads what this process already read."""
+    STDIN.append(sys.stdin.read())
+    return STDIN[-1]
 
 
 def his_words(link: str, deed: str) -> str:
@@ -1900,7 +1907,7 @@ def job_report(args: argparse.Namespace) -> int:
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
     if args.stdin:
-        whole = sys.stdin.read()
+        whole = stdin_text()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
@@ -2564,6 +2571,16 @@ def job_read(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     said, why = watch.answer_read(name, args.id, args.message)
     return emit(args, why or said, {"id": args.id, "message": args.message, "answer": said, "why": why})
+
+
+def job_answered(args: argparse.Namespace) -> int:
+    """Keep the answer an older install's reader came to while this install saved the drive, which watch.answer_kept hands here."""
+    name, receipt = state.resolve(args.drive), Path(args.receipt)
+    kept = json.loads(receipt.read_text())
+    watch.answer_kept(name, args.id, kept["message"], kept["answer"])
+    receipt.unlink()
+    said, why = kept["answer"]
+    return emit(args, why or said, {"id": args.id, "message": kept["message"], "answer": said, "why": why})
 
 
 def job_replies(args: argparse.Namespace) -> int:
@@ -3788,7 +3805,7 @@ def tool_command(args: argparse.Namespace) -> int:
     if args.help:
         print(tools.described(mcp.tool_named(args.tool)))
         return 0
-    print(run_tool(args.tool, json.load(sys.stdin)))
+    print(run_tool(args.tool, json.loads(stdin_text())))
     return 0
 
 
@@ -4520,7 +4537,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "text",
         nargs="?",
-        type=lambda value: sys.stdin.read() if value == "-" else value,
+        type=lambda value: stdin_text() if value == "-" else value,
         help="his answer, or the event the lane acts on next, or - to read it from stdin; left out, the texts the job holds",
     )
     verb.set_defaults(run=job_resume)
@@ -4532,6 +4549,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")
     verb.set_defaults(run=job_read)
+    verb = job.add_parser("answered", parents=both, help="keep the answer an older install's job read came to, from the receipt it kept; that read runs it")
+    verb.add_argument("id", help="the job")
+    verb.add_argument("receipt", help="the receipt file the read kept under the drive's jobs folder")
+    verb.set_defaults(run=job_answered)
     verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )
@@ -5027,11 +5048,11 @@ def parsed(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark."""
+    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A verb a newer install's save refused before this process changed anything, a drive row, a post or any command but a read, by state.WROTE, runs again on the newest install with the stdin it read and its lane's mark; one run inside another verb, as an MCP call's ops are, raises for that call to run again whole."""
     if argv is None:
         install.reopen(sys.argv[1:])
     args = parsed(argv)
-    if os.environ.pop(reads.SPRITE_LANE, None):
+    if lane := os.environ.pop(reads.SPRITE_LANE, None):
         own = os.environ[state.OWN_JOB_ENV]
         if refused := reads.lane_refusal(args, parsed, os.environ["LONG_RUNNING_DRIVE"], own):
             print(refused, file=sys.stderr)
@@ -5042,6 +5063,15 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["ORCA_TERMINAL_HANDLE"] = attached
     try:
         return args.run(args)
+    except state.NewerDrive as error:
+        if not state.WROTE and argv is not None and install.upgraded():
+            raise
+        if not state.WROTE and argv is None:
+            if lane:
+                os.environ[reads.SPRITE_LANE] = lane
+            install.reopen(sys.argv[1:], "".join(STDIN) if STDIN else None)
+        print(f"drive: {error}", file=sys.stderr)
+        return 2
     except VERB_ERRORS as error:
         print(f"drive: {error}", file=sys.stderr)
         return 2

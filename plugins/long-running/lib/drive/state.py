@@ -144,6 +144,15 @@ HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
 SLOW_HOLD_SECONDS = 2
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
+WROTE: set[str] = set()
+READ_ONLY = {
+    "tmux": ("show-environment", "list-clients"),
+    "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "repo show", "diagnostics memory"),
+    "cc-slack": ("thread", "history", "users", "check-post", "card render"),
+    "cci": ("show", "grep", "find", "digest", "state"),
+    "gh": ("pr view", "pr list", "pr checks", "pr diff", "run view", "run list", "repo view"),
+}
+GH_FIELDS = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"}
 DATABASE = "drive.db"
 BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
@@ -164,6 +173,27 @@ class DriveError(Exception):
 
 class NewerDrive(Exception):
     pass
+
+
+def reads_only(argv: list[str]) -> bool:
+    """Whether a command the drive starts only reads, so a verb run again on the newest install after starting it changes nothing twice: git but a push, lsof, ps, a gh api call with no field or method, or a command READ_ONLY starts with, a gh one through ccx's GitHub gateway as itself."""
+    program, words = Path(argv[0]).name, argv[1:]
+    if program == "ccx" and words[:2] == ["vcs", "gh"]:
+        program, words = "gh", words[words.index("--") + 1 :]
+    if program == "git":
+        return "push" not in words
+    if program == "gh" and words[:1] == ["api"]:
+        return not GH_FIELDS & set(words)
+    return program in ("lsof", "ps") or any(words[: len(form.split())] == form.split() for form in READ_ONLY.get(program, ()))
+
+
+def outside(event: str, args: tuple) -> None:
+    """Keep in WROTE each command this process starts that does more than read, such as a Slack post, a cci record or an Orca send, which a run of its verb again would do twice."""
+    if event == "subprocess.Popen" and not reads_only([*args[1]]):
+        WROTE.add(Path(args[1][0]).name)
+
+
+sys.addaudithook(outside)
 
 
 def root() -> Path:
@@ -1459,10 +1489,11 @@ def store(name: str, data: dict) -> None:
 
 
 def written(name: str, data: dict, newest: str | None) -> None:
-    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing; refused, writing nothing, when an install newer than newest saved it last. Each write then checkpoints what the WAL holds into the database as far as no reader still needs it, so the WAL every reader searches stays short; a checkpoint that fails leaves the committed write standing, for the next write's to finish. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
+    """Write data to the drive's database in one transaction: each row whose JSON changed, each it no longer holds deleted, and saved_by when it changed, so a write that changes nothing writes nothing, and one that changed a row is kept in WROTE; refused, writing nothing, when an install newer than newest saved it last. Each write then checkpoints what the WAL holds into the database as far as no reader still needs it, so the WAL every reader searches stays short; a checkpoint that fails leaves the committed write standing, for the next write's to finish. A drive with no database yet gets one built whole beside it and moved into place, so no reader meets it half built, then the drive.json pointing to it that every older install refuses."""
     if not (path := database_path(name)).exists():
         os.replace(built(name, data), path)
         pointed(name, data)
+        WROTE.add("drive")
         return
     with closing(connect(path)) as db:
         db.execute("BEGIN IMMEDIATE")
@@ -1472,6 +1503,8 @@ def written(name: str, data: dict, newest: str | None) -> None:
             db.execute("ROLLBACK")
             raise
         db.execute("COMMIT")
+        if db.total_changes:
+            WROTE.add("drive")
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
 
@@ -2030,6 +2063,7 @@ def append_event(name: str, kind: str, **fields: object) -> dict:
     event = {"kind": kind, "at": stamp(), **fields}
     with open(events_path(name), "a") as handle:
         handle.write(json.dumps(event) + "\n")
+    WROTE.add("events")
     return event
 
 
