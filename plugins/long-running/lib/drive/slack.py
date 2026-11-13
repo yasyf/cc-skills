@@ -45,8 +45,20 @@ def whoami() -> dict:
 
 
 def dm() -> str:
-    """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where dm-status draws every card and post to him."""
+    """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where an older install drew every card and post to him."""
     return whoami()["dm_channel_id"]
+
+
+def home(drive: dict) -> str:
+    """The drive's channel: its private channel of him and the bot alone, which drive start makes, where dm-status draws every card and post to him."""
+    if not (channel := drive["slack"].get("channel")):
+        raise SlackError(f"drive {drive['name']} has no channel yet: drive start {drive['name']} --role <your role> makes it")
+    return channel
+
+
+def own_channel(name: str) -> str:
+    """The drive's private channel of him and the bot alone, #drive-<name>, which cc-slack makes as him the first time and finds by its name after."""
+    return cc_slack("own-channel", "--name", f"drive-{name}")["channel_id"]
 
 
 def workspace() -> str:
@@ -128,7 +140,7 @@ def redraw_pr_cards(url: str) -> int:
 
 
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
-    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at his DM root for a PR it serves."""
+    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at the drive's channel root for a PR it serves."""
     orders = [order, *(data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id)]
     own = filter(None, map(state.promise_thread, orders))
     kept = ((channel, ts) for each in orders for channel, ts, _, _ in each["threads"])

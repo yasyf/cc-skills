@@ -93,7 +93,7 @@ TERM_RULE = (
 TOOLING_RULE = "The line above a PR card quotes the order its PRs serve: his words, or a drive tooling order's \"Drive tooling: …\" words."
 DOWN_RULE = f"A coordinator that is down is restarted that minute, and he hears it was restarted, never only that it is down, by {DOWN_RULING}."
 SAY_RULE = (
-    "Every message to him in his DM, a new post or an edit of one, goes through say, the one call that links its references"
+    "Every message to him in the drive's channel, a new post or an edit of one, goes through say, the one call that links its references"
     ' and shows it on the dashboard too, by his words "it shoulkd be one tool call to a lr mcp tool that formats and sends to'
     ' both slack and dashbord".'
 )
@@ -102,7 +102,7 @@ OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and
 FAILED_READ = "your slack_thread call on his thread {thread} failed"
 UNOPENED_READ = "your read of his thread {thread} was saved to {file}, which you have not opened since"
 ANSWERED = "his message in the thread this post goes to since the bot's last post there, which this post answers"
-LINKED_ASK = "his message in his DM with the app, which this post answers and names as asked by its permalink"
+LINKED_ASK = "his message in the drive's channel, which this post answers and names as asked by its permalink"
 HIS_PERMALINK = re.compile(r"<?(https://[\w.-]+/archives/([A-Z0-9]+)/p\d{16}[^\s|<>]*)>?")
 PREVENTION_WORDS = {
     "id": "ruling:6a6edbf",
@@ -151,7 +151,7 @@ class Warned(str):
 
 
 def his_drive(session: str) -> dict | None:
-    """The drive this session is the communicator of, whose handlers write everything he reads in his DM with the app."""
+    """The drive this session is the communicator of, whose handlers write everything he reads in the drive's channel."""
     for name in state.session_drives(session):
         if state.session_role(state.saved(name), session) == "communicator":
             return state.load(name)
@@ -215,7 +215,7 @@ def last_read(path: Path, dm: str, where: tuple[str, str]) -> tuple[datetime | N
 
 
 def read_thread(tool_input: dict, dm: str) -> tuple[str, str | None]:
-    """The channel and thread a slack_thread call reads, resolved as cc-slack fills a call's blanks from its url: channel_id, else the url's channel, else his DM; thread_ts, else the url's thread."""
+    """The channel and thread a slack_thread call reads, resolved as cc-slack fills a call's blanks from its url: channel_id, else the url's channel, else the drive's channel; thread_ts, else the url's thread."""
     link = state.link_thread(tool_input.get("url") or "") or (None, None)
     return tool_input.get("channel_id") or link[0] or dm, tool_input.get("thread_ts") or link[1]
 
@@ -265,7 +265,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
 
 
 def thread_messages(payload: dict, dm: str) -> list[dict]:
-    """The messages of the thread in his DM the post goes to, read from Slack, oldest first; none for a post at his DM root or outside his DM, such as in an alert's thread."""
+    """The messages of the thread in the drive's channel the post goes to, read from Slack, oldest first; none for a post at the drive's channel root or outside the drive's channel, such as in an alert's thread."""
     tool_input = payload["tool_input"]
     url = tool_input.get("url") or tool_input.get("edit") or ""
     if (tool_input.get("channel_id") or next(iter(PERMALINK_CHANNEL.findall(url)), dm)) != dm:
@@ -278,7 +278,7 @@ def thread_messages(payload: dict, dm: str) -> list[dict]:
 
 
 def linked_words(asked: str | list[str] | None, dm: str) -> dict[str, dict]:
-    """His messages asked names by permalink, each under the entry naming it, as `thread_words` keeps his words: a message in his DM with the app the bot did not write, read from Slack, so an answer posted outside the thread his message is in, such as a share he ordered to another person's group DM, quotes his order there; a link to any other message is no word of his."""
+    """His messages asked names by permalink, each under the entry naming it, as `thread_words` keeps his words: a message in the drive's channel the bot did not write, read from Slack, so an answer posted outside the thread his message is in, such as a share he ordered to another person's group DM, quotes his order there; a link to any other message is no word of his."""
     found = {}
     for entry in slack.messages(asked or ""):
         if not (link := HIS_PERMALINK.fullmatch(entry.strip())) or link[2] != dm:
@@ -308,7 +308,7 @@ def unanswered(messages: list[dict]) -> list[dict]:
 
 
 def thread_words(messages: list[dict], here: bool = True) -> list[dict]:
-    """His words in the thread the post goes to, or in another thread of the order it is on, each as the evidence Jev cites, those since the bot's last post in the post's own thread marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and, in the post's own thread, his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
+    """His words in the thread the post goes to, or in another thread of the order it is on, each as the evidence Jev cites, those since the bot's last post in the post's own thread marked as the ones it answers: in the drive's channel every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and, in the post's own thread, his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside the drive's channel, such as an alert's, holds others' words, never his."""
     answers = {message["ts"] for message in unanswered(messages)} if here else set()
     words = []
     for message in messages:
@@ -386,8 +386,8 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
-    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := slack.dm()):
+    """What Jev judges a refused post by besides the transcripts: his words in the drive's channel in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in the drive's channel its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside the drive's channel, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
+    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := slack.home(drive)):
         return []
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
     ruled += [WORKED_WORDS] if in_card_thread(drive, payload["tool_input"]) else []
@@ -400,7 +400,7 @@ def his_words(payload: dict) -> list[dict]:
 
 
 def order_words(drive: dict, tool_input: dict, dm: str, order_id: str | None) -> list[dict]:
-    """His words in each other thread in his DM of the order the post is on, as thread_words keeps them, since a post on an order answers his words in any of its threads, such as his order in its question card's thread answered under its PR card."""
+    """His words in each other thread in the drive's channel of the order the post is on, as thread_words keeps them, since a post on an order answers his words in any of its threads, such as his order in its question card's thread answered under its PR card."""
     if not (found := posted_order(drive, tool_input, order_id)):
         return []
     threads = [ts for channel, ts in slack.order_threads(drive, found, drive["orders"][found]) if channel == dm and ts != tool_input.get("thread_ts")]
@@ -409,7 +409,7 @@ def order_words(drive: dict, tool_input: dict, dm: str, order_id: str | None) ->
 
 def in_card_thread(drive: dict, tool_input: dict) -> bool:
     """Whether the post goes in the thread of one of his question cards: say's `about` names the card, as an Explain more reply's does, or an order keeps its thread as a question card's."""
-    where = [tool_input.get("channel_id") or slack.dm(), tool_input.get("thread_ts")]
+    where = [tool_input.get("channel_id") or slack.home(drive), tool_input.get("thread_ts")]
     return bool(tool_input.get("about")) or any(thread[:2] == where and thread[3] == "question" for order in drive["orders"].values() for thread in order["threads"])
 
 
@@ -451,7 +451,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
-    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
+    """What the drive's checks find in a post to the drive's channel, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
         return posted, payload["tool_input"]
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -482,8 +482,8 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
-    dm = slack.dm()
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in the drive's channel goes through say, a thread outside the drive's channel, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
+    dm = slack.home(drive)
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
         return (
@@ -574,8 +574,8 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
 
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:
-    """Why a write goes through say: slack_edit rewords a post in his DM, or one say made outside it, with each {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} reference left as raw text and the dashboard still showing its old words, another tool posting a file in his DM, such as a screen recording, puts it in Slack alone and never on the dashboard, and one posting a reference there sends it raw too."""
-    dm = slack.dm()
+    """Why a write goes through say: slack_edit rewords a post in the drive's channel, or one say made outside it, with each {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} reference left as raw text and the dashboard still showing its old words, another tool posting a file in the drive's channel, such as a screen recording, puts it in Slack alone and never on the dashboard, and one posting a reference there sends it raw too."""
+    dm = slack.home(drive)
     if payload["tool_name"] == EDIT and (posts_to(payload, dm) or said_post(drive["name"], edited(payload))):
         return agents.Ruled(
             "Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…}, {record:…} or {answer:…} reference to him as raw text and"
@@ -589,7 +589,7 @@ def unsaid_post(payload: dict, drive: dict) -> str | None:
         return agents.Unjudged(
             f"Refused on purpose: a file {payload['tool_name'].removeprefix(SLACK)} posts to him reaches Slack alone and never the dashboard."
             ' Post it with say(text=…, visuals=[{"kind": "image", "source": "<its absolute path>", "caption": "<what it shows>"}]),'
-            " one visual per file, which uploads each picture or screen recording to his DM and shows it in the post on the dashboard too."
+            " one visual per file, which uploads each picture or screen recording to the drive's channel and shows it in the post on the dashboard too."
         )
     if not (raw := refs.REF.search(payload["tool_input"].get("text") or "")):
         return None
@@ -635,8 +635,8 @@ def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
 
 
 def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:
-    """The order a post goes to: the one say records it on, else the open order whose thread, in his DM or the channel its channel_id names, it goes in."""
-    where = (tool_input.get("channel_id") or slack.dm(), tool_input.get("thread_ts"))
+    """The order a post goes to: the one say records it on, else the open order whose thread, in the drive's channel or the channel its channel_id names, it goes in."""
+    where = (tool_input.get("channel_id") or slack.home(drive), tool_input.get("thread_ts"))
     return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and state.promise_thread(order) == where), None)
 
 
@@ -755,7 +755,7 @@ def unlinked(payload: dict, drive: dict, order_id: str | None) -> str | None:
 
 
 def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
-    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
+    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in the drive's channel, goes out whole."""
     tool_input = payload["tool_input"]
     if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
         return refusal
@@ -774,8 +774,8 @@ def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, 
     return (
         refusal + " It is not an answer, so it keeps that limit: asked lifts the limit only with his own words, and these stand"
         " in no message of his in the thread this post goes to, no answer or Explain more tap of his a card there shows and no message of his"
-        f" in his DM an asked permalink links: {named}. Copy each message of his this post answers word for word, one per"
-        " line, with … where you skip words, or pass its permalink when it is in another thread of his DM, as a share he"
+        f" in the drive's channel an asked permalink links: {named}. Copy each message of his this post answers word for word, one per"
+        " line, with … where you skip words, or pass its permalink when it is in another thread of the drive's channel, as a share he"
         " ordered to another person's DM does."
     )
 

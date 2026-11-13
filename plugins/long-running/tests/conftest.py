@@ -411,8 +411,10 @@ def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
 
 @pytest.fixture(autouse=True)
 def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Every drive reads his DM as cc-slack whoami names it, D123, never this Mac's."""
+    """Every drive reads the drive's channel as cc-slack whoami names it, D123, never this Mac's, and its own channel as D123 too, which drive start never makes."""
     monkeypatch.setattr(slack, "dm", lambda: "D123")
+    monkeypatch.setattr(slack, "home", lambda drive: "D123")
+    monkeypatch.setattr(slack, "own_channel", lambda name: "D123")
     return "D123"
 
 
@@ -673,14 +675,14 @@ class MetaLaunches:
 def meta_launches(monkeypatch: pytest.MonkeyPatch) -> MetaLaunches:
     launches = MetaLaunches()
 
-    def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
+    def start_role(drive: str, role: str, worktree: str, earlier: str | None) -> str | None:
         if earlier in launches.open:
             return None
-        launches.started.append((drive, worktree))
-        launches.open.add(handle := f"term_meta{len(launches.started)}")
+        launches.started.append((drive, role, worktree))
+        launches.open.add(handle := f"term_{role}{len(launches.started)}")
         return handle
 
-    monkeypatch.setattr(orca, "start_meta", start_meta)
+    monkeypatch.setattr(orca, "start_role", start_role)
     return launches
 
 

@@ -34,7 +34,7 @@ def unready(record: dict) -> str | None:
 
 
 def trimmed(record: dict) -> dict:
-    """The record without the attrs it never carries: a `max_words`, since nothing reads it and his word limits for a post never yield to it, a catch-up report's `thread`, since a catch-up covers many orders and goes at his DM root, and a `thread` of none, which names no thread, so its post goes where one with no thread attr goes, as the meta session's rule "thread or none" has it."""
+    """The record without the attrs it never carries: a `max_words`, since nothing reads it and his word limits for a post never yield to it, a catch-up report's `thread`, since a catch-up covers many orders and goes at the drive's channel root, and a `thread` of none, which names no thread, so its post goes where one with no thread attr goes, as the meta session's rule "thread or none" has it."""
     named = attrs(record)
     catch_up = kind(record) == "report" and addressed(record, "communicator") and (named.get("catch_up") or CATCH_UP.search(record.get("text") or ""))
     kept = {key: value for key, value in named.items() if key != LIMIT_ATTR and not (key == "thread" and (catch_up or str(value).casefold() == "none"))}

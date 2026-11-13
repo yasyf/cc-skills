@@ -38,7 +38,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
 | An edit that rewords a line already posted | that line's own length and 10 words more, or the line's limit when that is longer |
 
-- The message-limits hook refuses a post or edit in his DM over its limit, from the communicator or
+- The message-limits hook refuses a post or edit in the drive's channel over its limit, from the communicator or
   any handler, naming the count, the limit and what would pass. `drive job ask` refuses an `ASK`
   whose card runs over its limit, or that cc-slack refuses to draw, in cc-slack's own words.
 - Text passed beside a question card is drawn atop its body and counts toward its 150 words, so post
@@ -47,12 +47,12 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   out whole at any length, because a cut answer loses what he asked. To lift the limit, pass as
   `asked` each message of his the post answers, word for word, one per line or list entry (a list
   sent as a JSON string counts as its entries), with `…` where you skip words, or the message's
-  permalink in his DM as its entry. A post outside the thread his message is in, such as a share he
+  permalink in the drive's channel as its entry. A post outside the thread his message is in, such as a share he
   ordered from his thread to another person's group DM, passes that permalink, since the thread it
   goes to holds no word of his.
 - The hook looks for each quote in his messages in the thread the post goes to, in the answers of his
   its cards there show, in his Explain more tap, which a card there shows on cc-slack's "You asked for
-  more" line so a reply passes `asked="Explain more"`, and in each message of his in his DM an `asked`
+  more" line so a reply passes `asked="Explain more"`, and in each message of his in the drive's channel an `asked`
   permalink links, read from Slack, with straight and curly quote marks alike; one found quote is
   enough. The handler's brief
   and the record it was started with are other agents' words, never his, whatever they quote. A
@@ -69,7 +69,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - Write a bold line and at most two sentences; use a table only for three or more parallel items.
 - Keep every card and line in a feature's thread about that feature. Post drive tooling, such as a
   fix to the launcher its builders start from, in the thread his words ordering it came in, else at
-  his DM root under its own words, never in a feature's thread it only unblocks, because a tooling
+  the drive's channel root under its own words, never in a feature's thread it only unblocks, because a tooling
   line he did not ask for there makes no sense to him.
 - The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
   posts of 60 words are the same wall as one of 240; `record_lines` refuses a second, or a `POST`
@@ -89,7 +89,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   `<permalink|permalink>`, which Slack never draws, or copy the card's words. `cc-slack check-post`
   refuses a waiting line with no open card linked, and a card link shown as a raw URL.
 - Slack draws a message's first five Slack-message and alert links, and none it drew in the same
-  thread a moment before. Put each card on its own line: cc-slack sends a post to his DM that links
+  thread a moment before. Put each card on its own line: cc-slack sends a post to the drive's channel that links
   more than five as pages, each cut at the last blank line before the line holding its sixth, so
   every card draws ("if you're telling me to tap something you need to include the unfurled card
   here"), and refuses one line linking six.
@@ -324,11 +324,11 @@ Posting it:
   card as cc-slack stores it, and once cc-slack forgot that card, from the file only while its
   question, summary, recommended option and options are the ones his card's message in Slack shows.
   A block no job kept meets every rule a new block meets before it draws.
-- cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
+- cc-slack posts a card that names its drive and waits on him at the drive's channel root, and posts the card's
   permalink under its question in the thread of the job's order, or of its open incident, when that
-  thread is in his DM. A thread outside his DM, such as an alert's, gets the card's line through a
+  thread is in the drive's channel. A thread outside the drive's channel, such as an alert's, gets the card's line through a
   report record `drive job ask` sends the communicator, whose handler posts it there, since only a
-  `say` call carries the ticket cc-slack spends on a write outside his DM. That record goes once for
+  `say` call carries the ticket cc-slack spends on a write outside the drive's channel. That record goes once for
   each change to the line: its cci id names the card's `waits` id and the line's hash, so a redraw
   that leaves the line as it was returns the record cci already holds and starts no handler. His
   tap comes back as an `answer` record, so "card posted" and "he answered" stay two states.
@@ -381,7 +381,7 @@ When it is answered, replaced or redone:
 
 **A PR card.**
 
-- Nobody writes it: `drive pr add` draws it at his DM root the moment it registers a PR waiting on
+- Nobody writes it: `drive pr add` draws it at the drive's channel root the moment it registers a PR waiting on
   his tap, and the watch draws it on its next read for a PR still `uncarded`, whatever its checks,
   review or check against his words say, since each is a line on it. Its draws and `drive card` group PRs
   by one rule, `state.card_unit`: one card per stack his Approve lands, a native GitHub stack or PRs
@@ -393,7 +393,7 @@ When it is answered, replaced or redone:
   for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
-- The drive's own draw posts the card at his DM root, in no order's thread, under one line written
+- The drive's own draw posts the card at the drive's channel root, in no order's thread, under one line written
   from its PRs' titles with no link, so Slack draws no other card: `Waits on your Approve: <what
   each PR does>`. While its PRs wait on him and fix a bug hurting someone now, the watch asks again
   every 30 minutes, once per card, under `Asking again, since it fixes a reported bug: <what each PR
@@ -406,11 +406,11 @@ When it is answered, replaced or redone:
   port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
   every class that lands with no tap.
 - `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>)` makes cc-slack draw
-  one card at his DM root for the stack those PRs form (`drive card`), with Approve and Hold while it
+  one card at the drive's channel root for the stack those PRs form (`drive card`), with Approve and Hold while it
   waits on him. The drive posts the line in the thread of each open order those PRs carry out, the
-  one each serves, its own and each its job carries, in his DM, and cc-slack puts the card's
+  one each serves, its own and each its job carries, in the drive's channel, and cc-slack puts the card's
   permalink under it there, so whichever thread he reads carries its buttons; with none, the line
-  goes at his DM root. An order whose thread is outside his DM, such as an alert's, gets the line with
+  goes at the drive's channel root. An order whose thread is outside the drive's channel, such as an alert's, gets the line with
   the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and
   `thread_ts`, the one place cc-slack's Slack permission hook judges it for, and is refused without
   them, naming both. His words: "There's no approval button". The call's `card_permalink` names
@@ -467,7 +467,7 @@ merged and installed, listing each rule now in the skill.
   the fix is live. His words, the day a hand repair went live and the reporter never heard: "Did you
   let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
   from the share or link in his words, `drive order add --reporter`, or by itself when he gives the
-  order in that thread, whose lines then go to his DM. A second report of the same bug, such as
+  order in that thread, whose lines then go to the drive's channel. A second report of the same bug, such as
   another teammate's, joins it with `drive order set --reporter`, beside the first, so each thread
   hears its own note, and `drive status` says on the order's line whether each thread heard.
 - A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
@@ -545,7 +545,7 @@ restating it.
   report's line, the catch-up leaves the report out, so no post carries it and no order closes
   on it, and once the catch-up posts, an order it claimed to close is free for another report's
   close.
-- His next message, right after its ack, or his next card tap gets one catch-up at his DM root,
+- His next message, right after its ack, or his next card tap gets one catch-up at the drive's channel root,
   posted by the drive with no session in between. `drive heard`, or the tap, adds every order that
   changed while he was away or has a report held to the catch-up the drive owes him, which it keeps
   until the catch-up posts. Within one pass of the watch, 5 seconds, the watch writes one `report`
@@ -629,7 +629,7 @@ restating it.
 - Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
   line of his words.
 - Name a ruling of his as `{answer:<id>}`, which `say` draws as when he said it and its first words,
-  linked to the ack of them in his DM, since the id cc-notes keeps it under means nothing to him.
+  linked to the ack of them in the drive's channel, since the id cc-notes keeps it under means nothing to him.
 - State a cause, a number or a state only through the read that measured it: a record, as `{record:<seq>}`
   on the same line, or, in a handler's post, a read of its own its `claims` list beside that line. `say` links what the record measured, its `--url`, under the first clause of the record's own
   words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
@@ -646,7 +646,7 @@ restating it.
   `{record:}` of the read on the line, or says unverified: `say` posts nothing while a line from a
   session posting on its own tells a state with neither. A line found wrong after it went out is
   reworded in place with `say(edit=<its permalink>, text=…)` the moment it is found, so no wrong
-  state stands in his DM.
+  state stands in the drive's channel.
 - A line about code, where it lives, what it does or why, stands on the posting session's own read
   of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
   shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
@@ -732,7 +732,7 @@ restating it.
   only warn the session". On that warning, a line that does tell a failure of the drive's is
   reworded in place naming the fix and its order, and Jev reads such a line as within his words,
   never as work outside them.
-- A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
+- A second ask for a post he ordered. His order to post, in the drive's channel, in a terminal or by a tap on a
   card, is his permission for one post in the place he named. No card asks him to approve it, no line
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.
 - A post nobody ordered, such as a reply offered to someone who reported a bug or a line for a
@@ -822,13 +822,13 @@ GET 2 page ranges
   hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
   stands for, in this skill's and cc-slack's words, and his words: his messages in the thread it went
   to and each answer or Explain more tap of his a card there shows, and on a post on an order his
-  messages and card answers in each of that order's other threads in his DM, read from Slack, beside
+  messages and card answers in each of that order's other threads in the drive's channel, read from Slack, beside
   the session's recent turns. A handler's brief, the record it reads in and every prompt of a handler's
   own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
   quote. Jev judges only the line each finding names, by its rule: the post stands when no finding's
   rule holds against its line, or his words lift it, and is held with Jev's reason when one does,
   never for saying more than his message asked, and never as unpermitted, since cc-slack's Slack
-  permission hook judges every write. A held post stays in his DM as written, and the
+  permission hook judges every write. A held post stays in the drive's channel as written, and the
   session that posted it hears Jev's reason, rewords it in place with `say(edit=<its permalink>,
   text=…)`, which Jev checks again, and ends its turn only once Jev passes the new words. His pick:
   "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until
@@ -851,7 +851,7 @@ GET 2 page ranges
   again. Check-post reads the words under each link, so a card, PR, order or record title it flags is
   named in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
 - A post that answers him passes each message of his in `asked`, word for word or by its permalink
-  in his DM, and check-post gets each message's words as `--asked`, so a drive word he used there,
+  in the drive's channel, and check-post gets each message's words as `--asked`, so a drive word he used there,
   such as "the drive" in his question about the drive, passes in the answer, and so does an internal
   id such as a run id when his message asks for ids, as "the session IDs" does. When one stands word
   for word in his messages in that thread, an answer or Explain more tap of his a card there shows or

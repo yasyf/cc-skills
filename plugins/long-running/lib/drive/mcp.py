@@ -41,7 +41,7 @@ INSTRUCTIONS = (
     " with no {record:}, a line of a session posting on its own telling him work is fixed, merged, queued, live or covers his"
     " case with no {record:} of the read that measured it and no unverified on it, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, and"
     " each `cc-slack check-post` finding, and Jev judges each by the rule it stands for and his words once say has"
-    " posted it, so say stays fast: a post Jev holds stays in his DM as written, and the session that posted it hears Jev's"
+    " posted it, so say stays fast: a post Jev holds stays in the drive's channel as written, and the session that posted it hears Jev's"
     " reason and rewords it in place with say(edit=<its permalink>, text=…) before its turn ends; a post with a finding"
     " a count or a mark decides, the post's word count or his reading as away, and a dry run are judged before say runs,"
     " and when Jev cannot finish that finding still refuses, while each other finding only warns and the post stays as"
@@ -112,11 +112,11 @@ SAY = {
         "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, pictures and screen"
         " recordings included, and"
         " show it on the drive's dashboard, in one call; with channel_id, post a line, or a card's line linking the card it draws in"
-        " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with a person's user id and no thread_ts a new post in the group DM of that person, him and the bot, through cc-slack send; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
+        " the drive's channel, in a thread outside the drive's channel, such as an alert's, through cc-slack reply, or with a person's user id and no thread_ts a new post in the group DM of that person, him and the bot, through cc-slack send; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
         " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} links what that record"
         " measured, its url, under the first clause of its own words, at most ten, or under the words after a |. {answer:<id>}"
-        " draws his recorded answer as when he said it and its first words, linked to the ack of them in his DM. {started:<job>}"
+        " draws his recorded answer as when he said it and its first words, linked to the ack of them in the drive's channel. {started:<job>}"
         " and {at:<seq>} write when a job started, as \"4:50 AM (job start)\", and when a record went out from the drive's stamps,"
         " since a clock time typed for work already done is refused, while a time a tool or query printed, such as a GitHub check's or an"
         " outage window Datadog measured, passes written in Pacific on the line linking that tool or read, or in backticks as it"
@@ -132,7 +132,7 @@ SAY = {
         " next line the watch owes five quiet minutes after this one once it has news. A refusal posts nothing and names its fix: a reference that names nothing,"
         " an order or job id such as j1700, or a post over its length, to him while he is away, or out of turn in the thread"
         " a bug report or question came from, that Jev does not lift: make the fix and call again. Jev judges every other post once say has posted it, and"
-        " a post Jev holds stays in his DM as written beside its POSTED line, with Jev's reason and the fix: a handler's claim"
+        " a post Jev holds stays in the drive's channel as written beside its POSTED line, with Jev's reason and the fix: a handler's claim"
         " the read it names in claims does not back, or a finding Jev read its rule as holding against, such as a line"
         " naming a cause (because, caused) with no {record:}, a session's own line telling him work is fixed, merged, queued, live or covers"
         " his case with no {record:} of the read that measured it in this turn and no unverified on it, a line telling him a card, check, hook, session, job or tool of"
@@ -141,7 +141,7 @@ SAY = {
         " A post cc-slack reports failing after it went out is read back from Slack,"
         " kept and recorded on its order, cc-slack's error after WARNING. A reference, link or mention written inside the"
         " words of a raw <url|words> link is refused outright, since Slack draws it as a broken link: close that link first and"
-        " put the inner one after it. edit=<the permalink of a post of yours, in his DM or in a thread outside it>"
+        " put the inner one after it. edit=<the permalink of a post of yours, in the drive's channel or in a thread outside it>"
         " rewords that post in place with text, its references linked as a new post's are, and the dashboard shows the new"
         " words for it; cc-slack's Slack permission hook judges it as it judges slack_edit; it returns EDITED <permalink>. The communicator's ack to his message is one sentence: what he asked and what"
         " happens next."
@@ -150,19 +150,19 @@ SAY = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "The post's exact words, with its references, where a markdown table draws as Slack's own data table and the dashboard's table; none for a question card"},
-            "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel, which a thread outside his DM, such as an alert's, always takes; none for his DM root"},
+            "thread_ts": {"type": "string", "description": "The thread the post goes in, in the drive's channel unless channel_id names another channel, which a thread outside the drive's channel, such as an alert's, always takes; none for the drive's channel root"},
             "channel_id": {
                 "type": "string",
                 "description": (
-                    "The channel of a thread outside his DM the post goes in, such as an alert's, with its thread_ts, or a person's user id with no"
-                    " thread_ts for the group DM of that person, him and the bot; none for his DM. With card or tap_prs, the card goes up in his DM"
+                    "The channel of a thread outside the drive's channel the post goes in, such as an alert's, with its thread_ts, or a person's user id with no"
+                    " thread_ts for the group DM of that person, him and the bot; none for the drive's channel. With card or tap_prs, the card goes up in the drive's channel"
                     " and its line, linking it, in this thread. It takes no about, and an edit names its post by its permalink alone"
                 ),
             },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": (
-                    "Each message of his this post answers, word for word or by its permalink in his DM, one per entry, so the answer goes out"
+                    "Each message of his this post answers, word for word or by its permalink in the drive's channel, one per entry, so the answer goes out"
                     " whole; a post outside the thread his message is in, such as a share he ordered to another person's group DM, passes its permalink"
                 ),
             },
@@ -172,8 +172,8 @@ SAY = {
                 "items": TEXT,
                 "description": (
                     "The PRs on his tap, bottom of the stack first, each as its URL or owner/repo#number, drawn as one stack"
-                    " card at his DM root, its line and link posted in the thread of each open order they carry out, one outside"
-                    " his DM, such as an alert's, named with channel_id and thread_ts; refused while text leaves out the words of"
+                    " card at the drive's channel root, its line and link posted in the thread of each open order they carry out, one outside"
+                    " the drive's channel, such as an alert's, named with channel_id and thread_ts; refused while text leaves out the words of"
                     " a drive tooling order one of them serves"
                 ),
             },
@@ -215,7 +215,7 @@ SAY = {
             "edit": {
                 "type": "string",
                 "description": (
-                    "The permalink of a post of yours, in his DM or in a thread outside it such as an alert's, to reword in place"
+                    "The permalink of a post of yours, in the drive's channel or in a thread outside it such as an alert's, to reword in place"
                     " with text, in place of a new post; it takes text, asked and claims alone, since a card is redrawn with drive job card"
                 ),
             },

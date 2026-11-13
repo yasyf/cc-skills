@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import install, limits, procs, reads, render, slack, state, superseded
+from drive import install, limits, procs, reads, render, state, superseded
 from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
@@ -459,7 +459,7 @@ def start_kept(name: str, handler: str) -> str:
 
 
 def beside(data: dict) -> tuple[str, dict]:
-    """The lane a drive's handlers run beside and end their turn to, and its role: the communicator's, or on a drive whose roles hold none, as one started from a terminal holds none, the coordinator's, so his lines still reach a handler that posts them in his DM."""
+    """The lane a drive's handlers run beside and end their turn to, and its role: the communicator's, or on a drive whose roles hold none, as one started from a terminal holds none, the coordinator's, so his lines still reach a handler that posts them in the drive's channel."""
     return ("communicator", data["roles"]["communicator"]) if "communicator" in data["roles"] else ("root", data["roles"]["coordinator"])
 
 
@@ -652,10 +652,9 @@ def restart_handler(name: str, payload: dict) -> None:
 
 
 def remove_session(name: str, payload: dict) -> None:
-    """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. The session then stops hearing his DM, so cc-slack hands each reply of his it never took to the session holding his DM at once rather than once the process exits."""
+    """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it."""
     own, _ = background_job(payload["handler_session"])
     subprocess.Popen(["claude", "rm", own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
 
 
 def ended(row: dict) -> bool:

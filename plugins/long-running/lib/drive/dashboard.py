@@ -164,7 +164,7 @@ def answer_card(card: str, label: str, via: str) -> dict:
 
 
 def relay(text: str, under: str) -> dict:
-    """Post his words in his DM, marked as typed on the dashboard, under the card or ask thread named, or as a new message; the drive hears them as his DM."""
+    """Post his words in the drive's channel, marked as typed on the dashboard, under the card or ask thread named, or as a new message; the drive hears them as the drive's channel."""
     return cc_slack("dm-relay", "--text", text, *(["--under", under] if under else []))
 
 

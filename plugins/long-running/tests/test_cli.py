@@ -148,7 +148,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "started": data["roles"]["communicator"]["started"],
         }
     }
-    assert data["slack"] == {"page": None, "watch": []}
+    assert data["slack"] == {"page": None, "watch": [], "channel": "D123"}
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -166,7 +166,7 @@ def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_bin
     out = run("start", "demo", "--role", "communicator")[1]
     registered = "demo-communicator registered: cci session run keeps session session-under-test running in tmux"
     assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
-    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
+    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", "meta", str(tmp_path))], {"meta": "term_meta1"})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     registered = "demo-coordinator registered: cci session run keeps session coordinator-session running in tmux"
     assert f"\n\n{registered}\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
@@ -177,6 +177,18 @@ def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_bin
     run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     assert "the meta session starts in" not in run("start", "demo", "--role", "coordinator")[1]
+    assert len(meta_launches.started) == 2
+
+
+def test_a_coordinators_start_starts_the_communicator_while_none_is_bound(run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    out = run("start", "demo", "--role", "coordinator")[1]
+    assert "\nstarted the communicator, which holds the drive's channel, in Orca terminal term_communicator1\n" in out
+    assert meta_launches.started == [("demo", "communicator", str(tmp_path)), ("demo", "meta", str(tmp_path))]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    assert "started the communicator" not in run("start", "demo", "--role", "coordinator")[1]
     assert len(meta_launches.started) == 2
 
 
@@ -403,7 +415,7 @@ def test_status_and_context_print_who_holds_each_channel(run: Run) -> None:
     code, out = run("status")
     assert code == 0
     assert out.splitlines()[1:3] == [
-        "communicator: not started; Hold with slack_watch: his DM D123",
+        "communicator: not started; Hold with slack_watch: the drive's channel D123",
         f'coordinator: session {session}, in no Orca terminal; Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G',
     ]
     code, out = run("status", "--json")
@@ -411,7 +423,7 @@ def test_status_and_context_print_who_holds_each_channel(run: Run) -> None:
     code, out = run("context")
     assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G' in out.splitlines()
     code, out = run("context", "--role", "communicator")
-    assert "Hold with slack_watch: his DM D123" in out.splitlines()
+    assert "Hold with slack_watch: the drive's channel D123" in out.splitlines()
 
 
 def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_whether_its_watch_runs(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3143,7 +3155,7 @@ def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_b
     calls: list[tuple[list[str], str, str]] = []
     answers = [
         {"id": "a1" * 20, "title": "Tap Approve on Forge-AI/monorepo#7?", "body": "Approve", "tags": ["scope:durable", "kind:approval"]},
-        {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": f"{WAIT_RULING['said']}\nNotes: kept from his DM", "tags": ["scope:durable"]},
+        {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": f"{WAIT_RULING['said']}\nNotes: kept from the drive's channel", "tags": ["scope:durable"]},
         *({"id": f"{number:07d}{'0' * 33}", "title": f"Question {number}?", "body": "Yes", "tags": ["scope:durable"]} for number in range(10)),
     ]
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text, cwd)) or json.dumps(answers))
@@ -3546,7 +3558,7 @@ def test_a_builders_done_on_his_slack_dm_is_proven_by_the_live_posts_link_its_pr
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "draw the table post")
     run("job", "add", "builder", "--order", "o1", "--goal", "draw the table")
-    told = "open the post in his DM, see the table drawn as one table with linked cells, open one link"
+    told = "open the post in the drive's channel, see the table drawn as one table with linked cells, open one link"
     run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-slack main", "--native", "his Slack DM", "--interactions", told)
     post = "https://acme.slack.com/archives/D123/p1794559450293519?thread_ts=1794555580.526529&cid=D123"
     done = f"DONE the table post draws as one table\nCHECK: {post}\nNATIVE: Slack's table block\nUNPROVEN: no picture of the post in his Slack window\n"
@@ -5627,11 +5639,11 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert capsys.readouterr().err.startswith(
         "drive: j3's result is something he uses, by --native: name each user story on the dashboard's run page with --interactions, one per `;`,"
     )
-    code, out = run(*first, "--interactions", "open the run page, click a step, read its log", "--would-he-ask", "a link to the run from his DM")
+    code, out = run(*first, "--interactions", "open the run page, click a step, read its log", "--would-he-ask", "a link to the run from the drive's channel")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
     assert code == 0
     assert (
-        "Native: the dashboard's run page\nInteractions: open the run page, click a step, read its log\nWould he ask: a link to the run from his DM\n"
+        "Native: the dashboard's run page\nInteractions: open the run page, click a step, read its log\nWould he ask: a link to the run from the drive's channel\n"
         in written.read_text()
     )
     code, out = run("job", "brief", "j3", "--plan", "the steps section")

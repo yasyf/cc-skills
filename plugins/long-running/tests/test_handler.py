@@ -242,7 +242,7 @@ def test_the_agent_tool_starts_no_handler(communicator: str) -> None:
     assert agent_brief.deny_reason(call | {"tool_input": call["tool_input"] | {"subagent_type": "long-running:reader"}}) is None
 
 
-def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_session_which_stops_hearing_his_dm(
+def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_session(
     communicator: str,
     run: Run,
     tmp_path: Path,
@@ -270,7 +270,6 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
         "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
     ]
     assert removed == [["claude", "rm", BACKGROUND_JOB]]
-    assert slack_calls[-1] == ("unfollow", "--channel", "D123", "--session", "h-session", "--cwd", str(tmp_path))
     data = state.load("demo")
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))

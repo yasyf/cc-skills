@@ -783,7 +783,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         label_approvals(name, data["roles"]["coordinator"]["cwd"])
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
         data.pop(flag, None)
-    data["slack"].pop("channel", None)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
         for question in job["questions"]:
@@ -2005,7 +2004,7 @@ def join_card(data: dict, job_id: str, card: str) -> None:
 
 
 def join_pr_cards(data: dict, keys: list[str], cards: list[str | None], at: str) -> None:
-    """Join the thread under each card drawn for these PRs at his DM root to every order whose words they are checked against, so his reply under the card is in each one's threads; a card drawn in another order's thread leaves that thread its order's. A card link names one card or several, space apart."""
+    """Join the thread under each card drawn for these PRs at the drive's channel root to every order whose words they are checked against, so his reply under the card is in each one's threads; a card drawn in another order's thread leaves that thread its order's. A card link names one card or several, space apart."""
     orders = dict.fromkeys(order_id for key in keys for order_id in served_orders(data, data["prs"][key]))
     for where in dict.fromkeys((found[0], found[1]) for card in filter(None, cards) for link in card.split() if (found := slack_message(link)) and found[2] == found[1]):
         for order_id in orders:
@@ -2433,7 +2432,7 @@ def fix_shipper(data: dict, job_id: str) -> str | None:
 
 
 def promise_thread(order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order's lines go in, as the order keeps them, in his DM or a channel such as an alert's; None, his DM's root, for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
+    """The channel and thread an order's lines go in, as the order keeps them, in the drive's channel or a channel such as an alert's; None, the drive's channel's root, for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
     return (order["thread"][0], order["thread"][1]) if order["thread"] and not in_reporter_thread(order) else None
 
 
@@ -2443,12 +2442,12 @@ def in_reporter_thread(order: dict) -> bool:
 
 
 def thread_attr(order: dict) -> dict:
-    """The thread attr of a record about an order, naming the thread its lines go in, none for one whose lines go at his DM's root."""
+    """The thread attr of a record about an order, naming the thread its lines go in, none for one whose lines go at the drive's channel's root."""
     return {"thread": where[1]} if (where := promise_thread(order)) else {}
 
 
 def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:
-    """The channel and thread a card for these PRs is linked in, in his DM or a channel such as an alert's: the thread of each open order whose words they are checked against, the one each serves, its job's own and each its job carries."""
+    """The channel and thread a card for these PRs is linked in, in the drive's channel or a channel such as an alert's: the thread of each open order whose words they are checked against, the one each serves, its job's own and each its job carries."""
     orders = dict.fromkeys(order_id for key in keys for order_id in served_orders(data, data["prs"][key]))
     return list(
         dict.fromkeys(

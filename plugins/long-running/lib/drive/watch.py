@@ -2332,7 +2332,7 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
 
 
 def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it that its writer did not withdraw, with each correction cci holds re one, and each order with news, for a handler the watch starts to post at his DM root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
+    """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it that its writer did not withdraw, with each correction cci holds re one, and each order with news, for a handler the watch starts to post at the drive's channel root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     owed, heard = data["catch_up"], data["owner"]["heard"]
     if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
@@ -2445,7 +2445,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive> on a drive whose roles hold no communicator, as one started from a terminal holds none, since a communicator starts one on each of its reports and nothing else reads them: the handler posts it in his DM and its line goes to the coordinator, and a live handler on the same record, as the one a stall line starts, refuses its copy. Each report is read once, through cci's cursor, which a handler that did not start sets back to its report, so the next poll starts it again."""
+    """Start the handler on each `POST` report to communicator@<drive> on a drive whose roles hold no communicator, as one started from a terminal holds none, since a communicator starts one on each of its reports and nothing else reads them: the handler posts it in the drive's channel and its line goes to the coordinator, and a live handler on the same record, as the one a stall line starts, refuses its copy. Each report is read once, through cci's cursor, which a handler that did not start sets back to its report, so the next poll starts it again."""
     if watcher.project or "communicator" in state.load(watcher.name)["roles"]:
         return []
     try:

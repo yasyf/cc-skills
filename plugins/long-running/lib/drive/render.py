@@ -13,7 +13,7 @@ DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 COMMUNICATOR_SLACK = ("slack_dm_status", "slack_reply", "slack_react", "slack_watch")
 COMMUNICATOR_DRIVE = ("say", "heard", "handler", "record", "order", "job")
 OWN_CALLS = (
-    "the ack, a +1, the watch on his DM, SendMessage, ToolSearch, this skill, the drive's say, heard, handler,"
+    "the ack, a +1, the watch on the drive's channel, SendMessage, ToolSearch, this skill, the drive's say, heard, handler,"
     " record, order and job tools, and a drive, cci or cc-slack command in Bash"
 )
 EYES = (
@@ -64,7 +64,7 @@ COMMUNICATOR_RULES = (
     ),
     (
         'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
-        " terminal, and an owner record from the coordinator, are his message, acked at his DM root. His message to the"
+        " terminal, and an owner record from the coordinator, are his message, acked at the drive's channel root. His message to the"
         " bot in another channel (relayed) gets no ack there, and the handler tool only when it orders the drive or"
         " rules on a job's work; his lines to the people there never reach you."
     ),
@@ -429,7 +429,7 @@ FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <
 
 def held_channels(drive: dict, role: str) -> list[str]:
     if role == "communicator":
-        return [f"his DM {slack.dm()}"]
+        return [f"the drive's channel {slack.home(drive)}"]
     return drive["slack"].get("watch", []) if role == "coordinator" else []
 
 
@@ -583,7 +583,7 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
         "roles": drive["roles"],
         "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
-        "slack": {"channel": slack.dm(), "watch": drive["slack"].get("watch", [])},
+        "slack": {"channel": slack.home(drive), "watch": drive["slack"].get("watch", [])},
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
         "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},

@@ -20,7 +20,7 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 RULE = (
     "A public repository's pictures come from a demo drive or public data, kept under a demo- or public- path; a picture"
     " of the live drive, a private repository, Slack, a customer's data or a teammate's name goes only to a private"
-    ' repository or his DM. Reword each one (a role such as "the reporter", or a name no one on the team has)'
+    ' repository or the drive\'s channel. Reword each one (a role such as "the reporter", or a name no one on the team has)'
 )
 NO_ROSTER = "public-check: no cc-slack plugin on this machine, so no Slack roster to check teammates' names against"
 

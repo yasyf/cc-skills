@@ -37,11 +37,11 @@ ELEVEN_FIXES = {
 WHOLE = "pass as asked each message of his it answers, word for word or by its permalink, one per line."
 RELAY_BRIEF = (
     "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
-    " has one, else at his DM root. He is away, so say may hold it for his catch-up.\nDeliverable: the line from 670054 posted, or held for his catch-up"
+    " has one, else at the drive's channel root. He is away, so say may hold it for his catch-up.\nDeliverable: the line from 670054 posted, or held for his catch-up"
 )
 NOT_HIS = (
     "Copy each message of his this post answers word for word, one per line, with … where you skip words, or pass its permalink"
-    " when it is in another thread of his DM, as a share he ordered to another person's DM does."
+    " when it is in another thread of the drive's channel, as a share he ordered to another person's DM does."
 )
 TEAMMATE = "U2"
 SHARE_ORDER = f"can you summarize all our findings, the session IDs, the patterns, the fixes we are considering, etc to <@{TEAMMATE}>"
@@ -719,7 +719,7 @@ def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
     reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
     assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
     assert "It is not an answer, so it keeps that limit" in reason
-    assert f"in no message of his in the thread this post goes to, no answer or Explain more tap of his a card there shows and no message of his in his DM an asked permalink links: {named}. {NOT_HIS}" in reason
+    assert f"in no message of his in the thread this post goes to, no answer or Explain more tap of his a card there shows and no message of his in the drive's channel an asked permalink links: {named}. {NOT_HIS}" in reason
 
 
 def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefed: Path, slack_thread: Thread) -> None:
@@ -764,7 +764,7 @@ def test_a_share_he_ordered_to_another_persons_dm_answers_his_order_by_its_perma
     ]
     share = {"channel_id": TEAMMATE, "text": SHARE}
     assert "a summary of 2 features is at most 120 words" in say(transcript, **share)
-    assert "in his DM an asked permalink links" in say(transcript, **share, asked=SHARE_ORDER)
+    assert "in the drive's channel an asked permalink links" in say(transcript, **share, asked=SHARE_ORDER)
     assert say(transcript, **share, asked=SHARE_LINK) is None
     assert say(transcript, **share, asked=[f"<{SHARE_LINK}>"]) is None
     assert checked.asked[-1] == [SHARE_ORDER]
@@ -2255,7 +2255,7 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
     alert = "1794493064.110609"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0822AHFY3G/{alert}")
     assert state.promise_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
-    assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
+    assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not the drive's channel, so pass channel_id C0822AHFY3G with it"
     assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
     assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None
 
@@ -2375,7 +2375,7 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
 def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his_own_message_still_posts(
     talker: str, tmp_path: Path, slack_thread: Thread, records: dict[str, str]
 ) -> None:
-    records["670054"] = "POST resume works from any session\no598 has no thread, so the line goes at his DM root."
+    records["670054"] = "POST resume works from any session\no598 has no thread, so the line goes at the drive's channel root."
     own = tmp_path / "handler.jsonl"
     handler(own, RELAY_BRIEF, "1.2")
     with state.edit("demo") as data:

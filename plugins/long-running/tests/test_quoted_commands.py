@@ -17,7 +17,7 @@ SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
 PAGES = sorted([SKILL / "SKILL.md", *cli.PAGES.glob("*.md"), *(PLUGIN / "agents").glob("*.md")])
 HOLE = "placeholder"
-START_META = orca.start_meta
+START_ROLE = orca.start_role
 FENCE = re.compile(r" {0,3}(`{3,})[^`]*")
 TICKS = re.compile(r"`+")
 PLACEHOLDER = re.compile(r"<[^<>]*>")
@@ -182,7 +182,7 @@ def test_the_meta_session_drive_start_opens_runs_the_lines_start_or_resume_print
     created: list[tuple[str, ...]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: registered.append((argv, checkout)) or "demo-meta registered")
     monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": "term_meta"}})
-    assert START_META("demo", "/w/demo", None) == "term_meta"
+    assert START_ROLE("demo", "meta", "/w/demo", None) == "term_meta"
     assert created == [("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta", "--command", "cci session attach demo-meta")]
     assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
     [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith("cci session register <drive>-meta ")]

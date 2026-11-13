@@ -185,7 +185,7 @@ def test_compact_instructions_keep_only_what_the_disk_does_not_hold() -> None:
 def test_his_dm_is_the_communicators_and_watched_channels_the_coordinators() -> None:
     drive = sample()
     drive["slack"]["watch"] = ["C0B75AL4XEW", "C0822AHFY3G"]
-    assert render.context(drive, "communicator").splitlines()[1] == "Hold with slack_watch: his DM D123"
+    assert render.context(drive, "communicator").splitlines()[1] == "Hold with slack_watch: the drive's channel D123"
     assert render.context(drive, "coordinator").splitlines()[1] == 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G'
 
 
@@ -197,7 +197,7 @@ def test_hold_line_reads_a_drive_saved_before_watch_existed() -> None:
 
 def test_the_communicators_hold_line_names_his_dm_as_cc_slack_whoami_names_it_on_a_drive_started_with_no_dm_channel(his_dm: str) -> None:
     drive = state.new_drive("empty", "coordinator", None, "/work")
-    assert render.hold_line(drive, "communicator") == f"Hold with slack_watch: his DM {his_dm}"
+    assert render.hold_line(drive, "communicator") == f"Hold with slack_watch: the drive's channel {his_dm}"
 
 
 def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
@@ -230,7 +230,7 @@ def test_status_text_counts_open_orders() -> None:
     text = render.status_text(sample(), {"coordinator": "in no Orca terminal"})
     assert text.splitlines()[:3] == [
         "demo: 2 open of 3 orders",
-        "communicator: not started; Hold with slack_watch: his DM D123",
+        "communicator: not started; Hold with slack_watch: the drive's channel D123",
         "coordinator: session s1, in no Orca terminal; Hold no Slack channel.",
     ]
     assert "o1 working" in text

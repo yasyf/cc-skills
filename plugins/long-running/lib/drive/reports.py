@@ -27,7 +27,7 @@ UNPOSTED_PART = (
     " or close {order} with `--attr close={order}` once its work is done"
 )
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
-NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
+NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at the drive's channel root"
 SECOND_REPORT = (
     "refused: the coordinator and the meta session send one report per thread per turn, and this turn, which runs from a wake"
     " to the end of its response, already sent one for thread {thread}; what did not fit in it waits for the next wake."
@@ -48,7 +48,7 @@ RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in prog
 VAGUE_WAIT = "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on CI, 40 min, run 123 running\"; add both"
 DM_URL = (
     "refused: a report's --url is the link of what it measured, such as a trace, notebook, log or build, which {{record:<seq>}}"
-    " links in his posts, and {url} is a message in his DM, which --attr thread={thread} names; drop --url, or put that link there"
+    " links in his posts, and {url} is a message in the drive's channel, which --attr thread={thread} names; drop --url, or put that link there"
 )
 
 
@@ -117,9 +117,9 @@ def unprevented(drive: dict, record: dict) -> str | None:
 
 
 def dm_url(drive: dict, record: dict) -> str | None:
-    """Why a report's url names a message in his DM: a report's url is what it measured, which {record:} links, and the message it answers is its thread attr."""
+    """Why a report's url names a message in the drive's channel: a report's url is what it measured, which {record:} links, and the message it answers is its thread attr."""
     found = state.CARD_LINK.search(record.get("url") or "")
-    if not found or found[1] != slack.dm():
+    if not found or found[1] != slack.home(drive):
         return None
     return DM_URL.format(url=record["url"], thread=found[4] or f"{found[2]}.{found[3]}")
 

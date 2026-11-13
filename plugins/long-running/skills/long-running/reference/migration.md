@@ -33,9 +33,9 @@ communicator.
 1. In the driver's session, run `drive start <name> --role coordinator` and follow the block it
    prints where it differs from the skill loaded earlier, since loading the skill again sends
    nothing new.
-2. Still there, release his DM, because his reply in a thread the driver posted in reaches only the
+2. Still there, release the drive's channel, because his reply in a thread the driver posted in reaches only the
    driver until it lets go. Of the watches `cc-slack follows` lists, run
-   `cc-slack unfollow <watch id>` for his DM channel's watch with no thread and each `dm` watch on
+   `cc-slack unfollow <watch id>` for the drive's channel channel's watch with no thread and each `dm` watch on
    its threads. Keep the alert channels' watches.
 3. That `drive start` registered the driver's session with cci as the coordinator's, whose alias
    owns the subscription that replaces the driver's.
@@ -151,7 +151,7 @@ His rulings already live in cc-notes answers.
    words verbatim, because his words are the spec:
    `drive order add "<his words>" --from migrated:<old row> --project <name> --workstream <name> --title "<a few words>" --thread <ts> --due <the time he was promised>`,
    reusing a pair `drive order unfiled` lists as in use where one fits. Leave `--due` and `--thread`
-   (his DM thread's ts) off when he was promised no time. Leave `--kind` off, because a `build`
+   (the drive's channel thread's ts) off when he was promised no time. Leave `--kind` off, because a `build`
    order refuses step 4's builder jobs until a reader's research is kept. An open incident without a `fix-live` record is an order too, run by
    [incidents.md](incidents.md).
 4. Carry each open drive PR as a job with no agent, under the order it serves, else under the
