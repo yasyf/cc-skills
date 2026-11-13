@@ -238,7 +238,7 @@ def unread(payload: dict, dm: str) -> str | None:
     return UNREAD.format(why=why, channel=channel, thread=thread)
 
 
-def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], drive: dict) -> str | None:
+def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], drive: dict, report: dict, order_id: str | None) -> str | None:
     """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule as a reply to each message of his it answers: those its asked names, word for word or by permalink, and his messages in its thread since the bot's last post there; an order or job id none of them used refuses unjudged, since no reading of his words makes it open anything; a post reporting on an incident keeps its alert's Slack message and Sentry or Datadog issue bare, so Slack unfurls them, as his incident rule asks; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
     if not (text := tool_input.get("text") or ""):
         return None
@@ -247,7 +247,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
         return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
-    if any(ALERT_LINK.match(finding) for finding in findings) and incident(tool_input, drive):
+    if any(ALERT_LINK.match(finding) for finding in findings) and incident(tool_input, drive, report, order_id):
         findings = [finding for finding in findings if not ALERT_LINK.match(finding)]
     if not findings:
         return None
@@ -383,18 +383,18 @@ def his_words(payload: dict) -> list[dict]:
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
     ruled += [WORKED_WORDS] if in_card_thread(drive, payload["tool_input"]) else []
     try:
-        words = [*thread_words(thread_messages(payload, dm)), *order_words(drive, payload["tool_input"], dm)]
+        words = [*thread_words(thread_messages(payload, dm)), *order_words(drive, payload["tool_input"], dm, said_order(payload, drive)[1])]
         shown = {word["id"] for word in words}
         return [*words, *(word for word in linked_words(payload["tool_input"].get("asked"), dm).values() if word["id"] not in shown), *ruled]
     except slack.SlackError:
         return ruled
 
 
-def order_words(drive: dict, tool_input: dict, dm: str) -> list[dict]:
+def order_words(drive: dict, tool_input: dict, dm: str, order_id: str | None) -> list[dict]:
     """His words in each other thread in his DM of the order the post is on, as thread_words keeps them, since a post on an order answers his words in any of its threads, such as his order in its question card's thread answered under its PR card."""
-    if not (found := posted_order(drive, tool_input)):
+    if not (found := posted_order(drive, tool_input, order_id)):
         return []
-    threads = [ts for channel, ts in slack.order_threads(drive, *found) if channel == dm and ts != tool_input.get("thread_ts")]
+    threads = [ts for channel, ts in slack.order_threads(drive, found, drive["orders"][found]) if channel == dm and ts != tool_input.get("thread_ts")]
     return [word for ts in threads for word in thread_words(slack.thread("--channel", dm, "--thread", ts, "--limit", str(slack.WHOLE_THREAD)), here=False)]
 
 
@@ -485,7 +485,8 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         return refusal
     if not posts_to(payload, dm):
         return None
-    if refusal := held_while_away(payload, drive) or talk.misplaced(drive, tool_input) or unread(payload, dm):
+    report, order_id = said_order(payload, drive)
+    if refusal := held_while_away(payload, drive, report, order_id) or talk.misplaced(drive, tool_input) or unread(payload, dm):
         return refusal
     try:
         messages = thread_messages(payload, dm)
@@ -499,12 +500,12 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         [
             long and agents.Ruled(long, LENGTH_RULE, long),
             long_ack(payload),
-            unlinked(payload, drive),
+            unlinked(payload, drive, order_id),
             untapped(payload),
-            claimed_tap(tool_input, drive),
+            claimed_tap(tool_input, drive, order_id),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
-            unchecked(tool_input, messages, linked, drive),
+            unchecked(tool_input, messages, linked, drive, report, order_id),
             unbacked(payload, said),
             None if tool_input.get("tap_prs") else unprevented(said, found),
             unordered(said),
@@ -616,26 +617,26 @@ def card_edit(payload: dict, drive: dict) -> str | None:
     return None
 
 
-def posted_order(drive: dict, tool_input: dict) -> tuple[str, dict] | None:
-    """The order a post goes to: the one say's order names, else the open order whose thread, in his DM or the channel its channel_id names, it goes in."""
-    if (order_id := tool_input.get("order")) in drive["orders"]:
-        return order_id, drive["orders"][order_id]
-    where = (tool_input.get("channel_id") or drive["slack"]["channel"], tool_input.get("thread_ts"))
-    return next(((order_id, order) for order_id, order in state.open_orders(drive).items() if where[1] and state.promise_thread(order) == where), None)
-
-
-def reported_order(drive: dict, tool_input: dict, report: dict) -> str | None:
-    """The order a post reports on: the one say's order or thread names, else the one the record it posts is about."""
-    return found[0] if (found := posted_order(drive, tool_input)) else state.report_order(drive, report) if tool_input.get("record") else None
-
-
-def incident(tool_input: dict, drive: dict) -> bool:
-    """Whether a post reports on an incident, as the record it posts or the order it reports on marks it, never as its words read."""
+def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
+    """The report a post carries and the one order say records it on, as cli.post_order decides it for the posting session, a handler's own `claude --bg` session included; a post through another tool goes on none."""
+    tool_input = payload["tool_input"]
     report = cli.report_attrs(seq) if (seq := tool_input.get("record")) else {}
-    return report.get("incident") == "true" or bool((order_id := reported_order(drive, tool_input, report)) and drive["orders"][order_id]["incident"])
+    session = payload.get("handler_session") or payload.get("session_id")
+    return report, cli.post_order(drive, session, tool_input, report) if payload["tool_name"] == SAY else None
 
 
-def held_while_away(payload: dict, drive: dict) -> str | None:
+def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:
+    """The order a post goes to: the one say records it on, else the open order whose thread, in his DM or the channel its channel_id names, it goes in."""
+    where = (tool_input.get("channel_id") or drive["slack"]["channel"], tool_input.get("thread_ts"))
+    return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and state.promise_thread(order) == where), None)
+
+
+def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) -> bool:
+    """Whether a post reports on an incident, as the record it posts or the order it goes to marks it, never as its words read."""
+    return report.get("incident") == "true" or bool((posted := posted_order(drive, tool_input, order_id)) and drive["orders"][posted]["incident"])
+
+
+def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
     """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
@@ -643,12 +644,11 @@ def held_while_away(payload: dict, drive: dict) -> str | None:
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()):
         return None
     seq = tool_input.get("record")
-    report = cli.report_attrs(seq) if seq else {}
-    order_id = reported_order(drive, tool_input, report)
-    if order_id and drive["orders"][order_id]["incident"]:
+    posted = posted_order(drive, tool_input, order_id)
+    if posted and drive["orders"][posted]["incident"]:
         return None
     held = (
-        f" Report {seq} is marked held: `drive status` lists it until the catch-up posts, and record {talk.hold(drive['name'], seq, report, order_id)}"
+        f" Report {seq} is marked held: `drive status` lists it until the catch-up posts, and record {talk.hold(drive['name'], seq, report, posted)}"
         f" told its writer so. Return NOTHING held for his catch-up."
         if seq
         else ""
@@ -729,21 +729,21 @@ def untapped(payload: dict) -> str | None:
     return refusal and agents.Ruled(refusal, OWED_TAP_RULE)
 
 
-def claimed_tap(tool_input: dict, drive: dict) -> str | None:
+def claimed_tap(tool_input: dict, drive: dict, order_id: str | None) -> str | None:
     """Why a post's text or card says a PR waits on his tap or Approve with nothing for him to tap; a PR card's own PRs are `untapped`'s to check, since the post draws their tap card."""
     if tool_input.get("tap_prs"):
         return None
     card = tool_input.get("card") or {}
     words = "\n".join([tool_input.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])])
-    refusal = view.tap_claim_refusal(drive, tool_input.get("order") or "", words, (view.live_cards(drive["name"]) or view.NO_CARDS)["pr_cards"])
+    refusal = view.tap_claim_refusal(drive, order_id or "", words, (view.live_cards(drive["name"]) or view.NO_CARDS)["pr_cards"])
     return refusal and agents.Ruled(f"{refusal}. A PR the drive owes his tap on and no open card asks gets its tap card from tap_prs on the post.", CARD_RULE)
 
 
-def unlinked(payload: dict, drive: dict) -> str | None:
+def unlinked(payload: dict, drive: dict, order_id: str | None) -> str | None:
     """Why a handler's post names a PR or card the drive holds with no link where it is named; a PR card's line quotes his order and cc-slack draws its card, and the communicator's ack names nothing."""
     if not payload.get("agent_id") or payload["tool_input"].get("tap_prs"):
         return None
-    refusal = limits.link_refusal(payload["tool_input"], limits.held(drive, payload["tool_input"].get("order")))
+    refusal = limits.link_refusal(payload["tool_input"], limits.held(drive, order_id))
     return refusal and agents.Ruled(refusal, LINK_RULE)
 
 

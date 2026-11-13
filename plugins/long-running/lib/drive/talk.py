@@ -31,12 +31,16 @@ PLAIN_QUESTION = (
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post naming an order is recorded on it wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
-    if (close := post.get("close")) and (not post.get("order") or post.get("record") or post.get("edit")):
-        raise DriveError("nothing posted: close answers the order the post is on and writes its report itself, so pass order, and no record or edit")
-    report = {"close": post["order"], "writer": "communicator", "written": state.stamp()} if close else cli.report_attrs(post["record"]) if post.get("record") else {}
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    if (close := post.get("close")) and (post.get("record") or post.get("edit")):
+        raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
+    report = cli.report_attrs(post["record"]) if post.get("record") else {}
     known = state.load(name)
-    order = post.get("order")
+    order = cli.post_order(known, os.environ.get("CLAUDE_CODE_SESSION_ID"), post, report)
+    if close and not order:
+        raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
+    if close:
+        report = {"close": order, "writer": "communicator", "written": state.stamp()}
     if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, post.get("record"), report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
@@ -51,7 +55,7 @@ def say(name: str, post: dict) -> str:
         report["seq"] = close_report(name, order, post.get("text") or "")
     claimed = cli.claim_close(name, report)
     try:
-        reply = posted(name, post)
+        reply = posted(name, post, order)
     except (DriveError, slack.SlackError):
         cli.unclaim_close(name, claimed)
         raise
@@ -306,7 +310,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
     return visuals, "\n\n".join(filter(None, [text, *charts])), lifted
 
 
-def posted(name: str, post: dict) -> dict:
+def posted(name: str, post: dict, order: str | None = None) -> dict:
     """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
@@ -349,7 +353,7 @@ def posted(name: str, post: dict) -> dict:
         thread=reply.get("thread_ts"),
         url=reply["permalink"],
         card=reply.get("card_permalink"),
-        order=post.get("order"),
+        order=order,
         visuals=visuals,
         prs=stack,
         edited=bool(post.get("edit")),

@@ -168,9 +168,9 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     with monkeypatch.context() as scoped:
         scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
         with pytest.raises(state.DriveError, match="^nothing posted: o3 is filed under no project and workstream yet: run drive order set o3 --project"):
-            talk.say("demo", {"text": text, "thread_ts": THREAD, "order": "o3", "close": True})
+            talk.say("demo", {"text": text, "thread_ts": THREAD, "close": True})
         assert run("order", "set", "o3", "--project", "The drive", "--workstream", "Copies")[0] == 0
-        line = talk.say("demo", {"text": text, "thread_ts": THREAD, "order": "o3", "close": True})
+        line = talk.say("demo", {"text": text, "thread_ts": THREAD, "close": True})
     result = f"POSTED {answer}"
     assert line == f'{result}; o3 "did the copy fix ship?": posted {answer}; o3 closed on report 700001; j2 keeps {result} as its return, the line you end on'
     assert ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "report", "--attr", "close=o3", "--json", "--text", text] in started

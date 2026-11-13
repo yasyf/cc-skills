@@ -6007,7 +6007,7 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     assert cli.main(["order", "set", "o1", "--state", "done", "--record", "22"]) == 2
     assert (
         f"o1 owes him the line promised for {render.when(told['due'])}, and no drive post is in its thread since"
-        f" {render.when(told['promised'], seconds=True)}: post it there first with say(order=o1, record=22)"
+        f" {render.when(told['promised'], seconds=True)}: post it there first with say(record=22)"
     ) in capsys.readouterr().err
     assert run("order", "set", "o1", "--state", "done", "--record", "21")[0] == 0
     closed = state.load("demo")["orders"]["o1"]

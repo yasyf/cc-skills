@@ -1328,7 +1328,7 @@ def kind(found: str) -> str:
 
 
 def held(data: dict, order: str | None) -> tuple[str, ...]:
-    """The kinds of thing the drive opens that a post on the order can name: a PR it holds on that order, or on any order when the post names none, and a card it put up."""
+    """The kinds of thing the drive opens that a post on the order can name: a PR it holds on that order, or on any order when the post goes on none, and a card it put up."""
     prs = [pr for pr in data["prs"].values() if order in (None, pr["order"])]
     cards = [question for job in data["jobs"].values() for question in job["questions"] if question["card"]]
     return tuple(kind for kind, found in (("PR", prs), ("card", cards)) if found)
