@@ -101,3 +101,20 @@ def test_a_ninth_builder_here_is_held_waiting_its_turn_and_only_the_one_the_watc
         data["jobs"]["j1"]["waits"] = []
     assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o3, job j1")) is None
     assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
+
+
+def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_wait(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o1", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix this asap", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the card is broken", "--parts", "the card", "immediate fix")
+    order = "Order (his words): fix it\nServes: his order\nGoal: fix it\nDrive: demo, "
+    for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
+        job_id = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")[1].splitlines()[0]
+        assert agent_brief.deny_reason(started("long-running:builder", f"{order}order {order_id}, job {job_id}")) is None
+    assert agent_brief.deny_reason(started("long-running:builder", f"{order}order o1, job j9")).startswith("refused: j9 waits its turn for a builder slot on this Mac, 1 of 1 in line.")

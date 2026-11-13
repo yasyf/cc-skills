@@ -27,6 +27,9 @@ Contents:
   while builders wait their turn, records the job waiting on `builder-slot`, its turn for a slot, and
   prints its place in line and why, naming each builder it counted with its order and when its agent
   last wrote; `drive status` shows the place, and the watch reads the job waiting, never abandoned.
+  A builder on an open incident's order or on an `immediate fix` part never waits its turn: it
+  starts here at once past the cap and the line, and holds a slot against later builders once it
+  runs.
   Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
   its turn that is due first: the earliest time promised him on an order it serves, then the oldest
   added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
@@ -61,8 +64,9 @@ names, and drops `sonnet` or `haiku` from any lane of a build order or of an ans
 `--complex`, so it runs on its definition's model. It refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
-that only names a PR, stack or check for a pass is not one; and a builder while eight hold this
-Mac's builder slots or one waits its turn ahead of it, holding a refused job no agent runs waiting
+that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
+open incident's order or an `immediate fix` part, while eight hold this Mac's builder slots or one
+waits its turn ahead of it, holding a refused job no agent runs waiting
 its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
 writes once its reader's research is kept, unless its job ships the order's `immediate fix` part.

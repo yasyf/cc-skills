@@ -77,7 +77,7 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it; a refused job no agent runs is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens."""
+    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once; a refused job no agent runs is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
