@@ -21,6 +21,7 @@ HEADLINE_CHARS = 90
 LEAD_WORDS = SUMMARY_WORDS // 3
 LEAD_LINES = (("headline", "--headline"), ("why", "--because"), ("what", "--does"), ("downstream", "--downstream"))
 LEAD_RULING = 'his words on a PR card "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are"'
+ALREADY_ANSWERED = "Already answered"
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
 LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
 FROM_ASK = (
