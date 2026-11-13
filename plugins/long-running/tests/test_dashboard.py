@@ -83,6 +83,22 @@ def test_rebuild_lists_reports_only_when_jobs_directory_membership_changes(demo:
     assert {entry["id"]: entry["files"] for entry in board.model["work"]} == {"j1": [], "j2": ["report"]}
 
 
+def test_rebuild_exposes_phase_cpu_costs_without_changing_model(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    ticks = iter([1.0, 1.1, 1.3, 1.6, 1.65])
+    monkeypatch.setattr(dashboard.time, "thread_time", lambda: next(ticks))
+    board = dashboard.Board(demo, [])
+    board.rebuild()
+    assert board.timings == pytest.approx({"prepare_ms": 100, "load_ms": 200, "model_ms": 300, "publish_ms": 50})
+    assert "timings" not in board.model
+    server, port = serving(board)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/rebuild", timeout=5) as response:
+            assert json.load(response) == board.timings
+    finally:
+        server.shutdown()
+
+
 def serving(board: dashboard.Board, net: dashboard.Tailnet = NET) -> tuple[ThreadingHTTPServer, int]:
     server = ThreadingHTTPServer((dashboard.LOOPBACK, 0), BaseHTTPRequestHandler)
     port = server.server_address[1]
