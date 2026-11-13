@@ -40,4 +40,9 @@ jobs:
         env:
           UV_PYTHON: "3.14"
           LONG_RUNNING_STATE: ${{ github.workspace }}/plugins/long-running/capt-hook/hooks/tests/fixtures/state
-        run: uvx --isolated 'capt-hook>=12.121.70' pack test plugins/long-running
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+          CC_SLACK: ${{ github.workspace }}/plugins/long-running/capt-hook/hooks/tests/fixtures/cc-slack
+        run: |
+          mkdir -p "$CLAUDE_CONFIG_DIR/plugins"
+          printf '{"version": 2, "plugins": {"cc-slack@cc-slack": [{"scope": "user", "installPath": "%s", "version": "fixture", "installedAt": "2026-11-13T00:00:00.000Z", "lastUpdated": "2026-11-13T00:00:00.000Z"}]}}' "$CC_SLACK" > "$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json"
+          uvx --isolated 'capt-hook>=12.121.70' pack test plugins/long-running
