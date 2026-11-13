@@ -2209,8 +2209,6 @@ def job_end(args: argparse.Namespace) -> int:
         if saved:
             ended["deaths"][-1]["saved"] = saved
         ended.update(ask=None, updated=state.stamp())
-        if ended["state"] in state.FINISHED_JOB_STATES:
-            state.drop_carries(data, args.id)
     line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved: {saved}" if saved else "")
     return emit(args, "\n".join(filter(None, [reclaimed, released, line])), {"id": args.id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved})
 

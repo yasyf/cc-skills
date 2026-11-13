@@ -415,6 +415,5 @@ def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | Non
         done.append(f"{job_id}'s parts now ride on {into}")
     if job["state"] not in state.FINISHED_JOB_STATES:
         job.update(state="stopped", said=f"superseded by his answer {answer_id}" + (f", folded into {into}" if into else ""), updated=state.stamp())
-        state.drop_carries(data, job_id)
         done.append(f"{job_id} stopped: end its agent, or its lane with drive job end {job_id}")
     return done

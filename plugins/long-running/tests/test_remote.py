@@ -1759,18 +1759,18 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     assert started == [("destroy", "pool-one"), ("done", "run_mac", "ctx_mac")]
 
 
-def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_carried(
+def test_end_of_a_finished_job_never_reads_its_sprite_and_keeps_the_parts_it_carried(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, remote)
-    carrying(run, remote)
+    parts = carrying(run, remote)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="stopped", workspace="pool-one")
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("a finished job's lane ends whatever its Sprite holds"))
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays stopped")
     data = state.load(remote)
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"]) == ("stopped", {}, [])
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"]) == ("stopped", {"o2": parts}, ["j1"])
 
 
 def test_resume_after_end_relaunches_the_job_on_a_fresh_sprite_with_the_message_in_its_handoff(
