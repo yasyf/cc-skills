@@ -722,6 +722,30 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_ruling_the_
     assert run("job", "brief", "j4")[1].splitlines()[1] == "his words from o2, rulings: 0, earlier jobs: 0"
 
 
+def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_answer_its_rulings_line_names_though_no_drive_job_brief_wrote_the_readers_brief(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
+) -> None:
+    recorded.shown["c7db7ab"] = {"id": "c7db7ab756c0c80833d1c8eb3e286234dc88813d", "tags": [], "title": "How should the drive stop this morning's stalls?", "body": "1+2\nNotes: card r7"}
+    recorded.shown["badce22"] = {"id": "badce22f0e1c7a5e3b2d4f6a8c9e0b1d2f3a4c5e", "tags": [], "title": "How should the release tooling evolve in general?", "body": "in geernal keeps implifying all this tuff"}
+    recorded.unrecorded.add("5e0c41a8")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the run page")
+    rulings = (
+        'rulings: c7db7ab (Nov 12, his pick "1+2" on "Block the terminal question"); badce22 (scope:durable) his words `Nov 12 2:59 AM`'
+        ' "in geernal keeps implifying all this tuff"; his words in session 5e0c41a8\'s terminal, "work in your own drive"'
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH.replace("rulings: none on the copy path", rulings)))
+    code, out = run("job", "report", "j1", "-")
+    jobs = state.load(demo)["jobs"]
+    assert (code, out.splitlines()[2], jobs["j1"].get("brief")) == (0, "his words from o1, rulings: 2, earlier jobs: 0", None)
+    brief = Path(jobs["j2"]["brief"]).read_text()
+    assert (
+        "\nDecisions that bind:\n- How should the drive stop this morning's stalls? (c7db7ab)\n  1+2\n"
+        "- How should the release tooling evolve in general? (badce22)\n  in geernal keeps implifying all this tuff\n"
+    ) in brief
+    assert "5e0c41a8" not in brief
+
+
 def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
