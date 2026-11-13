@@ -6,7 +6,7 @@
   },
   "subcoordinators": {},
   "handlers": {"f796ccf3": {"session": "handler-fixture", "started": "2026-11-12T04:44:22+00:00", "holds": null, "handed": []}},
-  "slack": {"channel": "D123", "page": null, "watch": []},
+  "slack": {"page": null, "watch": []},
   "owner": {"heard": null, "away": true},
   "orders": {},
   "jobs": {},

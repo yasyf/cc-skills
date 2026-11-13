@@ -1,0 +1,7 @@
+#!/bin/sh
+if [ "$1" = whoami ]; then
+  echo '{"dm_channel_id": "D123"}'
+  exit 0
+fi
+echo "the fixture cc-slack answers whoami alone, not $1" >&2
+exit 1
