@@ -239,7 +239,7 @@ def test_a_not_ready_line_carries_each_answer_his_design_line_cites_whole_for_it
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "time each handoff")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     monkeypatch.setattr(github, "files", lambda key: ["api/run.ts"])
-    assert run("pr", "add", URL, "--job", "j1")[0] == 0
+    assert run("pr", "add", URL, "--job", "j1", *LEAD)[0] == 0
     with state.edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: time each handoff", "body": "", "head": "head1", "diff": SMALL})
