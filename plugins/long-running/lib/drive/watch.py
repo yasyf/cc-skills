@@ -2017,8 +2017,8 @@ def carry_held(watcher: Watcher, moment: datetime) -> None:
 
 
 def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
-    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while a wait holds it, or for an adopted PR's job no builder started, which starts only on a PR event."""
-    started = job.get("agent") or job.get("dispatch")
+    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    started = job.get("agent") or job.get("dispatch") or job.get("codex_run")
     if job["state"] == "running" and started or job["prs"] and not started:
         return None
     remote = job.get("where") == "remote" and job.get("dispatch")

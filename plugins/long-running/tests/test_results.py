@@ -185,6 +185,26 @@ def test_drive_job_launch_starts_a_codex_jobs_codex_ask_run_on_its_brief_with_it
     assert f"j1: refused, not launched: codex-ask: lane {folder} is busy" in capsys.readouterr().err
 
 
+def test_a_codex_jobs_launch_carries_each_text_it_holds_and_each_answer_it_has_not_heard_under_his_answers_since_and_drops_them_off_the_job(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
+) -> None:
+    codex_job(run)
+    ring, knock, lazy = 'His answer on card demo:j1-7, verbatim: "Ring"', 'His answer on card demo:j1-8, verbatim: "Knock"', "the lazy copy, no sweeper"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = [
+            {"seq": "9", "words": ring, "at": state.stamp(), "said": None, "request": "req-ring"},
+            {"seq": "10", "words": knock, "at": state.stamp(), "said": None, "request": "req-knock"},
+        ]
+        data["answers"]["a1"] = {"words": lazy, "link": POST, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text(f"Order (his words): review the fix\nGoal: review\nDecisions that bind: {knock}\nDrive: {demo}, order o1, job j1\n")
+    assert run("job", "launch", "j1", str(brief))[0] == 0
+    data = state.load(demo)
+    question = (Path(data["jobs"]["j1"]["codex_run"]) / "question").read_text()
+    assert question == f'{brief.read_text()}His answers since:\n- {ring}\n- "{lazy}" ({POST})\n'
+    assert (Path(data["jobs"]["j1"]["brief"]).read_text(), data["jobs"]["j1"]["undelivered"], data["answers"]["a1"]["jobs"]["j1"]) == (question, [], {"mark": "sent"})
+
+
 def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_bash_calls_trusted_in_its_config(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
     home = tmp_path / "codex-home"
     hooks, config = home / "hooks.json", home / "config.toml"

@@ -2426,7 +2426,7 @@ def job_launch(args: argparse.Namespace) -> int:
 
 
 def codex_launch(args: argparse.Namespace, name: str) -> int:
-    """Start a codex job's codex-ask run on this Mac from this session's folder on its brief, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    """Start a codex job's codex-ask run on this Mac from this session's folder on its brief, with each text the job holds and each answer of his it has not heard under His answers since:, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent, refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = data["jobs"][args.id]
@@ -2434,7 +2434,7 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
             raise DriveError(f"{args.id} waits on {', '.join(job['waits'])}: launch it on the watch's FREE line, which comes once the last wait ends")
         if not (args.brief or job.get("brief")):
             raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
-        written = named_text(args.brief or job["brief"], "brief file")
+        written = answers_since(data, args.id, named_text(args.brief or job["brief"], "brief file"))
         if refused := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), state.starts_cut(job)) or brief.brief_refusal(name, data, args.id, written):
             raise DriveError(f"{args.id}: refused, not launched: {refused}")
         try:
@@ -2445,8 +2445,15 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(written)
         with state.edit(name) as data:
-            data["jobs"][args.id].update(codex_run=str(folder), brief=str(kept), researched=brief.research_links(data["jobs"][args.id], written))
-            state.start(data["jobs"][args.id])
+            job = data["jobs"][args.id]
+            job.update(
+                codex_run=str(folder),
+                brief=str(kept),
+                researched=brief.research_links(job, written),
+                undelivered=[held for held in job["undelivered"] if not superseded.carries(written, held["words"])],
+            )
+            state.start(job)
+            superseded.hear(data, args.id, written)
     return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
 
 
@@ -2640,11 +2647,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         data = state.load(name)
         job = data["jobs"][job_id]
     root = orca.checkout(name, data)
-    written = rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file")
-    held = [kept["words"] for kept in job["undelivered"] if not superseded.carries(written, kept["words"])]
-    owed = [f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in superseded.owed(data, job_id) if not superseded.carries("\n".join([written, *held]), kept["words"])]
-    if since := [*held, *owed]:
-        written = written.rstrip() + "\nHis answers since:" + "".join(f"\n- {line}" for line in since) + "\n"
+    written = answers_since(data, job_id, rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file"))
     if taker or died:
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
     local = local or bool(died and place.mac_step(written))
@@ -2670,6 +2673,15 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         record_start(name, job_id, None, None)
         raise
     return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)}
+
+
+def answers_since(data: dict, job_id: str, written: str) -> str:
+    """The brief a job's next worker or codex-ask run starts on: under His answers since:, each text the job holds and each answer of his it has not heard whose words the brief lacks."""
+    held = [kept["words"] for kept in data["jobs"][job_id]["undelivered"] if not superseded.carries(written, kept["words"])]
+    owed = [f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in superseded.owed(data, job_id) if not superseded.carries("\n".join([written, *held]), kept["words"])]
+    if since := [*held, *owed]:
+        return written.rstrip() + "\nHis answers since:" + "".join(f"\n- {line}" for line in since) + "\n"
+    return written
 
 
 def crowded_here(name: str, data: dict, job_id: str, written: str) -> str | None:

@@ -1234,6 +1234,11 @@ def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id:
         return False
     if holds is not None and (names_job(holds, job_id) or pr is not None and names_pr(holds, pr_key(pr["url"]))):
         return True
+    return asks_for(data, asker_id, job_id)
+
+
+def asks_for(data: dict, asker_id: str, job_id: str) -> bool:
+    """Whether a job's questions ask on another's behalf: its own, a reader's the job's brief names on its `Researched:` line, or a design job's whose design the job builds."""
     return asker_id == job_id or asker_id in data["jobs"][job_id]["researched"] or design_builder(data, asker_id) == job_id
 
 

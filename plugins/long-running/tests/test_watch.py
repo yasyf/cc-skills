@@ -1933,6 +1933,30 @@ def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_bui
     assert detached == [["job", "resume", "j2"], ["job", "resume", "j2"], ["job", "launch", "j3"]]
 
 
+def test_the_watch_starts_no_launch_of_a_codex_job_while_its_codex_ask_run_goes_and_launches_it_with_its_held_text_once_it_returned(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = []
+
+    def detach(name: str, args: list[str], log: str) -> int:
+        detached.append(args)
+        done = subprocess.Popen(["true"])
+        done.wait()
+        return done.pid
+
+    monkeypatch.setattr(state, "detach", detach)
+    held = [{"seq": "9", "words": 'His answer on card demo:j2-7, verbatim: "Ring"', "at": state.stamp(T0), "said": None, "request": "req-ring"}]
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(kind="codex", codex_run="/drive/scratch/j2/codex", undelivered=held)
+    watching = watcher(demo)
+    watch.carry_held(watching, T0)
+    watch.carry_held(watching, T0 + timedelta(minutes=11))
+    assert detached == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "waiting"
+    watch.carry_held(watching, T0 + timedelta(minutes=12))
+    assert detached == [["job", "launch", "j2"]]
+
+
 def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
