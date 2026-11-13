@@ -3018,6 +3018,103 @@ def test_each_question_a_card_on_another_question_once_skipped_now_draws_his_car
         assert cli.elsewhere(data, "j2", other) == ("j1", data["jobs"]["j1"]["questions"][0])
 
 
+CODE_TURN_ASK = """ASK When a chat's Sand code turn has no stored description, should the search worker have memory describe it?
+For {order:o538|describing code turns for search}: your pick decides whether every code turn embeds a description, and what indexing spends on Cerebras for it. Both options keep the code in the sparse text and read stored descriptions with one query per slice, as <https://github.com/Forge-AI/monorepo/pull/55249|the open PR that embeds stored descriptions> does. Recommended: memory describes each miss. Meanwhile that PR embeds the code of a turn with no stored description.
+- Memory describes every miss: each code turn embeds a description; one Cerebras call per undescribed turn (recommended)
+  The rsw-search worker runs memory's Service with its Describer. Each slice sends its undescribed code turns through memory's describe together: in-process cache, stored row, then one gpt-oss-120b call on Cerebras, whose row lands in the team's description namespace as a chat lookup's does. A turn is keyed by normalize.ShapeOf of its code.
+- Stored descriptions only: no model call while indexing; an undescribed turn embeds its code
+  The worker keeps one memory.StoredDescriptions query per slice and embeds the code of any turn whose lookup was skipped, missed its 1.4 second describe deadline, or ran before code hashes were journaled. Nothing describes those turns later, so their vectors stay code embeddings.
+Findings:
+Root cause: a code turn's description is written only as a side effect of the session's live memory lookup, memory.Service.cachedOrDescribed, which leaves none when the 1.4 second describe deadline passes, Cerebras answers 429 or 5xx, the 256-row insert queue is full, or memory.routeAction skips the lookup; nothing describes the turn afterwards.
+First principles: Memory describes every miss
+Interim fix: none: nobody is hurt now; a code turn with no description still matches on its code, as every code turn does on dev.
+Holds: https://github.com/Forge-AI/monorepo/pull/55249
+Evidence, from the code at #55249's head b7acdd4:
+- go/sand/next/internal/runtime-api/memory/describe.go:438 Service.describe reads the LRU cache, then the stored row, then asks Cerebras (DescribeModel) through Service.described; a success queues its row at :508, and queueDescription drops it when the 256-row channel is full (:616-621).
+- describe.go:46 DescribeTimeout is 1400 ms; serveDescribe answers an empty description on a timeout, 429 or 5xx (:294-297), so the lookup goes on with no stored row.
+- go/sand/next/internal/memory/inject.go:554 routeAction skips a block that calls memory:: builtins or has no effects, callees or definitions; go/sand/next/internal/memory/journal.go:47 journals a lookup only with a code hash or a shown memory, and code hashes are journaled only since #54496.
+- go/sand/next/internal/memory/ack.go:40 the session's hash is normalize.ShapeOf(block, callees). The indexer has the block but not the callees' source, so it keys what it describes by normalize.ShapeOf(block, nil): the session's own key for a block calling no session function, and a separate row for one that does, so memory's lookups never read a description written without its callees.
+- go/sand/next/cmd/runtime-api/restate.go:141 searchServices builds a Turbopuffer store and no memory.Service or Describer today; cmd/runtime-api/main.go:372 shows the serving pods build theirs from memory.DescribeConfigFromEnvironment, which the worker would read too (Cerebras key through llmclient).
+- Cost of the recommended option: the worker's calls share the Cerebras account limit with live lookups, whose 429 makes a live lookup answer nothing (describe.go:294). The first pass over chats journaled before #54496 describes every code turn in them.
+- Not measured: the share of code turns with no stored description; this Sprite has no production read.
+"""
+ADVISORY_ASK = """ASK May Jev's reading of your standing words refuse or skip a question card, or only advise as your advisory-judge pick says?
+Every option drops the hard-coded check that refused a card recommending your recorded pick, and stops reading lines you quoted from an alert as your words.
+They differ on what Jev's reading of your standing words does: your advisory-judge pick says it only advises, your later pick on <https://github.com/yasyf/cc-skills/pull/4673|the fix that settles only on your answer to that same question> says only that answer skips a card, and <https://github.com/yasyf/cc-skills/pull/4664|the one-judge fix> refuses and skips on it, so its rebase cannot keep all three.
+Recommended: Jev refuses a card, never skips it. The one-judge fix stays unmerged until you pick; nobody is hurt meanwhile.
+- Jev refuses a card, never skips it (recommended)
+  Rebased on main, drive job ask keeps settled.answered as the only skip. One Jev call reads every option against your recorded answers, the order and its thread with quoted lines dropped, and refuses a card offering an option they rule out, an amount with no tap, or a broken ruling. The advisory path in drive_checks.asked is deleted.
+- Jev only advises; fix the misreads
+  The one-judge fix shrinks to two fixes on main: limits.his_words and settled.thread_words drop lines you quoted with "> ", and limits.root_cause_problems stops refusing a card that recommends your pick. The ask hook keeps printing Jev's finding without refusing, so a card offering an option your standing rule rules out still reaches you.
+- Merge the one-judge fix as built
+  When Jev is 0.8 sure your recorded answers, order or thread choose one option, drive job ask refuses the card and the builder builds that option, so no card draws; it also refuses on the same findings as the recommended option. It puts back settled.candidates and the may_settle cache your same-question pick deleted.
+Findings:
+Root cause: nothing that reads a question card against his standing words can stop it: the ask hook's Jev reads only the recommended option and only advises (capt-hook/hooks/drive_checks.py:469 asked returns evt.context in every branch), and limits.root_cause_problems (lib/drive/limits.py:849) hard-codes that the First principles option be recommended over his recorded pick; the per-answer reading that once skipped cards was deleted by yasyf/cc-skills#4673.
+First principles: Jev refuses a card, never skips it
+Interim fix: none: nobody is hurt now: main's yasyf/cc-skills#4673 already stops skips on answers to other questions, and the agent::start card was answered (cc-notes answer 182b145).
+Holds: Drive tooling: a question card drew asking him where a chat's started agent runs
+His recorded words, read whole from ccn answer search on the coordinator's Mac: 320b7a7 (2026-11-12, drive:durable-agents, scope:durable) "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". The pick yasyf/cc-skills#4673 carried out, quoted in its body and in reference/scope.md on main: "Settle only on your answer to that same question, copies only in the same words: no wrong skips; each skip below becomes a card." 86d3c49 (hooks batch): "Some of these are being overzealous and need to be fixed or removed They should all use jev for judgement rather than hard coding thighs".
+Never asked: j2377's DESIGN card asking whether 320b7a7 stands was kept twice (asks/j2377-2a5231f8.md, asks/j2377-8290b522.md) and never drawn; j2419 built yasyf/cc-skills#4664 on 86d3c49 alone and named the 320b7a7 conflict only on its UNPROVEN line.
+Timeline: yasyf/cc-skills#4664 opened 2026-11-13T01:15:47Z; yasyf/cc-skills#4673 opened 01:50:25Z and merged 01:53:10Z, deleting settled.candidates, decided, reading, refusals, matched and job may_settle; keep_ask on main reads `if not (answer := settled.answered(data, asked.title))`.
+Rebase: `git rebase origin/main` of 75126bcf2 conflicts in 14 files (settled.py 4 hunks, cli.py 3, test_cli.py 9, conftest.py 3, state.py, watch.py, drive_checks.py, builder.md, designer.md, coordinator.md, incidents.md, scope.md, verbs.md, test_state.py); every hunk is main's "no answer he gave another question settles it, and no ccn match or Jev reading is asked" against the one-judge fix's "one whose option his words already choose ... is kept settled by those words, draws no card".
+Still on main: the advisory hook (capt-hook/hooks/drive_checks.py:227 ASK_JUDGE, :469 asked); the hard-coded check (lib/drive/limits.py:849 "removes the root cause and is not the recommended option: recommend it"); limits.his_words (limits.py:1414-1418) returns a Slack-added order's whole text and settled.thread_words returns each message's whole text, "> " lines included, which refused j2367-2e39047a.md on "15 minute" and "64 row" from the monitor alert he quoted.
+Agent::start case: j2377 measured per option p(his words rule it out) one-api-start 0.47, Mac-builds 0.65, pod 0.43 under the old prompt, so under the recommended option that card may still draw, as his same-question pick accepts; the one-judge fix's single call settled it at 0.97-0.98 (j2419's Sprite reconstruction).
+Next question: once he picks, j2643 rebuilds yasyf/cc-skills#4664 on main to that option, pushes, and the lander merges it.
+"""
+TAPPED = "https://acme.slack.com/archives/D123/p1794300000000100"
+
+
+def test_j2329s_card_whose_brief_binds_fd06b56_draws_already_answered_with_his_words_and_his_tap_closes_it_on_them(
+    run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card_url = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794439094566229"
+    title = "Where should a chat's Sand code turn get its description and search terms, since the search worker cannot call memory's describe?"
+    words = "Why can't the indexer call the memory service to look it up, get the cached one etc"
+    run("job", "add", "reader", "--order", "o1", "--goal", "describe code turns")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["fd06b56"]}
+        data["jobs"]["j2"]["questions"] = [state.new_question(None, title, state.stamp(), card=card_url, closed=state.new_close("answered", words, None))]
+    drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, CODE_TURN_ASK.replace("{order:o538|", "{order:o1|"), "fd06b56", title, words)
+    assert (drawn["options"], drawn["hints"][limits.ALREADY_ANSWERED]) == (
+        ["Memory describes every miss: each code turn embeds a description; one Cerebras call per undescribed turn", "Stored descriptions only: no model call while indexing; an undescribed turn embeds its code", limits.ALREADY_ANSWERED],
+        f'"{words}" (<{card_url}|your answer>)',
+    )
+    assert [record["text"] for record in posted] == [words]
+    assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"], closed["link"], [f'verbatim: "{words}"' in answer["words"] for answer in job["undelivered"]]) == ("answered", words, TAPPED, [True])
+    assert jev.asked == []
+
+
+def test_j2643s_card_citing_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
+    run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794478678050659"
+    title = "Should Jev's refusal of a question card stand only when code finds the words it quotes in that card's recommended option?"
+    words = "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits"
+    with state.edit("demo") as data:
+        data["answers"]["320b7a7"] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, ADVISORY_ASK, "320b7a7", title, words)
+    assert (drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED], len(drawn["options"])) == (limits.ALREADY_ANSWERED, f'"{words}" (<{link}|your answer>)', 4)
+    assert [record["text"] for record in posted] == [words]
+    assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"], [f'verbatim: "{words}"' in answer["words"] for answer in job["undelivered"]]) == ("answered", words, [True])
+    assert jev.asked == []
+
+
+def tapped_already_answered(run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch, text: str, answer_id: str, title: str, words: str) -> tuple[dict, dict, list[dict]]:
+    """j1's card drawn from this ASK, kept as the drive kept it and asking him under demo:j1-7, with his answer recorded under its id, and his tap on its Already answered option: the card, j1 after the tap, and the records the tap posted."""
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(text)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(text)
+    recorded.shown[answer_id] = {"id": answer_id, "title": title, "body": f"{words}\nNotes: cci owner 1", "tags": []}
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), text.splitlines()[0].removeprefix("ASK "), state.stamp()) | {"waits": "demo:j1-7"}]
+    code, printed = run("job", "card", "j1")
+    assert code == 0
+    posted: list[dict] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["#9"])
+    card.question_answered({"waits": "demo:j1-7", "label": limits.ALREADY_ANSWERED, "url": TAPPED})
+    return json.loads(printed), state.load("demo")["jobs"]["j1"], posted
+
+
 def test_job_ask_asked_again_replaces_its_question_once_kept_settled_with_no_card_so_his_card_draws(run: Run, asking: str, tmp_path: Path) -> None:
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
     kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"

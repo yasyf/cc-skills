@@ -35,6 +35,7 @@ TOOLING_FILING = ("The drive", "Drive tooling")
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
 SLACK_TS = re.compile(r"\d+\.\d+")
+CITED_ANSWER = re.compile(rf"\b{served.ANSWER_ID.pattern}\b")
 FROM_HELP = (
     "where he wrote it: his Slack message's permalink, a reply's carrying thread_ts, slack:<channel>/<thread ts>/<his reply ts>"
     " or slack:<channel>/<ts>, the one form Slack is asked which thread it is in; or terminal"
@@ -1468,7 +1469,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question, dict, str]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same or the one whose card `redraws` names by its waits id, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, and a draw that fails leaves it undrawn for the watch's next read, which draws it. The question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing, among the PRs of jobs working a change they name, only those of the asking job or its design's builder and those they name by link, #N or job id, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match is asked. One he has not answered Jev reads, in one call, against his words on its order, the words of his the drive quotes in it and each message of his in its thread, without the lines he quoted, with his rulings beside them, and it is refused naming each option his words rule out, each amount or choice they name with no tap, and each ruling the card breaks, unless --unsettled names those words, but for his ruling on root causes, which Jev reads once against the card's recommended option and only prints. One refused, by Jev or by the card `question_card` draws, stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names an open question's file, a question built on that one asking both choices, takes that question's card and waits id and leaves it open, folded into this one, so drawing its card redraws that card and his answer to this one ends both; a question folded so, asked again, stays folded and draws no card. What drive job ask prints: the file, then where his card stands."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same or the one whose card `redraws` names by its waits id, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, and a draw that fails leaves it undrawn for the watch's next read, which draws it. The question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing, among the PRs of jobs working a change they name, only those of the asking job or its design's builder and those they name by link, #N or job id, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it, and no ccn match is asked. One he has not answered Jev reads, in one call, against his words on its order, the words of his the drive quotes in it and each message of his in its thread, without the lines he quoted, with his rulings beside them, and it is refused naming each option his words rule out, each amount or choice they name with no tap, and each ruling the card breaks, unless --unsettled names those words, but for his ruling on root causes, which Jev reads once against the card's recommended option and only prints. One whose job's brief binds, or whose block cites, a recorded answer of his draws its card with an Already answered option, his words under it, so his tap closes it on those words. One refused, by Jev or by the card `question_card` draws, stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job in the same words that ended with no card drawn is replaced, so a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names an open question's file, a question built on that one asking both choices, takes that question's card and waits id and leaves it open, folded into this one, so drawing its card redraws that card and his answer to this one ends both; a question folded so, asked again, stays folded and draws no card. What drive job ask prints: the file, then where his card stands."""
     from drive import superseded, view
 
     text = f"{limits.ask_block(text).strip()}\n"
@@ -1479,8 +1480,13 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         unsettled = next((question["unsettled"] for question in job["questions"] if question["unsettled"] and state.same_question(question["title"], title)), None)
     asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data, data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
+    if (recorded := recorded_answers(data, job, text)) and len(asked.options) == limits.OPTION_COUNT.stop - 1:
+        raise DriveError(
+            f'{job_id}: refused, nothing kept: its brief binds or its block cites his recorded answer {recorded[0]["answer"]}, so his card adds'
+            f' the option "{limits.ALREADY_ANSWERED}", and a card draws at most {limits.OPTION_COUNT.stop - 1}: keep {limits.OPTION_COUNT.stop - 2} options of your own'
+        )
     found = refs.resolved(name, "\n".join(asked.summary))
-    if (drawn := limits.card_words(replace(asked, summary=[refs.slack(line, found, None) for line in asked.summary]).card(name, ""))) > limits.QUESTION_WORDS:
+    if (drawn := limits.card_words(replace(already_answered(asked, recorded), summary=[refs.slack(line, found, None) for line in asked.summary]).card(name, ""))) > limits.QUESTION_WORDS:
         raise DriveError(
             f"the ASK's question, summary and options are {drawn} words as his card draws them, each reference in the summary drawn as"
             f" the words that name it, an {{order:<o>}} as the first {view.TITLE_CHARS} characters of his order, and at most"
@@ -1766,6 +1772,8 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     asked = kept_ask(path, question, cards)
     if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), cards["pr_cards"]):
         raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
+    recorded = recorded_answers(data, job, path.read_text()) if job else []
+    asked = already_answered(asked, recorded)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     found = refs.resolved(name, "\n".join([*asked.summary, *show_me, *asked.hints.values()]))
     card = replace(
@@ -1777,6 +1785,8 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     if job_id in data["jobs"]:
         with state.edit(name) as data:
             keep_waits(data, job_id, path, waits)
+            if question := state.kept_in(data["jobs"][job_id], path):
+                question["recorded"] = recorded
     return card
 
 
@@ -1793,6 +1803,30 @@ def kept_ask(path: Path, question: dict | None, cards: dict) -> limits.Question:
             f" drive job ask, which checks the new words against every rule, so keep them with drive job ask {named['job']} <file> and draw the file it prints"
         )
     return limits.redrawn(text) if named or asked else limits.question(text)
+
+
+def recorded_answers(data: dict, job: dict, text: str) -> list[dict]:
+    """Each recorded answer of his that the job's brief binds by --ruling or its ASK block cites by its id outside a link, with his words and the link where he gave them: the one `drive answer` kept, else the card of the question asked in its words; an id ccn keeps no answer of his under, such as a commit's, is none."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    found = {}
+    for answer_id in dict.fromkeys([*((job.get("brief_flags") or {}).get("ruling") or []), *CITED_ANSWER.findall(limits.URL.sub(" ", text))]):
+        try:
+            answer = settled.shown(answer_id, cwd)
+        except DriveError:
+            continue
+        if words := settled.his(answer["body"]):
+            asked = settled.answered(data, answer["title"])
+            kept = next((entry["link"] for key, entry in data["answers"].items() if answer["id"].startswith(key)), None)
+            found[answer["id"]] = {"answer": answer["id"][:7], "words": words, "link": kept or (asked and (asked["card"] or asked["closed"]["link"]))}
+    return list(found.values())
+
+
+def already_answered(asked: limits.Question, recorded: list[dict]) -> limits.Question:
+    """The question with the Already answered option when its job's brief binds or its block cites a recorded answer of his, described by his words, cut as a settled ask quotes them, each linked where he gave them; a block already holding every option a card draws gets none, since `keep_ask` refuses one and a block kept before that redraws as he read it, and neither does a card rebuilt from his stored card, which already carries it."""
+    if not recorded or limits.ALREADY_ANSWERED in asked.options or len(asked.options) == limits.OPTION_COUNT.stop - 1:
+        return asked
+    hint = "\n".join(f'"{render.cut(answer["words"], settled.QUOTED_CHARS)}"' + (f" (<{answer['link']}|your answer>)" if answer["link"] else "") for answer in recorded)
+    return replace(asked, options=[*asked.options, limits.ALREADY_ANSWERED], hints=asked.hints | {limits.ALREADY_ANSWERED: hint})
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
