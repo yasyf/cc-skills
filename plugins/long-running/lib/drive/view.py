@@ -413,7 +413,7 @@ def waits_on_tap(pr: dict) -> bool:
 
 
 def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]) -> str | None:
-    """Why words say something waits on his tap or Approve when he has nothing to tap. A sentence saying so is judged by each open tap card it links, passing while every PR on it stands open at the head it shows, and by each PR it names that owes his tap, passing while the words link its open tap card at its head, by head_card(), so a PR the sentence says shipped is never blamed; one linking no card while none of the PRs it names owes his tap refuses each with why."""
+    """Why words say something waits on his tap or Approve when he has nothing to tap. A sentence saying so is judged by each open tap card it links, passing while each PR on it the sentence claims stands open at the head the card shows, those it names owing his tap, else those it names, else every PR on the card, so a PR that merged off the card is never blamed; and by each PR it names that owes his tap, passing while the words link its open tap card at its head, by head_card(), so a PR the sentence says shipped is never blamed; one linking no card while none of the PRs it names owes his tap refuses each with why."""
     linked = set(SLACK_TS.findall(text))
     found = []
     for sentence in SENTENCE_BREAK.split(text):
@@ -421,12 +421,14 @@ def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]
             continue
         cited = set(SLACK_TS.findall(sentence))
         cards = [card for card in pr_cards if message_key(card["url"]) in cited]
+        named = state.named_prs(data, order_id, sentence)
+        owed = [key for key in named if not limits.tap_owed_not(data["prs"][key])]
         for card in cards:
-            for key in state.named_prs(data, order_id, " ".join(card["prs"])):
+            carried = state.named_prs(data, order_id, " ".join(card["prs"]))
+            for key in [key for key in carried if key in (owed or named)] or carried:
                 pr = data["prs"][key]
                 if pr["state"] != "open" or pr["head"] not in card_heads(card, pr["url"]):
                     found.append(f"{key}: its tap card {card['url']}, which the words link, no longer stands: {limits.tap_owed_not(pr) or 'it moved past the head the card shows'}")
-        owed = [key for key in state.named_prs(data, order_id, sentence) if not limits.tap_owed_not(data["prs"][key])]
         if not owed and cards:
             continue
         if not owed:
