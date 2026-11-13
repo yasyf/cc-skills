@@ -63,6 +63,7 @@ if "ccRemoteConfig" in REPO_VALUES:
 STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
 CC_REMOTE_STATE = STATE_HOME / "cc-remote"
 RESUMED = STATE_HOME / "orca-gc" / "resumed"
+FILES_PAUSED = STATE_HOME / "orca-gc" / "files-paused"
 REMOVING = STATE_HOME / "orca-gc" / "remove.lock"
 SWEPT = STATE_HOME / "orca-gc"
 BACKOFF = STATE_HOME / "orca-gc" / "backoff.json"
@@ -210,9 +211,16 @@ class Action:
 @dataclass(frozen=True)
 class Pause:
     resumed: Path
+    files: Path
 
     def held(self) -> bool:
         return not self.resumed.exists()
+
+    def files_held(self) -> bool:
+        return self.files.exists()
+
+    def skip_files(self, target: str) -> Action:
+        return Action("skip", target, f"remove: worktree file deletion paused while {self.files} exists")
 
     def skip(self, target: str, verb: str) -> Action:
         return Action("skip", target, f"{verb}: cleanup paused until {self.resumed} exists")
@@ -859,6 +867,8 @@ def deferred(target: str, reason: str) -> Action:
 def apply(action: Action, orca: Orca, git: Git, pause: Pause, budget: Budget | None = None) -> Action:
     if action.verb != "keep" and pause.held():
         return pause.skip(action.target, action.verb)
+    if action.verb == "remove" and pause.files_held():
+        return pause.skip_files(action.target)
     if action.verb in ("end", "close") and budget is not None and not budget.take("close"):
         return deferred(action.target, DEFERRED_CLOSE)
     if action.verb == "remove" and action.environment is None and budget is not None and budget.spent("removal"):
@@ -889,6 +899,8 @@ def apply(action: Action, orca: Orca, git: Git, pause: Pause, budget: Budget | N
             return Action("keep", action.target, held)
         if pause.held():
             return pause.skip(action.target, action.verb)
+        if pause.files_held():
+            return pause.skip_files(action.target)
         if action.environment is not None:
             refusal = orca.remove(action.target, action.environment)
             return Action("removed", action.target, action.reason, action.shells, action.agents) if refusal is None else Action("keep", action.target, refusal)
@@ -1145,6 +1157,8 @@ def main() -> int:
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
+        "While $XDG_STATE_HOME/orca-gc/files-paused exists, every worktree removal, on this Mac or a paired server, is skipped and named, read before each candidate and again right before its removal, "
+        "while stops, releases, terminal closes, gone worktrees dropped from Orca and Sprite destroys go ahead. "
         "--dry-run reads through a pause. "
         "--held reads, and changes nothing: it prints what the Sprite a cc-remote task records under one workspace name holds that a fresh Sprite would not get, "
         "by the same checkout read that keeps a Sprite, naming each of them: every worktree with uncommitted changes and its count of changed files, every branch "
@@ -1210,9 +1224,9 @@ def main() -> int:
     if not args.new and not args.run:
         parser.error("--run is required without --new, --held, --save or --destroy")
     if args.new:
-        tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED))
+        tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED, FILES_PAUSED))
     else:
-        tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED), ending=frozenset(args.done))
+        tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED, FILES_PAUSED), ending=frozenset(args.done))
     print(" ".join(f"{verb}={count}" for verb, count in sorted(tally.items())) or "nothing to reclaim")
     return 0
 
