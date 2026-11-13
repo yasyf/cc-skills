@@ -641,6 +641,14 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
     assert all(entry["card"] is None and entry["thread"] is None for entry in entries[1:])
 
 
+def test_review_says_his_approve_queues_a_green_monorepo_pr_with_no_tap_at_once() -> None:
+    _, entry = pr(5, "o1", wants_tap=True)
+    key = "Forge-AI/monorepo#5"
+    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [(key, entry | {"url": "https://github.com/Forge-AI/monorepo/pull/5"})])
+    [review] = view.board(data, found(), "live", [], T0, set(), {})["review"]
+    assert review["approve_waits"] == ""
+
+
 def test_a_pr_card_carrying_a_stack_is_one_queue_item_and_each_card_less_pr_is_its_own() -> None:
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(n, "o1", wants_tap=True) for n in (1, 2, 3)])
     urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
