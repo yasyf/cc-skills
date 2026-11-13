@@ -151,6 +151,7 @@ const sent = new Map();
 const toasts = new Map();
 const restored = new Set();
 let outdated = false;
+let placeAfterLoad = null;
 const prTabs = new Map();
 const prRows = new Map();
 const prReads = new Map();
@@ -640,7 +641,7 @@ function decisionRail(item) {
   const read = `${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}`;
   return `<aside class="context-rail" aria-label="About this decision">
     ${meaning(item, index)}
-    <p class="rail-note"><span class="pointer">Hover or focus a choice to read it here.</span><span class="touch">Tap a choice to answer it.</span> An answer is sent ${model.undo_seconds} seconds after you pick it. While its Undo shows, Undo<span class="pointer"> or ⌘Z</span> takes it back and asks it again.</p>
+    <p class="rail-note"><span class="pointer">Hover or focus a choice to read it here.</span><span class="touch">Tap a choice to answer it.</span> An answer is sent as you pick it. While its Undo shows, Undo<span class="pointer"> or ⌘Z</span> takes it back and asks it again.</p>
     ${tasks.length ? `<div class="rail-block"><div class="eyebrow">What it holds up</div><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></div>` : ''}
     ${rail.asker ? `<div class="rail-block"><div class="eyebrow">Asked by</div><ul class="jobs">${jobRow(rail.asker)}</ul></div>` : ''}
     ${rail.answers.length ? `<div class="rail-block"><div class="eyebrow">Your earlier words on it</div><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></div>` : ''}
@@ -959,7 +960,7 @@ function pagesScreen(slug) {
       <small class="meta">${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream)), page.order_title].join(' · '))} · made ${esc(clock(page.created))}</small>
     </a></li>`);
   return `<div class="page-head">
-      <div><div class="eyebrow">Pages</div><h1 class="h1">Live pages built for your orders</h1><p class="lead">Each page shows its tasks as they move, and anything you answer or approve on one waits ${model.undo_seconds}s for your Undo.</p></div>
+      <div><div class="eyebrow">Pages</div><h1 class="h1">Live pages built for your orders</h1><p class="lead">Each page shows its tasks as they move, and anything you answer or approve on one is sent as the queue sends it.</p></div>
       <nav class="subtabs" aria-label="Show">${PAGE_FILTERS.map(([id, label]) => chip(label, href({ show: id }), id === show)).join('')}</nav>
     </div>
     ${scopes}${subs}
@@ -982,7 +983,6 @@ function pageSlice(page) {
   return {
     page,
     at: model.at,
-    undo_seconds: model.undo_seconds,
     features: model.status.flatMap((group) => group.features).filter((entry) => orders.has(entry.id)),
     prs: model.review.filter((entry) => orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
     questions: model.queue.filter((item) => item.kind === 'question' && item.tasks.some((id) => orders.has(id))).map((item) => actable(item, item.answer, item.card.options)),
@@ -2379,6 +2379,10 @@ function render() {
   measure();
   fill();
   fresh();
+  if (placeAfterLoad !== null && document.documentElement.scrollHeight - innerHeight >= placeAfterLoad) {
+    window.scrollTo(0, placeAfterLoad);
+    placeAfterLoad = null;
+  }
   return arrived;
 }
 
@@ -2411,14 +2415,19 @@ function morphChildren(old, made) {
 }
 
 function keepPlace() {
+  placeAfterLoad = null;
   history.replaceState({ ...history.state, y: scrollY }, '');
 }
 
 function deployed() {
-  const busy = [...toasts.values()].some((shown) => shown.state === 'held') || [...sent.values()].some((was) => was.busy) || Boolean(document.activeElement?.closest('textarea, input'));
-  if (!busy) return reloadPage();
   outdated = true;
   fresh();
+  reloadWhenAway();
+}
+
+function reloadWhenAway() {
+  const busy = [...toasts.values()].some((shown) => ['sending', 'undoing'].includes(shown.state)) || [...sent.values()].some((was) => was.busy) || Boolean(document.activeElement?.closest('textarea, input'));
+  if (outdated && document.hidden && !busy) reloadPage();
 }
 
 function reloadPage() {
@@ -2437,35 +2446,30 @@ function fresh() {
 async function answer(card, label) {
   const tapped = card.startsWith('tap:') ? model.review.find((entry) => `tap:${entry.key}` === card) : null;
   const asked = model.queue.find((candidate) => answerKey(candidate) === card) ?? tapped ?? model.review.find((entry) => entry.answer === card);
+  const about = { label, title: asked.title };
   restored.delete(card);
-  answers.set(card, { label });
-  toast(card, { label, title: asked.title, until: Date.now() + model.undo_seconds * 1000, state: 'held' });
+  answers.delete(card);
+  answers.set(card, about);
+  toast(card, { ...about, state: 'sending' });
   render();
   try {
     const [path, body] = tapped ? ['/api/tap', { pr: tapped.key, label, head: tapped.head }] : ['/api/answer', { card, label }];
     const reply = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const said = await reply.json();
     if (!reply.ok) throw new Error(said.error);
-    if (said.undone) {
-      answers.delete(card);
-      queueAt = noticeKey(asked);
-      toast(card, { ...toasts.get(card), state: 'undone' });
-    } else {
-      answers.set(card, { label: said.label || label, at: said.at || new Date().toISOString(), done: true });
-      toast(card, { ...toasts.get(card), state: 'sent', undoUntil: said.undo_until });
-    }
+    answers.set(card, { ...about, label: said.label || label, at: said.at || new Date().toISOString(), done: true, undoUntil: said.undo_until });
+    toast(card, { ...about, state: 'sent', undoUntil: said.undo_until });
   } catch (error) {
-    answers.set(card, { label, error: error.message });
-    toast(card, { ...toasts.get(card), state: 'failed', error: error.message });
+    answers.set(card, { ...about, error: error.message });
+    toast(card, { ...about, state: 'failed', error: error.message });
   }
   render();
 }
 
-async function undo(card, about = toasts.get(card)) {
+async function undo(card, about = toasts.get(card) ?? answers.get(card)) {
   toast(card, { ...about, state: 'undoing' });
   const said = await ask('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
   if (!said.ok) return toast(card, { ...about, state: 'late', error: said.error });
-  if (!said.restored) return;
   answers.delete(card);
   restored.add(card);
   if (route().screen === 'queue') history.replaceState(history.state, '', queueHref(filterOf(route().id) === 'tap' ? 'all' : filterOf(route().id), { answer: card }));
@@ -2474,34 +2478,39 @@ async function undo(card, about = toasts.get(card)) {
 }
 
 const TOAST_SAID = {
-  held: (shown) => `Sending in ${Math.max(0, Math.ceil((shown.until - Date.now()) / 1000))}s`,
+  sending: () => 'Sending…',
   undoing: () => 'Taking it back…',
-  undone: () => 'Undone. It waits on you again.',
-  sent: (shown) => (shown.undoUntil ? `Sent. Undo until ${timeOf(shown.undoUntil)}` : 'Sent.'),
+  sent: () => 'Sent',
   restored: () => 'Restored. This is being asked again.',
   late: (shown) => shown.error,
   failed: (shown) => `Not sent: ${shown.error}`,
 };
 
 function undoable(shown) {
-  return shown.state === 'held' || (shown.state === 'sent' && Date.parse(shown.undoUntil) > Date.now());
+  return shown.state === 'sent' && Date.parse(shown.undoUntil) > Date.now();
 }
 
 function toast(card, shown) {
   toasts.set(card, shown);
-  const lasts = shown.state === 'sent' && shown.undoUntil ? Date.parse(shown.undoUntil) - Date.now() : 5000;
-  if (!['held', 'undoing'].includes(shown.state)) setTimeout(() => toasts.get(card) === shown && toasts.delete(card) && drawToasts(), lasts);
+  if (!['sending', 'undoing'].includes(shown.state)) setTimeout(() => toasts.get(card) === shown && toasts.delete(card) && drawToasts(), 5000);
   drawToasts();
 }
 
 function drawToasts() {
-  $('#toasts').innerHTML = [...toasts].map(([card, shown]) => `<div class="toast ${shown.state}" role="status">
-    <span><b>${esc(shown.label)}</b> · ${esc(shown.title)}</span>
-    <span class="meta">${esc(TOAST_SAID[shown.state](shown))}</span>
-    ${undoable(shown) ? `<button class="btn" data-undo="${esc(card)}">Undo</button>` : ''}
-    ${shown.state === 'restored' ? `<a class="btn" href="${queueHref('all', { answer: card })}">Open it</a>` : ''}
-    <button class="toast-x" data-dismiss="${esc(card)}" aria-label="Dismiss">×</button>
-  </div>`).join('');
+  const strip = $('#toasts');
+  const drawn = new Map([...strip.children].map((node) => [node.dataset.toast, node]));
+  for (const [card, node] of drawn) if (!toasts.has(card)) node.remove();
+  for (const [card, shown] of toasts) {
+    const node = drawn.get(card) ?? strip.appendChild(document.createElement('div'));
+    node.dataset.toast = card;
+    node.className = `toast ${shown.state}`;
+    node.setAttribute('role', 'status');
+    node.innerHTML = `<span><b>${esc(shown.label)}</b> · ${esc(shown.title)}</span>
+      <span class="meta">${esc(TOAST_SAID[shown.state](shown))}</span>
+      ${undoable(shown) ? `<button class="btn" data-undo="${esc(card)}">Undo</button>` : ''}
+      ${shown.state === 'restored' ? `<a class="btn" href="${queueHref('all', { answer: card })}">Open it</a>` : ''}
+      <button class="toast-x" data-dismiss="${esc(card)}" aria-label="Dismiss">×</button>`;
+  }
 }
 
 async function say(key, under, words, about, thread) {
@@ -2560,7 +2569,7 @@ function connect() {
   };
   stream.onmessage = (message) => {
     const next = JSON.parse(message.data);
-    if (model && next.code !== model.code) return deployed();
+    if (model && next.site !== model.site) return deployed();
     model = next;
     connected = true;
     render();
@@ -2862,7 +2871,7 @@ document.addEventListener('keydown', (event) => {
   }
   const writing = event.target.closest?.('input, textarea');
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z' && !writing) {
-    const held = [...toasts].findLast(([, shown]) => undoable(shown));
+    const held = [...answers].findLast(([, was]) => Date.parse(was.undoUntil) > Date.now());
     if (!held) return;
     event.preventDefault();
     return undo(held[0]);
@@ -2938,6 +2947,7 @@ document.addEventListener('keydown', (event) => {
 });
 window.addEventListener('DOMContentLoaded', () => {
   history.scrollRestoration = 'manual';
+  placeAfterLoad = history.state?.y ?? null;
   paused = localStorage.getItem('motion') === 'paused';
   narrow = matchMedia('(max-width: 760px)');
   narrow.addEventListener('change', render);
@@ -2952,7 +2962,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   new ResizeObserver(place).observe($('#main'));
   new MutationObserver(() => drawFigures(document)).observe(document.body, { childList: true, subtree: true });
-  setInterval(() => [...toasts.values()].some((shown) => shown.state === 'held') && drawToasts(), 1000);
+  document.addEventListener('visibilitychange', reloadWhenAway);
   setInterval(() => {
     if (document.hidden) return;
     for (const slot of document.querySelectorAll('[data-slot]')) openReview(slot.dataset.slot, slot.dataset.head);

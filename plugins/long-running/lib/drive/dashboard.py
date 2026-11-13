@@ -1,4 +1,5 @@
 import functools
+import hashlib
 import http.client
 import json
 import mimetypes
@@ -74,12 +75,8 @@ PAGE_PATH = re.compile(r"/pages/([^/]+)/(.*)")
 REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
-HELD = "an answer to this card is already being sent"
-UNDO_SECONDS = 10
 ELSEWHERE = "that is not a card thread of this drive"
-REDRAWN = "the card was drawn again while your answer was held, so nothing was sent; read it again and answer it as it stands"
-MOVED = "the PR moved to a new head while your tap was held, so nothing was sent; read it again and tap it as it stands"
-SENT_TAP = "that tap was already sent; tap Hold to keep the PR from landing"
+MOVED = "the PR moved to a new head since your page drew it, so nothing was sent; read it again and tap it as it stands"
 TLS_HANDSHAKE = b"\x16"
 
 
@@ -148,9 +145,15 @@ def cc_slack(*args: str) -> dict:
     return json.loads(done.stdout)
 
 
-def revision(card: dict) -> tuple[str, list[str | None]]:
-    """What an answer to a card answers: its question and the head of each PR it shows."""
-    return card["title"], [row.get("head") for row in card.get("prs") or []]
+@functools.cache
+def site_stamp() -> str:
+    """The hash of every file under site/, which is all the page loads, so an install that changes none of them leaves each open page as it is."""
+    digest = hashlib.sha256()
+    for path in sorted(SITE.rglob("*")):
+        if path.is_file():
+            digest.update(f"{path.relative_to(SITE)}\0".encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def answer_card(card: str, label: str, via: str) -> dict:
@@ -284,16 +287,12 @@ class Board:
         self.events: list[dict] = []
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
-        self.revisions: dict[str, tuple[str, list[str | None]]] = {}
         self.heads: dict[str, str] = {}
-        self.titles: dict[str, str] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
         self.reports: set[str] = set()
         self.repo: str | None = None
         self.channel = ""
-        self.holding = threading.Lock()
-        self.held: dict[str, threading.Event] = {}
         self.assistant = review.Assistant(name)
         self.database: sqlite3.Connection | None = None
         self.heard: dict[str, list[dict]] = {}
@@ -329,9 +328,9 @@ class Board:
             self.pages = (listed_at, pages.listed(self.name))
         model = view.board(drive, found, source, self.events, state.now(), reports, heard) | {
             "code": CODE,
+            "site": site_stamp(),
             "pid": os.getpid(),
             "links": self.links,
-            "undo_seconds": UNDO_SECONDS,
             "repo": repo,
             "pages": pages.shown(drive, self.pages[1]),
         }
@@ -367,9 +366,7 @@ class Board:
             self.body = json.dumps(view.summary(model) | {"version": self.version}).encode()
             self.model = model
             self.answers = {item["answer"]: item["card"]["options"] for item in asked}
-            self.revisions = {item["answer"]: revision(item["card"]) for item in asked}
             self.heads = {entry["key"]: entry["head"] for entry in model["review"]}
-            self.titles = {entry["key"]: entry["title"] for entry in model["review"]}
             self.pictures = pictures
             self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
             self.repo = model["repo"]
@@ -554,16 +551,10 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:
-            """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first or the card was drawn again with another question or PR head meanwhile; cc-slack runs the card command on a sent question card answer as on his Slack tap, which ends the job's question and keeps it in History, and History keeps an undo held here as his decision."""
+            """Send his answer at once, as his Slack tap does; cc-slack runs the card command on it, which ends the job's question and keeps it in History, and answers with the time its Undo shows until."""
             card = asked["card"]
             if asked["label"] not in board.answers.get(card, []):
                 self.answered(409, {"error": GONE})
-                return
-            shown = board.revisions[card]
-            if not self.held_back(card, asked["label"], shown[0], card):
-                return
-            if card in board.revisions and board.revisions[card] != shown:
-                self.answered(409, {"error": REDRAWN})
                 return
             try:
                 said = answer_card(card, asked["label"], via)
@@ -574,17 +565,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             self.answered(200, said)
 
         def tap(self, asked: dict) -> None:
-            """Hold his Approve or Hold on a PR for UNDO_SECONDS, then keep it through the one tap recorder his Slack card's tap runs, which starts the lander on an Approve; nothing is sent once an undo took it back or the PR moved to another head meanwhile. A PR with a Slack card is answered on that card instead, so the card closes."""
+            """Keep his Approve or Hold on a PR at once through the one tap recorder his Slack card's tap runs, which starts the lander on an Approve, unless the PR moved to another head since his page drew it; like his Slack PR card, a tap has no Undo. A PR with a Slack card is answered on that card instead, so the card closes."""
             key, label, head = asked["pr"], asked["label"], asked["head"]
             if key not in board.heads or label not in card.TAP_LABELS:
                 self.answered(409, {"error": f"{key} is not an open PR of this drive waiting on Approve or Hold"})
                 return
             if board.heads[key] != head:
-                self.answered(409, {"error": MOVED})
-                return
-            if not self.held_back(f"tap:{key}", label, board.titles[key], state.pr_url(key)):
-                return
-            if board.heads.get(key) != head:
                 self.answered(409, {"error": MOVED})
                 return
             repo, number = key.split("#")
@@ -595,33 +581,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 return
             self.answered(200, {"label": label, "at": state.stamp()})
 
-        def held_back(self, key: str, label: str, question: str, url: str) -> bool:
-            """Hold an answer or tap for UNDO_SECONDS: False once the page was answered because one is already held or an undo took this one back, which History keeps as his decision."""
-            undone = threading.Event()
-            with board.holding:
-                if key in board.held:
-                    self.answered(409, {"error": HELD})
-                    return False
-                board.held[key] = undone
-            undone.wait(UNDO_SECONDS)
-            with board.holding:
-                if board.held.pop(key, None) is not undone:
-                    state.append_event(board.name, "undone", url=url, label=label, question=question)
-                    self.answered(200, {"undone": True})
-                    return False
-            return True
-
         def undo(self, card: str) -> None:
-            """Take back his answer: one still held never leaves, and one already sent reopens its card in Slack and the queue while cc-slack still shows its Undo, whose card request History keeps as his undo."""
-            with board.holding:
-                undone = board.held.pop(card, None)
-            if undone:
-                undone.set()
-                self.answered(200, {"undone": True})
-                return
-            if card.startswith("tap:"):
-                self.answered(409, {"error": SENT_TAP})
-                return
+            """Take back his sent answer, as his Slack Undo does: cc-slack reopens its card in Slack and the queue while it still shows its Undo, and its card command keeps the undo in History."""
             try:
                 cc_slack("card-reopen", "--card", card)
             except (DriveError, subprocess.TimeoutExpired) as error:

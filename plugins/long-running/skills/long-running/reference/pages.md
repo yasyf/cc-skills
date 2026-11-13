@@ -20,8 +20,8 @@ The folder holds `index.html`, the page the dashboard opens, and `page.json`, wh
   - `questions`, his open decisions on its orders
   - `story`, the newest moments naming its orders
   - `asked`, the state of its last ask
-  - `at` and `undo_seconds`
-- It acts only by posting `{type: "drive:answer", answer, label}` or `{type: "drive:ask", text}` to its parent. The parent takes an answer only while his click or key inside the page is still a fresh user activation, and only for one of the slice's PRs or questions with that label among its options. It then sends the answer exactly as the queue would, with the same 10-second Undo toast. An ask reaches his Slack direct messages through `/api/say`, under the page's title. A page can never approve anything on its own.
+  - `at`
+- It acts only by posting `{type: "drive:answer", answer, label}` or `{type: "drive:ask", text}` to its parent. The parent takes an answer only while his click or key inside the page is still a fresh user activation, and only for one of the slice's PRs or questions with that label among its options. It then sends the answer at once, exactly as the queue would, with the same Undo toast. An ask reaches his Slack direct messages through `/api/say`, under the page's title. A page can never approve anything on its own.
 - A page reads nothing outside its slice. When it needs a fact the slice lacks, add the fact to the slice in `pageSlice` in `site/app.js`, never a fetch from the page.
 
 ## The kit
