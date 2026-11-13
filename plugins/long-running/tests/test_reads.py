@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import reads, state
+from drive import orca, reads, state
 from drive.render import clock
 
 BUILD = "https://buildkite.com/forge/test/builds/121531"
@@ -423,6 +423,35 @@ def test_a_drive_answer_carries_all_its_verb_printed_as_a_mac_lane_reads_it(fake
     monkeypatch.setattr(reads, "BUDGET", 5)
     reads.DRIVE_BIN.write_text("#!/bin/sh\necho 'every return j2051 took'\n")
     assert reads.answer("DRIVE job report j2051", fake_drive, "demo", "j7") == "drive exited 0\nevery return j2051 took"
+
+
+def test_a_drive_question_whose_block_shows_a_picture_on_its_sprite_runs_on_a_copy_kept_in_the_jobs_scratch_here_and_refuses_when_it_cannot_copy(
+    fake_drive: Path, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_drive.mkdir()
+    sprite = tmp_path / "sprite"
+    shot = "/home/sprite/.local/state/long-running/demo/scratch/j7/option-1-chapters-shown.png"
+    (sprite / shot.lstrip("/")).parent.mkdir(parents=True)
+    (sprite / shot.lstrip("/")).write_bytes(b"png bytes")
+    ssh = []
+
+    def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
+        ssh.append(workspace)
+        return subprocess.run(command.replace("-C /", f"-C {sprite}", 1), shell=True, capture_output=True, check=False)
+
+    monkeypatch.setattr(orca, "on_sprite", on_sprite)
+    monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j7": {"workspace": "pool-one"}}})
+    reads.DRIVE_BIN.write_text("#!/bin/sh\nshot=$(sed -n 's/^!\\[.*\\](\\(.*\\))$/\\1/p' \"$4\")\necho \"$shot\"\ncat \"$shot\"\n")
+    block = "/home/sprite/.local/state/long-running/demo/scratch/j7/ask.md"
+    sent = {"files": {block: {"text": f"Show me:\n1 · Chapters shown\n![1 · Chapters shown]({shot})\n", "executable": False}}}
+    assert reads.answer(f"DRIVE job ask --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7") == f"drive exited 0\n{shot}\npng bytes"
+    assert (state_root / "demo" / "scratch" / "j7" / "sprite" / shot.lstrip("/")).read_bytes() == b"png bytes"
+    assert ssh == ["pool-one"]
+    gone = shot.replace("option-1", "option-2")
+    sent["files"][block]["text"] += f"![2 · Chapters hidden]({gone})\n"
+    refused = reads.answer(f"DRIVE job ask --check {block}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
+    assert refused.startswith(f"drive exited 2\ndrive job ask: refused, nothing ran: the pictures it shows did not copy off this Sprite: copying {shot}, {gone} off pool-one exited ")
+    assert f"tar: {gone.lstrip('/')}" in refused
 
 
 def launched_once_written(marker: Path, monkeypatch: pytest.MonkeyPatch, then: Callable[[], None] = lambda: None) -> list[datetime]:
