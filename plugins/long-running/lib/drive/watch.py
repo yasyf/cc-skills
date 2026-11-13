@@ -1579,7 +1579,7 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each remote lane's death on its job and say it once. A running job's lane is relaunched that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second; a waiting job's Sprite is freed by `drive job end` in a process of its own, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits."""
+    """Record each remote lane's death on its job and say it once. A running job's lane is relaunched that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second; a waiting job's Sprite is freed by `drive job end` in a process of its own, and the job waits for the coordinator's resume with his answer; a waiting job's lane on this Mac just waits. A Sprite lane's line names the file in the drive's folder that resume or end copies its Sprite's Orca runtime and worker logs to before the Sprite goes."""
     if not deaths:
         return []
     lines = []
@@ -1594,15 +1594,16 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
             if waiting and state.on_mac(job):
                 lines.append(f'{died}A message sent to it reaches no one; drive job resume {job_id} "<his answer>" relaunches it {fresh}')
                 continue
+            logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(name, job_id, dispatch)}, "
             if waiting:
                 end_lane(name, job_id)
                 lines.append(
-                    f"{died}The watch ran drive job end {job_id}, which saves to GitHub what its Sprite holds on no remote and destroys it, its output in the drive's {RELAUNCHES_LOG};"
+                    f"{died}The watch ran drive job end {job_id}, which {logs}saves to GitHub what its Sprite holds on no remote and destroys it, its output in the drive's {RELAUNCHES_LOG};"
                     f' drive job resume {job_id} "<his answer>" relaunches it {fresh}'
                 )
                 continue
             job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}
-            lines.append(f"{died}The watch ran drive job resume {job_id}, which relaunches it {fresh}, its output in the drive's {RELAUNCHES_LOG}")
+            lines.append(f"{died}The watch ran drive job resume {job_id}, which {logs}relaunches it {fresh}, its output in the drive's {RELAUNCHES_LOG}")
     return lines
 
 

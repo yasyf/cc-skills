@@ -63,6 +63,17 @@ CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
 SPRITE_BRIEFS = ".local/state/long-running/briefs"
 SPRITE_ANSWERS = ".local/state/long-running/answers"
+SPRITE_LOG_BYTES = 20000
+SPRITE_LOGS = f"""exec 2>&1
+cd
+worker=$(ls -t .claude/projects/*/*.jsonl | head -n 1)
+for log in .cc-remote/orca/serve.log .config/orca/logs/daemon.log .config/orca/logs/orcad.trace.ndjson "$worker"; do
+  echo "== tail -c {SPRITE_LOG_BYTES} ~/$log"; tail -c {SPRITE_LOG_BYTES} "$log"; echo
+done
+echo "== df -k ~"; df -k ~
+echo "== /sys/fs/cgroup/memory.events"; cat /sys/fs/cgroup/memory.events
+echo "== dmesg | tail -n 50"; dmesg | tail -n 50
+"""
 ANSWER_BYTES = 4096
 RELAY_BYTES = 64 * 1024
 RELAY_ROOM = 4096
@@ -683,30 +694,43 @@ def relay_bytes(text: str) -> int:
 
 def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
     """Write the text to the folder under the home of the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since a handoff outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes."""
-    forward = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["forward"]
     target = f'"$HOME/{folder}/{name}"'
-    done = subprocess.run(
-        [
-            "ssh",
-            "-F",
-            forward["config"],
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=30",
-            forward["host"],
-            f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}',
-        ],
-        input=text,
-        capture_output=True,
-        timeout=LAUNCH_SECONDS,
-        check=False,
-    )
+    done = on_sprite(workspace, f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}', text, LAUNCH_SECONDS)
     said = done.stdout.decode().split()
     if done.returncode or len(said) != 2 or said[0] != hashlib.sha256(text).hexdigest():
         why = done.stderr.decode().strip().splitlines()
         raise Unfit(f"writing {folder}/{name} onto {workspace} exited {done.returncode}: {why[-1] if why else ' '.join(said) or 'no output'}")
     return said[1]
+
+
+def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
+    """Run the command on the workspace's Sprite over the ssh forward cc-remote keeps for it, the given bytes on its stdin."""
+    forward = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["forward"]
+    return subprocess.run(
+        ["ssh", "-F", forward["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", forward["host"], command],
+        input=given,
+        capture_output=True,
+        timeout=seconds,
+        check=False,
+    )
+
+
+def death_logs(drive: str, job_id: str, dispatch: str) -> Path:
+    """The file in the drive's folder that keeps what keep_logs read from the Sprite of the job's lane that died on this dispatch."""
+    return state.drive_dir(drive) / "jobs" / f"{job_id}.{dispatch}.death.txt"
+
+
+def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> None:
+    """Copy to death_logs, once a death, what the Sprite of the job's lane that died on this dispatch holds on why its Orca runtime went down, before a relaunch or an end destroys that Sprite: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events and the kernel's last lines; a Sprite ssh cannot read leaves the file saying why."""
+    kept = death_logs(drive, job_id, dispatch)
+    if kept.exists():
+        return
+    try:
+        done = on_sprite(job["workspace"], "sh -s", SPRITE_LOGS.encode(), CALL_SECONDS)
+        said = done.stdout.decode(errors="replace") + (f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}\n" if done.returncode else "")
+    except (OSError, subprocess.TimeoutExpired) as error:
+        said = f"{job['workspace']} could not be read: {error}\n"
+    kept.write_text(said)
 
 
 def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:

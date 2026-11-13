@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
-from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, Drawing, cloned, git_in, staged
+from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, Drawing, cloned, git_in, staged
 from drive import cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
@@ -1049,6 +1049,46 @@ def test_resume_saves_what_a_dead_lanes_sprite_holds_to_github_and_hands_the_sav
     assert [(death["dispatch"], death["saved"]) for death in job["deaths"]] == [(DISPATCH, SAVED)]
 
 
+def test_resume_copies_a_dead_lanes_sprite_logs_before_it_saves_and_destroys_that_sprite(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_logs: list[tuple[str, str]]
+) -> None:
+    cloned(tmp_path, remote)
+    steps = []
+    dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: steps.append(("save", list(kept_logs))) or SAVED)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: steps.append(("destroy", list(kept_logs))) or f"destroyed {job['workspace']}")
+    assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
+    assert steps == [("save", [("j1", DISPATCH)]), ("destroy", [("j1", DISPATCH)])]
+
+
+def test_a_dead_sprites_logs_are_copied_once_and_an_unreadable_sprite_leaves_why(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
+    read = []
+    full = b"== df -k ~\n/dev/loop0 12281444 12208668 72776 100% /home/sprite\n"
+    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, full, b""))
+    REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-full"}, DISPATCH)
+    REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH)
+    assert (read, orca.death_logs(remote, "j1", DISPATCH).read_text()) == (["pool-full"], full.decode())
+    refused = b"ssh: connect to host pool-asleep port 22: Connection refused\n"
+    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
+    REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002")
+    assert orca.death_logs(remote, "j1", "ctx_lane0002").read_text() == "ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused\n"
+
+
+@pytest.mark.parametrize("seen", [False, True])
+def test_end_copies_the_sprite_logs_only_of_a_lane_the_watch_saw_die(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_logs: list[tuple[str, str]], seen: bool
+) -> None:
+    cloned(tmp_path, remote)
+    died = {"dispatch": DISPATCH, "workspace": "pool-sleeping", "why": GONE_SPRITE, "at": state.stamp(T0)}
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-sleeping", deaths=[died] if seen else [])
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
+    assert run("job", "end", "j1")[0] == 0
+    assert kept_logs == ([("j1", DISPATCH)] if seen else [])
+
+
 @pytest.mark.parametrize(
     "why",
     [UNREAD, "orca-reclaim.py exited 1: the save on pool-sleeping failed: remote: Permission to Forge-AI/monorepo.git denied"],
@@ -1777,7 +1817,8 @@ def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once(remote: str, m
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [
         'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". The watch ran drive job end j1, '
-        "which saves to GitHub what its Sprite holds on no remote and destroys it, its output in the drive's relaunches.log; "
+        f"which copies its Sprite's Orca runtime and worker logs to {orca.death_logs(remote, 'j1', DISPATCH)}, saves to GitHub what its Sprite holds"
+        " on no remote and destroys it, its output in the drive's relaunches.log; "
         'drive job resume j1 "<his answer>" relaunches it on a fresh Sprite with a handoff'
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
@@ -1835,7 +1876,8 @@ def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str,
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == [
         'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it worked on "PUSHED https://github.com/Forge-AI/monorepo/pull/9". '
-        "The watch ran drive job resume j1, which relaunches it on a fresh Sprite with a handoff, its output in the drive's relaunches.log"
+        f"The watch ran drive job resume j1, which copies its Sprite's Orca runtime and worker logs to {orca.death_logs(remote, 'j1', DISPATCH)},"
+        " relaunches it on a fresh Sprite with a handoff, its output in the drive's relaunches.log"
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
