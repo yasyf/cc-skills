@@ -1659,6 +1659,49 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
     assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
 
 
+def test_a_pr_wake_to_a_finished_lane_starts_its_jobs_next_worker_in_its_terminal_with_the_line_in_its_handoff(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    url, above = "https://github.com/Forge-AI/monorepo/pull/55220", "https://github.com/Forge-AI/monorepo/pull/55285"
+    ready = f"READY {url} {above}"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(
+            {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1"},
+            brief=str(first),
+            state="waiting",
+            said=ready,
+            report=f"{ready}\nPR: {url}; {above}",
+            prs=[url, above],
+        )
+        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
+    line = "Forge-AI/monorepo#55220 red, owed by its builder: it conflicts with its base dev"
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a finished lane on a Sprite still up is never relaunched elsewhere"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
+    briefs = []
+    monkeypatch.setattr(orca, "place_brief", lambda workspace, lane, text: briefs.append(text.decode()) or f"/home/sprite/.local/state/long-running/briefs/{lane}.md")
+    receipt = {"ok": True, "result": {"state": "ready", "runId": RUN, "taskId": "task_2", "dispatchId": "ctx_lane0002"}}
+    monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt), stderr=""))
+    code, out = run("pr", "wake", url, "--text", line)
+    assert (code, out) == (
+        0,
+        "j1: the message went to the job's next worker, started in its terminal on the same Sprite as dispatch ctx_lane0002 in"
+        " a handoff carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one had"
+        " finished (its worker succeeded, and Orca sends nothing to a finished worker on a Sprite)",
+    )
+    [brief] = briefs
+    assert f"Its last line: {ready}\n" in orca.brief_of(brief)
+    assert orca.brief_of(brief).endswith(f"which you act on now:\n\n{line}")
+    assert {field: state.load(remote)["jobs"]["j1"][field] for field in ("dispatch", "terminal", "state")} == {
+        "dispatch": "ctx_lane0002",
+        "terminal": "term_lane",
+        "state": "running",
+    }
+
+
 def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch)
     senders = []
