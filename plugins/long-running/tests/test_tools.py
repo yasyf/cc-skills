@@ -604,6 +604,22 @@ def test_his_answer_to_a_job_whose_agent_the_top_started_reaches_the_top_not_the
     ]
 
 
+def test_a_record_to_a_lane_named_alone_or_as_lane_at_drive_goes_to_that_lane_once_where_records_680851_and_691133_named_their_drive_twice(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = os.environ["CLAUDE_CODE_SESSION_ID"]
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", demo, "--role", "coordinator", "--project", "Platform")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", root)
+    records = [{"kind": "handoff", "text": "start its reader", "to": to} for to in ("platform", "platform@demo")]
+    said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
+    assert [json.loads(line.split(": ", 1)[1])["to"] for line in said] == [["platform@demo"], ["platform@demo"]]
+    for to in ("platform@demo@demo", "platform@other"):
+        with pytest.raises(DriveError, match=f"to {to}: names no lane of drive demo, which this call posts in; name its lane alone or as <lane>@demo"):
+            tools.run("record", demo, {"records": [{"kind": "handoff", "text": "start its reader", "to": to}]})
+
+
 def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_and_each_owner_record_names_what_it_is_about(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
