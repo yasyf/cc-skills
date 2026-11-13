@@ -4636,11 +4636,12 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, a yasyf/* one among them, and it keeps an"
-            " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran"
-            " on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and the drive's dashboard"
-            " runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH, keep its output"
+            " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once,"
+            " wait until the drive's dashboard runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH with no wait for CI,"
+            " and when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled,"
+            " the run drive pr ci judges the merge by, follow that run to its end with no deadline and run the file once more, keep its output"
             " beside the job's report, take DONE on exit 0 and BLOCKED otherwise or when an install fails, no release will carry a merge,"
-            " or a CI run still runs or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
+            " or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
             " watch to post; refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file"
         ),
     )
@@ -4746,7 +4747,7 @@ def parser() -> argparse.ArgumentParser:
         "ci",
         parents=both,
         help=(
-            "judge a merged PR's CI as drive job prove waits on it: the first run not cancelled of each workflow that ran on its merge commit,"
+            "judge a merged PR's CI as drive job prove follows it: the first run not cancelled of each workflow that ran on its merge commit,"
             " from that commit's run on by run id, never a run of a push merged before it; exits 0 once each completed and passed, 1 while one runs,"
             " failed or has no run, naming each run, so a proof file of a fix to red CI reads its verdict here rather than picking a run itself"
         ),

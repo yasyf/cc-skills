@@ -148,9 +148,9 @@ class FakeGit:
         self.sleeps.append(seconds)
         self.now += seconds
 
-    def hear(self, repo: str, kind: str, since: str | None, seconds: float) -> None:
+    def hear(self, repo: str, kind: str, since: str | None) -> None:
         self.heard.append(f"{repo} {kind}")
-        self.now += min(self.delivered_every, seconds)
+        self.now += self.delivered_every
 
     def run(self, cmd: list[str], **options: object) -> subprocess.CompletedProcess:
         if cmd[0] == "orca":
@@ -1347,17 +1347,19 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
     return shown
 
 
-def test_a_proof_reading_main_ci_after_the_merge_runs_once_that_run_completed_and_not_while_it_runs(
+def test_a_proof_failing_while_its_merges_ci_runs_follows_that_run_past_the_deadline_and_runs_again_once_it_completed(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     git = fake([BUILD], {BUILD})
+    git.delivered_every = 3600
     script = proving(config, tmp_path, git, 0)
     guides = ci(43375546815, "Guides", "2026-11-13T05:59:05Z", "completed", "success")
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
-    shown = on_actions(monkeypatch, tmp_path, [guides, running], [[guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
-    script.write_text(f"#!/bin/sh\ngrep -x '43375546307 completed success' {shown}\n")
-    install.prove("demo", "j1", 900)
-    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
+    shown = on_actions(monkeypatch, tmp_path, [guides, running], [[guides, running], [guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
+    script.write_text(f"#!/bin/sh\necho ran >> {tmp_path / 'ran'}\ngrep -x '43375546307 completed success' {shown}\n")
+    install.prove("demo", "j1", 60)
+    assert (git.heard, git.sleeps) == ([f"{REPO} ci", f"{REPO} ci"], [])
+    assert (tmp_path / "ran").read_text() == "ran\nran\n"
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
 
 
@@ -1392,7 +1394,7 @@ def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_m
 
     monkeypatch.setattr(github, "read", read)
     start = install.clock()
-    install.await_ci({f"{REPO}#7": SHA}, start + 3600)
+    assert install.await_ci({f"{REPO}#7": SHA})
     assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 6, [])
     assert len(capsys.readouterr().err.splitlines()) == 1
 
@@ -1412,7 +1414,7 @@ def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_deliver
         return "".join(json.dumps(run) + "\n" for run in answer)
 
     monkeypatch.setattr(github, "read", read)
-    install.await_ci({f"{REPO}#7": SHA}, install.clock() + 900)
+    assert not install.await_ci({f"{REPO}#7": SHA})
     assert (git.sleeps, git.heard) == ([install.POLL_SECONDS], [])
 
 
@@ -1446,7 +1448,7 @@ def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_failed_or_has_no_run_
     ]
 
 
-def test_a_ci_run_still_running_at_the_deadline_takes_blocked_naming_it_and_runs_no_proof_file(
+def test_a_proof_file_passing_while_its_merges_ci_still_runs_takes_done_right_after_the_install_without_waiting_on_that_ci(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     git = fake([BUILD], {BUILD})
@@ -1454,9 +1456,8 @@ def test_a_ci_run_still_running_at_the_deadline_takes_blocked_naming_it_and_runs
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
     on_actions(monkeypatch, tmp_path, [running], [[running]])
     install.prove("demo", "j1", 60)
-    waiting = f"yasyf/cc-skills#7's merge {SHA[:12]} still waits on CI at the deadline: long-running CI https://github.com/{REPO}/actions/runs/43375546307 in_progress"
-    assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3: {waiting}"
-    assert state.proof_path("demo", "j1").read_text() == waiting
+    assert (git.heard, git.sleeps) == ([], [])
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
 
 
 def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof_file(

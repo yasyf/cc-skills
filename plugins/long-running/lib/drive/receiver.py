@@ -162,16 +162,15 @@ def heard(repo: str, kind: str) -> str | None:
     return (hooks().get(repo) or {}).get(kind)
 
 
-def hear(repo: str, kind: str, since: str | None, seconds: float) -> None:
-    """Return once the repository's mark of kind moved past since, as kqueue reports the receiver replacing hooks.json in its folder, or once seconds pass."""
+def hear(repo: str, kind: str, since: str | None) -> None:
+    """Return once the repository's mark of kind moved past since, as kqueue reports the receiver replacing hooks.json in its folder."""
     home().mkdir(parents=True, exist_ok=True)
     folder = os.open(home(), os.O_RDONLY)
     try:
         with contextlib.closing(select.kqueue()) as queue:
             queue.control([select.kevent(folder, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE)], 0)
-            end = time.monotonic() + seconds
-            while heard(repo, kind) == since and (left := end - time.monotonic()) > 0:
-                queue.control(None, 1, left)
+            while heard(repo, kind) == since:
+                queue.control(None, 1)
     finally:
         os.close(folder)
 

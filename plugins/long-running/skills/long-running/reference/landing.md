@@ -154,8 +154,9 @@ change".
    starts the lander again on the head its builder pushes once its stage reads `ready` there, free of
    conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
-   changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, waits until each workflow a `yasyf/*` merge ran on the default branch completed its first run from the merge on that was not cancelled, then runs the job's proof file with those plugins' `bin/` first on
-   `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0 with output or `BLOCKED` otherwise,
+   changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, and runs the job's proof file right after the install with those plugins' `bin/` first on
+   `PATH`, since no install reads a CI run; only when the file fails while a `yasyf/*` merge's CI on the default branch still runs does it follow that run to its end, with no deadline, and run the file once more.
+   It keeps its output beside the job's report, takes `DONE` on exit 0 with output or `BLOCKED` otherwise,
    an exit 0 printing nothing among them,
    and on a `DONE` that finishes the order sends the communicator its close report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
