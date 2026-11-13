@@ -223,7 +223,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing. It reaches the installed
      plugin's code only through `$(drive --root)`, such as `$(drive --root)/hooks`, never a `readlink`
      of a command, which on a reader's shell finds the `~/.local/bin/drive` launcher, nor a pinned
-     cache version's path. On a brief naming user stories it clicks each
+     cache version's path, and reads the drive through that install's `drive.state`, such as
+     `state.stored("<drive>", ("terminal", "jobs"))` from `$(drive --root)/lib`, never `drive.json`,
+     which only points to the drive's `drive.db`. On a brief naming user stories it clicks each
      on the installed surface, asserts its criteria and prints, for each, the path of the picture it saves or the live post's link
      it reads back: `drive job prove` takes `BLOCKED` on output showing fewer stories than the brief names, or one
      Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
