@@ -218,7 +218,7 @@ def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str
     question["closed"] = closed
     for twin in twins:
         twin["closed"] = superseded_by(closed, question)
-    job["updated"] = closed["at"]
+    job["updated"] = state.stamp()
     replaced = [(asker, other) for asker, each in data["jobs"].items() for other in view.open_questions(each) if question["file"] and other["replaced"] == question["file"]]
     return [(job_id, question), *((job_id, twin) for twin in twins), *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
 

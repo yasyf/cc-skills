@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import settled, stage, state
+from drive import reads, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -321,6 +321,40 @@ def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_i
     with state.edit("demo"):
         pass
     assert (state.load("demo")["answers"] == drive["answers"], len(listed)) == (True, 2)
+
+
+def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dates_each_by_its_tap_once_and_rechecks_each_open_pr_that_read_one(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["taps_dated"]
+    taken, other = "2026-11-13T14:15:38-08:00", "2026-11-13T12:13:00-08:00"
+    tapped = state.stamp(datetime.fromtimestamp(1794600374.250448).astimezone())
+    tap = state.new_close("answered", "Optional NONE on all three raw_sql forms", "https://acme.slack.com/archives/D1/p1794600340632399", seq="699068", at=taken)
+    typed = state.new_close("answered", "Ring", "https://acme.slack.com/archives/D1/p1794600900000100", seq="699080", at=other)
+    questions = [("Which raw_sql forms?", tap), ("Which forms take it?", tap | {"how": "superseded", "by": "demo:j1-1"}), ("Ring or knock?", typed)]
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], taken) | {"questions": [state.new_question(None, title, taken, closed=closed) for title, closed in questions]}}
+    checker = {"head": "abc", "pid": 1, "at": taken, "outcome": "NOT READY", "against": "", "objected": "abc"}
+    read_tap = [f'demo:j1-1794600337558, {state.parse_time(taken).astimezone().isoformat(timespec="seconds")}, asked "Which raw_sql forms?": "Optional NONE"']
+    read_typed = [f'demo:j1-1794600900000, {state.parse_time(other).astimezone().isoformat(timespec="seconds")}, asked "Ring or knock?": "Ring"']
+    data["prs"] = {
+        f"yasyf/cc-skills#{number}": state.new_pr(f"https://github.com/yasyf/cc-skills/pull/{number}", "j1", "o1") | {"state": status, "answers": answers, "checker": checker}
+        for number, status, answers in ((1, "open", read_tap), (2, "open", read_typed), (3, "merged", read_tap))
+    }
+    state.create(data)
+    records = {"699068": {"seq": 699068, "id": "tap:demo:j1-1794600337558:1794600374.250448"}, "699080": {"seq": 699080}}
+    shown: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: shown.append(argv) or "".join(json.dumps(records[seq]) + "\n" for seq in argv[3:]))
+    drive = state.load("demo")
+    dated = [question["closed"]["at"] for question in drive["jobs"]["j1"]["questions"]]
+    kept = [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()]
+    assert (shown, dated) == ([["cci", "show", "--json", "699068", "699080"]], [tapped, tapped, other])
+    assert kept == [(None, None), (read_typed, checker), (read_tap, checker)]
+    with state.edit("demo"):
+        pass
+    state.load("demo")
+    assert len(shown) == 2
 
 
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:

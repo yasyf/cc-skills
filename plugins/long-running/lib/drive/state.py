@@ -136,6 +136,7 @@ PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
+TAP_ID = re.compile(r"tap:.+:(\d+\.\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
@@ -505,6 +506,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "designs_cited": True,
         "one_question_per_file": True,
         "answers_keyed": True,
+        "taps_dated": True,
     }
 
 
@@ -775,7 +777,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -812,6 +814,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         link_research(data)
     if not data.get("answers_keyed"):
         key_answers(data)
+    if not data.get("taps_dated"):
+        date_taps(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -919,6 +923,29 @@ def key_answers(data: dict) -> None:
         for flags in briefs:
             flags["ruling"] = list(dict.fromkeys(whole[ruling] for ruling in flags["ruling"]))
     data["answers_keyed"] = True
+
+
+def date_taps(data: dict) -> None:
+    """Date each question his card tap ended by the tap, as the record id `tap:<waits>:<action ts>` the drive posted it under names, read once from cci for every close a record ended, since an older install dated it by when the drive took the tap, two hours late on Nov 13 while cci refused the taps' records; and drop the answers kept on each open PR that read a question it moved by the date it moved from, with that PR's check, as a changed citation does, so its next check reads them by the tap; marked so this runs once."""
+    from drive import reads
+
+    ended: dict[str, list[dict]] = {}
+    for job in data["jobs"].values():
+        for question in job["questions"]:
+            if question["closed"] and question["closed"]["seq"]:
+                ended.setdefault(question["closed"]["seq"], []).append(question)
+    stale: set[str] = set()
+    for line in reads.run(["cci", "show", "--json", *ended], Path.cwd()).splitlines() if ended else ():
+        record = json.loads(line)
+        if at := tap_time(record.get("id")):
+            for question in ended[str(record["seq"])]:
+                if question["closed"]["at"] != at:
+                    stale.add(parse_time(question["closed"]["at"]).astimezone().isoformat(timespec="seconds"))
+                    question["closed"]["at"] = at
+    for pr in data["prs"].values():
+        if pr["state"] == "open" and pr["answers"] and any(old in line for line in pr["answers"] for old in stale):
+            pr.update(answers=None, checker=None)
+    data["taps_dated"] = True
 
 
 def folded(one: dict, other: dict) -> dict:
@@ -1628,6 +1655,12 @@ def waits_job(data: dict, waits: str) -> str:
     """The job his card under this waits id asks for: the newest whose question holds it, but one a `Replaces:` line folded into another's, since a job that takes a question over with `drive job ask --redraws` takes its card; else the job that minted it, which the waits id names."""
     held = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == waits and not question["replaced"]]
     return held[-1] if held else waits.partition(":")[2].partition("-")[0]
+
+
+def tap_time(record_id: str | None) -> str | None:
+    """When he tapped, for the record his card tap posts as, `tap:<waits>:<action ts>`, the Slack ts cc-slack hands the drive with the tap, so his answer reads as given then however late the drive takes it; None for any other record, an undo's included."""
+    tapped = record_id and TAP_ID.fullmatch(record_id)
+    return stamp(datetime.fromtimestamp(float(tapped[1])).astimezone()) if tapped else None
 
 
 def new_close(

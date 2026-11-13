@@ -734,7 +734,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, and post it as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the drive takes it and shows the tap recorded only then. The question ends in the write after the post, each older open question of its job his answer decides, as Jev reads it, ends superseded, and each other card drawn for an ended question follows; cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, and post it as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the drive takes it and shows the tap recorded only then. The question ends in the write after the post, dated by his tap as its record id carries it however late the drive takes the tap, each older open question of its job his answer decides, as Jev reads it, ends superseded, and each other card drawn for an ended question follows; cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
     from drive import superseded, tools, view
 
     name, _, _ = ask["waits"].partition(":")
@@ -751,7 +751,7 @@ def question_answered(ask: dict) -> dict:
     item |= {"id": f"tap:{ask['waits']}:{ask['action_ts']}{':undone' if undone else ''}"} if ask.get("action_ts") else {}
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])
-    closed = state.new_close("answered", said, ask["url"], seq=seq)
+    closed = state.new_close("answered", said, ask["url"], seq=seq, at=state.tap_time(item.get("id")))
     with state.edit(name) as data:
         on_card = view.drawn_on(data, ask["waits"], ask["url"])
         again = [(job_id, question) for job_id, question in on_card if (question["closed"] or {}).get("seq") == seq]
