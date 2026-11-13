@@ -2925,6 +2925,23 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
     assert run("job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it")[0] == 0
 
 
+def test_a_design_report_whose_order_thread_cannot_be_read_fails_as_that_read_and_keeps_nothing(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    thread = "1794532526.296849"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--thread", thread)
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+
+    def unread(*where: str) -> list[dict]:
+        raise slack.SlackError("daemonkit: business session: context deadline exceeded")
+
+    monkeypatch.setattr(slack, "thread", unread)
+    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)
+    assert (code, f"could not read the order's thread {thread}" in err, "refused" in err) == (2, True, False)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["questions"], state.replies_path("demo", "j1").exists()) == ("running", [], False)
+
+
 def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
