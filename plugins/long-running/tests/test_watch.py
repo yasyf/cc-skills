@@ -931,7 +931,7 @@ def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_o
     [(kind, to, text)] = posted(sent)
     assert (kind, to) == ("handoff", f"root@{demo}")
     log = re.escape(str(state.watch_log_path(demo)))
-    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: DriveError at state\.py:\d+ in saved: no drive named gone; its traceback is in {log}; drive watch starts it again", text)
+    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: DriveError at state\.py:\d+ in stored_json: no drive named gone; its traceback is in {log}; drive watch starts it again", text)
     assert not state.pid_path(demo).exists()
 
 
