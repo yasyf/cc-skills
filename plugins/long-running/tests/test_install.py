@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta
 from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
 
@@ -1174,6 +1174,20 @@ def test_a_proof_file_past_its_deadline_keeps_every_line_it_printed_a_python_one
     kept = state.proof_path("demo", "j1")
     assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits past drive job prove's deadline on long-running@skills 1.0.2, its output {kept}: it printed no FAIL line"
     assert kept.read_text().startswith(f"passed: one\n{last}\nTraceback")
+
+
+def test_a_proof_file_cut_off_at_its_deadline_waiting_out_ccxs_rate_limit_floor_runs_again_once_the_floor_lifts(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    git = fake([BUILD], {OLD_COMMIT})
+    script = proving(config, tmp_path, git, 0)
+    reset = (datetime.now().astimezone() + timedelta(minutes=40)).isoformat(timespec="seconds")
+    floor = f"ccx: GitHub rate limit floor: user core has 749 of 5000 left, under the floor of 1000, until later ({reset}); top callers: zsh 188"
+    waited = tmp_path / "waited"
+    script.write_text(f'#!/bin/sh\nif [ -e {waited} ]; then echo "ok opens this PR"; exit 0; fi\ntouch {waited}\necho "proof.sh: waiting 2400 s: {floor}" >&2\nexec sleep 30\n')
+    install.prove("demo", "j1", 2)
+    assert 2390 < git.sleeps[-1] <= 2401
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.2"
 
 
 def test_a_proof_proves_the_prs_its_ready_names_while_the_job_also_holds_a_pr_closed_as_superseded(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:

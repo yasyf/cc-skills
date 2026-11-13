@@ -3,6 +3,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+from datetime import datetime
 from functools import cache
 from itertools import groupby, takewhile
 from pathlib import Path
@@ -35,6 +37,7 @@ STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
+FLOOR = re.compile(r"ccx: GitHub rate limit floor: [^(]*\((?P<reset>[^)]+)\)")
 
 
 class GithubError(Exception):
@@ -66,6 +69,25 @@ def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> s
         return run(cmd, max_age=max_age, text=text)
     except GithubError as error:
         raise GithubError(f"could not read {what} from GitHub: {error}") from None
+
+
+def read_past_floor(what: str, cmd: list[str]) -> str:
+    """Run a gh read, waiting out ccx's rate-limit floor: a read it refuses there sleeps until the reset the refusal names and runs again, since the floor says nothing of what GitHub would answer; each wait is said on stderr with the refusal whole, which floor_lifts_in reads."""
+    while True:
+        try:
+            return read(what, cmd)
+        except GithubError as error:
+            if (wait := floor_lifts_in(str(error))) is None:
+                raise
+            print(f"{CALLER}: waiting {round(wait)} s for ccx's GitHub rate-limit floor to lift before reading {what} again: {error}", file=sys.stderr, flush=True)
+            time.sleep(wait)
+
+
+def floor_lifts_in(said: str) -> float | None:
+    """Seconds from now to a second past the reset the last ccx rate-limit floor refusal in what a command said names, or None when it names none."""
+    if not (resets := FLOOR.findall(said)):
+        return None
+    return max(datetime.fromisoformat(resets[-1]).timestamp() - time.time(), 0) + 1
 
 
 def close(url: str) -> None:
