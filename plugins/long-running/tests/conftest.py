@@ -525,6 +525,7 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
 
     monkeypatch.setattr(watch, "ensure", ensure)
     monkeypatch.setattr(watch, "listen", lambda name, session, project=None: process.listened.append((name, session, project) if project else (name, session)))
+    monkeypatch.setattr(launchd, "session_env", dict)
     return process
 
 

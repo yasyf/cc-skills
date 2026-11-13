@@ -121,6 +121,7 @@ def closed_cards(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, b
 REAL_ENSURE = watch.ensure
 REAL_FETCH = github.fetch
 REAL_LISTEN = watch.listen
+REAL_SESSION_ENV = launchd.session_env
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
@@ -1043,6 +1044,21 @@ def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_
     assert (env[state.DRIVE_ENV], env[launchd.LAUNCHED_ENV], "CLAUDE_CODE_SESSION_ID" in env, "OPENAI_API_KEY" in env) == (demo, watch.label(demo), False, False)
     assert REAL_ENSURE(demo).startswith("the watch runs under its launch agent")
     assert len(ran) == 1
+
+
+def test_a_launched_watch_takes_the_env_of_this_macs_claude_settings_so_each_read_it_runs_carries_the_keys_a_session_here_carries(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "settings.json").write_text(json.dumps({"model": "opus", "env": {"BUILDKITE_API_TOKEN": "the settings token"}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setenv("BUILDKITE_API_TOKEN", "the token the watch inherited")
+    monkeypatch.setattr(launchd, "session_env", REAL_SESSION_ENV)
+    seen = []
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: seen.append(reads.run(["printenv", "BUILDKITE_API_TOKEN"], tmp_path)) or [])
+    run_watch(demo, monkeypatch)
+    assert seen == ["the settings token\n"]
 
 
 def test_a_drive_under_long_running_state_gets_no_watch_process_or_channel_and_a_watch_started_there_ends(
