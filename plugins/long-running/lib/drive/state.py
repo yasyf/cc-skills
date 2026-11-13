@@ -14,6 +14,7 @@ import traceback
 import uuid
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, closing, contextmanager, suppress
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import IO
@@ -131,6 +132,7 @@ PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
+PR_JOB_INDEX: ContextVar[tuple[dict, dict[str, list[str]]] | None] = ContextVar("pr_job_index", default=None)
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
 READING = threading.Lock()
@@ -2289,8 +2291,24 @@ def served_orders(data: dict, pr: dict) -> list[str]:
     return list(dict.fromkeys([pr["order"], *(order_id for job in jobs for order_id in (job["order"], *job["carries"]))]))
 
 
+@contextmanager
+def indexed_pr_jobs(data: dict) -> Iterator[None]:
+    """Index PR ownership once for a read-only projection of this drive. Jobs and their PR lists must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
+    by_url: dict[str, list[str]] = {}
+    for job_id, job in data["jobs"].items():
+        for url in dict.fromkeys(job["prs"]):
+            by_url.setdefault(url, []).append(job_id)
+    token = PR_JOB_INDEX.set((data, by_url))
+    try:
+        yield
+    finally:
+        PR_JOB_INDEX.reset(token)
+
+
 def pr_jobs(data: dict, pr: dict) -> list[str]:
     """The jobs carrying a PR: its own, then each other job listing it among its PRs, a builder that took it over or one that holds its landing included."""
+    if (indexed := PR_JOB_INDEX.get()) is not None and indexed[0] is data:
+        return [pr["job"], *(job_id for job_id in indexed[1].get(pr["url"], ()) if job_id != pr["job"])]
     return [pr["job"], *(job_id for job_id, job in data["jobs"].items() if job_id != pr["job"] and pr["url"] in job["prs"])]
 
 

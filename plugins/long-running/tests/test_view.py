@@ -118,6 +118,21 @@ def test_board_reuses_unchanged_text_and_redraws_changed_words(monkeypatch: pyte
         said.cache_clear()
 
 
+def test_pr_job_index_preserves_the_complete_board() -> None:
+    data = drive_of(
+        {f"o{n}": order(f"Ship feature {n}", [f"j{n}"]) for n in range(1, 65)},
+        {f"j{n}": job(f"o{n}", "waiting", prs=[f"https://github.com/yasyf/cc-skills/pull/{n}"]) for n in range(1, 65)},
+        [pr(n, f"o{n}", job=f"j{n}") for n in range(1, 65)],
+    )
+    expected = view.board(data, found(), "live", [], T0, set(), {})
+    with state.indexed_pr_jobs(data):
+        assert view.board(data, found(), "live", [], T0, set(), {}) == expected
+    data["jobs"]["j2"]["prs"].append(data["prs"]["yasyf/cc-skills#1"]["url"])
+    expected = view.board(data, found(), "live", [], T0, set(), {})
+    with state.indexed_pr_jobs(data):
+        assert view.board(data, found(), "live", [], T0, set(), {}) == expected
+
+
 def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -> None:
     data = drive_of(
         {
