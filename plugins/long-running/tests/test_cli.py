@@ -4155,7 +4155,7 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     kept_proof(tmp_path, "j1")
     if first.startswith("READY "):
         run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
-    run("job", "add", "builder", "--order", "o1", "--part", "ship again", "--goal", "ship again")
+    run("job", "add", "builder", "--order", "o1", "--part", "ship" if kind == "design" else "ship again", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
     for job_id in ("j1", "j2"):
