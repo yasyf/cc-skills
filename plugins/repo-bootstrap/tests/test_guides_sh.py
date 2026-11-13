@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import pwd
 import re
 import subprocess
 from pathlib import Path
@@ -83,9 +85,7 @@ def plugin_cache(tmp_path: Path, versions: dict[str, bool]) -> Path:
         if orphaned:
             (root / ".orphaned_at").write_text("1790178260989")
     runner = tmp_path / "binrun"
-    runner.write_text(
-        '#!/bin/bash\necho "${BINRUN_PLUGIN_ROOT##*/} ${1##*/} ${*:2}"\n'
-    )
+    runner.write_text('#!/bin/bash\necho "${BINRUN_PLUGIN_ROOT##*/} ${1##*/} ${*:2}"\n')
     runner.chmod(0o755)
     return cache
 
@@ -117,9 +117,7 @@ def test_shim_stays_put_when_no_live_sibling_exists(tmp_path: Path):
 
 
 def test_shim_hops_from_a_live_dir_to_a_newer_live_sibling(tmp_path: Path):
-    cache = plugin_cache(
-        tmp_path, {"0.61.0": False, "0.64.1": False, "0.70.0": True}
-    )
+    cache = plugin_cache(tmp_path, {"0.61.0": False, "0.64.1": False, "0.70.0": True})
     assert run_shim(tmp_path, cache, "0.61.0") == "0.64.1 tool.binrun vcs pr status"
 
 
@@ -138,3 +136,79 @@ def test_shim_stays_put_in_an_unversioned_dir(tmp_path: Path):
         env={"PATH": "/usr/bin:/bin", "BINRUN_BIN": str(tmp_path / "binrun")},
     )
     assert (result.stdout.strip(), result.stderr) == ("a1b2c3d tool.binrun", "")
+
+
+def pinned_runner(tmp_path: Path) -> None:
+    tag = re.search(
+        r'^RUNNER_TAG="([^"]+)"$',
+        (GUIDES_SH / "binrun-shim.sh").read_text(),
+        re.MULTILINE,
+    )[1]
+    runner = tmp_path / ".daemonkit" / "binrun" / tag / "binrun"
+    runner.parent.mkdir(parents=True)
+    runner.write_text('#!/bin/bash\necho "binrun ${*:2}"\n')
+    runner.chmod(0o755)
+
+
+def launch_record(tmp_path: Path, root: Path, target: str, *, fresh: bool) -> None:
+    descriptor = root / "bin" / "tool.binrun"
+    descriptor.write_text("{}")
+    record = (
+        tmp_path
+        / ".daemonkit"
+        / "binrun"
+        / "resolved"
+        / str(descriptor).replace("%", "%25").replace("/", "%2F")
+    )
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(f"{target}\n")
+    stamp = descriptor.stat().st_mtime + (60 if fresh else -60)
+    os.utime(record, (stamp, stamp))
+
+
+@pytest.mark.parametrize(
+    ("fresh", "target", "expected"),
+    [
+        pytest.param(True, "artifact", "artifact vcs pr status", id="fresh-record"),
+        pytest.param(False, "artifact", "binrun vcs pr status", id="stale-record"),
+        pytest.param(True, "missing", "binrun vcs pr status", id="artifact-gone"),
+    ],
+)
+def test_shim_execs_a_fresh_launch_record_without_binrun(
+    tmp_path: Path, fresh: bool, target: str, expected: str
+):
+    cache = plugin_cache(tmp_path, {"0.61.0": False})
+    pinned_runner(tmp_path)
+    artifact = tmp_path / "artifact"
+    artifact.write_text('#!/bin/bash\necho "artifact $*"\n')
+    artifact.chmod(0o755)
+    launch_record(tmp_path, cache / "0.61.0", str(tmp_path / target), fresh=fresh)
+    out = subprocess.run(
+        [str(cache / "0.61.0" / "bin" / "tool"), "vcs", "pr status"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": "/usr/bin:/bin", "DAEMONKIT_HOME": str(tmp_path)},
+    )
+    assert out.stdout.strip() == expected
+
+
+def test_shim_takes_the_passwd_home_from_user_without_id(tmp_path: Path):
+    cache = plugin_cache(tmp_path, {"0.61.0": False})
+    bin_dir = tmp_path / "path"
+    bin_dir.mkdir()
+    (bin_dir / "id").write_text("#!/bin/bash\nexit 1\n")
+    (bin_dir / "id").chmod(0o755)
+    user = os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+    out = subprocess.run(
+        [str(cache / "0.61.0" / "bin" / "tool")],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "USER": user,
+            "BINRUN_BIN": str(tmp_path / "binrun"),
+        },
+    )
+    assert out.stdout.strip() == "0.61.0 tool.binrun"
