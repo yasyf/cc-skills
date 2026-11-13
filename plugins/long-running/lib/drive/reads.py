@@ -42,6 +42,7 @@ NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a g
 JOB_WORD = re.compile(r"j\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
+GRANTOR = ("identity", "core-gbl-identity")
 GRANT_ENDS = "break-glass-expires-at"
 STS_SHORTEST = timedelta(minutes=15)
 STS_CLOCK_MARGIN = timedelta(minutes=1)
@@ -388,9 +389,12 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator
 
 
 def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
-    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted."""
+    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted. The build runs at the commit Pulumi last applied identity at on core-gbl-identity, as `tools/ci release live --json` reads it, naming a stack's component under `target`: that stack's IAM is what the grantor role may do, so a grant never runs go/ci code ahead of it, as a grant at dev's newest commit does once a change to the roles a grant opens merges before its identity release."""
+    live = json.loads(run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    if not (applied := next((each["commit"] for each in live if (each["target"], each["env"]) == GRANTOR), None)):
+        raise ReadError(f"tools/ci release live lists no commit {GRANTOR[0]} was applied at on {GRANTOR[1]}, whose IAM the grantor role holds, so no grant started")
     created = run(
-        ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-m", why]
+        ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-c", applied, "-m", why]
         + ["-e", f"BREAK_GLASS_REASON={why}", "-e", f"BREAK_GLASS_STACK={stack}", "--no-input", "-y"],
         checkout,
     )

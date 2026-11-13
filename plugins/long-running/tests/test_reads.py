@@ -40,6 +40,13 @@ role_arn = arn:aws:iam::333:role/frg-tnt-gbl-0ddq7rb-admin
 GRANT_ENDS = "2026-11-12T12:22:25.577Z"
 GRANTED = state.parse_time("2026-11-12T11:22:30Z")
 ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
+APPLIED = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
+LIVE = [
+    {"target": "accounts", "component": "infra", "env": "core-gbl-identity", "commit": "920c12e92f89952469bf863d69c1f40abf87b2c4"},
+    {"target": "identity", "component": "infra", "env": "core-usw2-identity", "commit": "648dbdcf19be2f65ea3c3c05f35ef9b46b8381a2"},
+    {"target": "identity", "component": "infra", "env": "core-gbl-identity", "release": "releases/2026-11-12/60", "commit": APPLIED},
+    {"target": "security", "component": "infra", "env": "core-gbl-identity", "commit": "20844fd99d90"},
+]
 
 
 @pytest.mark.parametrize(
@@ -208,6 +215,7 @@ class Granted:
         self.envs: list[dict[str, str]] = []
         self.configs: list[str] = []
         self.expiration = "2026-11-12T12:21:00+00:00"
+        self.live = LIVE
 
 
 def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ended: str = "passed", now: datetime = GRANTED) -> Granted:
@@ -223,6 +231,8 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
 
     def fake(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
         granted.calls.append(argv)
+        if argv == [str(tmp_path / "tools" / "ci"), "release", "live", "--json"]:
+            return json.dumps(granted.live)
         if argv[:3] == ["bk", "build", "create"]:
             return f"Build created: {GRANT}\n"
         if argv[:3] == ["bk", "build", "view"]:
@@ -252,7 +262,8 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_credential
     said = glass(tmp_path)
     why = "demo j7: count rows, read only"
     assert granted.calls == [
-        ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-m", why]
+        [str(tmp_path / "tools" / "ci"), "release", "live", "--json"],
+        ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-c", APPLIED, "-m", why]
         + ["-e", f"BREAK_GLASS_REASON={why}", "-e", "BREAK_GLASS_STACK=sandsql/plat-usw2-prod", "--no-input", "-y"],
         ["bk", "build", "watch", "1926", "-p", "forge/break-glass", "--interval", "2"],
         ["bk", "build", "view", "1926", "-p", "forge/break-glass", "-o", "json"],
@@ -306,6 +317,10 @@ case "$1 $2" in
 esac
 """)
     bk.chmod(0o755)
+    ci = tmp_path / "tools" / "ci"
+    ci.parent.mkdir()
+    ci.write_text(f"#!/bin/sh\necho '{json.dumps(LIVE)}'\n")
+    ci.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bk.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setattr(reads, "READ_SECONDS", reads.READ_SECONDS / replay_speedup)
     assert reads.grant("sandsql/plat-usw2-prod", "count rows, read only", tmp_path) == (link, state.parse_time(ends))
@@ -316,7 +331,7 @@ def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(n
     granted = grantable(tmp_path, monkeypatch, MACHINE, now=now)
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):
         glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["bk", "bk", "bk"]
+    assert [Path(argv[0]).name for argv in granted.calls] == ["ci", "bk", "bk", "bk"]
 
 
 def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -328,11 +343,22 @@ def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Pat
     assert granted.envs == []
 
 
+def test_a_grant_whose_grantor_stack_lists_no_applied_commit_posts_no_grant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    granted = grantable(tmp_path, monkeypatch, MACHINE)
+    granted.live = [each for each in LIVE if (each["target"], each["env"]) != ("identity", "core-gbl-identity")]
+    with pytest.raises(reads.ReadError) as refused:
+        glass(tmp_path)
+    assert str(refused.value) == (
+        "tools/ci release live lists no commit identity was applied at on core-gbl-identity, whose IAM the grantor role holds, so no grant started"
+    )
+    assert [Path(argv[0]).name for argv in granted.calls] == ["ci"]
+
+
 def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE, ended="failed")
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} failed, so nothing ran$"):
         glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["bk", "bk", "bk"]
+    assert [Path(argv[0]).name for argv in granted.calls] == ["ci", "bk", "bk", "bk"]
 
 
 @pytest.mark.parametrize(

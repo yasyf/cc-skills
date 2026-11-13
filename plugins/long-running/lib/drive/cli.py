@@ -4566,7 +4566,8 @@ def parser() -> argparse.ArgumentParser:
         parents=[drive_opt],
         help="run one command holding only a stack's admin credentials, minted on this Mac's machine profile to end with its break-glass grant",
         description=(
-            "Start the forge/break-glass grant with bk build create, its reason the job or order and --reason, which may not be"
+            "Start the forge/break-glass grant with bk build create at the commit Pulumi last applied identity at on"
+            " core-gbl-identity, as tools/ci release live --json reads it, its reason the job or order and --reason, which may not be"
             " blank, and wait for it to pass. Then mint the env's account admin role with aws sts assume-role from the source_profile"
             " of the profile in ~/.aws/config that reaches it from a credential_process, never an SSO sign-in, to end a minute"
             " before the grant's recorded end, and run the command after -- with an AWS config naming that one profile alone, so"
