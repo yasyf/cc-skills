@@ -892,7 +892,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
         if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
             return (
                 f"it names {', '.join(merging)}, which merges once this is taken and the watch proves by running {job_id}'s proof file, and {job_id}"
-                f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix with drive job set {job_id} --repro <file>,"
+                f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
     if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):

@@ -207,7 +207,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
-     with each changed plugin's `bin/` first on `PATH`. On a brief naming user stories it clicks each
+     with each changed plugin's `bin/` first on `PATH`, printing a line for each check it passed:
+     `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing. It reaches the installed
+     plugin's code only through `$(drive --root)`, such as `$(drive --root)/hooks`, never a `readlink`
+     of a command, which on a reader's shell finds the `~/.local/bin/drive` launcher, nor a pinned
+     cache version's path. On a brief naming user stories it clicks each
      on the installed surface, asserts its criteria and prints, for each, the path of the picture it saves or the live post's link
      it reads back: `drive job prove` takes `BLOCKED` on output showing fewer stories than the brief names, or one
      Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
@@ -452,7 +456,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `PR:` | the PR's link |
 | `SERVES:` | `port of #N`, `flake fix: <the test>`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
-| `CHECK:` | the proof: a link, or the absolute path of a file that exists |
+| `CHECK:` | the proof: a link, or the absolute path of a file that exists and is not empty |
 | `DESIGN:` | on a `READY`, each design decision the PR makes beside his answer that settled it, named by his card's waits id, its permalink, the answer record as `{record:<seq>}` or the cc-notes answer id, or `none`; the watch's check reads each answer it names whole as his words when it judges the change, and `drive job report` refuses a line naming none of them |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
 | `RULINGS:` | each ruling of his on the area you followed, quoted |

@@ -150,7 +150,8 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
    changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, waits until each workflow a `yasyf/*` merge ran on the default branch completed its first run from the merge on that was not cancelled, then runs the job's proof file with those plugins' `bin/` first on
-   `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0 or `BLOCKED` otherwise,
+   `PATH`, keeps its output beside the job's report, takes `DONE` on exit 0 with output or `BLOCKED` otherwise,
+   an exit 0 printing nothing among them,
    and on a `DONE` that finishes the order sends the communicator its close report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
