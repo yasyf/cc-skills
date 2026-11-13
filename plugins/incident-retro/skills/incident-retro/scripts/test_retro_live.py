@@ -204,6 +204,13 @@ class RegisterShapedTitle(unittest.TestCase):
         self.assertTrue(summary["p"].startswith("live proof T2: the test monitor pages again."))
 
 
+class CodeSpanHandle(unittest.TestCase):
+    def test_a_code_span_counts_as_the_check_counts_it(self):
+        short = retro_live.handle("[`P1`] SoFi Disputes pager schedule stopped at 4:30pm", "Timeline entry", retro)
+        self.assertEqual(short, "[`P1`] SoFi Disputes pager schedule")
+        self.assertLessEqual(retro.words(retro.prose_only(short)), retro.HANDLE_WORDS)
+
+
 class Sync(unittest.TestCase):
     def setUp(self):
         self.incident, self.docs = incident_dir(), docs_checkout()
