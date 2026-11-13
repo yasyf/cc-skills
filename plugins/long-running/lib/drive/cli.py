@@ -65,7 +65,9 @@ PROMISED_TIME = re.compile(
 REPORTER_HELP = (
     "the bug report the order fixes, or the question an answer order answers, by its Slack permalink or slack:<channel>/<its thread's ts>,"
     " from the share or link in his words: its thread gets one note, a bug report's once the fix is proven live and a question's once"
-    " the answer is posted, and done refuses until drive order told records it"
+    " the answer is posted, and done refuses until drive order told records it; on order add, default: the thread a teammate started"
+    " outside his DM that the --from message is in, with no --thread, on an order neither an answer, a watch nor an incident, whose"
+    " lines then go to his DM"
 )
 WATCH_HELP = (
     "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
@@ -207,7 +209,7 @@ def refuse_unreworkable(data: dict, urls: list[str], job_id: str | None = None) 
 
 
 def thread_cards(name: str, order: dict) -> list[dict]:
-    return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == state.promise_thread(order)] if order["thread"] else []
+    return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == where] if (where := state.promise_thread(order)) else []
 
 
 def rework_named_prs(name: str, order_id: str, urls: list[str], cards: list[dict], how: str) -> list[str]:
@@ -260,7 +262,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         )
     message = his_message(args.source)
     thread = order_thread(state.load(name), args.source, message, args.thread)
-    reported = state.reporter(args.reporter) if args.reporter else None
+    reported = state.reporter(args.reporter) if args.reporter else teammate_report(state.load(name), args, message, thread)
     watched = state.new_watch(args.watch, state.parse_time(created)) if args.watch else None
     if (args.incident or args.joins) and args.options_only:
         raise DriveError(
@@ -452,6 +454,22 @@ def order_thread(data: dict, source: str, message: tuple[str, str, str | None] |
         ) from None
 
 
+def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, str, str | None] | None, thread: tuple[str, str] | None) -> dict | None:
+    """The reporter of an order he gave in a thread a teammate started outside his DM, that thread, which then hears only its one note while the order's lines go to his DM, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; None when --thread names where its lines go, on an answer, watch or incident order, and in a thread he, the drive or a bot started."""
+    if args.thread or args.watch or args.incident or args.joins or args.kind == "answer" or not (message and thread) or thread[0] == data["slack"]["channel"] or thread[1] == message[1]:
+        return None
+    try:
+        root = slack.root(*thread)
+    except slack.SlackError as error:
+        raise DriveError(
+            f"--from {args.source}: refused, Slack cannot read the thread it is in to tell whether a teammate reported a bug there: {error};"
+            " pass --reporter slack:<channel>/<thread ts> for a teammate's report, or --thread <its permalink> for a thread its lines go in"
+        ) from None
+    if not root or root.get("from_user") or root.get("from_claude") or root.get("from_bot"):
+        return None
+    return state.reporter(f"slack:{thread[0]}/{thread[1]}")
+
+
 def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | None) -> tuple[str, str]:
     """The channel and thread --thread names, by permalink, slack:<channel>/<ts>, or a bare ts in the channel of the message the order came from, his DM for one from outside Slack; refused when Slack reads no thread at that ts there, naming the thread a reply is in. The thread of the message the order came from, which --from already names, needs no read."""
     if SLACK_TS.fullmatch(flag):
@@ -522,7 +540,7 @@ def titled(title: str) -> str:
 
 
 def need_thread(order_id: str, order: dict) -> None:
-    if not state.promise_thread(order):
+    if not order["thread"]:
         raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <its permalink>")
 
 
@@ -1531,7 +1549,7 @@ def send_ask(name: str, job_id: str, kept: Path, waits: str | None) -> str:
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
-    thread = next(iter(state.incident_threads(data, incidents)), None) if incidents else order["thread"] and order["thread"][1]
+    thread = next(iter(state.incident_threads(data, incidents)), None) if incidents else state.thread_attr(order).get("thread")
     attrs = {"job": job_id, "ask": str(kept), "thread": thread, "incident": "true" if incidents else None, "waits": waits}
     record = {"kind": "ask", "text": state.kept_in(job, kept)["title"], "to": [f"communicator@{name}"], "attr": {key: value for key, value in attrs.items() if value}}
     try:
@@ -1935,8 +1953,7 @@ def other_sessions_agent(job: dict) -> str | None:
 
 def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
     """Where an answer order's reader sends his answer the moment it is proven, by his pick "answer-only jobs also post their answer once found": a progress report the communicator's handler posts in the order's thread, ahead of the full report the coordinator closes the order with."""
-    attrs = {"thread": order["thread"][1]} if order["thread"] else {}
-    attrs |= {"order": order_id, "job": job_id, "progress": "true"}
+    attrs = state.thread_attr(order) | {"order": order_id, "job": job_id, "progress": "true"}
     return ANSWER_FIRST.format(drive=name, attrs=json.dumps(attrs))
 
 
@@ -3857,7 +3874,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--thread",
         help=(
-            f"{THREAD_HELP}; default: the thread the --from message is in. An order in the thread of his open PR card names"
+            f"{THREAD_HELP}; default: the thread the --from message is in, his DM's root when a teammate started it, since that thread"
+            " is its reporter's and hears only its one note. An order in the thread of his open PR card names"
             " that card and leaves it up, since its stack can meet his words already: only --rework withdraws one"
         ),
     )

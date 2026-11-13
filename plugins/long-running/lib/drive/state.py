@@ -2085,8 +2085,18 @@ def incident_job(data: dict, name: str, order_id: str, part: str, created: str) 
 
 
 def promise_thread(order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order's lines go in, as the order keeps them, in his DM or a channel such as an alert's."""
-    return (order["thread"][0], order["thread"][1]) if order["thread"] else None
+    """The channel and thread an order's lines go in, as the order keeps them, in his DM or a channel such as an alert's; None, his DM's root, for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
+    return (order["thread"][0], order["thread"][1]) if order["thread"] and not in_reporter_thread(order) else None
+
+
+def in_reporter_thread(order: dict) -> bool:
+    """Whether an order came in the very thread its reporter wrote in."""
+    return bool(order["reporter"] and order["thread"]) and (order["reporter"]["channel"], order["reporter"]["thread"]) == tuple(order["thread"])
+
+
+def thread_attr(order: dict) -> dict:
+    """The thread attr of a record about an order, naming the thread its lines go in, none for one whose lines go at his DM's root."""
+    return {"thread": where[1]} if (where := promise_thread(order)) else {}
 
 
 def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:

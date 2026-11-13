@@ -675,6 +675,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
     messages = {
         ("D123", reply): [{"ts": reply, "thread_ts": root, "from_user": True}],
         ("C0BUGS1", bug_reply): [{"ts": bug_reply, "thread_ts": bug_root, "from_user": True}],
+        ("C0BUGS1", bug_root): [{"ts": bug_root, "from_user": True}],
     }
     reads: list[tuple[str, ...]] = []
 
@@ -691,12 +692,13 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
     assert reads == [
         ("--channel", "D123", "--thread", reply, "--limit", "1"),
         ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
+        ("--channel", "C0BUGS1", "--thread", bug_root, "--limit", str(slack.WHOLE_THREAD)),
     ]
     permalink = f"https://acme.slack.com/archives/C0BUGS1/p{bug_reply.replace('.', '')}?thread_ts={bug_root}&cid=C0BUGS1"
     assert run(*filed, "and the dashboard too", "--from", f"slack:C0BUGS1/{bug_root}/{bug_reply}", "--thread", bug_root) == (0, "o3")
     assert run(*filed, "and the card", "--from", permalink) == (0, "o4")
     assert run(*filed, "and the list", "--from", f"slack:C0BUGS1/{bug_root}/{bug_reply}", "--thread", f"slack:C0BUGS1/{bug_root}") == (0, "o5")
-    assert len(reads) == 2
+    assert len(reads) == 4
     data = state.load("demo")
     assert {order_id: (order["from"], order["thread"], state.promise_thread(order)) for order_id, order in data["orders"].items()} == {
         "o1": (f"slack:D123/{reply}", ["D123", root], ("D123", root)),
@@ -716,9 +718,11 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
 
 def test_order_set_from_points_an_order_at_his_dm_post_while_its_lines_stay_in_the_alert_thread(run: Run, demo: str, slack_thread: Thread) -> None:
     alert, reply, dm_post = "1794493064.110609", "1794495071.669329", "1794495097.793329"
+    slack_thread.messages.append({"ts": alert, "from_bot": True})
     filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
     assert run(*filed, "unpause the release", "--from", f"slack:C0822AHFY3G/{alert}/{reply}") == (0, "o1")
-    assert slack_thread.reads == []
+    root_read = ("--channel", "C0822AHFY3G", "--thread", alert, "--limit", str(slack.WHOLE_THREAD))
+    assert slack_thread.reads == [root_read]
     order = state.load("demo")["orders"]["o1"]
     assert (order["from"], order["thread"]) == (f"slack:C0822AHFY3G/{reply}", ["C0822AHFY3G", alert])
     dm_link, alert_link = (f"https://acme.slack.com/archives/{channel}/p{ts.replace('.', '')}" for channel, ts in (("D123", dm_post), ("C0822AHFY3G", alert)))
@@ -728,7 +732,28 @@ def test_order_set_from_points_an_order_at_his_dm_post_while_its_lines_stay_in_t
     assert state.message_order(data, "D123", dm_post, dm_post) == "o1"
     assert run("order", "set", "o1", "--from", f"slack:D123/{dm_post}")[0] == 0
     assert state.load("demo")["orders"]["o1"]["thread"] == ["C0822AHFY3G", alert]
-    assert slack_thread.reads == [("--channel", "C0822AHFY3G", "--thread", alert, "--limit", "1")]
+    assert slack_thread.reads == [root_read, ("--channel", "C0822AHFY3G", "--thread", alert, "--limit", "1")]
+
+
+def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_its_reporter_and_sends_its_lines_to_his_dm(
+    run: Run, demo: str, slack_thread: Thread
+) -> None:
+    report, reply = "1794345064.592209", "1794522700.000100"
+    slack_thread.messages += [{"ts": report, "text": "staging deploys hang at the migrate step"}, {"ts": reply, "thread_ts": report, "from_user": True}]
+    filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
+    assert run(*filed, "fix this", "--from", f"slack:C0BUGS1/{report}/{reply}", "--due", "+2h") == (0, "o1")
+    assert state.thread_order(state.load("demo"), report) == "o1"
+    assert run(*filed, "reply to him there", "--from", f"slack:C0BUGS1/{report}/{reply}", "--thread", report) == (0, "o2")
+    assert run(*filed, "what is left there", "--from", f"slack:C0BUGS1/{report}/{reply}", "--kind", "answer") == (0, "o3")
+    data = state.load("demo")
+    orders = data["orders"]
+    assert orders["o1"]["reporter"] == state.reporter(f"slack:C0BUGS1/{report}")
+    assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
+    assert orders["o1"]["due"] and limits.his_words(orders["o1"]) == "fix this"
+    assert [(orders[order_id]["reporter"], state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [(None, ("C0BUGS1", report))] * 2
+    slack_thread.messages[0] |= {"from_bot": True}
+    assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
+    assert state.load("demo")["orders"]["o4"]["reporter"] is None
 
 
 def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(

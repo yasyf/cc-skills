@@ -447,12 +447,19 @@ def test_a_bug_reports_thread_gets_its_fix_live_note_only_once_the_fix_is_proven
     assert message_limits.deny_reason(call("slack_reply", transcript, **note | {"thread_ts": "1794400000.000100"})) is None
 
 
-def test_a_reply_he_ordered_in_a_reporters_thread_that_is_its_orders_own_thread_goes_out_on_its_first_try(run: Run, talker: str, transcript: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "watch his replies and keep replying", "--reporter", REPORTED)
-    reply = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "SandSQL commits each batch in one round trip, so your import lands in about two seconds."}
-    assert message_limits.deny_reason(call("slack_reply", transcript, **reply)) is not None
+def test_a_bug_reports_thread_its_order_came_in_hears_none_of_its_lines_but_a_reply_he_ordered_there_goes_out_on_its_first_try(
+    run: Run, talker: str, transcript: Path
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "keep replying to him there")
     with state.edit("demo") as data:
         data["orders"]["o1"]["thread"] = ["C0REPORTS01", "1794400100.000200"]
+    reply = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "SandSQL commits each batch in one round trip, so your import lands in about two seconds."}
+    assert message_limits.deny_reason(call("slack_reply", transcript, **reply)).startswith(
+        "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live"
+    )
+    with state.edit("demo") as data:
+        data["orders"]["o2"]["thread"] = ["C0REPORTS01", "1794400100.000200"]
     assert message_limits.deny_reason(call("slack_reply", transcript, **reply)) is None
     assert message_limits.reporter_post(call("slack_reply", transcript, **reply) | {"tool_name": message_limits.SAY}, state.load("demo")) is None
 

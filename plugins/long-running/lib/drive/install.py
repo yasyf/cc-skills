@@ -712,7 +712,7 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen
             "kind": "report",
             "to": [f"communicator@{name}"],
             "topic": f"install-proved-{order_id}",
-            "attr": {"close": order_id} | ({"thread": order["thread"][1]} if order["thread"] else {}),
+            "attr": {"close": order_id} | state.thread_attr(order),
             "text": f"POST {title} {post}",
             "body": f"Fixed: {title}, {urls}\n{facts}",
         }
