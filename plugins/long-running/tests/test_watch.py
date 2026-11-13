@@ -3735,7 +3735,7 @@ def test_a_live_bugs_stack_waiting_on_his_card_is_asked_again_every_30_minutes_o
     three_stacked(demo, monkeypatch)
     with state.edit(demo) as data:
         for order_id in ("o1", "o2"):
-            data["orders"][order_id]["reporter"] = state.reporter(REPORTED)
+            data["orders"][order_id]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
     for minutes in (0, 10, 39, 40, 69, 70):
         watch.run_pass(watching, T0 + timedelta(minutes=minutes))
@@ -5522,13 +5522,13 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
     merged_ready(demo, fix, None)
     with state.edit(demo) as data:
         data["prs"][fix]["merged_sha"] = sha
-        data["orders"]["o1"]["reporter"] = state.reporter(REPORTED)
+        data["orders"]["o1"]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
     lines = [line for minutes in (0, 11, 40) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
     assert [line for line in lines if line.startswith(f"PR {fix}: {install.MERGED_DONE}: {fix} at {sha}; no proof kept, since only a release holding {sha} puts it live")]
     assert not [line for line in lines if line.startswith("TELL ")]
     data = state.load(demo)
-    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporter"]["tell_said"]) == ("done", None, None)
+    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporters"][0]["tell_said"]) == ("done", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert render.reporter_said(data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
     assert provers == []
@@ -5538,12 +5538,12 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
 def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close_while_a_closed_one_or_a_yasyf_commit_keeps_them(demo: str, sha: str) -> None:
     commit, tooling = f"https://github.com/Forge-AI/monorepo/commit/{sha}", "https://github.com/yasyf/cc-skills/commit/ccc333ddd444"
     with state.edit(demo) as data:
-        data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporter": state.reporter(REPORTED) | {"tell_said": state.stamp(T0)}}
+        data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporters": [state.reporter(REPORTED) | {"tell_said": state.stamp(T0)}]}
         data["orders"]["o2"] = order(state="done", proof=commit, closed_on="689100", jobs=[])
         data["orders"]["o3"] = order(proof=tooling, jobs=[])
     data = state.load(demo)
     reported = data["orders"]["o1"]
-    assert (reported["proof"], reported["closed_on"], reported["close_report"], reported["reporter"]["tell_said"]) == (None, None, None, None)
+    assert (reported["proof"], reported["closed_on"], reported["close_report"], reported["reporters"][0]["tell_said"]) == (None, None, None, None)
     assert (data["orders"]["o2"]["proof"], data["orders"]["o2"]["closed_on"], data["orders"]["o3"]["proof"]) == (commit, "689100", tooling)
 
 
@@ -6241,7 +6241,7 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
 
 def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
     with state.edit(demo) as data:
-        data["orders"]["o1"] |= {"kind": "answer", "reporter": state.reporter(REPORTED), "updated": state.stamp(T0 - timedelta(hours=5))}
+        data["orders"]["o1"] |= {"kind": "answer", "reporters": [state.reporter(REPORTED)], "updated": state.stamp(T0 - timedelta(hours=5))}
     watching = watcher(demo)
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
     with state.edit(demo) as data:
@@ -6259,7 +6259,7 @@ def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_m
 
 def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:
     with state.edit(demo) as data:
-        data["orders"]["o1"] |= {"reporter": state.reporter(REPORTED), "proof": "https://buildkite.com/forge/release/builds/14185"}
+        data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "proof": "https://buildkite.com/forge/release/builds/14185"}
     watching = watcher(demo)
     assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
     line = (
@@ -6273,6 +6273,28 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     tooling_order(demo, "running")
     assert watch.holder_line(line, state.load(demo)) == "meta"
+
+
+def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell_and_a_reporter_added_later_on_its_own(demo: str) -> None:
+    second, later = "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189", "https://acme.slack.com/archives/C0REPORTS03/p1794600000000100"
+    told = state.reporter("https://acme.slack.com/archives/C0REPORTS04/p1794500000000100") | {"told": "https://acme.slack.com/archives/C0REPORTS04/p1794500060000100"}
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED), told, state.reporter(second)], "proof": "https://buildkite.com/forge/release/builds/14185"}
+    watching = watcher(demo)
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [
+        "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
+        f" but {REPORTED} and {second}, the threads its bug was reported in, have not heard it is fixed: send its report with"
+        " --attr close=o1, whose handler posts the fix-live note in each and records it with drive order told o1 <its permalink>;"
+        " done refuses until then"
+    ]
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["reporters"].append(state.reporter(later))
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == [
+        "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
+        f" but {later}, the thread its bug was reported in, has not heard it is fixed: send its report with --attr close=o1, whose"
+        " handler posts the fix-live note there and records it with drive order told o1 <its permalink>; done refuses until then"
+    ]
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=70)) == []
 
 
 def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

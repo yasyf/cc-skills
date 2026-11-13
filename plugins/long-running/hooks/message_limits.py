@@ -546,20 +546,20 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
         return None
     link = state.CARD_LINK.search(tool_input.get("url") or "")
     where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
-    reported = [order for order in drive["orders"].values() if order["reporter"] and (order["reporter"]["channel"], order["reporter"]["thread"]) == where]
-    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(order) and not order["reporter"]["told"] for order in reported):
+    reported = [(order, held) for order in drive["orders"].values() for held in order["reporters"] if (held["channel"], held["thread"]) == where]
+    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(order) and not held["told"] for order, held in reported):
         return None
     if any(state.promise_thread(order) == where for order in state.open_orders(drive).values()):
         return None
-    told = next((order for order in reported if order["reporter"]["told"]), None)
-    if told and told["kind"] == "answer":
-        refused = f"Refused on purpose: this thread already heard the answer to its question, in {told['reporter']['told']}, and hears it once. Post nothing more there."
+    told_order, told = next(((order, held["told"]) for order, held in reported if held["told"]), (None, None))
+    if told and told_order["kind"] == "answer":
+        refused = f"Refused on purpose: this thread already heard the answer to its question, in {told}, and hears it once. Post nothing more there."
     elif told:
         refused = (
-            f"Refused on purpose: this thread already heard its bug is fixed, in {told['reporter']['told']}, and a bug report's thread gets its fix-live note once."
+            f"Refused on purpose: this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once."
             " Post nothing more there."
         )
-    elif any(order["kind"] == "answer" for order in reported):
+    elif any(order["kind"] == "answer" for order, _ in reported):
         refused = "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it. It goes once the answer is posted."
     else:
         refused = (

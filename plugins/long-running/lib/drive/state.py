@@ -653,7 +653,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("quiet", None)
         if order["quiet"] and "news" not in order["quiet"]:
             order["quiet"] = {"record": order["quiet"]["record"], "at": order["quiet"]["at"], "handler": order["quiet"]["handler"], "heard": None, "news": {}}
-        order.setdefault("reporter", None)
+        if "reporters" not in order:
+            held = order.pop("reporter", None)
+            order["reporters"] = [held] if held else []
         order.setdefault("watch", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
@@ -699,8 +701,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order["joins"] = next((other for other in carriers if other != order_id and data["orders"][other]["incident"]), None)
         if merge_proven(order):
             order.update(proof=None, close_report=None, closed_on=None)
-            if order["reporter"] and not order["reporter"]["told"]:
-                order["reporter"]["tell_said"] = None
+            for held in untold_reporters(order):
+                held["tell_said"] = None
     for pr in data["prs"].values():
         waits = pr.get("waits")
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
@@ -1343,7 +1345,7 @@ def unposted_answer(data: dict, job_id: str) -> bool:
 
 
 def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
-    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and its reporter told or none."""
+    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and every reporter told."""
     job = data["jobs"][job_id]
     for order_id in [job["order"], *job["carries"]]:
         order = data["orders"][order_id]
@@ -1351,7 +1353,7 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
             if not (order["parts"][part]["posted"] or work(data, order_id, part)):
                 order["parts"][part]["posted"] = link
         finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
-        if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not (order["reporter"] and not order["reporter"]["told"]):
+        if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(order):
             if all(held["posted"] for held in order["parts"].values()):
                 order.update(state="done", updated=moment)
 
@@ -1378,7 +1380,7 @@ def prover(data: dict, order_id: str, keys: list[str], job_id: str | None = None
 
 
 def may_tell(order: dict) -> bool:
-    """Whether the thread an order's reporter asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live."""
+    """Whether the threads an order's reporters asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live."""
     return all(held["posted"] for held in order["parts"].values()) if order["kind"] == "answer" else bool(order["proof"])
 
 
@@ -1469,7 +1471,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "alerts": [],
         "recovered": None,
         "quiet": None,
-        "reporter": None,
+        "reporters": [],
         "watch": None,
         "parts": parts,
         "incident": False,
@@ -1513,8 +1515,13 @@ def new_watch(link: str, moment: datetime) -> dict:
 
 
 def reported_bug(order: dict) -> bool:
-    """Whether an order fixes a bug someone else reported: a reporter on any order but an answer order, whose reporter asked him a question."""
-    return bool(order["reporter"]) and order["kind"] != "answer"
+    """Whether an order fixes a bug someone else reported: a reporter on any order but an answer order, whose reporters asked him a question."""
+    return bool(order["reporters"]) and order["kind"] != "answer"
+
+
+def untold_reporters(order: dict) -> list[dict]:
+    """Each reporter of an order whose thread has not heard its one note."""
+    return [held for held in order["reporters"] if not held["told"]]
 
 
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
@@ -2417,8 +2424,8 @@ def promise_thread(order: dict) -> tuple[str, str] | None:
 
 
 def in_reporter_thread(order: dict) -> bool:
-    """Whether an order came in the very thread its reporter wrote in."""
-    return bool(order["reporter"] and order["thread"]) and (order["reporter"]["channel"], order["reporter"]["thread"]) == tuple(order["thread"])
+    """Whether an order came in the very thread one of its reporters wrote in."""
+    return bool(order["thread"]) and any((held["channel"], held["thread"]) == tuple(order["thread"]) for held in order["reporters"])
 
 
 def thread_attr(order: dict) -> dict:

@@ -1048,14 +1048,14 @@ def incidents(drive: dict) -> list[dict]:
 
 
 def bug_reports(drive: dict, moment: datetime, served: dict[str, dict[str, dict]]) -> list[dict]:
-    """Each shown order fixing a bug someone reported, oldest report first, at the stage it reached on the way to its reporter hearing the fix is live."""
+    """Each shown order fixing a bug someone reported, oldest report first, at the stage it reached on the way to its reporters hearing the fix is live."""
     reported = sorted(((order_id, order) for order_id, order in drive["orders"].items() if state.reported_bug(order) and shown(order, moment)), key=lambda item: state.parse_time(item[1]["created"]))
     return [{"id": order_id, "title": order_title(order), "created": order["created"], "stage": bug_stage(order, list(served.get(order_id, {}).values()))} for order_id, order in reported]
 
 
 def bug_stage(order: dict, prs: list[dict]) -> str:
-    """Told once drive order told records the fix-live note, live once the order keeps its proof, merged once a PR on it merged and none is open, fixing while a job or PR is on it, else reported."""
-    if order["reporter"]["told"]:
+    """Told once drive order told records every reporter's fix-live note, live once the order keeps its proof, merged once a PR on it merged and none is open, fixing while a job or PR is on it, else reported."""
+    if not state.untold_reporters(order):
         return "told"
     if order["proof"]:
         return "live"

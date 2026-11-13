@@ -437,7 +437,7 @@ The steps, in order:
    service's other releases until its root fix releases. The order keeps that run as its proof,
    which ends the five-minute line by [Clocks](#clocks): a builder's `DONE` on the `fix`, `stop` or
    `rollback` part keeps it, and a hand repair gets `drive order set <o> --proof <that run>` first.
-   On an order with a reporter this report's handler then posts the fix-live note in the thread the
+   On an order with a reporter this report's handler then posts the fix-live note in each thread the
    bug was reported in, by [messages.md](messages.md).
 5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
@@ -446,8 +446,8 @@ The steps, in order:
    affected users' runs succeed, not that a monitor went quiet.
 
 Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
-the thread and its reporter, if any, has heard, which takes it off the dashboard's top strip, since
-the strip counts only open incidents and bug reports whose reporter has not heard.
+the thread and its reporters, if any, have heard, which takes it off the dashboard's top strip, since
+the strip counts only open incidents and bug reports a reporter of which has not heard.
 
 The watch sends step 8 itself once the incident's fix is live, read fresh each pass and never
 latched. Live means no job on a `fix` part of its orders still works, no PR of one is open, and

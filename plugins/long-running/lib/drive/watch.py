@@ -1176,32 +1176,35 @@ def incident_prs(data: dict, group: list[str], registered: dict[str, list[str]])
     )
 
 
-def owes_tell(order: dict, moment: datetime) -> bool:
-    """Whether the thread an order's reporter asked in is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded."""
-    reporter = order["reporter"]
+def owed_reporters(order: dict, moment: datetime) -> list[dict]:
+    """Each reporter whose thread is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded."""
     moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
-    return bool(reporter and state.may_tell(order) and not reporter["told"] and not reporter["tell_said"] and moment - state.parse_time(moved) >= TELL_AFTER)
+    if not (state.may_tell(order) and moment - state.parse_time(moved) >= TELL_AFTER):
+        return []
+    return [held for held in state.untold_reporters(order) if not held["tell_said"]]
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each open order proven live, or whose answer is posted, whose reporter's thread has not heard it ten minutes on, said once."""
+    """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
     data = state.load(watcher.name)
-    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owes_tell(order, moment)]):
+    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(order, moment)]):
         return []
     lines = []
     with state.edit(watcher.name) as data:
         for order_id in owing:
-            reporter = data["orders"][order_id]["reporter"]
-            reporter["tell_said"] = state.stamp(moment)
+            owed = owed_reporters(data["orders"][order_id], moment)
+            for held in owed:
+                held["tell_said"] = state.stamp(moment)
             answered = data["orders"][order_id]["kind"] == "answer"
-            happened, heard, note = (
-                ("its answer is posted", "its question was asked in, has not heard the answer", "the answer")
+            happened, asked, heard, note = (
+                ("its answer is posted", "its question was asked in", "the answer", "the answer")
                 if answered
-                else (f"its fix is proven live by {cut(data['orders'][order_id]['proof'], 160)}", "its bug was reported in, has not heard it is fixed", "the fix-live note")
+                else (f"its fix is proven live by {cut(data['orders'][order_id]['proof'], 160)}", "its bug was reported in", "it is fixed", "the fix-live note")
             )
+            threads = f"the thread {asked}, has not heard {heard}" if len(owed) == 1 else f"the threads {asked}, have not heard {heard}"
             lines.append(
-                f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {reporter['link']}, the thread {heard}:"
-                f" send its report with --attr close={order_id}, whose handler posts {note} there and records it with"
+                f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {' and '.join(held['link'] for held in owed)}, {threads}:"
+                f" send its report with --attr close={order_id}, whose handler posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
                 f" drive order told {order_id} <its permalink>; done refuses until then"
             )
     return lines

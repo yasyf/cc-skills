@@ -396,6 +396,17 @@ def test_an_order_an_older_install_saved_with_a_bare_thread_reads_as_the_channel
     assert [state.promise_thread(order) for order in orders.values()][3:] == [("C0822AHFY3G", "1794493064.110609")] * 2 + [None, ("C0822AHFY3G", "1794493064.110609")]
 
 
+def test_an_order_an_older_install_saved_with_one_reporter_reads_as_a_list_of_that_reporter_and_one_with_none_as_no_reporters(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    told = state.reporter("slack:C0REPORTS01/1794400100.000200") | {"told": "https://acme.slack.com/archives/C0REPORTS01/p1794418000000100"}
+    older = {field: value for field, value in state.new_order("fix it", "terminal", None, {"fix it": state.new_part()}, state.stamp()).items() if field != "reporters"}
+    data["orders"] = {"o1": older | {"reporter": told}, "o2": older | {"reporter": None}}
+    state.create(data)
+    orders = state.load("demo")["orders"]
+    assert [(orders[order_id]["reporters"], "reporter" in orders[order_id]) for order_id in ("o1", "o2")] == [([told], False), ([], False)]
+
+
 @pytest.mark.parametrize(
     ("source", "message"),
     [

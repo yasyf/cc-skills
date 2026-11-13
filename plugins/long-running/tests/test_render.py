@@ -28,7 +28,7 @@ def order(
         "jobs": jobs or [],
         "parts": {},
         "proof": None,
-        "reporter": None,
+        "reporters": [],
         "note": None,
         "created": created,
         "updated": created,

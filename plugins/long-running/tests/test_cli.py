@@ -742,13 +742,13 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     assert run(*filed, "what is left there", "--from", f"slack:C0BUGS1/{report}/{reply}", "--kind", "answer") == (0, "o3")
     data = state.load("demo")
     orders = data["orders"]
-    assert orders["o1"]["reporter"] == state.reporter(f"slack:C0BUGS1/{report}")
+    assert orders["o1"]["reporters"] == [state.reporter(f"slack:C0BUGS1/{report}")]
     assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
     assert orders["o1"]["due"] and limits.his_words(orders["o1"]) == "fix this"
-    assert [(orders[order_id]["reporter"], state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [(None, ("C0BUGS1", report))] * 2
+    assert [(orders[order_id]["reporters"], state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report))] * 2
     slack_thread.messages[0] |= {"from_bot": True}
     assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
-    assert state.load("demo")["orders"]["o4"]["reporter"] is None
+    assert state.load("demo")["orders"]["o4"]["reporters"] == []
 
 
 def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(
@@ -6473,6 +6473,38 @@ def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is
     assert [state.load("demo")["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["done", "done"]
 
 
+def test_a_second_report_of_the_same_bug_joins_its_order_and_each_thread_hears_the_fix_once_before_the_order_closes(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    second = "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189"
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--thread", "1794200000.000100", "--reporter", REPORTED)
+    for link in (second, "slack:C0REPORTS01/1794400100.000200"):
+        run("order", "set", "o1", "--reporter", link)
+    assert [held["link"] for held in state.load("demo")["orders"]["o1"]["reporters"]] == [REPORTED, second]
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"30": {"close": "o1"}})
+    run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
+    owed = "owed its fix-live note now, since its fix is proven live"
+    assert f", reported in {REPORTED}, {owed}, reported in {second}, {owed}:" in run("order", "show", "o1")[1]
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "30"]) == 2
+    assert f"o1: refused, its bug was reported in {REPORTED} and {second}, and no fix-live note there is recorded." in capsys.readouterr().err
+    monkeypatch.setattr(slack, "group_dm", {"U0REPORTER": "C0GROUPDM1"}.get)
+    slack_thread.messages.append({"ts": "1794600000.000100", "from_claude": True})
+    grouped = "https://acme.slack.com/archives/C0GROUPDM1/p1794600000000100"
+    assert cli.main(["order", "told", "o1", grouped, "--group-dm", "U0REPORTER"]) == 2
+    assert f"o1: refused, {REPORTED} and {second} have not heard, so name whose group DM the note went to with --reporter" in capsys.readouterr().err
+    assert run("order", "told", "o1", grouped, "--group-dm", "U0REPORTER", "--reporter", second) == (0, f"o1: told in the group DM of U0REPORTER, him and the bot, {grouped}")
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "30"]) == 2
+    assert f"o1: refused, its bug was reported in {REPORTED}, and no fix-live note there is recorded." in capsys.readouterr().err
+    note = note_in(slack_thread, "1794600060.000100")
+    assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
+    assert f", reported in {REPORTED}, told it is fixed in {note}, reported in {second}, told it is fixed in {grouped}:" in run("order", "show", "o1")[1]
+    assert run("order", "set", "o1", "--state", "done", "--record", "30")[0] == 0
+
+
 def test_his_order_to_keep_answering_a_teammates_thread_keeps_that_thread_on_the_order_from_its_filing_and_a_link_naming_no_thread_is_refused(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6515,7 +6547,7 @@ def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_
     his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
     assert run("order", "set", "o2", "--no-reporter", ours)[0] == 2
     assert run("order", "set", "o2", "--no-reporter", his)[0] == 0
-    assert state.load("demo")["orders"]["o2"]["reporter"] is None
+    assert state.load("demo")["orders"]["o2"]["reporters"] == []
 
 
 def test_a_question_a_teammate_asked_him_that_he_shares_reaches_them_once_its_answer_is_posted_to_him_and_its_order_closes_only_then(
@@ -6671,7 +6703,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     order = state.load(demo)["orders"]["o1"]
-    assert not watch.owes_tell(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert not watch.owed_reporters(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
     note = note_in(slack_thread, "1794418000.000100")
     assert cli.main(["order", "told", "o1", note]) == 2
     assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
@@ -6679,7 +6711,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
     run("job", "report", "j1", "-")
     order = state.load(demo)["orders"]["o1"]
     assert order["state"] != "done" and not order["proof"]
-    assert watch.owes_tell(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert watch.owed_reporters(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
     assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
 
 

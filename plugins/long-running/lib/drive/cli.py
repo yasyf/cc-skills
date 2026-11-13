@@ -67,7 +67,8 @@ REPORTER_HELP = (
     " from the share or link in his words: its thread gets one note, a bug report's once the fix is proven live and a question's once"
     " the answer is posted, and done refuses until drive order told records it; on order add, default: the thread a teammate started"
     " outside his DM that the --from message is in, with no --thread, on an order neither an answer, a watch nor an incident, whose"
-    " lines then go to his DM"
+    " lines then go to his DM; on order set, another reporter kept beside those the order holds, such as a second teammate's report of"
+    " the same bug, so each thread hears its own note"
 )
 WATCH_HELP = (
     "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
@@ -304,7 +305,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "due": due_stamp(args.due) if args.due else None,
             "promised": created if args.due else None,
             "alerts": alerts,
-            "reporter": reported,
+            "reporters": [reported] if reported else [],
             "watch": watched,
             "incident": args.incident or bool(joined and joined["incident"]),
             "kind": joined["kind"] if joined else "build" if args.incident else args.kind,
@@ -621,15 +622,17 @@ def order_set(args: argparse.Namespace) -> int:
     """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
-    unreported = his_words(args.no_reporter, "take the reporter off an order") if args.no_reporter else None
+    unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
     data = state.load(name)
     refuse_unreworkable(data, args.rework)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
-    reporter = None if unreported else state.reporter(args.reporter) if args.reporter else order["reporter"]
+    added = state.reporter(args.reporter) if args.reporter else None
+    held = {(kept["channel"], kept["thread"]) for kept in order["reporters"]}
+    reporters = [] if unreported else [*order["reporters"], added] if added and (added["channel"], added["thread"]) not in held else order["reporters"]
     watched = state.new_watch(args.watch, state.now()) if args.watch else None
-    if args.state == "done" and reporter and not reporter["told"]:
-        raise DriveError(untold(args.id, order | {"reporter": reporter}))
+    if args.state == "done" and state.untold_reporters(order | {"reporters": reporters}):
+        raise DriveError(untold(args.id, order | {"reporters": reporters}))
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
@@ -735,7 +738,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.complex is not None:
             order["complex"] = args.complex
         if args.reporter or unreported:
-            order["reporter"] = reporter
+            order["reporters"] = reporters
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
             order[field] = (getattr(args, field) or "").strip() or None
@@ -768,17 +771,18 @@ def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> 
 
 
 def untold(order_id: str, order: dict) -> str:
-    """Why an order with a reporter may not close done yet: the thread its bug was reported in has not heard it is fixed, or the thread its question was asked in has not heard the answer."""
-    reporter = order["reporter"]
+    """Why an order with reporters may not close done yet: a thread its bug was reported in has not heard it is fixed, or a thread its question was asked in has not heard the answer."""
+    unheard = [held["link"] for held in state.untold_reporters(order)]
+    links, there = " and ".join(unheard), "that thread" if len(unheard) == 1 else "each of those threads"
     if order["kind"] == "answer":
         heard = (
-            f"its question was asked in {reporter['link']}, and no note of its answer there is recorded. Once the answer is posted, the"
-            f" handler of a report on it posts the answer in one plain line in that thread with slack_reply"
+            f"its question was asked in {links}, and no note of its answer there is recorded. Once the answer is posted, the"
+            f" handler of a report on it posts the answer in one plain line in {there} with slack_reply"
         )
     else:
         heard = (
-            f"its bug was reported in {reporter['link']}, and no fix-live note there is recorded. Once drive order set {order_id} --proof"
-            " <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in that thread with"
+            f"its bug was reported in {links}, and no fix-live note there is recorded. Once drive order set {order_id} --proof"
+            f" <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in {there} with"
             " slack_reply saying what is fixed and since when"
         )
     return (
@@ -786,7 +790,7 @@ def untold(order_id: str, order: dict) -> str:
         " when the bot cannot post in that thread, it posts the note as usual to the reporter's Slack user id, which opens the group DM"
         " of that person, him and the bot, and records it with --group-dm <that user id>."
         f" The coordinator, which posts nothing, sends that report with --attr close={order_id}, and drive order set {order_id}"
-        " --no-reporter <his message> takes the reporter off when he says not to tell them"
+        " --no-reporter <his message> takes the reporters off when he says not to tell them"
     )
 
 
@@ -915,16 +919,13 @@ def merged_read(link: str) -> dict:
 
 
 def order_told(args: argparse.Namespace) -> int:
-    """Record the one note the thread an order's reporter asked in gets, a bug report's once the fix is proven live and a question's once the answer is posted: the drive's post in that thread, or, when the bot cannot post there, its post in the group DM of the reporter, him and the bot."""
+    """Record the one note the thread one of an order's reporters asked in gets, a bug report's once the fix is proven live and a question's once the answer is posted: the drive's post in that thread, or, when the bot cannot post there, its post in the group DM of that reporter, him and the bot."""
     name = state.resolve(args.drive)
     data = state.load(name)
     order = communicators_order(data, args.id)
-    if not (reporter := order["reporter"]):
+    if not order["reporters"]:
         raise DriveError(f"{args.id} names no one to tell: drive order set {args.id} --reporter <their message's permalink> names them")
     asked = order["kind"] == "answer"
-    if reporter["told"]:
-        heard = "the thread its question was asked in heard the answer" if asked else "the thread its bug was reported in heard it is fixed"
-        raise DriveError(f"{args.id}: refused, {heard} once, in {reporter['told']}, and hears it only once")
     if not state.may_tell(order):
         if asked:
             raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
@@ -936,15 +937,38 @@ def order_told(args: argparse.Namespace) -> int:
     channel = state.CARD_LINK.search(args.link)[1]
     if args.group_dm and not (posted.get("from_claude") and slack.group_dm(args.group_dm) == channel):
         raise DriveError(f"{args.link} is not the drive's post in the group DM of {args.group_dm}, him and the bot, the one cc-slack opens for channel_id {args.group_dm}")
-    if not args.group_dm and (not posted.get("from_claude") or (channel, posted.get("thread_ts")) != (reporter["channel"], reporter["thread"])):
-        raise DriveError(
-            f"{args.link} is not the drive's post in {reporter['link']}, the thread the {'question was asked' if asked else 'bug was reported'} in;"
-            " when the bot cannot post there, the note goes to the group DM of the reporter, him and the bot: pass the reporter's Slack user id with --group-dm"
-        )
+    place = told_reporter(args, order, (channel, posted.get("thread_ts")) if posted.get("from_claude") else None)
+    if told := order["reporters"][place]["told"]:
+        heard = "the thread its question was asked in heard the answer" if asked else "the thread its bug was reported in heard it is fixed"
+        raise DriveError(f"{args.id}: refused, {heard} once, in {told}, and hears it only once")
     with state.edit(name) as data:
-        data["orders"][args.id]["reporter"]["told"] = args.link
+        data["orders"][args.id]["reporters"][place]["told"] = args.link
     where = f"told in the group DM of {args.group_dm}, him and the bot" if args.group_dm else "told in the reporter's thread"
     return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "group_dm": args.group_dm})
+
+
+def told_reporter(args: argparse.Namespace, order: dict, where: tuple[str, str | None] | None) -> int:
+    """The place among an order's reporters of the one a note tells: the reporter whose thread the drive's post is in, or with --group-dm the one --reporter names, else the only one untold."""
+    threads = [(held["channel"], held["thread"]) for held in order["reporters"]]
+    if not args.group_dm:
+        if where in threads:
+            return threads.index(where)
+        links = " or ".join(held["link"] for held in order["reporters"])
+        raise DriveError(
+            f"{args.link} is not the drive's post in {links}, the thread the {'question was asked' if order['kind'] == 'answer' else 'bug was reported'} in;"
+            " when the bot cannot post there, the note goes to the group DM of the reporter, him and the bot: pass the reporter's Slack user id with --group-dm"
+        )
+    if args.reporter:
+        named = state.reporter(args.reporter)
+        if (named["channel"], named["thread"]) not in threads:
+            raise DriveError(f"--reporter {args.reporter}: refused, {args.id} holds no reporter of that thread")
+        return threads.index((named["channel"], named["thread"]))
+    if len(unheard := [place for place, held in enumerate(order["reporters"]) if not held["told"]]) > 1:
+        raise DriveError(
+            f"{args.id}: refused, {' and '.join(order['reporters'][place]['link'] for place in unheard)} have not heard,"
+            " so name whose group DM the note went to with --reporter <their message's permalink>"
+        )
+    return unheard[0] if unheard else 0
 
 
 def slack_user(text: str) -> str:
@@ -4421,7 +4445,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the order's parts, replacing its list")
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
-    reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporter; the order then closes done with no note to them")
+    reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporters; the order then closes done with no note to them")
     verb.add_argument("--watch", metavar="LINK", help=f"{WATCH_HELP}; it replaces any thread the order watched, reading only messages newer than now")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
@@ -4480,9 +4504,9 @@ def parser() -> argparse.ArgumentParser:
         "told",
         parents=both,
         help=(
-            "the communicator's handler posted the one note the order's reporter gets in the thread of their message, or in the group DM of"
-            " the reporter, him and the bot when the bot cannot post there: a bug's fix-live note once its proof is kept, or a question's"
-            " answer once it is posted to him; done refuses until then"
+            "the communicator's handler posted the one note each of the order's reporters gets in the thread of their message, or in the"
+            " group DM of that reporter, him and the bot when the bot cannot post there: a bug's fix-live note once its proof is kept, or a"
+            " question's answer once it is posted to him; done refuses until each is recorded"
         ),
     )
     verb.add_argument("id", help="the order")
@@ -4492,6 +4516,11 @@ def parser() -> argparse.ArgumentParser:
         metavar="USER",
         type=slack_user,
         help="the reporter's Slack user id: the bot cannot post in the reporter's thread, so the note went to the group DM of that person, him and the bot",
+    )
+    verb.add_argument(
+        "--reporter",
+        metavar="LINK",
+        help="with --group-dm, the message of the reporter whose group DM the note went to, needed while more than one of the order's reporters is untold",
     )
     verb.set_defaults(run=order_told)
     verb = order.add_parser("show", parents=both, help="drive status for these ids")
