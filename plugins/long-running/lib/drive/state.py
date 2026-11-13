@@ -72,7 +72,6 @@ RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITI
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<files>[/~]\S*(?: [/~]\S*)*)")
-FORK = re.compile(r"^Fork:[ \t]*([/~]\S*)", re.MULTILINE)
 PUSHED_LINE = re.compile(r"PUSHED\b")
 POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
 REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
@@ -933,7 +932,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, a WAITING names something the watch frees it on, and a design lane's DESIGN names on each Fork: line a question drive job ask kept for it."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, and a WAITING names something the watch frees it on."""
     job = data["jobs"][job_id]
     if job["state"] == "stopped":
         return (
@@ -954,8 +953,6 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n> or a PR the drive"
             f" tracks, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
-    if job["kind"] == "design" and line.startswith("DESIGN") and (unkept := [path for path in FORK.findall(report) if not kept_question(job, Path(path).expanduser())]):
-        return f"its Fork: line names {unkept[0]}, which keeps no question of {job_id} his card can draw: keep it with drive job ask {job_id} <file> and name the path it prints"
     return fix_refusal(data, job_id, line, report)
 
 
@@ -1008,10 +1005,6 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
     if unknown := fix_named(data, data["jobs"][job_id]["order"], fixes[-1])[2]:
         return f"its FIX line names {', '.join(unknown)}, neither an order of the drive nor a GitHub PR link: name each fix by its order id or PR link, comma-separated, or say FIX none"
     return None
-
-
-def kept_question(job: dict, file: Path) -> bool:
-    return bool((question := kept_in(job, file)) and not question["refused"])
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:

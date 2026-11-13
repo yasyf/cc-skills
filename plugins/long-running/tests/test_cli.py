@@ -75,7 +75,6 @@ Design: one copy per store, in the order the stores list
 Native: none: he never sees it
 Exists: none: ccx code search "store copy" and rg store_copy found nothing
 Change: copy each store in list order
-Fork: none: one layout fits
 Facts: lib/drive/state.py:18
 """
 DESIGNED_IN_CHANGES = DESIGNED.replace(
@@ -3783,19 +3782,15 @@ def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and
     assert [(drawn["job"], drawn["waits"]) for drawn in cards_drawn] == [("j1", "demo:j1-7")] * 2
 
 
-def test_a_design_lanes_design_names_on_each_fork_line_a_question_it_kept(
+def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder_waits_on_that_card(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    unkept = state.drive_dir("demo") / "asks" / "j1-0123abcd.md"
-    code, err = keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits", f"Fork: {unkept}"))
-    assert (code, f"j1: refused, nothing kept: its Fork: line names {unkept}, which keeps no question of j1 his card can draw" in err) == (2, True)
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     block = tmp_path / "fork.md"
     block.write_text(SHORT_ASK)
-    asked = run("job", "ask", "j1", str(block))[1].splitlines()[0]
-    assert keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits", f"Fork: {asked}")) == (0, "")
+    run("job", "ask", "j1", str(block))
+    assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     jobs = state.load("demo")["jobs"]
     assert (jobs["j1"]["said"], jobs["j2"]["state"], jobs["j2"]["waits"]) == ("carried by builder j2", "waiting", [jobs["j1"]["questions"][0]["waits"]])
 
@@ -3866,9 +3861,8 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert (
         "j1: refused, nothing kept: a design lane's report is the design in its shape, which the coordinator reads for its"
         " forks, and this one lacks a first line DESIGN <the part>, a Root cause: line, a Settled: line, a Native: line, an Exists: line,"
-        " a Change: line, a Fork: line, a Facts: line"
+        " a Change: line, a Facts: line"
     ) in err
-    assert "this one lacks a Fork: line: DESIGN <the part" in keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits\n", ""))[1]
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert (state.load("demo")["jobs"]["j1"]["state"], state.load("demo")["jobs"]["j1"]["said"]) == ("done", "carried by builder j2")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy again")
