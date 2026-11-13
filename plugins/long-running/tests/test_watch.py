@@ -2436,7 +2436,7 @@ def test_an_unchecked_pr_whose_builder_returned_starts_one_check_against_his_wor
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], watch.run_pass(watching, T0 + timedelta(minutes=7)), checkers) == ("aaaaaaa111", [], [KEY, KEY])
 
 
-def test_a_green_approved_pr_gets_no_ready_and_no_card_while_the_check_at_its_head_runs_or_said_not_ready_and_one_once_its_new_head_is_checked(
+def test_a_green_approved_pr_gets_no_card_while_the_check_at_its_head_runs_and_one_once_it_said_not_ready_or_its_new_head_is_checked(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, ready_records: list[list[dict]]
 ) -> None:
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
@@ -2452,13 +2452,13 @@ def test_a_green_approved_pr_gets_no_ready_and_no_card_while_the_check_at_its_he
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     refused = watch.run_pass(watching, T0 + timedelta(minutes=2)) + watch.run_pass(watching, T0 + timedelta(minutes=3))
     assert any(line.startswith(f"PR {KEY}: NOT READY: ") for line in refused)
-    assert (DRAWING in refused, ready_records, checkers) == (False, [], [KEY])
+    assert (DRAWING in refused, len(ready_records), checkers) == (True, 1, [KEY])
     reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
-    assert (DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=4)), ready_records, checkers) == (False, [], [KEY, KEY])
+    assert (DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=4)), len(ready_records), checkers) == (False, 1, [KEY, KEY])
     judge.against = []
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     assert DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=5))
-    [[record]] = ready_records
+    [_, [record]] = ready_records
     assert (record["kind"], state.load(demo)["prs"][KEY]["checked"]["head"]) == ("ready", "bbbbbbb222")
 
 
