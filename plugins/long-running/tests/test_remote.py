@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LIVE_WORKER, Drawing, cloned, git_in, staged
-from drive import cli, github, orca, place, reads, render, state, view, watch
+from drive import cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -1253,7 +1253,6 @@ def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str,
     assert relaunches == ["j1"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0)})
-    assert view.owned(job) is False
     assert "lane dead since" in render.job_line("j1", job)
 
 
@@ -1613,7 +1612,7 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
     required = {"context": "buildkite/test", "state": "SUCCESS", "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
     pr_reads["Forge-AI/monorepo#7"] = {
         "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "baseRefName": "dev", "headRefName": "fix-x", "mergeCommit": None, "checks": [required], "reviewDecision": None,
-        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"],
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"], "required_reviews": 1,
     }
     assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
 

@@ -14,7 +14,7 @@ FIELDS = (
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
 )
-RULES = "defaultBranchRef { rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } } } } }"
+RULES = "defaultBranchRef { rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } ... on PullRequestParameters { requiredApprovingReviewCount } } } } }"
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
@@ -186,8 +186,14 @@ def rule_checks(repository: dict) -> list[str]:
     return sorted({check["context"] for rule in rules if rule["type"] == "REQUIRED_STATUS_CHECKS" for check in rule["parameters"]["requiredStatusChecks"]})
 
 
+def rule_reviews(repository: dict) -> int:
+    """The approving reviews the rules of a repository's default branch require before merging, as GitHub's GraphQL answers RULES: 0 when no pull request rule names any."""
+    rules = repository["defaultBranchRef"]["rules"]["nodes"]
+    return max((rule["parameters"]["requiredApprovingReviewCount"] for rule in rules if rule["type"] == "PULL_REQUEST"), default=0)
+
+
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -202,6 +208,7 @@ def live(read: dict, stored: dict) -> dict:
         "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
         "native": [member for member, status in read["native"] if status != "closed"],
+        "reviews_required": read["required_reviews"],
     }
     if read["mergeable"] in CONFLICTS:
         fields["conflict"] = CONFLICTS[read["mergeable"]]
@@ -223,7 +230,7 @@ def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     found = repositories(payload, keys)
     return {
-        key: flatten(node) | {"native": entries(repo_of(key), node["stack"]) if node["stack"] else [], "required_checks": rule_checks(found[repo_of(key)])}
+        key: flatten(node) | {"native": entries(repo_of(key), node["stack"]) if node["stack"] else [], "required_checks": rule_checks(found[repo_of(key)]), "required_reviews": rule_reviews(found[repo_of(key)])}
         for key, node in nodes(payload, keys).items()
     }
 

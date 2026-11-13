@@ -232,7 +232,7 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
 fresh card only for a PR that asks his tap, by the same check that gives a card its Approve, so a post
 linking an exempt PR keeps its plain link. It is marked as its class wherever he sees it, and its
 order's thread gets one line naming the class and the PR, such as "port of #N landed." The drive's
-lander queues an exempt `Forge-AI/monorepo` PR once it is green, after checking it really is in its
+lander lands an exempt PR once it is green, after checking it really is in its
 class from its changed files, title and body at its head, by his ruling that the landing tool checks
 the class before it lands: no file that changes how data is stored for a `pure port`, only test and
 fixture files for `test-only` and `flake fix`, only CI files for `ci-only`, and no revert for an
@@ -280,30 +280,38 @@ lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` 
 approvals and queues it. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 one GitHub read, 60 seconds, of the PR getting there. It
-walks each stack his Approve touches bottom first, a native GitHub stack or PRs each on the one
-below's head branch, and lands its ready bottom. That bottom ends below the first PR that cannot
-land now, such as one red, held, in conflict or still waiting on his Approve. The PRs
-above it wait. Each other PR of his card lands in a call of its own, since `stack-enqueue`
-refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. A PR he
-approved that no lander holds for 10 minutes is a `TAP Approve <pr> not landed …` line naming the
-first condition that holds it, said again only when that condition changes.
-His Approve lands the PR whatever the check of its change against his words says, whatever head he
-tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
+walks each stack his Approve touches, a native GitHub stack or PRs each on the one below's head
+branch, and lands it whole once every PR of it is ready; while one cannot land now, such as one red,
+held, in conflict or still waiting on his Approve, each other PR of it reads `behind` it. Each other PR of his card lands in a call of its own, since `stack-enqueue`
+refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. What
+holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
+watch wakes, and its deadline wakes that owner again.
+His Approve is one field on the PR, kept on every PR of the landing unit his card drew and cleared
+only by his Hold, and it lands the PR at its first green head whatever the check of its change
+against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
-line goes to the session holding its order, which has its builder change it. Each head gets one try, but a try that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that head did is said once. Its outcome comes back as the PR's line: `PR … queued for merge`
-wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
-holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
-His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. A PR of
-another `Forge-AI` repository is enqueued by its handoff builder:
+line goes to the builder answering for the PR through `drive pr wake`. His order to merge a PR as it
+stands is his Approve. Each head gets one try, but a try that could make no fresh worktree of the default
+branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander
+tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that
+head did is said once. Its outcome comes back as the PR's stage:
+`landing` while Trunk holds it, and `unlanded`, a lander's try that ended without queueing it, with
+`UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
+every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
+His `TAP Approve` line itself wakes no session: a red PR's stage wakes its builder.
 
-    .agents/skills/submit-pr/scripts/stack-enqueue <PR>...
-
-It enqueues the largest green, approved, unheld bottom of the stack in one call, never an unnamed PR,
-and reads the queue back. `--check` previews the gate; `--watch` keeps enqueueing as the stack turns
-green. The `landing_guard` hook refuses an enqueue missing an open PR of his card's stack; once part
-lands, run `ccx vcs stack submit` for the rest. The lander runs outside any Claude session, so no hook
-sees it: it checks his tap and his open cards itself, from the drive's state.
+**The same lander lands every other repository the drive tracks**, such as `Forge-AI/litestream`, by
+the coordinator's finding that approved `litestream` PRs had no owner: once his Approve or an exempt
+class clears a PR and its stage reads `ready`, it merges the stack's bottom PR alone with
+`gh pr merge --squash --match-head-commit <head>`, which GitHub merges only at the head the stage read
+and only once that repository's rules pass, then the next PR once it reads `ready` on the new base. The
+approving reviews a PR needs come from the pull request rule of its repository's default branch, as
+GitHub's GraphQL `requiredApprovingReviewCount` reads it: `Forge-AI/monorepo` requires one, so a green
+head forge-pr-reviewer approved nothing on is `red` until its findings are answered, and a repository
+whose rules require none lands at green with no review. The lander runs outside any Claude session,
+so no hook sees it: it checks his tap and his open cards itself, from the drive's state, and refuses a
+PR the drive does not track, naming `drive pr add`.
 
 **The queue is the only way in**, because every other way skips the checks it runs: the `landing_guard`
 hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `merge`/`merge-fast` label.

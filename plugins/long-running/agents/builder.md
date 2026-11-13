@@ -133,7 +133,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    a gap that is a design fork goes back as `ASK`.
 6. Open the PR the repository's way (its own submit wrapper, otherwise the `open-pr` skill; a hook refuses a bare `gh pr create`), with the
    title and body below, and register it: `drive pr add <url> --job <your job id>`, which records it
-   waiting on his tap. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
+   waiting on his tap and draws his card on it at once. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
    `--no-tap --why "<reason>"` for a PR its author lands outside `Forge-AI`, where only his tap or an
    exempt class lands one.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
@@ -145,16 +145,18 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    back as `PR … READY refused, its required <check> failed at <head>
    (<build>)`, and `drive job report` refuses a `READY` while one is pending or red. It keeps your
    report whatever the change holds: the watch's check alone judges each PR his card waits on, at
-   each new head once you return, its title and diff and never its body, against the words of the
+   each new head whatever your job's state, its title and diff and never its body, against the words of the
    order it serves, the one `drive pr set --serves` names or else your order and every order your
    job carries, for the parts the PR carries, those `drive pr set --part` names or else your job's,
    and each answer of his your `DESIGN:` line names by id or card permalink, read whole, after
    listing each change the diff makes to what already exists, before and after. Its `NOT READY`
-   comes back to you naming each of his words the change goes against, and each change to what
+   comes back to you through `drive pr wake` naming each of his words the change goes against, and each change to what
    exists they do not need: change the PRs to his words, put back what they did not ask to change,
-   push and return `PUSHED` again, or `ASK` for a reading his words leave open. The watch draws his
-   card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
-   gets the coordinator's check against the old PR instead. A body is fixed beside
+   push and return `PUSHED` again, or `ASK` for a reading his words leave open. His card, up
+   since `drive pr add`, shows the PR's stage whatever its body says, and while it is red the watch
+   wakes its builder with the stage line through `drive pr wake` at once and every 30 minutes, a
+   fresh builder when your lane has ended; a port gets the coordinator's check against the old PR
+   instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
    it holds no card, tap, enqueue or merge. His order reworking the PR took its card down; your
    `READY` brings a fresh one up, its `CHANGE:` line saying how his words are met, and
@@ -390,7 +392,7 @@ listing decisions that block nothing is not a result.
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
 | `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch's check judges its change against his words at its head. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
-| `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
+| `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; his card, drawn at `drive pr add`, shows it ready for his Approve. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. On an open incident, the moment the fork shows, then build its recommended option once resumed. |

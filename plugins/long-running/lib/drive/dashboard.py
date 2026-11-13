@@ -22,7 +22,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import artifacts, card, github, install, picture, review, slack, state, view
+from drive import (
+    artifacts,
+    card,
+    github,
+    install,
+    picture,
+    review,
+    slack,
+    stage,
+    state,
+    view,
+)
 from drive.card import body_of, sections
 from drive.state import DriveError
 
@@ -144,11 +155,14 @@ def relay(text: str, under: str) -> dict:
     return cc_slack("dm-relay", "--text", text, *(["--under", under] if under else []))
 
 
-def pr_read(key: str, entry: dict) -> dict | None:
-    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it; None for a PR GitHub refuses that was never read."""
+def pr_read(name: str, key: str) -> dict | None:
+    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it, its stage as his card on it draws; None for a PR GitHub refuses that was never read."""
+    data = state.load(name)
+    entry = data["prs"][key]
     if not (pr := card.read(key, entry)):
         return None
-    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, entry)["prs"][0]}
+    now = stage.on_card(data, key, view.live_cards(name))
+    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, entry | {"now": now})["prs"][0]}
 
 
 @functools.cache
@@ -461,7 +475,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(403, {"error": NOT_OWNER})
             elif key not in board.heads:
                 self.answered(404, {"error": f"{key} is not an open PR of this drive"})
-            elif read := pr_read(key, state.load(board.name)["prs"][key]):
+            elif read := pr_read(board.name, key):
                 self.answered(200, read)
             else:
                 self.answered(502, {"error": f"{key}: GitHub refused the read and it was never read before"})

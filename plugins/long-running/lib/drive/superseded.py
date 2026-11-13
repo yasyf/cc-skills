@@ -43,7 +43,7 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
             }
     for key, pr in data["prs"].items():
         card = view.card_for(found["pr_cards"], pr["url"])
-        if view.waits_on_tap(pr, card):
+        if view.waits_on_tap(pr):
             asked[key] = {
                 "kind": "tap",
                 "title": view.pr_title(pr),

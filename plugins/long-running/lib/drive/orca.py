@@ -713,15 +713,10 @@ def answer(drive: str, job: dict, text: str) -> str:
                 raise
         else:
             return f"answered its question {job['ask']}"
-    call(
-        "send",
-        "--to",
-        f"dispatch:{job['dispatch']}",
-        "--run",
-        job["run"],
-        "--subject",
-        "From the coordinator",
-        "--body",
-        text,
-    )
+    return send(job, "From the coordinator", text)
+
+
+def send(job: dict, subject: str, text: str) -> str:
+    """Send the text to the lane's Dispatch as a message, which neither answers nor clears a question it asked."""
+    call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text)
     return f"sent to dispatch {job['dispatch']}"

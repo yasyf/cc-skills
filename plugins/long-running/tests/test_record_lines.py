@@ -137,43 +137,26 @@ def test_a_jobs_second_question_from_a_remote_lane_goes_out_on_the_new_file_driv
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 
 
-def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is_refused_and_a_line_saying_he_tapped_it_goes_out(
+def test_a_ready_record_is_refused_since_drive_pr_add_and_the_watch_draw_his_card_and_a_line_saying_he_tapped_a_pr_goes_out(
     run: Callable[..., tuple[int, str]], demo: str
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the update button")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "4a4d1f0aa1", "checked": {"head": "4a4d1f0aa1", "orders": ["o1"], "patch": ""}}
-    assert record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)) is None
-    with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}}
-    reason = refusal(record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)))
-    assert "Forge-AI/monorepo#4242: he tapped Approve at " in reason
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {
+            "head": "4a4d1f0aa1",
+            "tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"},
+        }
+    for ready in (
+        post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO),
+        post(kind="ready", text="#4244 is ready", attrs={"order": "o1"}),
+        post(kind="ready", text="Drive tooling: the watch reads taps", to=META),
+    ):
+        assert refusal(record_lines.decision(ready)) == record_lines.READY_GONE
     for said in ("carries his Approve tap", "he tapped Approve at `6:40 PM`", "his approval landed at `6:40 PM`"):
-        for to in (["root@demo"], META):
-            assert record_lines.decision(post(kind="ready", text=f"land it, his order o1: {said}", pr=[TAPPED], to=to)) is None
         assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
     for said in ("no longer waits on his tap", "he did tap Approve", "he tapped Approve"):
         assert record_lines.decision(post(kind="report", text=f"FYI {TAPPED} {said}", to=["root@demo"])) is None
-
-
-def test_a_ready_record_for_a_pr_whose_change_at_its_head_nobody_checked_against_his_words_is_refused_naming_its_orders_holder(
-    run: Callable[..., tuple[int, str]], demo: str
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the update button")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "ebc103801ea6", "checked": {"head": "4a4d1f0aa1", "orders": ["o1"], "patch": ""}}
-        data["orders"]["o1"]["owner"] = "communicator"
-    ready = post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)
-    reason = refusal(record_lines.decision(ready))
-    assert reason.startswith(
-        "refused: this ready record asks his tap on Forge-AI/monorepo#4242 at ebc1038 (order o1, held by the communicator), whose change at that head is not checked against his words"
-    )
-    assert "The watch's drive pr check judges it once its builder returns" in reason
-    with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"]["checked"]["head"] = "ebc103801ea6"
-    assert record_lines.decision(ready) is None
 
 
 TO = ["communicator@demo"]
@@ -230,21 +213,6 @@ def test_an_ask_naming_no_job_is_refused(demo: str) -> None:
     asked = kept(demo, "j750", IDLE)
     assert refusal(record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": asked["ask"]}))) == settled.UNJOBBED
     assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked)) is None
-
-
-def test_a_ready_record_says_which_kind_its_prs_are(demo: str) -> None:
-    assert "his order o<n>" in refusal(record_lines.decision(post(kind="ready", text="#4244 is ready", pr=[TAPPED])))
-    for text in ("#4244, his order o284, is ready", "Drive tooling: the watch reads taps", "port of #4100"):
-        assert record_lines.decision(post(kind="ready", text=text)) is None
-
-
-def test_a_ready_record_naming_its_order_takes_its_kind_from_that_order(run: Callable[..., tuple[int, str]], demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
-    made = record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o1"}))
-    assert made["updatedInput"]["text"] == '#4244 is ready; his order o1 "ship the fix"'
-    assert record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o2"}))["updatedInput"]["text"] == "#4244 is ready; Drive tooling: fix ask"
-    assert "his order o<n>" in refusal(record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o9"})))
 
 
 def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:

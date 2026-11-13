@@ -22,7 +22,9 @@ from drive import (
     served,
     settled,
     slack,
+    stage,
     state,
+    talk,
     view,
     watch,
 )
@@ -406,6 +408,37 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
 
     monkeypatch.setattr(slack, "redraw_pr_cards", redraw)
     return redrawn
+
+
+@dataclass
+class Draws:
+    keys: list[list[str]] = field(default_factory=list)
+    failure: str | None = None
+    link: str = "https://forge.slack.com/archives/D123/p1794379200123456"
+
+
+@pytest.fixture(autouse=True)
+def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
+    drew = Draws()
+
+    def draw(name: str, keys: list[str]) -> str:
+        drew.keys.append(list(keys))
+        if drew.failure:
+            raise slack.SlackError(drew.failure)
+        with state.edit(name) as data:
+            for key in keys:
+                data["prs"][key]["card"] = drew.link
+        return drew.link
+
+    monkeypatch.setattr(talk, "draw", draw)
+    return drew
+
+
+@pytest.fixture(autouse=True)
+def woken(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(stage, "wake", lambda name, key, text: sent.append((key, text)))
+    return sent
 
 
 @pytest.fixture(autouse=True)

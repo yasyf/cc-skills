@@ -321,8 +321,8 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from
             ],
         )
     ]
-    with pytest.raises(DriveError, match="a ready goes through the cci `post` tool"):
-        tools.run("record", demo, {"records": [{"kind": "ready", "text": "Land #4"}]})
+    with pytest.raises(DriveError, match="a report goes through the cci `post` tool"):
+        tools.run("record", demo, {"records": [{"kind": "report", "text": "Land #4"}]})
     with pytest.raises(DriveError, match="a card of drive other, not demo"):
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "waits": "other:j2-7"}]})
     with pytest.raises(DriveError, match="name records"):

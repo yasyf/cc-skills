@@ -233,9 +233,8 @@ question.
   waiting, is one `LANE … died` line.
 - A running job's dead lane is relaunched in the pass that finds it: the watch runs
   `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
-  its `LANE … died` line says so. A PR's move to a waiting remote lane goes the same way, as
-  `drive job resume <j> "<the lines>" --handed`, whose refusal comes back as a `JOB` line carrying
-  the lines. While its job stays `running`, a lane that finished, or ended with
+  its `LANE … died` line says so. A PR's next step goes to its lane by `drive pr wake`, as its
+  stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
   `ORPHAN`s even when another job or a posted answer carries them. So does an open PR from GitHub on
   the job's branch or its lane's that the drive does not track.

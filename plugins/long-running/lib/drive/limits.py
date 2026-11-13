@@ -1391,7 +1391,7 @@ def tap_owed_not(pr: dict) -> str:
 
 
 def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
-    """Why a PR card, or the ready record to the communicator that draws one, asking him to tap each PR it names by what it is, names one the drive records as owing no tap."""
+    """Why a PR card asking him to tap each PR it names by what it is, names one the drive records as owing no tap."""
     folded = {key.casefold(): (key, pr) for key, pr in prs.items()}
     named = dict.fromkeys(f"{owner}/{name}#{number}".casefold() for owner, name, number in [*PR_URL.findall(text), *PR_KEY.findall(text)])
     found = [f"{key}: {why}" for each in named if each in folded for key, pr in [folded[each]] if (why := tap_owed_not(pr))]

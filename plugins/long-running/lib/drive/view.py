@@ -202,26 +202,6 @@ def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
     ]
 
 
-def owned(job: dict) -> bool:
-    """Whether a PR's job holds it: a running builder whose lane lives owns its pushes and CI, and a job asking him holds its PR."""
-    return job["state"] == "running" and not state.lane_death(job) or bool(open_cards(job))
-
-
-def unblocked(pr: dict, data: dict, cards: dict | None, reviews: tuple[str, ...] = ("approved",)) -> bool:
-    """Whether a PR is open, green and approved, or in another of reviews, not held, with nothing it waits on holding it."""
-    green = pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] in reviews and not held(pr)
-    return green and not holding(data, pr["waits"], cards)
-
-
-def next_step(pr: dict, data: dict, cards: dict | None) -> bool:
-    """Whether a PR waits on its next step alone: unblocked, and its job not holding it."""
-    return unblocked(pr, data, cards) and not owned(data["jobs"][pr["job"]])
-
-
-def held(pr: dict) -> bool:
-    return (pr.get("tap") or {}).get("label") == "Hold" or pr["hold_label"]
-
-
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
     """The waits of a job or PR that still hold: each of his cards still open, each job not finished, each PR still open, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
@@ -309,7 +289,12 @@ def tap_of(pr: dict) -> str | None:
         return None
     if pr["hold_label"]:
         return "labeled"
-    return {"card": "wanted", "reworking": "reworking"}.get(state.owed_step(pr))
+    return {"card": "wanted", "uncarded": "wanted", "rework": "reworking"}.get(stage_name(pr))
+
+
+def stage_name(pr: dict) -> str | None:
+    """The PR's stage as the watch last kept it from stage.of."""
+    return (pr["stage"] or {}).get("name")
 
 
 def pr_entry(pr: dict) -> dict:
@@ -332,9 +317,9 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
     return next((card for card in reversed(pr_cards) if url in card["prs"]), None)
 
 
-def waits_on_tap(pr: dict, card: dict | None) -> bool:
-    asked = state.owed_step(pr) == "card" and not pr.get("tap") and not pr["hold_label"] and not pr["waits"] and pr["state"] == "open"
-    return asked and (pr["checks"] == "pass" or card is not None)
+def waits_on_tap(pr: dict) -> bool:
+    """Whether the PR waits on his tap alone, as its stage the watch last kept says: green and unapproved."""
+    return pr["state"] == "open" and stage_name(pr) == "card"
 
 
 def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]) -> str | None:
@@ -373,8 +358,8 @@ def tap_detail(pr: dict) -> str:
     checks = {"pass": "green", "fail": "red", "pending": "CI running"}.get(pr["checks"], "no CI")
     review = {"approved": "approved", "stale": "approved on an older head", "changes": "changes requested"}.get(pr["review"], "no review yet")
     changed = f"; changed since your tap: {pr['fundamental']}" if pr.get("fundamental") else ""
-    reworking = "; being reworked to his words, card down until its builder's READY" if state.owed_step(pr) == "reworking" else ""
-    return f"{checks}, {review}{changed}{reworking}"
+    now = f"; {pr['stage']['name']}, owed by {pr['stage']['owner']}: {pr['stage']['why']}" if pr["stage"] and pr["stage"].get("why") else ""
+    return f"{checks}, {review}{changed}{now}"
 
 
 def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict], asker: str | None) -> dict:
@@ -469,7 +454,7 @@ def is_late(order: dict, moment: datetime) -> bool:
 
 
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> list[dict]:
-    taps = [(pr, card) for pr in drive["prs"].values() if waits_on_tap(pr, card := card_for(found["pr_cards"], pr["url"]))]
+    taps = [(pr, card_for(found["pr_cards"], pr["url"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
     late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
@@ -682,7 +667,7 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
 def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
     card = card_for(found["pr_cards"], pr["url"])
     order = drive["orders"].get(pr["order"]) or {}
-    group = "decided" if pr.get("tap") else "you" if waits_on_tap(pr, card) else "not ready"
+    group = "decided" if pr.get("tap") else "you" if waits_on_tap(pr) else "not ready"
     return {
         "key": key,
         "title": pr_title(pr),
@@ -695,7 +680,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "checks": pr["checks"],
         "review": pr["review"],
         "tap": tap_of(pr),
-        "stuck": pr.get("stuck"),
+        "stage": pr["stage"],
         "since": card["asked"] if card else None,
         "updated": pr["updated"],
         "card": card["card"] if card else None,
@@ -794,7 +779,7 @@ def holdup(drive: dict, entry: dict, found: dict) -> dict | None:
             return waits_on("no job has started on it yet")
     if entry["cards"]:
         return waits_on(f"waits on your answer to {entry['cards'][0]['title']}", card=entry["cards"][0]["url"])
-    if tap := next(((key, pr) for key, pr in prs if waits_on_tap(pr, card_for(found["pr_cards"], pr["url"]))), None):
+    if tap := next(((key, pr) for key, pr in prs if waits_on_tap(pr)), None):
         return waits_on(f"waits on your tap on #{tap[0].partition('#')[2]}", pr=tap[0], url=tap[1]["url"])
     if checking := next(((key, pr) for key, pr in prs if pr["checks"] == "pending"), None):
         return waits_on(f"waits on #{checking[0].partition('#')[2]}'s checks", pr=checking[0], url=checking[1]["url"])

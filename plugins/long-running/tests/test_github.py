@@ -13,7 +13,7 @@ GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test"
 RULED = {
     "rules": {
         "nodes": [
-            {"type": "PULL_REQUEST", "parameters": {}},
+            {"type": "PULL_REQUEST", "parameters": {"requiredApprovingReviewCount": 1}},
             {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}, {"context": GATE}]}},
             {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}]}},
             {"type": "NON_FAST_FORWARD", "parameters": None},
@@ -48,7 +48,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "required_checks": [], **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "required_checks": [], "required_reviews": 0, **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -74,6 +74,10 @@ def test_fetch_asks_each_repositorys_default_branch_rules_once_in_the_same_query
     FETCH(["b/two#7", "a/one#1", "a/one#2"])
     assert (len(sent), sent[0].count(github.RULES), sent[0].count("defaultBranchRef")) == (1, 2, 2)
     assert 'r0: repository(owner: "a", name: "one") { defaultBranchRef { rules(first: 50)' in sent[0]
+
+
+def test_rule_reviews_reads_the_approvals_a_default_branchs_pull_request_rule_requires_and_none_without_one() -> None:
+    assert (github.rule_reviews({"defaultBranchRef": RULED}), github.rule_reviews({"defaultBranchRef": UNRULED})) == (1, 0)
 
 
 def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,6 +120,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "labels": [],
             "native": [],
             "required_checks": [GATE, "buildkite/test"],
+            "required_reviews": 1,
         },
         "a/one#2": {
             "state": "MERGED",
@@ -133,6 +138,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "labels": ["hold"],
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
             "required_checks": [GATE, "buildkite/test"],
+            "required_reviews": 1,
         },
     }
 
@@ -248,6 +254,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "author": "yasyf",
         "hold_label": False,
         "native": ["a/one#1", "a/one#3"],
+        "reviews_required": 0,
         "conflict": True,
         "required": {"checks": "none", "failed": {}},
     }

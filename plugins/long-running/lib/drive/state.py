@@ -479,8 +479,13 @@ def load(name: str) -> dict:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
-        pr.setdefault("ready_said", None)
+        for gone in ("ready_said", "stuck", "unchecked"):
+            pr.pop(gone, None)
+        pr.setdefault("stage", None)
+        pr.setdefault("card", None)
+        pr.setdefault("added", None)
         pr.setdefault("native", [])
+        pr.setdefault("reviews_required", 1)
         pr.setdefault("base", None)
         pr.setdefault("branch", None)
         pr.setdefault("lander", None)
@@ -765,7 +770,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for key in named_prs(data, job["order"], line):
             if rework := data["prs"][key]["rework"]:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
-                data["prs"][key].update(rework=None, fundamental=changed, ready_said=None, updated=job["updated"])
+                data["prs"][key].update(rework=None, fundamental=changed, updated=job["updated"])
     end_carried_designs(data, job["order"], job["updated"])
 
 
@@ -1685,12 +1690,15 @@ def change_wait_refusal(data: dict, waits: list[str]) -> str | None:
 def wait_on_change(data: dict, job_id: str, key: str) -> None:
     """Each unfinished job waiting on the change job_id builds waits on its first PR, key, in that wait's place, so it is free once that PR merges or closes, and the waits line an unstarted job was given names the PR."""
     for waiting in data["jobs"].values():
-        if job_id not in waiting["waits"] or waiting["state"] in FINISHED_JOB_STATES:
-            continue
-        said = f"waits on {', '.join(waiting['waits'])}"
-        waiting["waits"] = list(dict.fromkeys(key if wait == job_id else wait for wait in waiting["waits"]))
-        if waiting["said"] == said:
-            waiting["said"] = f"waits on {', '.join(waiting['waits'])}"
+        if job_id in waiting["waits"] and waiting["state"] not in FINISHED_JOB_STATES:
+            rewait(waiting, list(dict.fromkeys(key if wait == job_id else wait for wait in waiting["waits"])))
+
+
+def rewait(owner: dict, waits: list[str]) -> None:
+    """Give a job or PR its waits, and a job whose line is still the waits line hold_unstarted gave it that line for the waits left, or none once nothing holds it, so its line never names a wait that ended."""
+    if owner.get("said") == f"waits on {', '.join(owner['waits'])}":
+        owner["said"] = f"waits on {', '.join(waits)}" if waits else None
+    owner["waits"] = waits
 
 
 def merges_untapped(key: str) -> bool:
@@ -1742,21 +1750,12 @@ def drop_pr(data: dict, key: str) -> None:
     """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, and its place in each stack a card drew; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
     url = data["prs"].pop(key)["url"]
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
-        owner["waits"] = [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)]
+        rewait(owner, [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)])
     for job in data["jobs"].values():
         job["prs"] = [held for held in job["prs"] if held != url]
     for pr in data["prs"].values():
         if pr.get("stack") and key in pr["stack"]:
             pr["stack"] = [member for member in pr["stack"] if member != key]
-
-
-def owed_step(pr: dict) -> str | None:
-    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework to an order of his until the builder's READY says how his words are met, nothing when its author or its own builder lands it, and else his card."""
-    if pr.get("exempt"):
-        return "landing"
-    if pr["rework"]:
-        return "reworking"
-    return "card" if pr["wants_tap"] else None
 
 
 def order_served(pr: dict) -> str:
@@ -1765,16 +1764,16 @@ def order_served(pr: dict) -> str:
 
 
 def card_unit(key: str, stack: tuple[str, ...], pr: dict) -> tuple[tuple[str, ...], str, str]:
-    """The card a PR draws on, the one rule the watch's ready record and `drive card` share: the stack his Approve lands it with, a native GitHub stack or PRs each on the one below's head branch, or for a PR in none, its repository's PRs serving its order, so sibling PRs of one order ready together draw one card."""
+    """The card a PR draws on, the one rule `drive card` and the watch's draw of an uncarded PR share: the stack his Approve lands it with, a native GitHub stack or PRs each on the one below's head branch, or for a PR in none, its repository's PRs serving its order, so sibling PRs of one order ready together draw one card."""
     return (stack, "", "") if stack else ((), key.split("#")[0], order_served(pr))
 
 
 def served_orders(data: dict, pr: dict) -> list[str]:
-    """The orders whose words a PR's change is checked against: the one `drive pr set --serves` names alone, else its job's own and each its job carries."""
+    """The orders whose words a PR's change is checked against: the one `drive pr set --serves` names alone, else its job's own, the order of every other job carrying it, a builder that took the PR over included, and each order those jobs carry."""
     if pr.get("serves"):
         return [pr["serves"]]
-    job = data["jobs"][pr["job"]]
-    return list(dict.fromkeys([pr["order"], job["order"], *job["carries"]]))
+    jobs = [data["jobs"][pr["job"]], *(job for job_id, job in data["jobs"].items() if job_id != pr["job"] and pr["url"] in job["prs"])]
+    return list(dict.fromkeys([pr["order"], *(order_id for job in jobs for order_id in (job["order"], *job["carries"]))]))
 
 
 def checked(data: dict, pr: dict) -> bool:
@@ -1795,16 +1794,13 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve, so no fresh card draws for it; None when it does: open, his card owed, and neither his tap, Approve or Hold, nor the hold label on it, whatever the check against his words says."""
+    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Approve, his Hold nor the hold label on it, whatever the check against his words says. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
-    match owed_step(pr):
-        case "landing":
-            return f'its exempt class "{pr["exempt"]}" lands it with no tap'
-        case "reworking":
-            return "it is being reworked to his words"
-        case None:
-            return "its author or its own builder lands it with no tap"
+    if pr.get("exempt"):
+        return f'its exempt class "{pr["exempt"]}" lands it with no tap'
+    if not pr["wants_tap"]:
+        return "its author or its own builder lands it with no tap"
     match (pr["tap"] or {}).get("label"):
         case "Approve":
             return "he approved it already"
@@ -1820,9 +1816,9 @@ def asks_tap(pr: dict) -> bool:
 
 
 def rework(pr: dict, by: str, words: str) -> None:
-    """Mark a PR reworked to his words, by his order or answer: no card, ready or tap of his stands on it until its builder's READY says how they are met."""
+    """Mark a PR reworked to his words, by his order or answer, until its builder's READY says how they are met; his Approve stands, and lands the reworked change once the check against his words passes it."""
     at = stamp()
-    pr.update(rework={"by": by, "words": words, "at": at}, tap=None, ready_said=None, updated=at)
+    pr.update(rework={"by": by, "words": words, "at": at}, updated=at)
 
 
 def rework_reason(pr: dict) -> str:
@@ -1847,14 +1843,15 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "review": "none",
         "conflict": False,
         "hold_label": False,
-        "ready_said": None,
         "native": [],
+        "reviews_required": 1,
         "base": None,
         "branch": None,
         "draft": False,
         "merged_sha": None,
-        "stuck": None,
-        "unchecked": None,
+        "stage": None,
+        "card": None,
+        "added": stamp(),
         "waits": [],
         "lander": None,
         "checker": None,

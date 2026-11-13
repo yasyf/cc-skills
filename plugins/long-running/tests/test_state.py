@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import state
+from drive import stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -615,7 +615,7 @@ MONOREPO = "Forge-AI/monorepo"
 
 def test_a_new_pr_waits_on_his_tap() -> None:
     pr = state.new_pr(state.pr_url(f"{MONOREPO}#1"), "j1", "o1")
-    assert (pr["wants_tap"], state.owed_step(pr)) == (True, "card")
+    assert (pr["wants_tap"], stage.carded(pr)) == (True, True)
 
 
 def kept_prs() -> dict:
@@ -657,9 +657,9 @@ def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_h
     pr = data["prs"][f"{MONOREPO}#4289"]
     pr["tap"] = {"label": "Approve", "at": state.stamp(REFERENCE), "head": "abc", "source": "slack"}
     state.rework(pr, "o227", "Topology should be local metadata")
-    assert (state.owed_step(pr), state.asks_tap(pr), pr["tap"]) == ("reworking", False, None)
+    assert (bool(pr["rework"]), state.asks_tap(pr), pr["tap"]["label"]) == (True, False, "Approve")
     state.take_result(data, "j9", "READY #4289", "READY #4289\nPR: #4289\nCHANGE: topology moves to the session's meta table")
-    assert (state.owed_step(pr), pr["rework"]) == ("card", None)
+    assert (stage.carded(pr), pr["rework"]) == (True, None)
     assert pr["fundamental"] == 'Reworked to your words "Topology should be local metadata": topology moves to the session\'s meta table'
 
 
@@ -668,7 +668,7 @@ def test_a_readers_ready_on_a_pr_reworked_to_his_words_leaves_it_reworking() -> 
     state.rework(data["prs"][f"{MONOREPO}#4289"], "o227", "Topology should be local metadata")
     data["jobs"]["j740"] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
     state.take_result(data, "j740", "READY #4289")
-    assert state.owed_step(data["prs"][f"{MONOREPO}#4289"]) == "reworking"
+    assert data["prs"][f"{MONOREPO}#4289"]["rework"]["by"] == "o227"
 
 
 def test_a_pushed_line_settles_only_on_a_read_after_it_was_taken_and_holds_on_a_required_check_still_running_or_red() -> None:

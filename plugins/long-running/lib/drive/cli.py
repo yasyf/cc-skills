@@ -227,28 +227,22 @@ def fresh_pr_cards(name: str) -> list[dict]:
 
 
 def rework_prs(name: str, urls: list[str], by: str, words: str) -> list[str]:
-    """Mark the open drive PRs reworked to his words and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason: no card, ready or tap of his stands on one until its builder's READY says how his words are met; a withdrawal that fails goes again on the watch's next read."""
+    """Mark the open drive PRs reworked to his words and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason, by his words "So why isn't this card withdrawn then? And why do I have to keep asking that?": no card asks his tap on one until its builder's READY says how his words are met, while his Approve stands; the watch wakes its builder with his words, and withdraws again a card whose withdrawal failed."""
     with state.edit(name) as data:
         keys = [key for key in dict.fromkeys(map(state.pr_key, urls)) if key in data["prs"] and data["prs"][key]["state"] == "open"]
         for key in keys:
             state.rework(data["prs"][key], by, words)
     lines = [f"{key} reworked to {by}: its card stays down until its builder's READY says how his words are met" for key in keys]
-    return lines + state.after_save(name, lambda: withdrawn_cards(name, {key: data["prs"][key] for key in keys}))
+    return lines + state.after_save(name, lambda: [said for key in keys for said in withdrawn_card(name, key)])
 
 
-def withdrawn_cards(name: str, prs: dict[str, dict]) -> list[str]:
-    from drive import view
+def withdrawn_card(name: str, key: str) -> list[str]:
+    from drive import talk
 
-    lines = []
-    for key, pr in prs.items():
-        reason = state.rework_reason(pr)
-        try:
-            lines += [f"withdrew his card {card}: {reason}" for card in slack.withdraw_pr_card(pr["url"], reason)]
-        except slack.SlackError as error:
-            lines.append(f"{key}: withdrawing its card failed, so the watch withdraws it on its next read: {error}")
-    if prs:
-        view.refresh_cards(name)
-    return lines
+    try:
+        return [f"withdrew his card {card}: {state.rework_reason(state.load(name)['prs'][key])}" for card in talk.withdraw(name, key)]
+    except slack.SlackError as error:
+        return [f"{key}: withdrawing its card failed, so the watch withdraws it on its next read: {error}"]
 
 
 def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[str]]:
@@ -1316,7 +1310,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
                 if question["waits"] == waits:
                     question["card"] = url
         for owner in [*data["jobs"].values(), *data["prs"].values()]:
-            owner["waits"] = list(dict.fromkeys(url if view.message_key(wait) in moved else wait for wait in owner["waits"]))
+            state.rewait(owner, list(dict.fromkeys(url if view.message_key(wait) in moved else wait for wait in owner["waits"])))
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -1665,6 +1659,11 @@ def job_report(args: argparse.Namespace) -> int:
         line = whole.strip().splitlines()[0].strip()
         if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or limits.typed_time(whole, data):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
+        try:
+            registered = register_named(name, args.id, line)
+        except DriveError as error:
+            raise DriveError(f"{args.id}: refused, nothing kept: drive pr add refuses a PR its first line names: {error}") from None
+        data = state.load(name)
         if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
             raise DriveError(f"{args.id}: refused, nothing kept: {held}")
         asked = decided = None
@@ -1680,7 +1679,7 @@ def job_report(args: argparse.Namespace) -> int:
         kept = str(state.replies_path(name, args.id))
         merging = merge_reported(name, args.id)
         shown = f"{kept}\n{decided}" if decided else f"{kept}\nits ASK is kept in {asked}, the path its ask record names" if asked else kept
-        shown = "\n".join([shown, *(f"{key}: {said}" for key, said in merging)])
+        shown = "\n".join([shown, *registered, *(f"{key}: {said}" for key, said in merging)])
         return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging)})
     text = state.report_text(name, args.id)
     if not text and not job["said"]:
@@ -1688,6 +1687,21 @@ def job_report(args: argparse.Namespace) -> int:
     if not text:
         return emit(args, f"{job['said']}\n({args.id} kept no report; this one-line result is all it returned)", {"id": args.id, "report": None, "said": job["said"]})
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
+
+
+def register_named(name: str, job_id: str, line: str) -> list[str]:
+    """Register on a builder each PR its READY or PUSHED names by link that the drive does not track yet, as drive pr add does, drawing his card on each that waits on his tap, so every PR a result names is staged, carded and landed like one its builder added; what came of each. A PR drive pr add refuses raises its refusal."""
+    data = state.load(name)
+    if data["jobs"][job_id]["kind"] != "builder" or not state.REPORTED_LINE.match(line):
+        return []
+    tracked = {key.casefold() for key in data["prs"]}
+    added = []
+    for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(line)):
+        if key.casefold() in tracked:
+            continue
+        pr = add_pr(name, key, job_id, github_pr(key))
+        added.append(f"{key}: registered on {job_id}{drawn_card(name, key, pr)}")
+    return added
 
 
 def unready(data: dict, job: dict, line: str) -> str | None:
@@ -1866,16 +1880,8 @@ def job_launch(args: argparse.Namespace) -> int:
 
 
 def job_resume(args: argparse.Namespace) -> int:
-    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, an answer to an open question that names `LOG <url>`s carrying those logs ahead of the text, read here as the watch reads them; else in the handoff of its next worker. A resume the watch handed it a PR's move with records a refusal as an event, which wakes the coordinator with the lines it carried."""
-    name = state.resolve(args.drive)
-    try:
-        return relaunch(args, name, args.text)
-    except DriveError as error:
-        if args.handed:
-            data = state.load(name)
-            order = data["jobs"][args.id]["order"]
-            state.append_event(name, "resume", job=args.id, order=order, text=args.text, error=str(error), lane=state.heard_lane(data, order))
-        raise
+    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, an answer to an open question that names `LOG <url>`s carrying those logs ahead of the text, read here as the watch reads them; else in the handoff of its next worker."""
+    return relaunch(args, state.resolve(args.drive), args.text)
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
@@ -2175,14 +2181,53 @@ def pr_add(args: argparse.Namespace) -> int:
     if args.no_tap and state.guarded(key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
     pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap)
+    drawn = drawn_card(name, key, pr)
+    pr = state.load(name)["prs"][key]
     merging = dict(merge_reported(name, args.job)).get(key)
     if merging is None:
-        return emit(args, key, {"key": key, **pr})
-    return emit(args, f"{key}: {merging}", {"key": key, **pr, "merging": merging})
+        return emit(args, f"{key}{drawn}", {"key": key, **pr})
+    return emit(args, f"{key}{drawn}: {merging}", {"key": key, **pr, "merging": merging})
+
+
+def drawn_card(name: str, key: str, pr: dict) -> str:
+    """Draw his card on a PR waiting on his tap in the call that registers it, so no session's turn stands between the PR and his card; what came of it. A draw that fails leaves its stage uncarded, which the watch draws on its next read."""
+    from drive import stage, talk
+
+    if not stage.carded(pr) or pr["card"] or pr["tap"]:
+        return ""
+    try:
+        return f", his card {talk.draw(name, [key])}"
+    except (slack.SlackError, DriveError) as error:
+        return f", his card not drawn yet, so the watch draws it on its next read: {error}"
+
+
+def pr_wake(args: argparse.Namespace) -> int:
+    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent."""
+    from drive import stage, view
+
+    name = state.resolve(args.drive)
+    key = state.pr_key(args.url)
+    data = state.load(name)
+    if args.text is None and (cards := view.live_cards(name)) is None:
+        raise DriveError(f"{key}: his cards could not be read, so its stage is unknown; pass --text")
+    text = args.text or stage.line(key, data["prs"][key], stage.of(data, key, cards))
+    job_id = stage.owner_job(data, key)
+    job = data["jobs"][job_id]
+    if job.get("dispatch"):
+        end = orca.lane_end(job)
+        if end:
+            return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end)
+        how = orca.send(job, f"{key}: its next step is yours", text)
+        return emit(args, f"{key}: {job_id} {how}", {"key": key, "job": job_id, "how": how})
+    lane = state.holder_lane(data["orders"][job["order"]]) or "root"
+    said = f"STAGE {text}; its builder {job_id} is agent {job.get('agent')} of session {job.get('session')}: send it this line"
+    topic = f"wake-{key}-{data['prs'][key]['head'][:10]}"
+    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "handoff", "--to", f"{lane}@{name}", "--topic", topic, "--text", said], Path(data["roles"]["coordinator"]["cwd"]))
+    return emit(args, f"{key}: sent to {lane}@{name} for {job_id}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does."""
     url = state.pr_url(key)
     refuse_an_unkinded_title(key, read, port_of)
     refuse_third_person(key, read)
@@ -2249,7 +2294,7 @@ def his_link(text: str) -> str:
 
 
 def pr_set(args: argparse.Namespace) -> int:
-    from drive import view
+    from drive import stage, view
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
@@ -2316,8 +2361,6 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_a_port_storing_data(key, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
             refuse_an_exempt_revert(known, key, order, read)
-    if args.tap or args.serves or args.design:
-        refuse_an_undrawable_tap(key, args)
     serving = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
@@ -2343,7 +2386,10 @@ def pr_set(args: argparse.Namespace) -> int:
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
-    line = render.pr_line(key, pr, view.pr_card_words(found if source == "live" else None, source, pr["url"])) + serving + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
+    found = found if source == "live" else None
+    now = state.load(name)
+    stage.shown(now, found)
+    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -2461,13 +2507,11 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.port_of:
         pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
     if args.tap is not None:
-        pr.update(wants_tap=args.tap, ready_said=None)
-    if args.serves or args.design:
-        pr["ready_said"] = None
+        pr["wants_tap"] = args.tap
     if args.serves or args.design or args.part:
         pr["checker"] = None
     if args.fundamental:
-        pr.update(fundamental=args.fundamental, tap=None, exempt=None, wants_tap=True, ready_said=None)
+        pr.update(fundamental=args.fundamental, exempt=None, wants_tap=True)
     if args.exempt:
         pr["exempt"] = args.exempt
     if args.no_exempt:
@@ -2479,21 +2523,6 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
         pr["tap"] = None
     pr["waits"] = merged_waits(pr, args)
     pr["updated"] = state.stamp()
-
-
-def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
-    from drive import card
-
-    known = card.drive_prs()
-    name, entry = find(known, key, "drive PR")
-    after = dict(entry)
-    set_pr(after, args)
-    if not after["wants_tap"]:
-        return
-    known[key] = (name, after)
-    members = card.group_of(known, key)
-    if reason := card.waiting(known, members):
-        raise DriveError(f"{key}: {reason}")
 
 
 def refuse_a_tap_of_his(name: str, key: str, tap: dict | None) -> None:
@@ -2918,7 +2947,7 @@ def only(data: dict, ids: list[str]) -> None:
 
 
 def status(args: argparse.Namespace) -> int:
-    from drive import view
+    from drive import stage, view
 
     name = state.resolve(args.drive)
     data = state.load(name)
@@ -2929,6 +2958,7 @@ def status(args: argparse.Namespace) -> int:
         question["card_state"] = view.card_words(found, source, question["card"] or question["waits"])
     for pr in data["prs"].values():
         pr["card_state"] = view.pr_card_words(found, source, pr["url"]) if pr["state"] == "open" else None
+    stage.shown(data, found)
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
     corrected = agents.corrections(name, data["held"])
@@ -3729,9 +3759,6 @@ def parser() -> argparse.ArgumentParser:
         type=lambda value: sys.stdin.read() if value == "-" else value,
         help="his answer, or the event the lane acts on next, or - to read it from stdin",
     )
-    verb.add_argument(
-        "--handed", action="store_true", help="the watch handed it a PR's move: a refusal is recorded as an event waking the coordinator with the text"
-    )
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
         "read",
@@ -3849,6 +3876,14 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("url", help="the PR's URL")
     verb.set_defaults(run=pr_check)
+    verb = pr.add_parser(
+        "wake",
+        parents=both,
+        help="what the watch starts on a PR whose stage its builder owes: send the builder answering for it its stage line, to its live lane without touching its job's ask or state, else to a fresh worker on its job",
+    )
+    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("--text", help="the line to send, the PR's stage line when left out")
+    verb.set_defaults(run=pr_wake)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
     verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock, a worker-start only until Orca takes its request, then bind the drive's own Run, which no lane mails")
