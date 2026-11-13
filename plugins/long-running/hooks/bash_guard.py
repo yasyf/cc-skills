@@ -43,6 +43,7 @@ FORGE_LOCATIONS = (
     "frg-core-usw2-artifacts-internal-release-artifacts/",
     "frg-core-usw2-audit-datadog-log-archive/",
     "frg-core-usw2-root-pulumi-state/",
+    "frg-plat-usw2-prod-desktop-release-origin/",
     "frg-plat-usw2-prod-microvm-artifacts/pass-box/",
     "frg-plat-usw2-staging-microvm-artifacts/pass-box/",
 )

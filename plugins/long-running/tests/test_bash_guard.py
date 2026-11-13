@@ -403,6 +403,7 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
         "aws s3 cp s3://frg-ci-cache/cache-seeds/ci-go-pointer/dev -",
         "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/latest.json -",
         "aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/stacks/api/",
+        "aws --profile plat-prod-read s3api list-objects-v2 --bucket frg-plat-usw2-prod-desktop-release-origin --prefix iris-desktop/by-key/",
         "AWS_PROFILE=plat-staging aws s3 presign s3://frg-plat-usw2-staging-microvm-artifacts/pass-box/searchbench/searchbench.gz --expires-in 1800 --region us-west-2",
         "AWS_PROFILE=plat-prod aws s3 cp s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz -",
         "AWS_PROFILE=plat-prod aws s3 cp ./ci-linux.gz s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz",
