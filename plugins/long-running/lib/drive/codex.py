@@ -99,10 +99,10 @@ def run_of(job: dict) -> Run:
     return Run(record["state"], Path(record["reply_file"]), Path(record["log_file"]))
 
 
-def take(name: str, data: dict, job_id: str, run: Run) -> None:
-    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
+def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
+    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line. Returns the builder state.fix_shipper added to ship an incident fix job's work, if any."""
     if data["jobs"][job_id]["state"] != "running":
-        return
+        return None
     report = ""
     if run.state == "completed":
         text = run.reply.read_text()
@@ -124,6 +124,7 @@ def take(name: str, data: dict, job_id: str, run: Run) -> None:
     else:
         line = f"BLOCKED codex-ask {run.state}: {last_line(run.log)}"
     state.take_result(data, job_id, line[:SAID_CHARS], report)
+    return state.fix_shipper(data, job_id)
 
 
 def last_line(log: Path) -> str:

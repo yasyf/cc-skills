@@ -144,6 +144,8 @@ sets failed on `BLOCKED codex-ask completed, its reply refused:` and why, with t
 failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
 going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
 `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
+On an open incident's `fix` whose fix is not live, the watch adds that builder at each return of
+the codex job and names it on a `JOB` line for the coordinator to start in that turn.
 
 The watch reads the agent's transcript, never the stored state, and takes no result. A running job
 whose agent ended its turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier

@@ -2162,6 +2162,20 @@ def incident_job(data: dict, name: str, order_id: str, part: str, created: str) 
     return f'{job_id} on "{part}": start it now with drive job launch {job_id} -, its brief on stdin ending Drive: {name}, order {order_id}, job {job_id}'
 
 
+def fix_shipper(data: dict, job_id: str) -> str | None:
+    """Add the builder that ships a codex job's fix once the watch took its return on an open incident's fix part whose fix is not recorded live, whatever the return says, since codex edits and Claude ships, by his pick "Drive starts a Claude builder on each fix lane return: guards keep running; costs one builder and a coordinator turn per fix": a builder on that part, in the codex job's session, on the brief its launch kept, handed its report; none while a second-lane builder agent holds the codex job, since that agent ships it."""
+    job = data["jobs"][job_id]
+    order_id = job["order"]
+    if job.get("agent") or not open_incidents(data, [order_id]) or data["orders"][order_id]["fixed"] or INCIDENT_FIX not in job_parts(job, order_id):
+        return None
+    builder_id = next_id(data["jobs"], "j")
+    briefed = f", on its brief {job['brief']}" if job.get("brief") else ""
+    flags = (job.get("brief_flags") or {}) | {"handoff": f"drive job report {job_id}, the codex fix job whose work this builder ships{briefed}"}
+    data["jobs"][builder_id] = new_job(order_id, "builder", job["goal"], [INCIDENT_FIX], stamp()) | {"session": job.get("session"), "brief_flags": flags}
+    data["orders"][order_id]["jobs"].append(builder_id)
+    return builder_id
+
+
 def promise_thread(order: dict) -> tuple[str, str] | None:
     """The channel and thread an order's lines go in, as the order keeps them, in his DM or a channel such as an alert's; None, his DM's root, for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
     return (order["thread"][0], order["thread"][1]) if order["thread"] and not in_reporter_thread(order) else None

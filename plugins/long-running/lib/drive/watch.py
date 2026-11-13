@@ -1483,8 +1483,8 @@ class Answered(str):
         made.run = run
         return made
 
-    def take(self, name: str, data: dict, job_id: str) -> None:
-        codex.take(name, data, job_id, self.run)
+    def take(self, name: str, data: dict, job_id: str) -> str | None:
+        return codex.take(name, data, job_id, self.run)
 
 
 def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -1527,6 +1527,19 @@ def codex_asks(name: str, job_id: str) -> list[str]:
         return [f"{head}; {said}"]
     kept, _, drawn = said.partition("\n")
     return [f"{head}; its ASK is kept in {kept}, {drawn}, and the recommended option it built ships meanwhile"]
+
+
+def fix_shipped(name: str, job_id: str, builder_id: str) -> str:
+    """The JOB line naming the builder state.fix_shipper added to ship a codex fix job's work, briefed here so the coordinator starts its agent in the turn this line wakes, or why its brief was not written."""
+    from drive import cli
+
+    job = state.load(name)["jobs"][job_id]
+    head = f'JOB {job_id} {job["order"]} {job["said"]}; its fix is not live, so {builder_id}, an Opus 5.5 long-running:builder the drive added on "{state.INCIDENT_FIX}" to ship it'
+    try:
+        started = cli.write_brief(name, builder_id, {})[0].splitlines()[0]
+    except cli.VERB_ERRORS as error:
+        return f"{head}, has no brief: {error}; brief it with drive job brief {builder_id}, then start its agent this turn"
+    return f'{head}: start its agent now, run_in_background, on the prompt "{started}"'
 
 
 def session_of(job: dict, data: dict) -> dict | None:
@@ -1656,9 +1669,9 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
     data = state.load(watcher.name)
-    gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, heads, found, taken, held, shippers, lines = {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -1729,11 +1742,13 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
             for job_id, gap in taken.items():
-                gap.take(watcher.name, data, job_id)
+                if builder_id := gap.take(watcher.name, data, job_id):
+                    shippers[job_id] = builder_id
             for job_id, (call, line) in held.items():
                 data["jobs"][job_id]["stuck_call"] = call
                 lines.append(line)
     lines += [line for job_id in taken for line in codex_asks(watcher.name, job_id)]
+    lines += [fix_shipped(watcher.name, job_id, builder_id) for job_id, builder_id in shippers.items()]
     watcher.made += lines
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
