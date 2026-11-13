@@ -857,14 +857,14 @@ def result_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, waiting on each PR and release a READY, PUSHED or WAITING line names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken, moment = result_state(job, line), stamp()
     job.update(state=taken, updated=moment, returned=moment)
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     if built := BUILT_LINE.match(line):
-        job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"])])))
+        job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)])))
     if waits := result_waits(data, job["order"], line):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     if waiting := WAITING_LINE.match(line):
@@ -892,6 +892,14 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
                 data["prs"][key].update(rework=None, fundamental=changed, updated=job["updated"])
     end_carried_designs(data, job["order"], job["updated"])
+
+
+def part_cards(data: dict, job_id: str) -> list[str]:
+    """Each open card of his that a job on any part this job delivers asked, by its link or else its waits id, as view.open_cards reads it: a builder built beside its reader's card waits on that card from the drive's records, never from how its line words it."""
+    from drive import view
+
+    job = data["jobs"][job_id]
+    return [card for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) for _, other in part_jobs(data, order_id, part) for card in view.open_cards(other)]
 
 
 def required_verdict(prs: dict[str, dict]) -> tuple[str, list[tuple[str, str]]]:

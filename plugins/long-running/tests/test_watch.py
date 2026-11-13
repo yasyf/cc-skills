@@ -1810,6 +1810,32 @@ def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_n
     ]
 
 
+@pytest.mark.parametrize(
+    ("builder", "reader", "said", "card"),
+    [
+        ("j2851", "j2848", "BUILT drive-refused-stack-merge, waits on j2848's card", "durable-agents:j2848-686260"),
+        ("j2846", "j2837", "BUILT long-running/repeat-tooling-orders-join, waits on j2837's card", "durable-agents:j2837-686130"),
+        ("j2900", "j2899", "BUILT drive/records-follow-job-session, waits on his o1018 card, j2899's DESIGN asking which session a coordinator's records reach", "durable-agents:j2899-687044"),
+    ],
+)
+def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whatever_words_its_line_names_it_in(
+    demo: str, monkeypatch: pytest.MonkeyPatch, builder: str, reader: str, said: str, card: str
+) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    with state.edit(demo) as data:
+        data["prs"].pop(KEY)
+        parts = data["jobs"].pop("j1")["parts"]
+        asked = state.new_question(f"/drive/asks/{reader}-ab.md", "Which shape?", state.stamp(T0)) | {"waits": card}
+        data["jobs"][reader] = job(kind="reader", state="done", parts=parts, questions=[asked])
+        data["jobs"][builder] = job(parts=parts)
+        data["orders"]["o1"]["jobs"] = [reader, builder]
+    with state.edit(demo) as data:
+        state.take_result(data, builder, said)
+        data["jobs"][builder]["updated"] = state.stamp(T0 - timedelta(minutes=10))
+    assert state.load(demo)["jobs"][builder]["waits"] == [card]
+    assert watch.run_pass(watcher(demo), T0) == []
+
+
 def test_a_refused_question_his_recorded_answer_since_settled_no_longer_waits_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     refused = "refused: his recorded answer 5630432 already decides this question."
