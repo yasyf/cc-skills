@@ -233,7 +233,7 @@ def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo:
     assert len(posts) == 2
 
 
-def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:
+def test_a_card_asked_again_with_new_words_moves_its_question_to_the_new_card_and_each_wait_on_it_to_its_waits_id(demo: str, posts: list[tuple[str, ...]]) -> None:
     other = "https://acme.slack.com/archives/D123/p1794300000000400"
     with state.edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp()) | {"waits": [CARD_URL, other]}
@@ -244,7 +244,7 @@ def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_i
     data = state.load(demo)
     jobs, prs = data["jobs"], data["prs"]
     assert jobs["j1"]["questions"][0]["card"] == POSTED
-    assert (jobs["j1"]["waits"], jobs["j2"]["waits"], prs["yasyf/cc-skills#7"]["waits"]) == ([POSTED, other], [POSTED], [other, POSTED])
+    assert (jobs["j1"]["waits"], jobs["j2"]["waits"], prs["yasyf/cc-skills#7"]["waits"]) == ([WAITS, other], [WAITS], [other, WAITS])
     talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
     assert (state.load(demo)["jobs"], state.load(demo)["prs"]) == (jobs, prs)
 
@@ -258,13 +258,13 @@ def test_a_question_card_returns_and_records_its_own_permalink(demo: str, posts:
     assert said(demo)[0]["card"] == POSTED
 
 
-def test_a_card_no_question_keeps_moves_each_wait_on_it_to_the_new_card_when_asked_again_with_new_words(demo: str, posts: list[tuple[str, ...]]) -> None:
+def test_a_card_no_question_keeps_moves_each_wait_on_it_to_its_waits_id_when_asked_again_with_new_words(demo: str, posts: list[tuple[str, ...]]) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the store", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"]["waits"] = [CARD_URL]
     talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
     data = state.load(demo)
-    assert (data["jobs"]["j2"]["waits"], data["prs"]["yasyf/cc-skills#7"]["waits"]) == ([POSTED], [POSTED])
+    assert (data["jobs"]["j2"]["waits"], data["prs"]["yasyf/cc-skills#7"]["waits"]) == ([WAITS], [WAITS])
 
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:

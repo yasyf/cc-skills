@@ -1030,6 +1030,8 @@ def job_add(args: argparse.Namespace) -> int:
 
 
 def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
+    from drive import view
+
     name = state.resolve(args.drive)
     created = state.stamp()
     if args.waits and args.agent:
@@ -1037,7 +1039,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     if args.lands and args.kind != "builder":
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
-    check_waits(name, args.waits)
+    found = check_waits(name, args.waits)
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
@@ -1064,7 +1066,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
-            "waits": list(dict.fromkeys(args.waits)),
+            "waits": view.stored_waits(data, args.waits, found),
         }
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
@@ -1162,7 +1164,7 @@ def job_set(args: argparse.Namespace) -> int:
             f" another job only as a build order's designer, builder or codex lane added waiting on its reader, drive job add <kind> --order <o>"
             f" --waits <the reader>; {instead}"
         )
-    check_waits(name, args.waits)
+    found = check_waits(name, args.waits)
     told_him(name, args)
     for order_id in args.carries:
         refuse_a_crossed_order(name, known, find(known["jobs"], args.id, "job")["order"], order_id, f"{args.id} --carries")
@@ -1176,7 +1178,7 @@ def job_set(args: argparse.Namespace) -> int:
         job.update({field: value for field, value in changes.items() if value is not None})
         if args.card:
             hold_card(job, args.card, shown)
-        job["waits"] = merged_waits(job, args)
+        job["waits"] = merged_waits(data, job, args, found)
         state.hold_unstarted(job)
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
@@ -1338,7 +1340,7 @@ def asked_on(name: str, waits: str) -> set[str]:
 
 
 def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
-    """Record the card cc-slack drew under the waits id as the card of each question asked under it, and point each wait of a job or PR on a card it was drawn on before at it: a card asked again with new words posts as a new card, its old one left pointing at it."""
+    """Record the card cc-slack drew under the waits id as the card of each question asked under it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again with new words posts as a new card, its old one left pointing at it."""
     from drive import view
 
     moved = asked - {view.message_key(url)}
@@ -1348,7 +1350,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
                 if question["waits"] == waits:
                     question["card"] = url
         for owner in [*data["jobs"].values(), *data["prs"].values()]:
-            state.rewait(owner, list(dict.fromkeys(url if view.message_key(wait) in moved else wait for wait in owner["waits"])))
+            state.rewait(owner, list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in owner["waits"])))
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -2546,7 +2548,7 @@ def pr_set(args: argparse.Namespace) -> int:
             f'--waits {", ".join(cards)}: {key} is {order}\'s immediate fix, which lands at once while his cards on the proper fix stay'
             " open, and the proper fix's PR replaces it"
         )
-    check_waits(name, args.waits)
+    found = check_waits(name, args.waits)
     try:
         shipped = {wait: shipping for wait in args.waits if (shipping := view.shipped_by(known, wait))}
     except github.GithubError as error:
@@ -2566,6 +2568,7 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.serves:
             serving = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args)
+        pr["waits"] = merged_waits(data, pr, args, found)
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
     untapped = ""
@@ -2669,11 +2672,12 @@ def correct_card(name: str, key: str, url: str, stored: str, unshown: str, shows
     return f"\nredrawing in place the {redrawing} open card(s) of his carrying it, {shows}" if redrawing else ""
 
 
-def check_waits(name: str, waits: list[str]) -> None:
+def check_waits(name: str, waits: list[str]) -> dict | None:
+    """Refuse a wait that names nothing the drive can wait on, and give back his cards as last stored, which view.stored_waits reads each card's waits id from."""
     from drive import view
 
     if not waits:
-        return
+        return None
     data = state.load(name)
     for wait in waits:
         pr = release["pr"] if (release := state.RELEASE_WAIT.fullmatch(wait)) else wait
@@ -2694,6 +2698,7 @@ def check_waits(name: str, waits: list[str]) -> None:
             )
     if refused := unreached(name, data, waits):
         raise DriveError(f"--waits {refused}")
+    return found
 
 
 def unreached(name: str, data: dict, waits: list[str]) -> str | None:
@@ -2722,8 +2727,10 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
     return None
 
 
-def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:
-    return list(dict.fromkeys([*([] if args.no_waits else owner["waits"]), *args.waits]))
+def merged_waits(data: dict, owner: dict, args: argparse.Namespace, found: dict | None) -> list[str]:
+    from drive import view
+
+    return view.stored_waits(data, [*([] if args.no_waits else owner["waits"]), *args.waits], found)
 
 
 def set_pr(pr: dict, args: argparse.Namespace) -> None:
@@ -2750,7 +2757,6 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
         pr["fundamental"] = None
     if args.no_tapped:
         pr["tap"] = None
-    pr["waits"] = merged_waits(pr, args)
     pr["updated"] = state.stamp()
 
 

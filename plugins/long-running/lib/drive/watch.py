@@ -509,7 +509,7 @@ def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: d
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option. Each wait is claimed under the lock before its post with the pid and start time of the watch claiming it, so no other watch posts it too, and is said once the post goes through; a post that fails gives its claims back and goes again next read, and a claim whose watch died before saying it is taken again, its pid running another process since or none, so a watch dying between its post and saying it is the one way he is told twice."""
+    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option, once per job and card whether the job's waits or what it was told name the card by its Slack link or its waits id. Each job's card is claimed under the lock before its post with the pid and start time of the watch claiming it, so no other watch posts it too, and is said once the post goes through; a post that fails gives its claims back and goes again next read, and a claim whose watch died before saying it is taken again, its pid running another process since or none, so a watch dying between its post and saying it is the one way he is told twice."""
     if watcher.cards is None:
         return []
     from drive import talk
@@ -550,8 +550,8 @@ def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
         entry
         for entry in view.waiting_on_him(data, watcher.cards)
         if hears(watcher, data, entry["order"])
-        and entry["wait"] not in (job := data["jobs"][entry["job"]])["waiting_said"]
-        and not ((claimer := job["waiting_claims"].get(entry["wait"])) and started(claimer["pid"]) == claimer["started"])
+        and not any(view.names_card(entry["card"], said) for said in data["jobs"][entry["job"]]["waiting_said"])
+        and not ((claimer := data["jobs"][entry["job"]]["waiting_claims"].get(entry["wait"])) and started(claimer["pid"]) == claimer["started"])
     ]
 
 

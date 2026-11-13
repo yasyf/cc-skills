@@ -2759,6 +2759,43 @@ def test_a_card_holding_a_built_job_is_told_once_in_its_own_thread_and_again_aft
     assert state.load(demo)["jobs"]["j1"]["waiting_said"] == ["demo:j1-7-a"]
 
 
+def test_a_card_a_built_job_names_by_its_link_and_by_its_waits_id_is_one_wait_and_one_reply(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j2-7")
+    link = f"{CARD}?thread_ts=1.2"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["orders"]["o1"] |= {"jobs": ["j1", "j2"], "parts": {"ship the watch": state.new_part()}}
+        data["jobs"]["j1"]["parts"] = ["ship the watch"]
+        asked = state.new_question("/asks/j2.md", "Pick?", state.stamp(T0), card=link) | {"waits": "demo:j2-7"}
+        data["jobs"]["j2"] = job(kind="reader", state="waiting", parts=["ship the watch"], questions=[asked])
+        state.take_result(data, "j1", "BUILT lane/built, waits on c096bde8")
+    assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j2-7"]
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == waiting("demo:j2-7")
+    for named in ("demo:j2-7", link):
+        assert cli.main(["job", "set", "j1", "--waits", named, "--drive", demo]) == 0
+    assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j2-7"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert told == [paused()]
+
+
+def test_a_built_job_holding_one_card_under_its_link_and_its_waits_id_is_told_once_whichever_name_it_was_told_under(
+    demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]
+) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    link = f"{CARD}?thread_ts=1.2"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": [link, "demo:j1-7-a"]}
+    assert watch.run_pass(watcher(demo), T0) == waiting("demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["waiting_said"] = [link]
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=1)) == []
+    assert told == [paused()]
+
+
 def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_waits_clears_them(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2770,7 +2807,7 @@ def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_w
     assert cli.main(["pr", "set", KEY, "--waits", "demo:gone-1", "--drive", demo]) == 2
     assert "--waits demo:gone-1" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--waits", "demo:j1-7-a", "--waits", CARD, "--drive", demo]) == 0
-    assert state.load(demo)["prs"][KEY]["waits"] == ["j1", "demo:j1-7-a", CARD]
+    assert state.load(demo)["prs"][KEY]["waits"] == ["j1", "demo:j1-7-a"]
     assert cli.main(["pr", "set", KEY, "--no-waits", "--drive", demo]) == 0
     assert state.load(demo)["prs"][KEY]["waits"] == []
 
