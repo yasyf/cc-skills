@@ -3222,7 +3222,7 @@ def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once_saying_nothing
 ) -> None:
     deliver(monkeypatch)
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(workspace="sprite-old", state="waiting", said="ASK which npm name?", ask="msg_q1")
+        data["jobs"]["j1"].update(workspace="sprite-old", state="waiting", said="ASK which npm name?", ask="msg_q1", turn_open=True)
     updated = state.load(remote)["jobs"]["j1"]["updated"]
     shown = []
     monkeypatch.setattr(orca, "worker", lambda dispatch: shown.append(dispatch) or dead())
@@ -3235,6 +3235,28 @@ def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once_saying_nothing
     assert (shown, ended_lanes) == ([DISPATCH], ["j1"])
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["updated"], [(death["dispatch"], death.get("ended")) for death in job["deaths"]]) == ("waiting", updated, [(DISPATCH, None)])
+
+
+def test_the_watch_keeps_a_waiting_jobs_lane_on_a_sprite_while_its_worker_waits_inside_its_own_question_and_ends_it_once_that_turn_ends(
+    remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
+) -> None:
+    stopped = "Worker term_1 ended its turn without sending worker_done.\nLast output:\nasked the coordinator\nFull output: x"
+    deliver(
+        monkeypatch,
+        [message("question", "Is j3810 stopped, so I take over its PR?")],
+        [message("escalation", stopped, subject="Worker stopped without reporting")],
+    )
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="sprite-now", state="running", turn_open=True)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: job.get("workspace") == "sprite-now")
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    staged(watch.lane_lines, watching, T0)
+    watch.release_lanes(watching, T0 + timedelta(hours=1))
+    assert (state.load(remote)["jobs"]["j1"]["state"], ended_lanes) == ("waiting", [])
+    staged(watch.lane_lines, watching, T0 + timedelta(hours=1))
+    watch.release_lanes(watching, T0 + timedelta(hours=1))
+    assert ended_lanes == ["j1"]
 
 
 def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earlier_lane_died_on(

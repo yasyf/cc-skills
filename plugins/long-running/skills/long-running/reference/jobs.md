@@ -192,9 +192,13 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    `drive.db` keeps under `terminal`, so Orca types no "You have N orchestration messages" line into your
    session; the watch turns lane mail into `JOB` events. Leave any `orca orchestration check` such
    a line names unrun.
-6. A remote job that is not running holds no Sprite: two minutes after a lane returns its line,
-   or once its job is stopped, the watch runs `drive job end <j>` on it in a process of its own,
-   ahead of any reclaim, its output in the drive's `relaunches.log`, so no session runs it. The job
+6. A remote job that is not running holds no Sprite once its worker's turn is over: two minutes
+   after a lane returns its line, once its job is done, failed or stopped, or once the worker of a
+   waiting or built job ends its turn with a `worker_done` or Orca's escalation, or dies, the watch
+   runs `drive job end <j>` on it in a process of its own, ahead of any reclaim, its output in the
+   drive's `relaunches.log`, so no session runs it. A worker waiting inside its own question, to
+   you or as his `ASK`, keeps its turn open, so its Sprite and session stay until the answer
+   `drive job resume` sends reaches it there. The job
    keeps the state its line set, with its waits, PRs and carried parts: a `WAITING` job stays
    waiting, so nothing waiting on it is freed, and its next event starts its next lane on a fresh
    Sprite. Whatever the job's state, end saves what its Sprite holds on no remote to GitHub as
