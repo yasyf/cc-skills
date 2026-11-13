@@ -1,6 +1,5 @@
 import ctypes
 import os
-import re
 import sys
 import time
 from datetime import datetime
@@ -11,8 +10,7 @@ from drive.render import when
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
 MONOREPO = "Forge-AI/monorepo"
 LOCAL_BUILDERS = 8
-MAC_ONLY = re.compile(r"\b(?:break-glass|(?<![/.-])drive install(?!'s)|drive(?:'s)? dashboard|live (?:on (?:the )?)?dashboard|dashboard (?:he|you) opens?|mac[- ]box(?:es)?|devbox(?:es)?|db-read|ci release(?! select\b)|release start|test Mac|datadog)\b", re.IGNORECASE)
-MAC_ONLY_STEPS = "drive break-glass, drive install, the drive's dashboard, a release verb other than release select, ci mac-box, ci devbox, ci db-read, a Datadog read or a test Mac"
+MAC_LINES = "its Mac: line, which drive job brief --mac writes, or its Release: line"
 SAMPLE_SECONDS = 1.0
 HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
@@ -47,8 +45,9 @@ def limit() -> float:
 
 
 def mac_step(text: str) -> str | None:
-    """The first step only this Mac runs that a brief's own step fields name, by brief.job_steps, as the brief writes it, None for none: break-glass, a Mac box or test Mac, a devbox, db-read and a release verb sign in with this Mac's machine profile or Buildkite token, and a Datadog read with this Mac's Claude Code Datadog sign-in, none of which a Sprite holds; drive install installs into this Mac's Claude Code and the drive's dashboard serves from this Mac, and a Sprite's drive refuses the one and cannot reach the other, though a path such as lib/drive install or drive install's own code names neither; `tools/ci release select` reads its stdin and the checkout alone, so it runs anywhere. His Order words, such as an alert shared from Datadog, the incident rule naming tools/ci release start and earlier jobs' lines name no step of this job."""
-    return found[0] if (found := MAC_ONLY.search(brief.job_steps(text))) else None
+    """The step only this Mac runs that a brief declares, as written: its Mac: line, which its writer gives drive job brief --mac for a step that signs in with this Mac's machine profile, Buildkite token or Datadog sign-in, or that reaches this Mac's Claude Code or the drive's dashboard, else its Release: line, since a release starts with this Mac's Buildkite token; None for neither. No other words of a brief place its job, since its fields quote where his words were typed and what earlier jobs found."""
+    found = brief.MAC.search(text) or brief.RELEASE.search(text)
+    return found[1].strip() if found else None
 
 
 def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str, str]:

@@ -12,11 +12,10 @@ HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would he ask|Plan|Incident):[ \t]*(.+)$", re.MULTILINE)
 FIELD = re.compile(
-    r"^(Order \(his words\)|Serves|Goal|Done when|Where|Runs as|Release|Handoff|Decisions that bind|Research|Researched|Answer"
+    r"^(Order \(his words\)|Serves|Goal|Done when|Where|Runs as|Release|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
     re.MULTILINE,
 )
-STEP_FIELDS = frozenset({"Goal", "Done when", "Where", "Runs as", "Release", "Handoff", "Plan", "Interactions"})
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
@@ -77,6 +76,7 @@ CHOICE_WORDS = r"\b(?:options?|choices?|choose|lost|picks?|decisions?|forks?)\b"
 STOPS_ON_CHOICE = re.compile(rf"[^.;]*(?:\bBLOCKED\b[^.;]*{CHOICE_WORDS}|{CHOICE_WORDS}[^.;]*\bBLOCKED\b)[^.;]*")
 STOPPED_RULING = '"fix ur tooling if it stopped on that it shoukd. have brought a design question card to me asap not just stopped int eh middle of the incident"'
 RELEASE = re.compile(r"^Release:[ \t]*(.+)$", re.MULTILINE)
+MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 INCIDENT = re.compile(r"^Incident:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
@@ -104,11 +104,6 @@ def fields(text: str) -> list[tuple[str, str]]:
     starts = list(FIELD.finditer(text))
     ends = [found.start() for found in starts[1:]] + [len(text)]
     return [(found[1], text[found.end() : end]) for found, end in zip(starts, ends, strict=True)]
-
-
-def job_steps(text: str) -> str:
-    """The fields of a brief naming the steps its job runs, its Goal, Done when, Where, Runs as, Release, Handoff, Plan and Interactions, each from its label up to the next field drive job brief writes, never his Order words, the rulings, the incident rule or earlier jobs' transcripts."""
-    return "\n".join(f"{label}:{value}" for label, value in fields(text) if label in STEP_FIELDS)
 
 
 def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
