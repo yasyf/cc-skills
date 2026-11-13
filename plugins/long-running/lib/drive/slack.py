@@ -12,6 +12,7 @@ from drive.install import config_dir
 
 PLUGIN = "cc-slack@cc-slack"
 MESSAGE_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
+PERMALINK = re.compile(r"https://[\w.-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(?:\?[\w.=&%-]*\w)?")
 WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
 WHOLE_THREAD = 1000
 

@@ -423,6 +423,7 @@ acceptance critera for yourself".
 
 ```
 Order (his words): <verbatim; for drive tooling, its order's own "Drive tooling: …" words; then the words of each order the job carries, each on its own line>
+Linked messages: <each Slack message those words link, read through the cc-slack bot as the brief is written: its link, who posted it and when, its text and each message it shares, so no job reads Slack for the message its order came from; `drive job brief` refuses in cc-slack's words while one does not read>
 Serves: <"port of #N", "drive tooling" for a fix to a tool the drive runs on, under its own order and never his feature order's, or "his order" when the Order line asks for this build; a job for anything else is never started>
 Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story, since data fetched from an API proves no screen>

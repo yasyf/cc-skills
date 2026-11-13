@@ -5692,6 +5692,39 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
     assert "9f3c2e1" not in written
 
 
+def test_job_brief_carries_each_slack_message_its_orders_link_and_refuses_while_cc_slack_cannot_read_one(
+    run: Run, demo: str, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    alert, his = "1794600671.912379", "1794600700.000100"
+    alert_link, his_link = (f"https://acme.slack.com/archives/{channel}/p{ts.replace('.', '')}" for channel, ts in (("C0822AHFY3G", alert), ("D123", his)))
+    slack_thread.messages += [
+        {"ts": alert, "user": "U0828UHTV42", "user_name": "Datadog", "text": "Runner refusing runs whose journal cannot open", "from_bot": True},
+        {"ts": his, "user": "U1", "user_name": "", "text": "this one &amp; the next", "from_user": True, "shares": [{"user": "U2", "user_name": "PagerDuty", "text": "the journal is gone"}]},
+    ]
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", alert_link)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", f"and <{his_link}|this>, as {alert_link} says")
+    run("job", "add", "builder", "--order", "o1", "--goal", "stop the refusals")
+    assert run("job", "set", "j1", "--carries", "o2")[0] == 0
+    code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
+    posted = {ts: slack.sent_at({"ts": ts}).isoformat(timespec="seconds") for ts in (alert, his)}
+    assert written.read_text().startswith(
+        f"Order (his words): {alert_link}\no2, which it also carries: and <{his_link}|this>, as {alert_link} says\nLinked messages:\n"
+        f"- {alert_link}, posted by Datadog at {posted[alert]}:\n  Runner refusing runs whose journal cannot open\n"
+        f"- {his_link}, posted by him at {posted[his]}:\n  this one & the next\n  Shared from PagerDuty: the journal is gone\nServes: his order\n"
+    )
+    kept = written.read_text()
+
+    def refused(*where: str) -> list[dict]:
+        raise slack.SlackError("not_in_channel")
+
+    monkeypatch.setattr(slack, "thread", refused)
+    assert cli.main(["job", "brief", "j1"]) == 2
+    assert capsys.readouterr().err == f"drive: j1: no brief written, since cc-slack cannot read {alert_link}, which its order links: not_in_channel; write it again once cc-slack reads it\n"
+    assert written.read_text() == kept
+
+
 def test_a_live_or_finished_jobs_handoff_briefed_before_brief_flags_kept_one_is_seeded_from_its_brief_file(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs", "--parts", "the watchdog", "its retry")
     run("job", "add", "builder", "--order", "o1", "--part", "the watchdog", "--goal", "build the watchdog")
