@@ -54,7 +54,11 @@ Contents:
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word
   of his `Order`, a `Goal`, `Plan` or `Handoff` places a job. The `agent_brief` hook refuses a
   builder started with the Agent tool while this Mac's CPU is at or over its load gate's limit, the
-  `remote` that `drive place` prints, unless its brief declares such a step. Such a brief starts here
+  `remote` that `drive place` prints, unless its brief declares such a step. Every later start of
+  a Sprite job reads the same lines, by the same `place.mac_step`, over its brief, its builder's last
+  report, where a `Mac:` line names the step its `PROVE:` needs, and the resume's text: a resume or
+  relaunch that finds one starts the next lane in a fresh worktree here, as `--local` does, and
+  never in the Sprite's own Claude session. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
   the Agent tool, or with `--local` when it reads no Datadog, since a `--local` Orca worker starts
   with no plugin MCP servers. A brief whose writer left its `Mac:` line out starts on a Sprite,
@@ -295,9 +299,11 @@ before it sends or starts.
 - A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
   message; one whose worker takes messages is refused, naming the resume that sends it one. With
   `--local`, a job on a Sprite moves here: what its Sprite holds on no remote is saved to GitHub,
-  its next worker starts in a fresh worktree on this Mac whether the last one finished or died, and
-  the Sprite is destroyed once it holds nothing on no remote. A failed save moves nothing and
-  records nothing.
+  its next worker starts in a fresh worktree on this Mac whether the last one finished, died, does
+  not answer or returned its line and still takes messages, as a Sprite lane does after `BLOCKED`
+  on a step only this Mac runs, though a running one stays refused, and
+  the Sprite is destroyed once it holds nothing on no remote. A failed save still moves the job,
+  keeping the Sprite, and its handoff names what each lane of the job saved on GitHub.
 - An agent on this Mac that ended with its session, which no role holds any more, or whose last
   response ended on an API error or a refusal takes no `SendMessage`: either verb hands its job to
   a lane on a Sprite, or on this Mac with `drive job launch <j> --local` or when its brief declares

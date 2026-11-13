@@ -2318,6 +2318,149 @@ def test_a_resume_holding_the_lock_stands_down_before_it_wakes_or_starts_anythin
     assert [held["words"] for held in state.load(remote)["jobs"]["j1"]["undelivered"]] == [watch.UNREACHED]
 
 
+def moving_launch(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """The lane each relaunch starts, by its lane, brief, route and workspace, on a Sprite whose save keeps what it holds."""
+    launched: dict = {}
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: SAVED)
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launched.update(lane=lane, brief=brief.read_text(), route=route, workspace=workspace)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    return launched
+
+
+def test_a_launch_local_of_a_job_whose_live_sprite_worker_returned_its_line_moves_it_here_as_j1134_needed_and_a_running_one_stays_refused(
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    saved_on_github: dict[str, list[str]],
+    kept_logs: list[tuple[str, str]],
+    kept_transcripts: list[tuple[str, str]],
+) -> None:
+    cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove the session sweep\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running")
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane a launch moves: {args}"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a lane still at work is never moved"))
+    assert cli.main(["job", "launch", "j1", "--local"]) == 2
+    assert capsys.readouterr().err == f"drive: j1 already started as dispatch {DISPATCH}, whose worker takes messages: drive job resume j1 <the event> sends it one\n"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="failed", said="BLOCKED its PROVE step runs ci db-read, which no Sprite lane runs")
+    launched = moving_launch(monkeypatch)
+    assert run("job", "launch", "j1", "--local") == (
+        0,
+        "j1: the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff carrying its"
+        " brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one had finished (its worker returned"
+        " its line and still takes messages there), and what pool-one held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e",
+    )
+    assert (launched["lane"], launched["route"], launched["workspace"], kept_logs, kept_transcripts) == ("demo-j1-2", state.LOCAL_ROUTE, None, [], [("j1", DISPATCH)])
+    brief = orca.brief_of(launched["brief"])
+    assert "## Taking over from a lane that finished\n\nThe lane that held this job finished on Sprite pool-one at " in brief
+    assert "Its last line: BLOCKED its PROVE step runs ci db-read, which no Sprite lane runs\n" in brief
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], job["state"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == (
+        state.LOCAL_ROUTE,
+        "dispatch-2",
+        "running",
+        [(DISPATCH, "pool-one")],
+    )
+
+
+J738_PROVE = 'PROVE: once that release is live on cloudrunner-next, on a run that hits the claude-sonnet-4-5 pool, Datadog "llm call failed" stage llm_policy shows none'
+J865_PROVE = 'PROVE: after that release is live, have an Iris chat\'s agent run sand iris -p "hi" from bash, then open the sidebar: the new chat is absent there'
+J1134_PROVE = "PROVE: after that release, db-read `SELECT session_type, count(*) FROM sessions WHERE created_at < now() - interval '2 days'` counts none"
+
+
+@pytest.mark.parametrize(
+    ("brief_mac", "report", "declared"),
+    [
+        (
+            'Mac: a Datadog read of "llm call failed" by stage on cloudrunner-next',
+            f"READY https://github.com/Forge-AI/monorepo/pull/738\n{J738_PROVE}",
+            'a Datadog read of "llm call failed" by stage on cloudrunner-next',
+        ),
+        (
+            None,
+            f"READY https://github.com/Forge-AI/monorepo/pull/1134\n{J1134_PROVE}\nMac: ci db-read of the sessions created two days ago",
+            "ci db-read of the sessions created two days ago",
+        ),
+        (
+            None,
+            f"READY https://github.com/Forge-AI/monorepo/pull/865\n{J865_PROVE}\nMac: a signed-in Iris chat on this Mac runs sand iris",
+            "a signed-in Iris chat on this Mac runs sand iris",
+        ),
+        (None, f"READY https://github.com/Forge-AI/monorepo/pull/865\n{J865_PROVE}", None),
+    ],
+    ids=["j738-brief", "j1134-report", "j865-report", "undeclared"],
+)
+def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brief_or_last_report_declares_a_step_only_this_mac_runs(
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    saved_on_github: dict[str, list[str]],
+    brief_mac: str | None,
+    report: str,
+    declared: str | None,
+) -> None:
+    cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
+    first = tmp_path / "first.md"
+    written = "\n".join(filter(None, ["Order (his words): prove it live", brief_mac, "Drive: demo, order o1, job j1"]))
+    first.write_text(orca.vm_brief(remote, "j1", written, None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", environment="sprite-old", state="waiting", report=report)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a dead worker: {args}"))
+    launched = moving_launch(monkeypatch)
+    code, out = run("job", "resume", "j1", "Handoff: the release is live; prove it")
+    held = "its lane on Sprite sprite-old was dead (its worker exited), and what sprite-old held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e"
+    where = "in a fresh worktree on this Mac" if declared else "on Sprite workspace-2"
+    moved = f"; it moved to this Mac, since its brief, its last report or the message declares {declared}, a step only this Mac runs" if declared else ""
+    assert (code, out) == (
+        0,
+        f"j1: the message went to the job's next worker, relaunched {where} as dispatch dispatch-2 in a handoff carrying its brief, its branch,"
+        f" its last line, its report and its PRs; {held}{moved}",
+    )
+    route = state.LOCAL_ROUTE if declared else None
+    assert (launched["lane"], launched["route"], state.load(remote)["jobs"]["j1"]["route"]) == ("demo-j1-2", route, route)
+    assert report in orca.brief_of(launched["brief"])
+
+
+def test_a_takeover_of_a_job_whose_earlier_lanes_kept_their_attempts_starts_a_fresh_attempt_as_j795_needed(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    agent_on_this_mac(run, demo, tmp_path, monkeypatch, CALLED, timedelta(seconds=30))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(
+            session="earlier-session",
+            dispatch="ctx_lane0002",
+            workspace="pool-two",
+            deaths=[{"dispatch": DISPATCH, "workspace": "pool-one", "why": "its worker exited", "at": state.stamp(T0)}],
+        )
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    kept_attempt(demo, "j1", DISPATCH)
+    kept_attempt(demo, "j1-2", "ctx_lane0002")
+    started: list[tuple[str, str]] = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: started.append((lane, brief.name)) or {field: f"{field}-3" for field in fields})
+    assert run("job", "launch", "j1") == (
+        0,
+        "j1 started on Sprite workspace-3 as dispatch dispatch-3, taking over from its agent a1 on this Mac, which takes no message: it ended with its session, which no role holds any more",
+    )
+    assert started == [("demo-j1-3", "j1-3.md")]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["dispatch"], job["brief"]) == ("dispatch-3", str(state.drive_dir(demo) / "jobs" / "j1-3.md"))
+
+
 def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_it_and_sends_that_worker_its_text(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

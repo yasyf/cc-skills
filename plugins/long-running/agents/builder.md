@@ -479,6 +479,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
 | `INSTALL:` and `PROVE:` | once the PR is open, the install command and the check that proves it live, so a later handoff runs them without your transcript |
+| `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as `ci db-read`, a Datadog read or a signed-in app here, written as `drive job brief --mac` writes it, so the job's next lane starts on this Mac |
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |
 | `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents |
