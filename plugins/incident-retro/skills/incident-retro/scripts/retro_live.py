@@ -166,9 +166,11 @@ def live_phase(state: dict, retro) -> str:
 
 
 def implied_timestamps(state: dict, retro, phase: str, previous: dict, now: datetime.datetime) -> dict:
-    """The phase is a claim about the clock, so stamp what it claims. A moment state.json cannot
-    date is stamped by the sync that first saw it and carried forward from there. Nothing lands past
-    the all-clear: a page resolved before anything recorded a mitigation was mitigated when it cleared."""
+    """The phase is a claim about the clock, so stamp what it claims. A date state.json records wins
+    over one an earlier sync stamped, so a reopened incident's clock follows its record; a moment
+    state.json cannot date is stamped by the sync that first saw it and carried forward from there.
+    Nothing lands past the all-clear: a page resolved before anything recorded a mitigation was
+    mitigated when it cleared."""
     wanted = retro.PHASE_STAMPS.get(phase, ())
     floor = response_floor(state, retro)
     cleared = earliest([state.get("all_clear_at")], retro, floor)
@@ -184,7 +186,7 @@ def implied_timestamps(state: dict, retro, phase: str, previous: dict, now: date
     def bounded(value: str) -> str:
         return cleared if cleared and retro.parse_ts(value) > retro.parse_ts(cleared) else value
 
-    return {key: bounded(previous.get(key) or earliest(sources[key], retro, floor) or stamp(now))
+    return {key: bounded(earliest(sources[key], retro, floor) or previous.get(key) or stamp(now))
             for key in wanted}
 
 
@@ -360,6 +362,8 @@ def shell(state: dict, R: dict, retro, now: datetime.datetime, source) -> dict:
     timestamps["onset"] = state.get("started_at")
     timestamps["detected"] = state.get("detected_at")
     R["live"] = live_block(state, retro, now, source)
+    for key in retro.TIMESTAMP_KEYS[2:]:
+        timestamps[key] = None
     timestamps.update(implied_timestamps(state, retro, R["live"]["phase"], previous, now))
     R["summary"] = live_summary(state, R["live"]["phase"], retro)
     return R

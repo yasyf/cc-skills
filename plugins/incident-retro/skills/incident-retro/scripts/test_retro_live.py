@@ -911,12 +911,30 @@ class PhaseAndTimestamps(unittest.TestCase):
                   (self.record()["timestamps"][k] for k in retro.TIMESTAMP_KEYS) if v]
         self.assertEqual(stamps, sorted(stamps))
 
-    def test_a_stamp_is_carried_forward_rather_than_moved(self):
+    def test_a_date_state_records_wins_over_a_carried_stamp(self):
         record = self.record()
         record["timestamps"]["mitigated"] = "2026-09-02T16:30:00-07:00"
         (self.root / "retro.json").write_text(json.dumps(record))
         run(retro_live.sync, args(self.incident, self.docs))
-        self.assertEqual(self.record()["timestamps"]["mitigated"], "2026-09-02T16:30:00-07:00")
+        self.assertEqual(self.record()["timestamps"]["mitigated"], "2026-09-02T16:52:00-07:00")
+
+    def test_a_reopened_incident_drops_the_clocks_of_its_earlier_all_clear(self):
+        self.state(all_clear_at="2026-09-02T17:30:00-07:00")
+        run(retro_live.sync, args(self.incident, self.docs))
+        self.state(all_clear_at=None)
+        self.assertEqual(run(retro_live.sync, args(self.incident, self.docs)), 0)
+        record = self.record()
+        self.assertEqual(record["live"]["phase"], "mitigated")
+        self.assertIsNone(record["timestamps"]["resolved"])
+        self.assertIsNone(record["timestamps"]["allClear"])
+
+    def test_an_all_clear_that_moves_later_moves_every_clock_it_bounded(self):
+        self.state(prs=[], deploys=[], all_clear_at="2026-09-02T16:00:00-07:00")
+        run(retro_live.sync, args(self.incident, self.docs))
+        self.state(all_clear_at="2026-09-02T17:30:00-07:00")
+        self.assertEqual(run(retro_live.sync, args(self.incident, self.docs)), 0)
+        stamps = self.record()["timestamps"]
+        self.assertEqual((stamps["resolved"], stamps["allClear"]), ("2026-09-02T17:30:00-07:00",) * 2)
 
     def test_a_phase_no_timestamp_in_state_explains_is_stamped_by_the_sync(self):
         self.state(prs=[], deploys=[], detected_at="2026-09-02T15:25:32-07:00")
