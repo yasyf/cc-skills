@@ -427,7 +427,10 @@ def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_i
     assert said(demo)[0]["visuals"][0]["picture"] == str(sent)
 
 
-def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(demo: str, posts: list[tuple[str, ...]], unrecorded: list[str]) -> None:
+def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(
+    demo: str, run: Callable[..., tuple[int, str]], posts: list[tuple[str, ...]], unrecorded: list[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail")
     line = talk.say(demo, {"text": "done", "order": "o1"})
     assert line.startswith(f"POSTED {POSTED}; not recorded on o1: only the communicator records a post")
     assert len(posts) == 1

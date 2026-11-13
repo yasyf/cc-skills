@@ -1702,7 +1702,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, an open PR of a job on it or its fix recorded live, a builder's DONE or the release that shipped it, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs}
@@ -1727,7 +1727,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if carried := [gaps[job_id] for job_id, _ in state.carriers(data, order_id, part)]:
         return None if None in carried else SETTLING if SETTLING in carried else carried[-1]
     if jobs:
-        return SETTLING if SETTLING in gaps.values() else unbuilt(order_id, part, jobs)
+        return SETTLING if SETTLING in gaps.values() else unbuilt(data, order_id, part, jobs)
     if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR:
         return None
     if not (design := order["parts"][part]["design"]):
@@ -1737,15 +1737,24 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     return f"{design}'s design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
 
 
-def unbuilt(order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:
-    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: the builder to start, waiting on the reader still at work, or the sort that makes a question of his an answer order."""
+def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:
+    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: the builder to start, waiting on the reader still at work and on each open card of his on the part, which it builds the recommended option of and opens no PR until he answers; then the merged PR the part's words name, which drive order posted records as its delivery, or else the sort of the part as an answer."""
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in jobs)
     reading = [job_id for job_id, job in jobs if job["kind"] == "reader" and job["state"] not in state.FINISHED_JOB_STATES]
-    waits = f" --waits {reading[-1]}" if reading else ""
+    cards = list(dict.fromkeys(card for _, job in jobs for card in view.open_cards(job)))
+    waits = "".join(f" --waits {wait}" for wait in [*reading[-1:], *cards])
+    open_cards = f", his card {' and '.join(cards)} open" if cards else ""
     named = shlex.quote(part)
+    prs = state.named_prs(data, order_id, part)
+    merged = prs and all(data["prs"][key]["state"] == "merged" for key in prs)
+    done = (
+        f"{prs[0]} merged, so drive order posted {order_id} {state.pr_url(prs[0])} --part {named} delivers it"
+        if merged
+        else f"when it asks only for an answer, drive order set {order_id} --kind answer --part {named}; when a merged PR delivered it, drive order posted {order_id} <its link> --part {named}"
+    )
     return (
-        f"no builder carries this work, only {held}: start one with drive job add builder --order {order_id} --part {named} --goal '<what it builds>'{waits},"
-        f" or add it to a builder with drive job set <builder> --part {named}; when it asks only for an answer, drive order set {order_id} --kind answer"
+        f"no builder carries this work, only {held}{open_cards}: start one with drive job add builder --order {order_id} --part {named} --goal '<what it builds>'{waits},"
+        f" or add it to a builder with drive job set <builder> --part {named}; {done}"
     )
 
 

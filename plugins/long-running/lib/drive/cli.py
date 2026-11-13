@@ -582,6 +582,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.title is not None:
         titled(args.title)
     alerts = alert_links(args.alerts)
+    sorted_parts = sorted_as(data, args.id, args.kind, args.part)
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
@@ -661,7 +662,9 @@ def order_set(args: argparse.Namespace) -> int:
             )
         if args.incident is not None:
             order["incident"] = args.incident
-        if args.kind:
+        for part in sorted_parts:
+            order["parts"][part]["answer"] = args.kind == "answer"
+        if args.kind and not sorted_parts:
             order["kind"] = args.kind
         if args.complex is not None:
             order["complex"] = args.complex
@@ -676,7 +679,24 @@ def order_set(args: argparse.Namespace) -> int:
             order["last_line"] = order["updated"]
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
-    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in reworked), {"id": args.id, **order})
+    parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
+    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*parts, *reworked]), {"id": args.id, **order})
+
+
+def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
+    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while a builder, codex or design job or a drive PR is on one, since that part is work under way."""
+    if not named:
+        return []
+    if not kind:
+        raise DriveError(f'--part: refused, it sorts a part of {order_id} with --kind answer, or --kind build to make it work again')
+    parts = pick_parts(order_id, data["orders"][order_id], named)
+    for part in parts if kind == "answer" else []:
+        jobs = dict(state.part_jobs(data, order_id, part))
+        working = [f"{job['kind']} {job_id}" for job_id, job in jobs.items() if job["kind"] in state.WORK_KINDS]
+        working += [key for key, pr in data["prs"].items() if pr["job"] in jobs]
+        if working:
+            raise DriveError(f'--part "{part}": refused, {", ".join(working)} works on it, so it is work under way, never an answer: its builder\'s DONE or a merged PR delivers it')
+    return parts
 
 
 def untold(order_id: str, order: dict) -> str:
@@ -783,8 +803,9 @@ def report_attrs(seq: str) -> dict:
 def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
-    role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if args.part and not args.undo and role and role == find(data["orders"], args.id, "order")["owner"] and not (args.record and role == "communicator"):
+    lane = state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    holder = state.holding_lane(data, find(data["orders"], args.id, "order"))
+    if args.part and not args.undo and lane == holder and not (args.record and lane == "communicator"):
         return emit(args, *answered_by(name, args.id, args.part, args.link))
     order = communicators_order(data, args.id)
     if not args.undo:
@@ -793,8 +814,8 @@ def order_posted(args: argparse.Namespace) -> int:
             named = f"record {args.record}'s part attr names {report.get('part') or 'none'}" if args.record else "no report record names it"
             raise DriveError(
                 f'--part "{args.part}": refused, {named}; a post delivers a part only through the report record whose part attr names it:'
-                f" pass --record <that record's seq>; a part a post of the drive already answered is marked from the session holding {args.id}"
-                f' with drive order posted {args.id} {args.link} --part "{args.part}", posting nothing'
+                f" pass --record <that record's seq>; a part a post of the drive already answered is marked from the {holder}@{name} session,"
+                f' the one its ORPHAN lines reach, with drive order posted {args.id} {args.link} --part "{args.part}", posting nothing'
             )
         return emit(args, *record_post(name, args.id, args.link, report))
     [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
@@ -804,15 +825,28 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver words he reads, a part of the order its holder's session holds, by the drive's post that already answered it, wherever it was made, posting nothing; refused for work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since no post delivers it."""
+    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
     data = state.load(name)
-    [part] = pick_parts(order_id, data["orders"][order_id], [part])
-    if state.work(data, order_id, part):
-        raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part))
-    drive_post_at(link, data, order_id)
+    order = data["orders"][order_id]
+    [part] = pick_parts(order_id, order, [part])
+    if not (work := state.work(data, order_id, part)):
+        drive_post_at(link, data, order_id)
+    elif not state.PR_URL.search(link):
+        raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part, holder=f"{state.holding_lane(data, order)}@{name}"))
+    elif (read := merged_read(link))["state"] != "MERGED":
+        raise DriveError(f'--part "{part}": refused, GitHub reads {state.pr_key(link)} {read["state"].lower()}, and only a merged PR delivers work he ordered')
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
-    return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
+    how = "the merged PR that delivered it" if work else "the post that answered it"
+    return f'{order_id} "{part}": posted {link}, {how}', {"id": order_id, "parts": [part], "posted": link}
+
+
+def merged_read(link: str) -> dict:
+    key = state.pr_key(link)
+    reads, refused = github.fetch([key])
+    if refused:
+        raise DriveError(f"{key}: could not read it from GitHub to check it merged: {refused}")
+    return reads[key]
 
 
 def order_told(args: argparse.Namespace) -> int:
@@ -855,14 +889,15 @@ def slack_user(text: str) -> str:
 
 
 def communicators_order(data: dict, order_id: str) -> dict:
+    order = find(data["orders"], order_id, "order")
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
         raise DriveError(
             "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
             f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
-            f' a part a post of the drive already answered is marked from the session holding {order_id} with drive order posted {order_id} <that post\'s link> --part "<part>",'
-            " with or without --record, posting nothing"
+            f" a part a post of the drive already answered, or work a merged PR delivered, is marked from the {state.holding_lane(data, order)}@{data['name']} session,"
+            f' the one its ORPHAN lines reach, with drive order posted {order_id} <that post\'s or PR\'s link> --part "<part>", with or without --record, posting nothing'
         )
-    return find(data["orders"], order_id, "order")
+    return order
 
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
@@ -1445,7 +1480,7 @@ def send_ask(name: str, job_id: str, kept: Path, waits: str | None) -> str:
     attrs = {"job": job_id, "ask": str(kept), "thread": thread, "incident": "true" if incidents else None, "waits": waits}
     record = {"kind": "ask", "text": state.kept_in(job, kept)["title"], "to": [f"communicator@{name}"], "attr": {key: value for key, value in attrs.items() if value}}
     try:
-        return tools.sent(name, state.holder_lane(order) or state.order_lane(data, order), [record])[0].removeprefix("#")
+        return tools.sent(name, state.holding_lane(data, order), [record])[0].removeprefix("#")
     except DriveError as error:
         raise DriveError(f"{kept} keeps {job_id}'s question, but its ask record did not go out, so no card draws for it: {error}; once cci answers, run drive job ask {job_id} {kept} again, which sends it") from None
 
@@ -1453,7 +1488,7 @@ def send_ask(name: str, job_id: str, kept: Path, waits: str | None) -> str:
 def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -> None:
     """Tell the session holding the job's order, in one record that wakes nobody, that his answer to this same question settled the job's question, so it builds on his words with no card."""
     job = data["jobs"][job_id]
-    lane = state.holder_lane(data["orders"][job["order"]]) or state.heard_lane(data, job["order"])
+    lane = state.holding_lane(data, data["orders"][job["order"]])
     where = answered_at(answer)
     text = f'{job_id} builds on his answer at {where} to the same question, "{render.cut(title, 120)}", asked in the same words, so no card draws for it'
     from drive import tools
@@ -3565,7 +3600,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--kind",
         choices=state.ORDER_KINDS,
-        help="sort it again: an answer whose work turns out to need a build becomes a build, naming each open PR card of his in its thread as order add --thread does",
+        help="sort it again: an answer whose work turns out to need a build becomes a build, naming each open PR card of his in its thread as order add --thread does; with --part, sort only those parts",
+    )
+    verb.add_argument(
+        "--part",
+        action="append",
+        default=[],
+        type=str.strip,
+        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it; with --kind build, work again",
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
@@ -3592,7 +3634,8 @@ def parser() -> argparse.ArgumentParser:
         "--part",
         help=(
             "with --undo, the part whose mark it takes back; from the communicator with --record, only a part its part attr names;"
-            " from the coordinator or meta session holding the order, with or without --record, or the communicator holding it with none, the part the drive's post at the link already answered, posting nothing"
+            " from the session the order's ORPHAN lines reach, with or without --record, or the communicator holding it with none, the part the drive's post at the link already answered,"
+            " or the work part the merged PR at the link delivered, posting nothing"
         ),
     )
     verb.add_argument(
