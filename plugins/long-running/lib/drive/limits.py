@@ -137,13 +137,13 @@ ROOT_CAUSE_RULES = {
     "found": (
         "This card starts from the root cause, the structure that lets the defect happen, or says it is not found yet and"
         " which job is finding it. It passes when it recommends the option that removes that structure through one"
-        " abstraction every caller goes through; what happens until it ships is no part of that option. It fails when"
-        " that option keeps the structure behind a cap, timer, retry, exit, flag, pin or sweeper, or, with the cause not"
-        " found, the card offers one around a step it has not explained."
+        " abstraction every caller goes through, or the option his own pick or order chooses, which beats this"
+        " preference; what happens until it ships is no part of that option. It fails when the recommended option keeps"
+        " the structure behind a cap, timer, retry, exit, flag, pin or sweeper his words never chose, or, with the cause"
+        " not found, the card offers one around a step it has not explained."
     ),
 }
-ROOT_CAUSE_SETTLED = " Words of his it quotes as settled choose its recommended option; a card quoting none needs none."
-ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "source": "his ruling on root causes", "quote": ROOT_CAUSE_QUOTE}
+ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "asked": "his ruling on root causes", "said": ROOT_CAUSE_QUOTE}
 PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"
 SIGNED_IN = re.compile(r"https://(?:[\w-]+\.)*(?:slack|github)\.com/")
@@ -151,9 +151,9 @@ PAGE_CHARS = 1500
 PAGE_LINE = re.compile(r"^Page \S+ (?:shows|did not open):", re.MULTILINE)
 LINK_VIEW_WORDS = {
     "id": "words:card-link-view",
-    "source": "his words Nov 12 2026 4:05 AM on a card whose link opened a prototype's queue screen, not the Slack preview the card described",
-    "quote": "I dont see tthe slack tab on that link what are you talking abit?",
-    "detail": (
+    "asked": "his words Nov 12 2026 4:05 AM on a card whose link opened a prototype's queue screen, not the Slack preview the card described",
+    "said": "I dont see tthe slack tab on that link what are you talking abit?",
+    "rule": (
         "Each page a card links opens the exact view the card's words say it shows. A page with several views, a screen"
         " reached by a route, tab, anchor or query string, is linked at the address of the one described, never its root,"
         " and a view still to build is called unbuilt, never linked as if it exists. A Page line whose words lack what the"
@@ -813,7 +813,7 @@ def captions(show_me: list[str]) -> list[str]:
 
 
 def root_cause_problems(findings: str, options: list[str]) -> list[str]:
-    """Whether the findings start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether words of his the card quotes choose another, Jev weighs when `drive job ask` keeps it, printing its finding to the agent and refusing no card on it."""
+    """Whether the findings start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether his words choose another, Jev weighs when `drive job ask` keeps it, his own pick or order beating the root-cause preference."""
     cause = ROOT_CAUSE.search(findings)
     if not cause:
         return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
@@ -842,50 +842,37 @@ def root_cause_problems(findings: str, options: list[str]) -> list[str]:
     return []
 
 
-def root_cause_review(text: str, unsettled: str | None) -> str | None:
-    """The case Jev reads before `drive job ask` keeps a question in shape, to judge its recommended option against the root cause its findings name and the words of his it quotes; None for a block out of shape, which the verb refuses with every fix."""
-    try:
-        asked = question(text, unsettled=unsettled)
-    except DriveError:
-        return None
+def ask_case(text: str, asked: Question) -> str:
+    """A kept card as Jev reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
     findings = FINDINGS.split(text, maxsplit=1)[1]
-    lines = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES) if (found := pattern.search(findings))]
-    quoted = SAID.findall("\n".join([*asked.summary, findings]))
+    with ThreadPoolExecutor() as pool:
+        pages = list(pool.map(page_line, linked_pages(asked)))
     return "\n".join(
         [
             f"Question: {asked.title}",
             *asked.summary,
             *(["Show me:", *asked.show_me] if asked.show_me else []),
-            f"Recommended: {asked.recommended}",
-            *(f"Also offered: {option}" for option in asked.options if option != asked.recommended),
-            *lines,
-            *([f"Words it quotes: {' '.join(quoted)}"] if quoted else []),
+            *(
+                f"Option {number}{' (recommended)' if option == asked.recommended else ''}: {option}" + (f" -- {asked.hints[option]}" if option in asked.hints else "")
+                for number, option in enumerate(asked.options, 1)
+            ),
+            *(found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES) if (found := pattern.search(findings))),
+            *pages,
         ]
     )
 
 
-def root_cause_words(case: str) -> dict[str, str]:
-    """His ruling on root causes as Jev weighs it beside a card's case: its words, and the rule for the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR, or none behind the question, so each rule Jev weighs fits whole in what it reads."""
+def rule_words(case: str) -> list[dict[str, str]]:
+    """His rulings Jev weighs a card's case by beside his words, each with the rule it sets: his ruling on root causes, by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, and, when the case reads a page the card links, his words on a link that opened another view than its card described."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
-    return ROOT_CAUSE_WORDS | {"detail": ROOT_CAUSE_RULES[form] + ROOT_CAUSE_SETTLED}
-
-
-def ask_words(case: str) -> list[dict[str, str]]:
-    """His words Jev weighs a card's case by: his ruling on root causes, with the rule for its `Root cause:` form, and, when the case reads a page the card links, his words on a link that opened another view than the card described."""
-    return [root_cause_words(case), *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
+    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
 
 
 def linked_pages(asked: Question) -> list[str]:
     """Each web page a card links in its summary or a Show me caption, once, in order: the views he opens from it. A Slack or GitHub link opens its one message, PR or file only signed in, which Chrome is not, so it is none."""
     found = (url.rstrip(LINK_END) for url in PAGE_LINK.findall("\n".join([*asked.summary, *captions(asked.show_me)])))
     return list(dict.fromkeys(url for url in found if not SIGNED_IN.match(url)))
-
-
-def page_review(text: str, unsettled: str | None) -> list[str]:
-    """What Jev reads, beside a well-shaped card's case, of each page it links: the first words that page shows once Chrome opens it and runs its scripts, or why Chrome could not open it, every page read at once."""
-    with ThreadPoolExecutor() as pool:
-        return list(pool.map(page_line, linked_pages(question(text, unsettled=unsettled))))
 
 
 def page_line(url: str) -> str:

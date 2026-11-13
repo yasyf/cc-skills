@@ -1639,11 +1639,15 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
-def test_job_ask_keeps_a_card_recommending_another_option_than_the_one_its_first_principles_line_names(run: Run, asking: str, tmp_path: Path) -> None:
+def test_job_ask_starts_from_the_root_cause_and_leaves_which_option_it_recommends_to_jev_reading_his_words(
+    run: Run, asking: str, tmp_path: Path, jev: Jev
+) -> None:
     block = tmp_path / "ask.md"
     picked = "Root cause: none: two landed designs of one button, a pick between them with no defect behind it"
     block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states\nFirst principles: Add our status line beside their always-on button"))
     assert run("job", "ask", asking, str(block))[0] == 0
+    assert "Option 2: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]
+    assert "First principles: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]
 
 
 def test_job_ask_refuses_a_question_that_hides_the_terms_its_findings_name(
@@ -2471,64 +2475,8 @@ def test_job_ask_never_settles_a_question_on_his_message_in_its_orders_thread_so
     assert not [request for request in jev.asked if "decides" in request["questions"]]
 
 
-def test_job_ask_refuses_a_question_offering_no_tap_for_an_amount_his_words_in_its_orders_thread_name(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    words = "You didn't give me a tap for keeping each finished snapshot 30 days, how many times do I have to say this"
-    his = slack_thread.post(state.now(), from_user=True, text=words)
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    why = f"{his}: he set how long a snapshot is kept, not its layout"
-    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 2
-    refusal = capsys.readouterr().err
-    assert "refused: his words on this order name an amount this question offers no tap for" in refusal
-    assert f'- 30 day: {his} "{words}"' in refusal.splitlines()
-    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
-    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
-
-
-def test_job_ask_counts_an_amount_of_his_only_in_a_clause_sharing_the_questions_words(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    words = "keep one snapshot file per finished run, ok if we're capped at under 2gb that feels ok right, also look at that 21GB db and why its so big"
-    his = slack_thread.post(state.now(), from_user=True, text=words)
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("files be laid out", "files be capped and laid out"))
-    why = f"{his}: he set one snapshot file and its cap, not how the page opens it"
-    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 2
-    assert [line for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f'- 2 gb: {his} "{words}"']
-    block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
-
-
-def test_job_ask_counts_an_amount_only_on_the_order_his_words_are_about_never_another_order_sharing_its_thread(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    words = "ok so for 1, lrts mske eveyhting standard on signal or 30 seconds both for 2 lfor mac and cloud each decide wherther `deliverSteers` or turn boundary is best"
-    slack_thread.post(state.now() - timedelta(minutes=1), from_user=True, text=words)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f'any harm in making it uniform? Then, 5:06 AM, same thread: "{words}"', "--thread", "1794200000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an answer he reads states only what was read in code or measured", "--thread", "1794200000.000100")
-    run("job", "add", "builder", "--order", "o1", "--goal", "pick when the inbox is read")
-    run("job", "add", "builder", "--order", "o2", "--goal", "check what a post read")
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("so the browser guesses", "so the cloud reader guesses"))
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == ["- 30 second: o1's own words"]
-    assert cli.main(["job", "ask", "j2", str(block)]) == 0
-
-
-def test_job_ask_reads_his_order_from_his_slack_message_and_never_counts_an_amount_in_a_line_he_quoted(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_job_ask_hands_jev_his_order_from_his_slack_message_and_his_thread_words_without_the_lines_he_quoted_so_an_alerts_amounts_are_never_his(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
@@ -2538,57 +2486,64 @@ def test_job_ask_reads_his_order_from_his_slack_message_and_never_counts_an_amou
     filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f"> {alert} {his}"]
     run(*filed, "--from", "slack:D123/1794200000.000100/1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    slack_thread.post(state.now(), from_user=True, text=f"&gt; {alert}")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    his_message = "https://acme.slack.com/archives/D123/p1794200000000100?thread_ts=1794200000.000100"
-    assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f"- 30 day: {his_message}"]
-    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
-
-
-def test_job_ask_counts_only_his_quoted_words_in_an_order_the_drive_wrote(
-    run: Run, meta: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    words = 'Drive tooling: the finished snapshot page waited 10 minutes for its card, and he ruled "keep each finished snapshot 30 days"'
-    run("order", "add", "--title", "Short title", words)
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == ["- 30 day: o1's own words"]
-    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
-
-
-def test_job_ask_refuses_only_an_amount_he_named_and_reads_no_answer_he_gave_another_question(
+    assert run("job", "ask", "j1", str(block))[0] == 0
+    assert [(word["id"], word["said"]) for word in jev.asked[0]["state"]["his_words"] if "ruling" not in word["id"]] == [("p1794200000000100", his)]
+def test_job_ask_refuses_an_option_his_words_rule_out_until_it_is_rewritten_or_unsettled_names_them(
     run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
     view.refresh_cards("demo")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    matched: list[list[str]] = []
-    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: matched.append(argv) or "[]")
-    his = slack_thread.post(state.now(), from_user=True, text="keep one snapshot file per finished run for 30 days")
+    words = "never write a second object per journal file, the bucket is billed per object"
+    his = slack_thread.post(state.now(), from_user=True, text=words)
+    key = re.search(r"/(p\d+)\?", his)[1]
+    jev.breaks("breaks2", key)
+    jev.breaks("untapped", key)
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    refusal = capsys.readouterr().err.removeprefix("drive: ")
-    assert [line.split(".")[0] for line in refusal.splitlines() if line.startswith("refused: ")] == [
-        "refused: his words on this order name an amount this question offers no tap for",
-    ]
-    assert f"- 30 day: {his}" in refusal
-    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
+    refusal = capsys.readouterr().err
+    assert "refused: Jev reads his words as ruling out what this card offers him." in refusal
+    assert f'- option "A map file beside each journal file: no guessing, but one request per file and twice the objects" breaks {key}: asked "his message in the order\'s thread", he said "{words}"' in refusal
+    assert f'- the card breaks {key}: asked "his message in the order\'s thread", he said "{words}"' in refusal
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["refused"]
+    jev.ruled.pop("breaks2")
+    block.write_text(SHORT_ASK.replace("ASK How should", "ASK Once a run is billed per object, how should"))
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    assert [line.split(":")[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f"- the card breaks {key}"]
+    assert run("job", "ask", "j1", str(block), "--unsettled", f"{key}: he named no amount this card asks about")[0] == 0
+
+
+def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes_and_reads_no_answer_he_gave_another_question(
+    run: Run, meta: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    run("order", "add", "--title", "Short title", 'Drive tooling: the finished snapshot page waited 10 minutes for its card, and he ruled "keep each finished snapshot 30 days"')
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    matched: list[list[str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: matched.append(argv) or "[]")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert run("job", "ask", "j1", str(block))[0] == 0
+    assert [(word["id"], word["said"]) for word in jev.asked[0]["state"]["his_words"] if word["id"] == "o1"] == [("o1", '"keep each finished snapshot 30 days"')]
     assert matched == []
-    assert not [request for request in jev.asked if "decides" in request["questions"]]
 
 
-def test_an_amount_names_a_unit_never_a_word_the_count_check_skips() -> None:
-    assert settled.amounts("step 2 was skipped, keep 3 this week, 1 its own, 30-day bonding under 2gb") == {"30 day", "2 gb"}
+def test_his_thread_words_reach_only_the_order_they_are_about_never_another_order_sharing_its_thread(run: Run, demo: str, slack_thread: Thread) -> None:
+    words = "ok so for 1, lrts mske eveyhting standard on signal or 30 seconds"
+    slack_thread.post(state.now() - timedelta(minutes=1), from_user=True, text=words)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "any harm in making it uniform?", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an answer he reads states only what was read in code or measured", "--thread", "1794200000.000100")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["created"] = state.stamp(state.now() - timedelta(minutes=2))
+    data = state.load("demo")
+    assert [(word["said"], word["id"]) for word in settled.order_words(data, "o1")] == [(words, f"p{slack_thread.messages[0]['ts'].replace('.', '')}")]
+    assert settled.order_words(data, "o2") == []
 
 
 def test_job_ask_settles_a_question_only_on_his_answer_to_that_same_question_so_its_job_builds_on_his_words_with_no_card_or_ask_record(
@@ -2983,7 +2938,7 @@ def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_ca
     kept = state.new_question(asked, "Where does the copy run?", state.stamp())
     answered = state.new_question(asked, "Where does the copy run?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794480049653959")
     jevs = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his recorded answer 32164d3 already decides this question.")
-    others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his words on this order name an amount this question offers no tap for.")
+    others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: Jev reads his words as ruling out what this card offers him.")
     replays = {
         "no question kept": ([], "j1 returned DESIGN, a choice for him its research found, and keeps it as no question of his: drive job ask j1"),
         "j1656 before his ruling": ([kept], f'j1 returned DESIGN, and its question "Where does the copy run?" kept in {asked} has no waits id, so its ask record never went out'),
@@ -6125,6 +6080,47 @@ def test_jev_is_asked_in_process_through_spawnllm_decide_sync_and_a_failed_call_
     assert failures == ["decision failed with HTTP 400: unknown question type", "no jev decision within 20s", "Jev declined the question"]
 
 
+AGENT_START = """ASK Where does an agent a chat starts with agent::start run, and how does it start?
+A chat's agent::start call starts a child agent. Today a child of a chat runs inside the chat's own process on his Mac, while a child of a cloud agent starts through the api and runs on its Env's pod.
+Recommended: one api start for every agent, so a chat's child starts and runs like any other agent, with a parent tag the UI reads.
+- One api start: no runner on any host (recommended)
+  agent::start in `go/sand/internal/iris/agents.go` calls the one api start every agent takes, a chat's child included; its Env's pod runs it like any other agent and the UI groups it under its parent by its parent tag.
+- The Mac builds a chat's children: a child of a chat runs in the chat's process
+  agent::start keeps a chat's branch: a chat's child runs inside `sand iris serve` on his Mac beside its parent, and stops when the Mac sleeps; a cloud agent's child keeps the api start.
+- A pod per chat: each chat gets a pod its children run on
+  A chat that starts its first child gets a pod of its own in `infra/rows/executor/executor-template.ts`, and its children run there; other agents keep their api start.
+
+Findings:
+Root cause: agent::start branches on whether its caller is a chat, so a chat's child takes a start path, host and limits of its own that no other agent has
+First principles: One api start
+(1) `go/sand/internal/iris/agents.go` holds the branch.
+"""
+NOT_SPECIAL = {
+    "id": "p1794200000000200",
+    "asked": "why can a chat's subagent not start subagents of its own?",
+    "said": "how many times do I have to say subagents aren't special they're like any other agent other than in UI so there should be no hard coded thing preventing them from starting subagents",
+}
+
+
+def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_rulings_and_refuses_only_what_it_is_eight_in_ten_sure_they_rule_out(jev: Jev) -> None:
+    asked = limits.question(AGENT_START, kept=True)
+    case = limits.ask_case(AGENT_START, asked)
+    jev.picks(NOT_SPECIAL["id"], 0.79)
+    assert settled.judged(case, asked, [NOT_SPECIAL]) == []
+    [request] = jev.asked
+    questions = request["questions"]
+    assert list(questions) == ["breaks1", "breaks2", "breaks3", "untapped", "card"]
+    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046"]
+    assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
+    assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
+    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}]
+    jev.picks("none")
+    jev.breaks("breaks2", NOT_SPECIAL["id"])
+    assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
+    settled.judged(case, asked, [])
+    assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "card"]
+
+
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
@@ -6132,7 +6128,9 @@ def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_t
     block.write_text(SHORT_ASK)
     jev.answer = None
     assert cli.main(["job", "ask", asking, str(block)]) == 0
-    assert "drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots" in capsys.readouterr().err
+    unheard = capsys.readouterr().err
+    assert "drive job ask: Jev gave no reading of this question against his words, so it goes to him: no jev decision within 20s" in unheard
+    assert "drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots" in unheard
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
 

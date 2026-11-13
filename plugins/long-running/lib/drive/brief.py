@@ -363,7 +363,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
 
 
 def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
-    """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and recommending the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
+    """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and offering the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
     block = researched(text)
     if order["kind"] == "build" and not order["incident"] and job["goal"].casefold().startswith("research") and (
         missing := [f"{key}:" for key in KEYS if not block.get(key)]

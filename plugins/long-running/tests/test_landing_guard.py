@@ -1,4 +1,3 @@
-import io
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -7,7 +6,6 @@ import landing_guard
 import pytest
 from conftest import SESSION, SHORT_ASK
 from drive import agents, limits, settled, shell, state, view
-from drive.shell import Stdin
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -382,89 +380,6 @@ def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool
     failed = "cci post --kind report --to communicator@demo --attr 'part=o1:cause' 'POST the search worker OOMs; its card was refused since nobody checked it'"
     assert landing_guard.deny_reason(bash(failed)) is None
     assert landing_guard.unprevented_reports(bash(failed)).startswith("record_lines: this report goes out as written")
-
-
-def test_each_command_reads_the_stdin_its_own_text_gives_it() -> None:
-    script = "cat a.md | drive job ask j1 -\ndrive job ask j2 - < \"$d/b.md\"\ncat > c.md <<'EOF'\nc body\nEOF\ndrive job ask j3 - <<-ASK\nthe block\nASK\ngrep x <<< hi"
-    assert len(shell.templates(shell.runnable(script))) == 6
-    assert shell.stdins(script) == [None, Stdin("|"), Stdin("<", "$d/b.md"), Stdin("<<", "c body"), Stdin("<<", "the block"), Stdin("<<<", "hi")]
-
-
-def test_a_question_kept_with_drive_job_ask_goes_to_jev_as_the_case_its_block_makes(demo: str, no_calls: None, tmp_path: Path) -> None:
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    case = landing_guard.root_cause_case(bash(f"drive job ask j1 {block}", session_id=SESSION))
-    assert isinstance(case, landing_guard.Asked)
-    assert case.startswith("Question: How should a finished run's files be laid out")
-    assert "Root cause: none: a design choice, with no defect behind it" in case
-    assert landing_guard.judged_reason(bash(f"drive job ask j1 {block}", session_id=SESSION)) is None
-    assert landing_guard.root_cause_case(bash(f"drive job ask --check {block}", session_id=SESSION)) is None
-
-
-@pytest.mark.parametrize(
-    "form",
-    [
-        "drive job ask j1 {block}",
-        "cd {folder} && drive job ask j1 ask.md",
-        "drive job ask j1 - < {block}",
-        "drive job ask j1 - <<'ASK'\n{text}\nASK",
-        "drive job ask j1 {block} 2>&1 | tail -5",
-        "drive job ask j1 --drive demo",
-    ],
-)
-def test_every_form_handing_the_verb_one_block_gives_jev_one_case(run: Run, demo: str, no_calls: None, tmp_path: Path, form: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["report"] = SHORT_ASK
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    command = form.format(block=block, folder=tmp_path, text=SHORT_ASK.strip())
-    assert landing_guard.root_cause_case(bash(command, session_id=SESSION)) == limits.root_cause_review(SHORT_ASK, None)
-
-
-@pytest.mark.parametrize(
-    ("form", "why"),
-    [
-        ("cat {block} | drive job ask j1 -", "comes from a pipe, a here-string or the caller's stdin"),
-        ("drive job ask j1 -", "comes from a pipe, a here-string or the caller's stdin"),
-        ("drive job ask j1 {folder}/new.md", "new.md does not exist yet"),
-        ("cp {block} {folder}/copy.md && drive job ask j1 {folder}/copy.md", "another command in the call names copy.md"),
-    ],
-)
-def test_a_block_only_running_the_call_shows_is_refused_unjudged_for_a_file_of_its_own(demo: str, no_calls: None, tmp_path: Path, form: str, why: str) -> None:
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    (tmp_path / "copy.md").write_text(SHORT_ASK)
-    reason = landing_guard.root_cause_case(bash(form.format(block=block, folder=tmp_path), session_id=SESSION))
-    assert isinstance(reason, agents.Unjudged)
-    assert why in reason
-    assert reason.endswith("Write the block to a file in a call of its own, then run `drive job ask j1 <file>` in the next call")
-
-
-def test_the_hook_hands_jev_the_case_and_his_ruling_with_the_rule_for_its_root_cause_form_in_place_of_a_refusal(
-    demo: str, no_calls: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(f"drive job ask j1 - < {block}", session_id=SESSION))))
-    landing_guard.main()
-    case = limits.root_cause_review(SHORT_ASK, None)
-    assert json.loads(capsys.readouterr().out) == {"ask": case, "his_words": [limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES["none"] + limits.ROOT_CAUSE_SETTLED}]}
-
-
-def test_the_hook_hands_jev_the_words_each_page_the_card_links_shows_beside_his_words_on_a_link_that_opened_another_view(
-    demo: str, no_calls: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    preview = "https://prototype.example.com/index.html?slack=pr"
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile nothing is built on either layout; <{preview}|the prototype's Slack preview> draws both cards."))
-    monkeypatch.setattr(limits.picture, "page_text", {preview: "Priority queue Decision 1 of 72"}.__getitem__)
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(f"drive job ask j1 - < {block}", session_id=SESSION))))
-    landing_guard.main()
-    told = json.loads(capsys.readouterr().out)
-    assert told["ask"].endswith(f"Root cause: none: a design choice, with no defect behind it\nPage {preview} shows: Priority queue Decision 1 of 72")
-    assert told["his_words"] == [limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES["none"] + limits.ROOT_CAUSE_SETTLED}, limits.LINK_VIEW_WORDS]
 
 
 @pytest.mark.parametrize("command", [".agents/skills/submit-pr/scripts/stack-enqueue 42", "gh pr merge 42 -R Forge-AI/monorepo --squash"])

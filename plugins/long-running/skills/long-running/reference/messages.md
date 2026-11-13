@@ -292,13 +292,12 @@ Its Show me:
   table rows or columns, list lines, numbered captions, pictures or fences, or by name right after
   the count, as "four strategies: spill values, insertion order, hash by key, and equal cut" does.
   A measure such as "30 days", "3 requests" or "2 threads" and a bound such as "at most 3" pass.
-- Give him a tap for each amount he named. `drive job ask` refuses a question when a clause of the
-  order's own words, or of his message about it in its thread, shares its words and names an amount
-  its question and options leave out, as "30 day bonding" names 30 days; `--unsettled` does not lift
-  it. His message in a thread two orders share is about the order it started, else the one that came
-  into the thread last before he sent it, so another order's amount there is not counted. An amount
-  in a clause of the same message that shares none of its words, as "capped at under 2gb" beside a
-  question on write reservations, is not counted either. Offer it as its own option, in his words.
+- Give him a tap for each amount he named. Jev reads the card against his order and his messages in
+  its thread, without the lines he quoted from others, and `drive job ask` refuses a card offering no
+  tap for an amount or choice Jev reads them as naming, as "30 day bonding" names 30 days, until a
+  tap offers it or `--unsettled` names those words and why they do not reach this question. His message in a thread two orders share is about the order it started, else the one that
+  came into the thread last before he sent it, so another order's amount there is not counted. Offer it
+  as its own option, in his words.
 - A visual that still fails to draw leaves the Slack card with its caption and nothing in its place,
   and the dashboard with its source as text.
 

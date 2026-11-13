@@ -1396,20 +1396,24 @@ def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_remov
         ("Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n", "found"),
     ],
 )
-def test_jev_weighs_the_rule_for_the_form_of_the_root_cause_line_whole_within_the_600_characters_capt_hook_shows_of_it(cause: str, form: str) -> None:
+def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line(cause: str, form: str) -> None:
     stray = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
-    case = limits.root_cause_review(STRAY_CHATS_ASK.replace(stray, cause), None)
-    assert case is not None
-    words = limits.root_cause_words(case)
-    assert words == limits.ROOT_CAUSE_WORDS | {"detail": limits.ROOT_CAUSE_RULES[form] + limits.ROOT_CAUSE_SETTLED}
-    assert len(words["detail"]) <= 600
+    assert limits.rule_words(STRAY_CHATS_ASK.replace(stray, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}]
 
 
-def test_the_case_jev_reads_carries_the_show_me_and_only_words_said_in_quotes() -> None:
-    case = limits.root_cause_review(STRAY_CHATS_ASK + 'His words "move the chats once" settle it, and `server.json` is a file name.\n', None)
-    assert case is not None
+def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(picture, "page_text", lambda url: "The old build's chats")
+    asked = limits.question(STRAY_CHATS_ASK)
+    case = limits.ask_case(STRAY_CHATS_ASK, asked)
+    assert case.startswith(f"Question: {asked.title}\n")
     assert "func Create(ctx context.Context, s Session, writer int64) (*DurableAgent, error) {" in case
-    assert case.endswith('Words it quotes: "move the chats once"')
+    assert f"Option 1 (recommended): {asked.recommended}" in case
+    assert [line.split(":")[0] for line in case.splitlines() if line.startswith(("Option ", "Root cause:", "First principles:", "Page "))] == [
+        *(f"Option {number}{' (recommended)' if number == 1 else ''}" for number in range(1, len(asked.options) + 1)),
+        "Root cause",
+        "First principles",
+        "Page https",
+    ]
 
 
 def test_the_pages_a_card_links_are_the_web_pages_its_summary_and_captions_link_once_each_never_a_signed_in_or_fenced_one() -> None:
@@ -1436,21 +1440,18 @@ def test_jev_reads_the_words_each_page_a_card_links_shows_or_why_chrome_could_no
         raise picture.PictureError(f"Chrome could not load {url}: net::ERR_NAME_NOT_RESOLVED")
 
     monkeypatch.setattr(picture, "page_text", page_text)
-    [line] = limits.page_review(STRAY_CHATS_ASK, None)
+    [line] = [line for line in limits.ask_case(STRAY_CHATS_ASK, limits.question(STRAY_CHATS_ASK)).splitlines() if line.startswith("Page ")]
     assert line.startswith(f"Page {SENTRY_EVENT} shows: Sign in to Sentry")
     assert len(line) <= len(f"Page {SENTRY_EVENT} shows: ") + limits.PAGE_CHARS
     missing = "https://prototype.example.com/index.html?slack=pr"
     linked = STRAY_CHATS_ASK.replace(f"<{SENTRY_EVENT}|The old build>", f"<{missing}|The old build>")
-    assert limits.page_review(linked, None) == [f"Page {missing} did not open: Chrome could not load {missing}: net::ERR_NAME_NOT_RESOLVED"]
+    assert limits.ask_case(linked, limits.question(linked)).endswith(f"\nPage {missing} did not open: Chrome could not load {missing}: net::ERR_NAME_NOT_RESOLVED")
 
 
-def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view_within_the_600_characters_capt_hook_shows() -> None:
-    case = limits.root_cause_review(STRAY_CHATS_ASK, None)
-    assert case is not None
-    assert limits.ask_words(case) == [limits.root_cause_words(case)]
-    paged = f"{case}\nPage https://prototype.example.com/index.html shows: Priority queue Decision 1 of 72"
-    assert limits.ask_words(paged) == [limits.root_cause_words(case), limits.LINK_VIEW_WORDS]
-    assert len(limits.LINK_VIEW_WORDS["detail"]) <= 600
+def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view() -> None:
+    [ruling] = limits.rule_words(STRAY_CHATS_ASK)
+    paged = f"{STRAY_CHATS_ASK}\nPage https://prototype.example.com/index.html shows: Priority queue Decision 1 of 72"
+    assert limits.rule_words(paged) == [ruling, limits.LINK_VIEW_WORDS]
 
 
 def options_ask(*options: str) -> str:

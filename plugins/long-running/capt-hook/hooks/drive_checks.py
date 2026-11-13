@@ -26,7 +26,6 @@ from captain_hook import (
     Event,
     HookResult,
     Input,
-    PendingToolCall,
     Rewrite,
     T,
     Tool,
@@ -104,10 +103,6 @@ for script in scripts:
     print(json.dumps({"script": script, "code": code, "stdout": out.getvalue(), "stderr": err.getvalue()}), flush=True)
 """
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
-REMOVES_CAUSE = TURN.with_name("ask-removes-cause.md")
-KEEPS_CAUSE = TURN.with_name("ask-keeps-cause.md")
-MERGED_FIX = TURN.with_name("ask-merged-fix.md")
-GATED_APPROVAL = TURN.with_name("ask-gated-approval.md")
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
 HANDLER_TURN = TURN.with_name("handler.jsonl")
 HANDLER_SESSION = "handler-fixture"
@@ -198,27 +193,6 @@ POST_RULES = """
       state the post names through a reference such as {pr:} or {card:} need no read.
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
-DRIVE_ASK = "drive.ask"
-ASK_RULES = """
-    The agent is about to keep a question card for the user; <action> holds the case its block makes: the question,
-    its summary, the recommended option, the other options, the root cause its findings name, the option they say
-    removes it, any words of his it quotes as settled, and a Page line for each web page the card links, holding the
-    words that page shows once open. <evidence> holds his ruling on root causes and, beside a Page line, his words on
-    a link that opened another view than its card described, each with the rule it sets in its detail. Allow the
-    card, citing them, when it keeps every rule. Refuse when it breaks one; the refusal names what the recommended
-    option keeps or skips that the root-cause rule forbids, or the link whose page lacks what the card's words say
-    it shows, and the fix.
-"""
-
-
-@dataclass(frozen=True, slots=True)
-class UnshownCall(PendingToolCall):
-    """The pending call kept out of a judge's prompt, so its verdict rests on what the hook hands it and not on the form of the call that carries it."""
-
-    def content(self, evt: BaseHookEvent) -> None:
-        return None
-
-
 @dataclass(frozen=True, slots=True)
 class Weighed(Decide):
     """A judge that reasons over every evidence item and never takes Jev's quick pick of one item permitting the post, since whether each claim stands on a read is no single item's to permit."""
@@ -227,7 +201,6 @@ class Weighed(Decide):
         return None
 
 
-ASK_JUDGE = Decide(ASK_RULES, contexts=(UnshownCall(),), second_opinion=False)
 JUDGE = Weighed(POST_RULES, frame=POST_FRAME, model="medium", second_opinion=False, deadline=JUDGE_SECONDS, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
 HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
@@ -434,8 +407,6 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     if not (said := ran["stdout"].strip()):
         return None
     output = json.loads(said)
-    if case := output.get("ask"):
-        return asked(evt, case, [Evidence.model_validate(word) for word in output["his_words"]])
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
     if (words := output.get("his_words")) is not None:
@@ -483,23 +454,6 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], po
     if verdict.allow and cited(items, verdict.relied_on):
         return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
     return evt.block(f"Jev weighed this post by the drive's rules and held it back: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
-
-
-def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
-    """Jev's finding on a question card `drive job ask` keeps, judged by his ruling on root causes and his words on the view a link opens from the case its block makes, the words of each page it links included, and nothing else, which only advises, by his pick "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": the card is kept whatever Jev finds, with Jev's finding printed to the agent when Jev reads it as breaking the ruling, and a note when Jev gives no verdict."""
-    ctx = Context.of(evt, DRIVE_ASK, Proposal({}, {"case": case}, "keep this question card for him"))
-    try:
-        verdict = ASK_JUDGE.verdict(ctx, words)
-    except Undecided as exc:
-        return evt.context(f"landing_guard: Jev gave no verdict on this question card ({exc.cause}), so the verb keeps it as written.")
-    if verdict.allow and cited(words, verdict.relied_on):
-        return None
-    found = [f"Jev: {verdict.explained}", *([verdict.reason] if verdict.refusal else [])]
-    return evt.context(
-        "landing_guard: Jev finds this question card breaks his words on root causes or on the view each link opens; Jev only"
-        " advises, so the verb keeps the card as written. If the finding holds, ask again with the block rewritten and drop"
-        " this one with `drive job ask <job> --drop <its path>`.\n```\n" + "\n".join([*found, case]) + "\n```"
-    )
 
 
 @on(
@@ -552,34 +506,6 @@ def no_terminal_questions(evt: BaseHookEvent) -> HookResult | None:
         Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED, tool_use_id="toolu_batched"): Block(pattern="does no order's work itself"),
         Input(command="for j in j855 j966; do drive job replies $j --drive fixture | tail -5; done", session_id=COORDINATOR): Allow(),
         Input(command="orca orchestration check --help", session_id=COORDINATOR): Allow(),
-        Input(
-            command=f"drive job ask j1 - < {REMOVES_CAUSE}",
-            session_id=COORDINATOR,
-            decide=JEV_UNSURE,
-            llm={"reason": "its recommended option writes the map at a fixed place, which removes the guess", "allow": True, "relied_on": ["ruling:0c59046"]},
-        ): Allow(),
-        Input(
-            command=f"drive job ask j1 {KEEPS_CAUSE}",
-            session_id=COORDINATOR,
-            decide=JEV_UNSURE,
-            llm={
-                "reason": "the root cause is the guessed range and the recommended retry keeps guessing",
-                "allow": False,
-                "refusal": "The recommended retry keeps the guessed range the root cause names.",
-            },
-        ): Warn(pattern="Jev: The recommended retry keeps the guessed range"),
-        Input(
-            command=f"drive job ask j1 {MERGED_FIX}",
-            session_id=COORDINATOR,
-            decide=JEV_UNSURE,
-            llm={"reason": "its root cause line names the guessed range and links the merged PR that removed it", "allow": True, "relied_on": ["ruling:0c59046"]},
-        ): Allow(),
-        Input(
-            command=f"drive job ask j1 {GATED_APPROVAL}",
-            session_id=COORDINATOR,
-            decide=JEV_UNSURE,
-            llm={"reason": "no defect is behind it: it asks his approval of the exact command his rules hold for him", "allow": True, "relied_on": ["ruling:0c59046"]},
-        ): Allow(),
     },
 )
 def landing_guard(evt: BaseHookEvent) -> HookResult | None:

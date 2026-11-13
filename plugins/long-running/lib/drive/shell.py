@@ -1,6 +1,5 @@
 import re
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
 from string import Template
 
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)(\w+)\1")
@@ -11,25 +10,11 @@ CONTROLS = ("&&", "||", "|&", ";", "|", "&", "(", ")", "\n")
 WORD = re.compile(r"""(?:[^\s;&|()<>'"\\]|\\.|'[^']*'|"(?:[^"\\]|\\.)*")+""", re.DOTALL)
 QUOTING = re.compile(r"""'(?P<single>[^']*)'|"(?P<double>(?:[^"\\]|\\.)*)"|\\(?P<escaped>.)|(?P<bare>[^'"\\]+)""", re.DOTALL)
 DOUBLE_QUOTED_ESCAPE = re.compile(r'\\([$`"\\])')
-PIPES = ("|", "|&")
-
-
-@dataclass(frozen=True)
-class Stdin:
-    """What a simple command reads on stdin by its own text: `|` from a pipe, `<<` a heredoc's body, `<<<` a here-string's word, or `<` the file it names, as a string.Template."""
-
-    via: str
-    text: str = ""
 
 
 def runnable(command: str) -> str:
     """The command's shell lines, joined at their continuations, without the bodies of its heredocs but those a shell runs."""
     return scanned(command)[0]
-
-
-def heredocs(command: str) -> list[str]:
-    """The body of each heredoc the command opens, in the order it opens them."""
-    return scanned(command)[1]
 
 
 def scanned(command: str) -> tuple[str, list[str]]:
@@ -106,23 +91,6 @@ def templates(text: str) -> list[list[str]]:
         else:
             found[-1].append(part)
     return [words for words in found if words]
-
-
-def stdins(command: str) -> list[Stdin | None]:
-    """What each simple command of templates(runnable(command)) reads on stdin by its own text, in the same order; None for one that reads its caller's."""
-    bodies = iter(heredocs(command))
-    found: list[tuple[bool, Stdin | None]] = [(False, None)]
-    for kind, value in tokens(runnable(command)):
-        worded, stdin = found[-1]
-        if kind == "control":
-            found.append((False, Stdin("|") if value in PIPES else None))
-        elif kind == "word":
-            found[-1] = (True, stdin)
-        elif kind in ("<<", "<<-"):
-            found[-1] = (worded, Stdin("<<", next(bodies, "")))
-        elif kind in ("<", "<<<"):
-            found[-1] = (worded, Stdin(kind, template(value)))
-    return [stdin for worded, stdin in found if worded]
 
 
 def simple_commands(text: str) -> list[list[str]]:

@@ -116,17 +116,17 @@ Holds: <each change of the order its options alter, in that change's words; or n
   showed. `Root cause:` names it by its proper terms, and `First principles:` names, by its words
   whole or up to the colon that ends its first part, the option that removes it through one
   abstraction every caller goes through, so the defect cannot occur. That option is always offered
-  and always recommended, and each other option says it keeps the structure and what that costs; one
-  that keeps it behind a cap, timer, retry, exit, flag, pin or sweeper is never recommended. On drive tooling, the simplest build that does his words, with the fewest checks, steps, flags and verbs, such as stripping every escape code, is always an option, each other option saying what it adds over it, by his words "in geernal keeps implifying all this tuff". A cause
+  and recommended unless his own pick or order chooses another, which beats this preference; each other
+  option says it keeps the structure and what that costs, and one that keeps it behind a cap, timer,
+  retry, exit, flag, pin or sweeper is recommended only when his pick chose it. On drive tooling, the simplest build that does his words, with the fewest checks, steps, flags and verbs, such as stripping every escape code, is always an option, each other option saying what it adds over it, by his words "in geernal keeps implifying all this tuff". A cause
   not found yet reads `Root cause: not found: <the job finding it>`, and the card offers no cap, timer
   or exit around the step it has not explained. A card asking only whether to release a merged fix reads
   `Root cause: fixed: <the structure>, removed by <the merged PR's link>` with no `First principles:`
   line, and a PR adding a cap, timer, retry, exit, flag, pin or sweeper removed nothing. A card with no
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
-  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape, and
-  Jev reads its recommended option against its root cause and his quoted words, and the words each page it links shows once Chrome opens it against what the card says that page shows, and prints its finding to you, keeping the card whatever it finds, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His words before it: "so why was that
-  not the suggested optin to me, or even any of the options?"
+  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever", and his words "so why was that not the suggested optin to me, or even any of the options?" `drive job ask` refuses a block whose lines are out of this shape, and
+  one with an option or part Jev reads as breaking his words, this ruling or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or ask again with `--unsettled` naming each id and why those words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs".
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing only the PRs of jobs
   working a change it names, so a card on another subject holds no PR its options leave alone, and

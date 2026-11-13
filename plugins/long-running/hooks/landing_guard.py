@@ -14,7 +14,7 @@ from drive import agents, brief, card, github, land, limits, public_check, repor
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.render import cut
-from drive.shell import Stdin, expanded, runnable, stdins, templates
+from drive.shell import expanded, runnable, templates
 
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
@@ -108,16 +108,7 @@ class Shell:
     session: str
     driving: bool
     job: bool
-    stdin: Stdin | None = None
     caller: dict = field(default_factory=dict)
-
-
-class Asked(str):
-    """The case a question card's block makes against his ruling on root causes, with what each page it links shows, which Jev judges before `drive job ask` keeps it."""
-
-
-class Unread(Exception):
-    """An ASK block only running its call shows, such as one piped in or in a file the call itself names elsewhere."""
 
 
 @dataclass(frozen=True)
@@ -188,7 +179,6 @@ CCI_POST = Landing(
     {"h": "help"},
     reads=("help",),
 )
-ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop", "redraws"}))
 RELEASE_STARTERS = (Landing(("ci", "release", "start"), frozenset({"order"})), Landing(("ci", "release", "hotfix"), frozenset({"order"})))
 RELEASE_CARD = (
     "A release starts only on his order to release it, his pick on a card that asked whether to release it, or an incident's"
@@ -203,11 +193,6 @@ RELEASE_UNBRIEFED = (
 RELEASE_UNPLANNED = (
     "Refused on purpose: a drive job starts a release only after a `tools/ci release plan` at the same flags passed earlier"
     " in the job, and none did for `{command}`. Run `tools/ci release plan {flags}`, read what each stack changes, then start it"
-)
-ASK_READS = frozenset({"<<", "<"})
-ASK_UNREAD = (
-    "Refused on purpose: landing_guard cannot read the ASK block this `drive job ask` keeps, since {why}, so Jev cannot"
-    " judge it. Write the block to a file in a call of its own, then run `drive job ask {job} <file>` in the next call"
 )
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
@@ -502,16 +487,15 @@ def order_reason(answer_id: str, command: str, cwd: str) -> str | None:
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
     """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, assignments, export, each value of a for loop and nested shell scripts."""
-    yield from run_through(list(zip(templates(runnable(script)), stdins(script), strict=True)), shell)
+    yield from run_through(templates(runnable(script)), shell)
 
 
-def run_through(groups: list[tuple[list[str], Stdin | None]], shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
-    """The commands of groups in order, each word expanded with the variables set before it and run with the stdin its own text gives it, then the shell they leave."""
+def run_through(groups: list[list[str]], shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
+    """The commands of groups in order, each word expanded with the variables set before it, then the shell they leave."""
     index = 0
     while index < len(groups):
-        written, stdin = groups[index]
-        segment = [expanded(word, shell.env) for word in written]
-        words, run_in = command_words(segment, replace(shell, stdin=stdin))
+        segment = [expanded(word, shell.env) for word in groups[index]]
+        words, run_in = command_words(segment, shell)
         index += 1
         if not words:
             shell = run_in
@@ -532,11 +516,11 @@ def run_through(groups: list[tuple[list[str], Stdin | None]], shell: Shell) -> G
     return shell
 
 
-def loop_end(groups: list[tuple[list[str], Stdin | None]], start: int) -> int:
+def loop_end(groups: list[list[str]], start: int) -> int:
     """The index of the `done` closing the loop whose body starts at start, or past the last group when none does."""
     depth = 1
     for index in range(start, len(groups)):
-        head = next((word for word in groups[index][0] if word not in LEADING), "")
+        head = next((word for word in groups[index] if word not in LEADING), "")
         depth += (head in LOOPS) - (head == "done")
         if not depth:
             return index
@@ -641,55 +625,6 @@ def misrouted(posts: list[dict], drives: dict[str, dict], session: str) -> str |
     return None
 
 
-def root_cause_case(payload: dict) -> Asked | agents.Unjudged | None:
-    """What Jev judges a question card by before a drive session's `drive job ask` keeps it: the case its block makes against his ruling on root causes and the words each page it links shows, read the same way whichever form hands the verb the block, or why the block cannot be read."""
-    names, shell = shell_of(payload)
-    if not names:
-        return None
-    script = payload["tool_input"]["command"]
-    for _, words, run_in in commands(script, shell):
-        if not (found := landing_of(words, (ASK_KEPT,))):
-            continue
-        _, positionals, options = found
-        if "check" in options or "drop" in options or not positionals:
-            continue
-        try:
-            text = asked_block(positionals, options, script, run_in)
-        except Unread as unread:
-            return agents.Unjudged(ASK_UNREAD.format(why=unread, job=positionals[0]))
-        unsettled = (options.get("unsettled") or [None])[-1]
-        if text and (case := limits.root_cause_review(text, unsettled)):
-            return Asked("\n".join([case, *limits.page_review(text, unsettled)]))
-    return None
-
-
-def asked_block(positionals: list[str], options: dict[str, list[str]], script: str, run_in: Shell) -> str | None:
-    """The ASK block a `drive job ask` keeps, read as the verb reads it: the file it names, from the folder it runs in; with `-`, the heredoc or the `<` file fed to it; with neither, the job's kept report."""
-    if len(positionals) < 2:
-        return kept_report(positionals[0], options)
-    named = positionals[1]
-    if named == "-":
-        if run_in.stdin is None or run_in.stdin.via not in ASK_READS:
-            raise Unread("it comes from a pipe, a here-string or the caller's stdin")
-        if run_in.stdin.via == "<<":
-            return run_in.stdin.text
-        named = expanded(run_in.stdin.text, run_in.env)
-    path = Path(moved(run_in.cwd, named))
-    if not path.is_file():
-        raise Unread(f"{named} does not exist yet")
-    if len(re.findall(rf"(?<![\w.-]){re.escape(path.name)}(?![\w.-])", script)) > 1:
-        raise Unread(f"another command in the call names {path.name} and may write it first")
-    return path.read_text()
-
-
-def kept_report(job_id: str, options: dict[str, list[str]]) -> str | None:
-    """The ASK the verb keeps when no file names one, a remote lane's latest report; None when the verb finds no such job."""
-    try:
-        name = state.resolve((options.get("drive") or [None])[-1])
-        return state.load(name)["jobs"][job_id].get("report")
-    except (state.DriveError, KeyError):
-        return None
-
 
 def deny_reason(payload: dict) -> str | None:
     """Why a Bash call must not run: a `cci post` the cci `post` tool sends, else a judged reason, else a guarded one."""
@@ -775,20 +710,18 @@ def main() -> None:
         payload = agents.seen(json.load(sys.stdin))
         unjudged = cli_posted(payload)
         judged = None if unjudged else judged_reason(payload)
-        reason = unjudged or judged or guarded_reason(payload) or root_cause_case(payload)
+        reason = unjudged or judged or guarded_reason(payload)
         context = None if reason else unprevented_reports(payload)
     except (ValueError, KeyError):
         return
     except github.GithubError as error:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
         return
-    if reason and not isinstance(reason, Asked):
+    if reason:
         print(json.dumps(denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)))
         return
     agents.hold(payload)
-    if reason:
-        print(json.dumps({"ask": reason, "his_words": limits.ask_words(reason)}))
-    elif context:
+    if context:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
 
 
