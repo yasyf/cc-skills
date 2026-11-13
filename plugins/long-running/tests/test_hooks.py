@@ -219,6 +219,20 @@ def test_no_session_bound_to_a_drive_asks_in_its_terminal_and_a_session_bound_to
     assert hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(file_call("AskUserQuestion", "someone-else"))) == ""
 
 
+def test_a_drive_job_asking_for_screen_control_access_is_refused_at_once_and_told_to_return_the_check_unproven(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    access = {"apps": ["Slack"], "reason": "Open the Slack tab to see the card"}
+    call = file_call("mcp__computer-use__request_access", agent_id="a-1", agent_type="long-running:reader", tool_input=access)
+    output = json.loads(hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(call)))
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert output["judged"] is False
+    reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason.startswith("refused: mcp__computer-use__request_access waits on a person approving it in a dialog in this terminal")
+    assert "`UNPROVEN: <the check>: <the proof that settles it>`" in reason
+    assert hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(file_call("mcp__computer-use__request_access", "someone-else", tool_input=access))) == ""
+
+
 def agent_stop(message: str, session: str | None = None, **fields: object) -> dict:
     return {
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],

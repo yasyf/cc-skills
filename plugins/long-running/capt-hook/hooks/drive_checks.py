@@ -46,6 +46,7 @@ from captain_hook.tickets import (
 from captain_hook.tickets.context import said_evidence
 from captain_hook.tickets.decide import UNPERMITTED, cited
 from captain_hook.transcripts import TranscriptLoadError
+from cc_transcript.tools import tool_name_matches
 from spawnllm import LabelAnswer
 
 newest_install = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]
@@ -61,7 +62,7 @@ BUILDER = "long-running:builder"
 POST = "mcp__plugin_cc-inbox_cci__post"
 FILE_TOOLS = ("Read", "Write", "Edit", "Bash")
 SLACK_READS = (SLACK + "slack_thread", SLACK + "slack_history")
-QUESTIONS = ("AskUserQuestion",)
+QUESTIONS = ("AskUserQuestion", "request_access", "request_full_control", "request_teach_access")
 SHELL = ("Bash",)
 SEARCHES = ("Bash", "Read", "Grep")
 AGENT = ("Agent",)
@@ -328,7 +329,7 @@ def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
     payload = evt._raw
     tool = payload.get("tool_name")
     pending = evt.event_name == Event.PreToolUse and payload.get("tool_use_id")
-    matching = [check for check, tools in PRE_TOOL_CHECKS.items() if check == script or tools is None or tool in tools] if pending else [script]
+    matching = [check for check, tools in PRE_TOOL_CHECKS.items() if check == script or tools is None or tool_name_matches(tool, "|".join(tools))] if pending else [script]
     if (payload.get("agent_type") or "").startswith(DRIVE_AGENTS):
         return tuple(matching)
     unbound = [check for check in matching if check in UNBOUND_CHECKS and UNBOUND_CHECKS[check](payload)]
@@ -528,6 +529,10 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
         ),
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=HANDLER_SESSION, agent_type=HANDLER): Block(
             pattern="communicator@fixture as an `ask` record"
+        ),
+        Input(tool="mcp__computer-use__request_access", tool_input={"apps": ["Slack"], "reason": "x"}, session_id=NO_DRIVE): Allow(),
+        Input(tool="mcp__computer-use__request_access", tool_input={"apps": ["Slack"], "reason": "x"}, session_id=COMMUNICATOR, agent_id="a1", agent_type=BUILDER): Block(
+            pattern="return a check they cannot settle as `UNPROVEN: <the check>: <the proof that settles it>`"
         ),
     },
 )
