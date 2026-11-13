@@ -232,6 +232,7 @@ HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
 JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
 SAID_AT = datetime(2026, 11, 11, 17, 40, tzinfo=UTC)
 TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
+WAITS_ON_TAP = f"Deleting the old memory indexes still waits on your tap: {SAID_LINK}"
 GUESSED = "The cloud's inbox reader queries Postgres straight."
 GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
@@ -654,6 +655,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY))},
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"reason": "he is away and this is news, not an answer", "allow": False, "refusal": "His order asks for the fix, not news of it while he is away."},
@@ -664,6 +666,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY))},
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": TimeoutError("codex timed out after 19s")},
@@ -674,16 +677,18 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY))},
             root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
             decide=JEV_UNSURE,
             llm={"error": EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")},
         ): Block(pattern=r"(?s)Jev gave no verdict \(EvidenceIncomplete: transcript evidence deadline: foreground transcript deadline exhausted\), and a finding a count or a mark decides refuses without one.*Refused on purpose: he is away"),
         Input(
             tool=SLACK + "slack_dm_status",
-            tool_input={"text": "Deleting the old memory indexes still waits on your tap: https://acme.slack.com/archives/D123/p1794288799976279"},
+            tool_input={"text": WAITS_ON_TAP},
             session_id=COMMUNICATOR,
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps(refused_post(WAITS_ON_TAP, AWAY, AWAY))},
             root_transcript=[T.user(TAP_ASKED, timestamp=SAID_AT.isoformat()), T.assistant("will do")],
             decide=JEV_UNSURE,
             llm={"reason": "he asked to hear when it waits on his tap", "allow": True, "relied_on": [said_evidence(TAP_ASKED, SAID_AT, "prompt").id]},

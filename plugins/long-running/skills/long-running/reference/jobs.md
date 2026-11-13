@@ -33,7 +33,7 @@ Contents:
   A builder on an open incident's order or on an `immediate fix` part never waits its turn: it
   starts here at once past the cap and the line, and holds a slot against later builders once it
   runs.
-  A builder added with `drive job add builder --builds-nothing`, one whose whole work holds no
+  A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a merged PR's live proof or a read, holds no slot at all: it starts
   here at once past the cap and the line, and no later builder counts it.
   Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
