@@ -21,12 +21,12 @@
     {
       "name": "cc-inbox",
       "marketplace": "cc-inbox",
-      "version": ">=0.54.10"
+      "version": ">=0.54.44"
     },
     {
       "name": "cc-notes",
       "marketplace": "cc-notes",
-      "version": ">=0.76.24"
+      "version": ">=0.76.25"
     },
     {
       "name": "orca",

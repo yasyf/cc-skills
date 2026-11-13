@@ -45,6 +45,7 @@ LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))
 LANE_CARDS = (("job", "ask"), ("job", "report"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
 JOB_WORD = re.compile(r"j\d+")
+DRIVE_RECORD = re.compile(r"[oj]\d+")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
 GRANTOR = ("identity", "core-gbl-identity")
@@ -76,6 +77,7 @@ READ_VERBS = (
     ("ccn", "show"),
     ("ccn", "relevant"),
     ("ccn", "answer", "search"),
+    ("ccn", "answer", "match"),
     ("ccn", "answer", "show"),
     ("ccn", "answer", "list"),
     ("ccn", "note", "search"),
@@ -84,7 +86,6 @@ READ_VERBS = (
     ("ccn", "doc", "show"),
     *SLACK_READS,
 )
-QUERY_VERBS = ("search", "grep")
 PLAN_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
 PLANS = 5
 BUDGET = 12000
@@ -244,20 +245,27 @@ def lane_exit(status: int, printed: str) -> str:
 
 
 def read_records(command: str, checkout: Path, drive: str) -> str:
-    """Run one listed record read, else read the drive files the read names; a search or grep takes its words up to the first flag as one query, quoted or not, a ccn show, which takes one ID, runs once for each ID, its outputs joined, and a Slack read runs through this Mac's cc-slack and answers whole, since sprite_answer sends a long answer as a file on the lane's Sprite."""
+    """Run one listed record read with its words as the lane wrote them, a search, grep or match joining several into one query itself, else read the drive files the read names; a ccn show, which takes one ID, runs once for each ID, its outputs joined, and a Slack read runs through this Mac's cc-slack and answers whole, since sprite_answer sends a long answer as a file on the lane's Sprite."""
     argv = read_words(command)
     verb = next((verb for verb in READ_VERBS if tuple(argv[: len(verb)]) == verb), None)
     if verb is None:
         return read_drive_files(command, drive)
     if verb in SLACK_READS:
         return run([slack.launcher(), *argv[1:]], checkout).strip()
-    query = list(itertools.takewhile(lambda word: not word.startswith("-"), argv[len(verb) :]))
-    flags = argv[len(verb) + len(query) :]
-    if verb[-1] in QUERY_VERBS and query:
-        argv = [*verb, " ".join(query), *flags]
-    if verb[0] == "ccn" and verb[-1] == "show" and len(query) > 1:
-        return head("\n\n".join(run([*verb, record, *flags], checkout).strip() for record in query))
-    return head(run(argv, checkout).strip())
+    ids = list(itertools.takewhile(lambda word: not word.startswith("-"), argv[len(verb) :]))
+    flags = argv[len(verb) + len(ids) :]
+    runs = [[*verb, record, *flags] for record in ids] if verb[0] == "ccn" and verb[-1] == "show" and len(ids) > 1 else [argv]
+    return head("\n\n".join(record_read(each, checkout) for each in runs))
+
+
+def record_read(argv: list[str], checkout: Path) -> str:
+    """A listed read's output, or its tool's refusal naming the words it ran as, quoted as a shell splits them, and, for each order or job those words name, the drive read that reads it, since orders and jobs are the drive's records and no cci kind."""
+    try:
+        return run(argv, checkout).strip()
+    except ReadError as error:
+        named = [word for word in argv if DRIVE_RECORD.fullmatch(word)]
+        drive_read = f"; the drive keeps its orders and jobs, so drive status {' '.join(named)} on your Sprite reads them" if named else ""
+        raise ReadError(f"{error}; it ran as these {len(argv)} words: {shlex.join(argv)}{drive_read}") from None
 
 
 def read_drive_files(command: str, drive: str) -> str:
