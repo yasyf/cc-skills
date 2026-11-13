@@ -62,9 +62,9 @@ COMMUNICATOR_RULES = (
     ),
     (
         'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
-        " terminal, and an owner record from the coordinator, are his message, acked at his DM root. His message in"
-        " another channel (relayed) was written to the people there: no ack, and the handler tool only when it orders"
-        " the drive or rules on a job's work."
+        " terminal, and an owner record from the coordinator, are his message, acked at his DM root. His message to the"
+        " bot in another channel (relayed) gets no ack there, and the handler tool only when it orders the drive or"
+        " rules on a job's work; his lines to the people there never reach you."
     ),
     (
         "A handler's line comes back as one cci done record from lane handler when its session ends: MISSING <path>"
