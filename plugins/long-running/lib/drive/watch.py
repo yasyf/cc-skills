@@ -80,6 +80,7 @@ class Watcher:
     cards: dict | None = None
     owed: set[str] | None = None
     stale: set[str] = field(default_factory=set)
+    unhookable: set[str] = field(default_factory=set)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     made: list[str] = field(default_factory=list)
     unsent: dict[str, list[str]] = field(default_factory=dict)
@@ -1261,20 +1262,28 @@ def dashboard_lines(watcher: Watcher) -> list[str]:
 
 
 def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep the receiver taking GitHub's deliveries for every PR the watch hears: its launch agent loaded, and a webhook pointing at it on each of their repositories, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. One that cannot be kept, or a receiver not answering on loopback, is said as a failed read is; a proof's drive leaves it alone."""
+    """Keep the receiver taking GitHub's deliveries for every PR the watch hears: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked. Each repository is tried whatever another's hook did, and one that cannot be kept, or a receiver not answering on loopback, is said as a failed read is, naming the gh call; a proof's drive leaves it alone."""
     if state.scratch():
         return []
     data = state.load(watcher.name)
     heard = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    errors: list[str] = []
     try:
         receiver.keep()
-        for repo in receiver.unhooked({github.repo_of(key) for key in heard}):
-            receiver.hook(repo)
-            watcher.owed |= {key for key in heard if github.repo_of(key) == repo}
-        if not receiver.answering():
-            raise state.DriveError(f"nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}")
-    except (github.GithubError, state.DriveError) as error:
-        return failed(watcher, "receiver", "upkeep of the receiver", error, moment)
+    except state.DriveError as error:
+        errors.append(str(error))
+    for repo in sorted(set(receiver.unhooked({github.repo_of(key) for key in heard})) - watcher.unhookable):
+        try:
+            if receiver.hook(repo):
+                watcher.owed |= {key for key in heard if github.repo_of(key) == repo}
+            else:
+                watcher.unhookable.add(repo)
+        except (github.GithubError, state.DriveError) as error:
+            errors.append(str(error))
+    if not receiver.answering():
+        errors.append(f"nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}")
+    if errors:
+        return failed(watcher, "receiver", "upkeep of the receiver", state.DriveError("; ".join(errors)), moment)
     watcher.failures.pop("receiver", None)
     return []
 

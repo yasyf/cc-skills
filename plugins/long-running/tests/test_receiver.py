@@ -135,12 +135,26 @@ def test_a_repository_is_hooked_once_at_the_receivers_address_signed_with_its_se
 ) -> None:
     monkeypatch.setattr(dashboard, "tailnet", lambda: dashboard.Tailnet("mac", "mac.tail.ts.net", ["100.64.0.1"], "me@example.com", True))
     kept({REPO: {"id": 9, "last": "g1"}})
-    calls = answers(monkeypatch, {"--input": {"id": 9}, f"repos/{REPO}/hooks?per_page=100": listed + [{"id": 5, "config": {"url": "https://ci.example.com/hook"}}]})
-    REAL_HOOK(REPO)
-    [_, [*made, config]] = calls
-    assert (made[-5:], json.loads(config), receiver.hooks()) == (
+    calls = answers(monkeypatch, {"--input": {"id": 9}, f"repos/{REPO}/hooks?per_page=100": listed + [{"id": 5, "config": {"url": "https://ci.example.com/hook"}}], f"repos/{REPO}": True})
+    hooked = REAL_HOOK(REPO)
+    [_, _, [*made, config]] = calls
+    assert (hooked, made[-5:], json.loads(config), receiver.hooks()) == (
+        True,
         ["-X", method, path, "--input", "-"],
         {"active": True, "events": receiver.EVENTS, "config": {"url": "https://mac.tail.ts.net:8443/github", "content_type": "json", "secret": receiver.secret(), "insecure_ssl": "0"}},
         {REPO: {"id": 9, "last": "g1"}},
     )
     assert (receiver.home() / "secret").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_repository_github_lets_this_account_no_admin_of_gets_no_hook(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = answers(monkeypatch, {"repos/stablyai/orca": False})
+    assert (REAL_HOOK("stablyai/orca"), calls, receiver.hooks()) == (False, [["gh", "api", "repos/stablyai/orca", "--jq", ".permissions.admin"]], {})
+
+
+def test_a_hook_github_refuses_names_the_gh_call_it_refused(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dashboard, "tailnet", lambda: dashboard.Tailnet("mac", "mac.tail.ts.net", ["100.64.0.1"], "me@example.com", True))
+    answers(monkeypatch, {f"repos/{REPO}/hooks?per_page=100": github.GithubError("gh: Not Found (HTTP 404)"), f"repos/{REPO}": True})
+    with pytest.raises(github.GithubError) as refused:
+        REAL_HOOK(REPO)
+    assert str(refused.value) == f"gh api 'repos/{REPO}/hooks?per_page=100': gh: Not Found (HTTP 404)"
