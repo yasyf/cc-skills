@@ -101,25 +101,29 @@ def landing(pr: dict) -> bool:
     return lander.get("head") == pr["head"] and (running(pr) or lander.get("outcome") == QUEUED and not pr["ejected"])
 
 
-def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
-    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs his Approve lands together, joined as stack-enqueue lands them, a PR sitting on the one before it in its native GitHub stack or, at the bottom of one or in none, on the open PR whose head branch is its base."""
+def unders(data: dict) -> dict[str, str | None]:
+    """Each open PR the drive tracks mapped to the open tracked PR it sits on, as the watch last read them and as stack-enqueue joins them: the one before it in its native GitHub stack or, at the bottom of one or in none, the open PR whose head branch is its base; None for a PR on no tracked PR."""
     opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
     by_branch = {(github.repo_of(key), pr["branch"]): key for key, pr in opened.items() if pr["branch"]}
     under: dict[str, str | None] = {}
     for key, pr in opened.items():
         native = [member for member in pr["native"] if member in opened]
         under[key] = native[native.index(key) - 1] if key in native and native.index(key) else by_branch.get((github.repo_of(key), pr["base"]))
+    return under
 
-    def depth(key: str) -> int:
-        return depth(parent) + 1 if (parent := under[key]) else 0
 
-    def bottom(key: str) -> str:
-        return bottom(parent) if (parent := under[key]) else key
+def chain(under: dict[str, str | None], key: str) -> tuple[str, ...]:
+    """Key and the open tracked PRs under it, bottom first: what stack-enqueue queues when key is named, never a PR above it."""
+    return (*chain(under, parent), key) if (parent := under.get(key)) else (key,)
 
+
+def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
+    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs one card of his draws together, joined by unders()."""
+    under = unders(data)
     stacks: dict[str, list[str]] = {}
-    for key in opened:
-        stacks.setdefault(bottom(key), []).append(key)
-    return {key: tuple(sorted(members, key=depth)) for members in stacks.values() if len(members) > 1 or opened[members[0]]["native"] for key in members}
+    for key in under:
+        stacks.setdefault(chain(under, key)[0], []).append(key)
+    return {key: tuple(sorted(members, key=lambda member: len(chain(under, member)))) for members in stacks.values() if len(members) > 1 or data["prs"][members[0]]["native"] for key in members}
 
 
 def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
@@ -136,10 +140,10 @@ def unready(data: dict, key: str, cards: dict) -> str | None:
     return None if now.name == "ready" else f"{now.name}: {now.why}"
 
 
-def unit(data: dict, stacks: dict[str, tuple[str, ...]], key: str, cards: dict) -> tuple[str, ...]:
-    """The PRs one lander queues for key: its whole landing stack bottom first once every PR of it lands now, else none, since a stack lands whole, its bottom waiting for its top, as stack-enqueue lands it."""
-    stack = stacks.get(key, (key,))
-    return stack if all(unready(data, member, cards) is None for member in stack) else ()
+def unit(data: dict, under: dict[str, str | None], key: str, cards: dict) -> tuple[str, ...]:
+    """The PRs one lander queues for key: its chain(), key and the PRs under it bottom first, once every PR of it lands now, else none, so a PR above it that is red, untapped or held never holds it."""
+    members = chain(under, key)
+    return members if all(unready(data, member, cards) is None for member in members) else ()
 
 
 def uncleared_below(data: dict, keys: list[str]) -> list[str]:
@@ -156,10 +160,16 @@ def held_below(keys: list[str], below: list[str]) -> str:
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
-    """The units a lander lands now among keys' landing stacks, in every repository the drive tracks: each one whose PRs read ready from its bottom, whole for a Forge-AI/monorepo stack stack-enqueue queues, and its bottom PR alone in any other repository, which gh pr merge merges one PR at a time."""
-    stacks = landing_stacks(data)
-    found = dict.fromkeys(unit(data, stacks, key, cards) for key in keys if data["prs"][key]["state"] == "open")
-    return [members if state.queued_by_lander(members[0]) else members[:1] for members in found if members]
+    """The units a lander lands now among keys, in every repository the drive tracks: each key's unit() that reads ready, whole for a Forge-AI/monorepo chain stack-enqueue queues and its bottom PR alone in any other repository, which gh pr merge merges one PR at a time, longest first, leaving out one that shares a PR with a unit taken before it, since one lander holds a PR at a time: a chain inside a longer one, or one on the same PR as a sibling's, which lands at a later pass."""
+    under = unders(data)
+    found = dict.fromkeys(
+        members if state.queued_by_lander(members[0]) else members[:1] for key in keys if data["prs"][key]["state"] == "open" and (members := unit(data, under, key, cards))
+    )
+    taken: list[tuple[str, ...]] = []
+    for members in sorted(found, key=len, reverse=True):
+        if all(set(members).isdisjoint(other) for other in taken):
+            taken.append(members)
+    return taken
 
 
 def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...]]:
