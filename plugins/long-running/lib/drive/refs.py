@@ -42,7 +42,7 @@ RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started, labelled as the job's start, and the time a record went out, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started, labelled as the job's start, and the time a record went out, with the words that name it, the words after a | when it has them beside its own title, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
     if refusal := nested(text):
         raise DriveError(refusal)
     found = {}
@@ -70,7 +70,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
             case "at":
                 found[match[0]] = posted_at(name, match[2])
         if label:
-            found[match[0]]["title"] = label
+            found[match[0]] |= {"own": found[match[0]]["title"], "title": label}
     return found
 
 
@@ -152,7 +152,7 @@ def card(cards: list[dict], data: dict, waits: str) -> dict:
 
 
 def pr(prs: dict, ref: str, label: str) -> dict:
-    """A PR the drive holds, named by what it does, or any other PR named by its owner/repo#number or URL under the words the post gives it."""
+    """A PR the drive holds, named by what it does, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
     number = ref.removeprefix("#")
     keys = [key for key in prs if key.endswith(f"#{number}")] if number.isdigit() else [state.pr_key(ref)]
     if len(keys) > 1:
@@ -162,7 +162,7 @@ def pr(prs: dict, ref: str, label: str) -> dict:
         return {"kind": "pr", "title": view.pr_title(found) if found["title"] else keys[0], "url": found["url"], "board": found["url"]}
     if keys and label:
         url = state.pr_url(keys[0])
-        return {"kind": "pr", "title": label, "url": url, "board": url}
+        return {"kind": "pr", "title": "", "url": url, "board": url}
     raise DriveError(
         f"{{pr:{ref}}} names no PR of the drive's, which drive status lists; name any other PR as"
         " {pr:<owner/repo#number>|<words saying what it does>}"
