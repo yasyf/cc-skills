@@ -1892,9 +1892,11 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
     if job["state"] in ("waiting", "built"):
-        if refused := next((question for question in view.open_questions(job) if question["refused"]), None):
+        if found := refused_card(job_id, job, data):
+            owner, refused = found
+            whose = "its" if owner == job_id else f"{owner}'s"
             return (
-                f'{job_id} waits on a card never posted: drive job ask refused its question "{cut(refused["title"], 80)}" kept in {refused["file"]}:'
+                f'{job_id} waits on a card never posted: {state.refused_by(refused)} refused {whose} question "{cut(refused["title"], 80)}" kept in {refused["file"]}:'
                 f" {cut(refused['refused'].removeprefix('refused: '), 160)}"
             )
         if asked := unanswered(job_id, job, moment):
@@ -1914,6 +1916,12 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         answered = "card is" if len(drawn) == 1 else "cards are"
         return None if view.open_cards(job) else f"{job_id}'s {answered} answered and no job carries his answer"
     return f"{job_id} {job['state']}"
+
+
+def refused_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None:
+    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused."""
+    asked = [*((job_id, question) for question in view.open_questions(job)), *view.drawn_on(data, *job["waits"])]
+    return next(((owner, question) for owner, question in asked if question["refused"] and question["closed"] is None), None)
 
 
 def merged_gap(job_id: str, data: dict) -> str:

@@ -1922,6 +1922,30 @@ def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw
     assert len(chrome.drawn) == 4
 
 
+def test_job_card_keeps_its_refusal_on_the_question_its_ask_record_named_until_job_ask_asks_it_again(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    kept = run("job", "ask", asking, str(block))[1]
+    Path(kept).write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the journal keeps its layout."))
+    refusal = (
+        f"{kept} no longer holds the words drive job ask kept there, so it draws no card: a kept question changes only through"
+        " drive job ask, which checks the new words against every rule, so keep them with drive job ask j1 <file> and draw the file it prints"
+    )
+    assert cli.main(["job", "card", kept, "--waits", "demo:j1-7"]) == 2
+    assert capsys.readouterr().err == f"drive: {refusal}\n"
+    [question] = state.load("demo")["jobs"]["j1"]["questions"]
+    assert (question["waits"], question["card"], question["refused"]) == ("demo:j1-7", None, refusal)
+    assert f"refused, so no card draws: {kept}" in run("status", asking)[1]
+    Path(kept).write_text(SHORT_ASK)
+    assert cli.main(["job", "card", asking]) == 2
+    assert f"pending, since `drive job card` refused it, so no card draws from it; act on that refusal and ask again: {refusal}" in capsys.readouterr().err
+    assert run("job", "ask", asking, kept) == (0, kept)
+    assert [(question["waits"], question["refused"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [("demo:j1-7", None)]
+    assert json.loads(run("job", "card", asking)[1])["waits"] == "demo:j1-7"
+
+
 KEPT_TEXT_FENCE_ASK = """ASK Should the newest server warn the open window at launch when the api refuses it?
 The fix blocks the window when a chat fails to open with the api's refusal. Recommend keeping it as built.
 Show me:

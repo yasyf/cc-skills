@@ -1345,6 +1345,11 @@ def new_question(
     return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None}
 
 
+def refused_by(question: dict) -> str:
+    """The verb that refused a question: `drive job card`, drawing its card from the ask record whose waits id it holds, else `drive job ask`, which refuses a question before its ask record goes out."""
+    return "drive job card" if question["waits"] else "drive job ask"
+
+
 def new_close(
     how: str, words: str | None, link: str | None, seq: str | None = None, answer: str | None = None, ruling: str | None = None, by: str | None = None, at: str | None = None
 ) -> dict:
