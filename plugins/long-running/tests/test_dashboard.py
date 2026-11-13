@@ -744,7 +744,7 @@ def fresh(minutes: int) -> str:
 def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str, before: str = "", drawn: bool = False) -> object:
     """Serve the dashboard of model from the real handler and load it in headless Chrome with only its stream stubbed, and its renderers unless
     drawn: the page reads the summary once, and push(model) shows the board model and hands the page its summary. Run before, a script ahead of
-    app.js that may stand in for the server's reads, then steps, an async module that may call push(model), wait(ms) and until(test), and return
+    app.js that may stand in for the server's reads, then, 100 ms after app.js drew the model it read, steps, an async module that may call push(model), wait(ms) and until(test), and return
     what steps put in done(result); /test/embed serves EMBED, a stand-in for cc-review's embedded review. Each poll of until also waits on a
     fetch the server answers 50 ms later, since Chrome's virtual clock runs on while a renderer compiles off the page's thread, as viz's wasm
     does, but stops while a fetch is out, so a slow machine's draw is waited for and never spends the polls or the clock's budget."""
@@ -758,7 +758,7 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
 </script>"""
     site = tmp_path / "site"
     site.mkdir(parents=True)
-    page = (SITE / "index.html").read_text().replace('<script src="/app.js"></script>', f'{harness}<script>{before}</script><script src="/app.js"></script><script type="module">await wait(100);\n{steps}</script>')
+    page = (SITE / "index.html").read_text().replace('<script src="/app.js"></script>', f'{harness}<script>{before}</script><script src="/app.js"></script><script type="module">await until(() => model);\nawait wait(100);\n{steps}</script>')
     (site / "index.html").write_text(page)
     for name in ("app.js", "app.css", "kit"):
         (site / name).symlink_to(SITE / name)
