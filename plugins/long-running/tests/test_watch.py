@@ -3489,11 +3489,23 @@ def test_a_pr_whose_card_draw_fails_stays_uncarded_and_is_drawn_again_each_read_
     watching = watcher(demo)
     for minute in range(3):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
-    pr = state.load(demo)["prs"][KEY]
-    assert (draws.keys, view.live_cards(demo)["pr_cards"], pr["stage"]["name"]) == ([[KEY]] * 3, [], "uncarded")
+    data = state.load(demo)
+    assert (draws.keys, view.live_cards(demo)["pr_cards"], stage.of(data, KEY, view.live_cards(demo)).name) == ([[KEY]] * 3, [], "uncarded")
     assert [entry for entry in posted(sent) if entry[1] == f"meta@{demo}"] == [
         ("handoff", f"meta@{demo}", f"WATCH draw of his card on {KEY} failed 3 times in a row: cc-slack exited 1")
     ]
+
+
+def test_a_pr_whose_card_draw_goes_out_with_no_open_card_at_its_head_is_drawn_once_while_it_stays_uncarded(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    drawn: list[list[str]] = []
+    monkeypatch.setattr(talk, "draw", lambda name, keys, again=False: drawn.append(keys) or "https://forge.slack.com/archives/D123/p1794379200123456")
+    watching = watcher(demo)
+    for minute in range(3):
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+    assert (drawn, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([[KEY]], "uncarded")
     draws.failure = None
     watch.run_pass(watching, T0 + timedelta(minutes=3))
     watch.run_pass(watching, T0 + timedelta(minutes=4))
