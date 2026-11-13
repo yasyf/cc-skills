@@ -357,35 +357,35 @@ event needs. The first four events then return as step 7 says.
 
 ## Releases
 
-- Start only the release your brief's `Release:` line names, its targets, `--env` and `--order` as written, and,
-  outside an incident, only after a `tools/ci release plan` at the same flags passed earlier in your
-  job, a hotfix's pull requests given to it as `--hotfix <n>`: the `landing_guard` hook refuses any
-  other `tools/ci release start` or `hotfix`. A brief naming no release, or another one, gets a
-  `BLOCKED` naming the release you would start and why.
-- His order or pick on a card to release, or the coordinator's record of either, approves starting
-  that release, never the migrations, deletes and replaces its approve hold holds: pass `--order <his
-  answer id>` to `tools/ci release start` with no `ASK` or question first, since nobody asks him
-  again, and pass the same `--order` to a resume or re-plan. At the approve hold, read each held
-  migration, delete and replace against the code at the release's commit, then run `tools/ci release
-  approve <id> --via <agent>`, naming in `--leave-out` each stack you cannot vouch for, never
-  cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
-  change merges without its writer; a stack's bottom waits for its top".
+- You never start a release: the `landing_guard` hook refuses your `tools/ci release start` and
+  `hotfix`, since the top coordinator starts each one with `drive job add --release`, which reads his
+  answer approving it and briefs a job on the build it started. A change that needs a release returns
+  `WAITING release` naming the exact `tools/ci release start` or `hotfix` to run, a hotfix's pull
+  requests given to it as `--hotfix <n>` and `--order <his answer id>` when he already ordered it;
+  outside an incident, run `tools/ci release plan` at those flags first and name what each stack
+  changes, since his go answers that command.
+- Your brief's `Release:` and `Release build:` lines name the release the top started for you and its
+  build. Follow it with `tools/ci release watch <build>` and pass the same `--order` to a resume or re-plan. His go approves
+  starting that release, never the migrations, deletes and replaces its approve hold holds: read each
+  against the code at the release's commit, then run `tools/ci release approve <id> --via <agent>`,
+  naming in `--leave-out` each stack you cannot vouch for, never cancelling the release or asking him,
+  by his pick "Land whole stacks and read the gate: no schema change merges without its writer; a
+  stack's bottom waits for its top".
 - Approve only a release he approved. A build or release he started is his: never cancel, retry,
-  reorder or approve it, and start no release while it runs. Never cancel one of ours either,
-  however wide its plan reads: return with it held for the coordinator, since the `landing_guard`
-  hook refuses a drive job's `tools/ci release cancel`.
-- An incident brief's incident order approves starting the cut that ships its fix, the default
-  branch's head included when its first check proved that build works: pass `--order <the incident's
-  answer id>`, and read its approve hold as above.
-  A rollback to an older build, when prudent, is an immediate fix it approves. It never approves a
-  revert: a PR or build that takes a change out lands only on his tap, on a card stating the bug in
-  it.
+  reorder or approve it. Never cancel one of ours either, however wide its plan reads: return with it
+  held for the coordinator, since the `landing_guard` hook refuses a drive job's `tools/ci release
+  cancel`.
+- An incident's order approves the cut that ships its fix, the default branch's head included when
+  its first check proved that build works. A rollback to an older build, when prudent, is an immediate
+  fix it approves. It never approves a revert: a PR or build that takes a change out lands only on his
+  tap, on a card stating the bug in it.
 - On an incident nothing stops between the merge and the build: no dry run, no read of what the cut
   covers or what caused the break, no comparison of open builds, no question. Lift the service's
-  freeze the brief's `Incident:` line names with `tools/ci release unfreeze <id>`, start the build at
-  the fix commit the regular way the release rule on that line says, report its link, and read while it
-  builds; the approve hold, read as above, is the only check. Cut a hotfix from the live commit only
-  after a first check found the default branch's newest build fails too.
+  freeze the brief's `Incident:` line names with `tools/ci release unfreeze <id>` and return `WAITING
+  release` at once naming the start at the fix commit the release rule on that line says, `--order
+  <the incident's answer id>` included, then read while it builds; the approve hold, read as above, is
+  the only check. Name a hotfix from the live commit only after a first check found the default
+  branch's newest build fails too.
 
 ## On a Sprite
 

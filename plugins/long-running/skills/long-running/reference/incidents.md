@@ -169,9 +169,10 @@ changed and when, its findings the suspects, and its root cause the verdict.
 
 - **The default branch's build works:** releasing the default branch is the fix. In that turn:
   - a `report` to the communicator saying so, with what the test machine showed;
-  - a `long-running:builder`, added first with
-    `drive job add builder --order <o> --part fix --goal "release the default branch"`, starting
-    the release of the default branch's head by the cut [Ship it](#ship-it) names;
+  - a `long-running:builder`, added with `drive job add builder --order <o> --part fix --goal
+    "release the default branch" --release "<the start>"`, which starts the release of the default
+    branch's head by the cut [Ship it](#ship-it) names, `--order <the incident's answer id>`
+    included, and briefs the job on its build;
   - then a `SendMessage` to the fix job saying "the default branch's release is the fix", and
     `drive job set <j> --state stopped --said "the default branch's release is the fix"`, which
     refuses while that job is the last running one on the fix.
@@ -244,11 +245,9 @@ breaks a service.
   covering every stack it deploys. It runs `tools/ci release freeze` from your checkout for 12
   hours, the reason naming the order and its root fix, and puts the freeze's id on the order's
   note beside the record's.
-- Among agents, only the session that set a freeze releases through it. Your session sets it, so
-  every builder you start shares that session and can start the root fix's release. He can too,
-  and a rollback skips every freeze.
-- The job that merges the root fix lifts the freeze with `tools/ci release unfreeze <id>` in that
-  turn, before the fix's build starts.
+- Among agents, only the session that set a freeze releases through it, and a rollback skips every
+  freeze. The job that merges the root fix lifts the freeze with `tools/ci release unfreeze <id>` in
+  that turn, before it returns `WAITING release` naming the fix's start.
 - A freeze found on while users are still blocked is lifted in that turn, because it can only slow
   or block the release that unblocks them.
 - Claim, fence or hold nothing else unless he asks. The broken service's freeze is the one freeze.
@@ -327,8 +326,8 @@ check's verdict, or from the order when none ran.
   that worktree, lands them and proves them live. A second-lane builder holding the codex job
   ships it itself, so none is added.
 - An approved and green incident PR lands in the turn the watch reports it: its `checks passed`
-  or `approved` event wakes the coordinator, which resumes its job with "land it and start its
-  build now".
+  or `approved` event wakes the coordinator, which resumes its job with "land it, lift the freeze
+  and return `WAITING release` naming its start now".
 - In the monorepo the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`,
   then `gh pr merge <n> -R Forge-AI/monorepo --squash`, or, for a PR in a native GitHub stack,
   which `gh pr merge` refuses, `gh api -X PUT repos/Forge-AI/monorepo/pulls/<n>/merge-async -f
@@ -339,39 +338,41 @@ check's verdict, or from the order when none ran.
   wrong.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers
   or what caused the break, no comparison of open builds, no question. The job shipping the fix
-  lifts the service's freeze, starts the build at the fix commit, and reports its link. The
-  release's own approve hold, which the job reads as [landing.md](landing.md#after-merge) says, is the
-  only check, and every other read runs while it builds.
-- No stop reopens by itself. The job that starts a release for an open incident, its fix's,
+  lifts the service's freeze and returns `WAITING release` naming the start at the fix commit, and
+  the top coordinator starts it in that turn with `drive job add --release`, which prints its build
+  link. The release's own approve hold, which the job's agent reads as
+  [landing.md](landing.md#after-merge) says, is the only check, and every other read runs while it
+  builds.
+- No stop reopens by itself. The job a release for an open incident starts on, its fix's,
   rollback's, stop's or the default branch's, follows each step and records what failed and what
   it blocks, and the coordinator runs `drive incident stop <o>` only for a failure blocking the
   incident, by his pick "Delete the automatic stop reopen".
 - An incident filed under a project with a sub-coordinator is that session's to fix and land, and
   the top coordinator starts, approves and rolls back its cuts, one at a time, by his pick "the top
   starts, approves and rolls back production cuts": the sub-coordinator sends the top a `release`
-  record for each, since the `landing_guard` hook refuses those three from its session and agents,
-  and the top adds the job that starts the cut on the incident's order with `drive job add builder
-  --order <o> --goal "<one line>" --release "<the one ci release start or hotfix>"`.
+  record for each, naming the exact start, since the `landing_guard` hook refuses those three from
+  its session and agents, and the top starts the cut on the incident's order with `drive job add
+  builder --order <o> --goal "<one line>" --release "<the one ci release start or hotfix>"`.
 - No incident release starts, a rollback included, before a line to him states the bug it ships
   against, quoted from the record: what fails and, once there is a verdict, the change and its PR.
   The fix's release has that line from its PR-open line. For a rollback or a release of the
-  default branch, the `report` saying so goes out before its job is told to start.
+  default branch, the `report` saying so goes out before `drive job add --release` starts it.
 - Every release a drive job starts, an incident's included, starts the regular way at the merged
   fix or the default branch's head a first check proved, `tools/ci release start <target> --from <sha>`,
   whose `Release-With` and `Release-Order` footers decide what ships with it, never narrowed with
   `--only`, `--without` or `--emergency`, which each leave out a partner its footers name, by his
   pick "Regular release, never cancelled: one start ships the change with every partner its footers
-  name; wider and slower." The job that started it never cancels it, however wide its plan reads,
+  name; wider and slower." The job it started on never cancels it, however wide its plan reads,
   by his words "next time fucking do the right thing and then dont cancel it": a job that would
   decline it at approve returns with it held for the coordinator, since the `landing_guard` hook
   refuses a drive job's `tools/ci release cancel`. A fix cherry-picked onto the live commit on a
   pushed branch, only once a first check found the default branch's newest build fails too, starts
   `tools/ci release start --manual sand-next --env core-usw2-auto --commit <sha> --emergency`, since
   Platy refuses a commit off `dev`. `drive job brief` prints this rule on each incident builder's
-  `Incident:` line, so no brief writes a cut of its own.
+  `Incident:` line, so each names the cut it returns in `WAITING release` this way.
 - The incident order's words approve starting its own release and its rollback, never the migrations,
-  deletes and replaces its approve hold holds. The job that starts the release passes `--order <the
-  answer id>` and reads that hold as [landing.md](landing.md#after-merge) says. His own order approves
+  deletes and replaces its approve hold holds. Its start passes `--order <the answer id>`, and the
+  job it starts on reads that hold as [landing.md](landing.md#after-merge) says. His own order approves
   starting any other release he ordered, the same way. While he holds every release, an incident's
   order approves its cut and rollback only when he gave it after the hold, by
   [landing.md](landing.md#after-merge).

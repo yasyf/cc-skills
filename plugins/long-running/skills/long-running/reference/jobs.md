@@ -56,8 +56,8 @@ Contents:
   check". `drive job add` never refuses one for load. The brief's writer names the step only this
   Mac runs that the job itself runs with `drive job brief <j> --mac "<the step>"`, its `Mac:` line:
   break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, a
-  devbox (`ci devbox`), `ci db-read` or a Datadog read. A `Release:` line declares one too, since a
-  release starts with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
+  devbox (`ci devbox`), `ci db-read` or a Datadog read. A `Release:` line declares one too, since its
+  agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word
   of his `Order`, a `Goal`, `Plan` or `Handoff` places a job. The `agent_brief` hook refuses a
@@ -429,7 +429,8 @@ Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story, since data fetched from an API proves no screen>
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion, bulk or hand repair or any other write of a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role and not from this Mac, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads such a write in a Goal that makes none>
-Release: <only for a job that starts a release: the one `tools/ci release start` or `tools/ci release hotfix` it may run, its targets, `--env` and `--order` as it runs them, a start naming no `--env` shipping to production as `tools/ci release` defines it; `drive job brief --release` asks Jev once whether the answer its `--order` names approves that release, unless the answer is an incident's, and the `landing_guard` hook refuses a job's start or hotfix of any other targets, envs or `--order`, and, outside an incident, one no `tools/ci release plan` at the same flags passed before in that job>
+Release: <only for a job a release started on: the one `tools/ci release start` or `tools/ci release hotfix` that `drive job add --release` started, written by that call; it asks Jev once whether the answer its `--order` names approves that release, unless the answer is an incident's, and the `landing_guard` hook refuses every start or hotfix a drive session or agent runs itself>
+Release build: <beside Release only: the build that start printed, which the job's agent follows and approves>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <each ruling the call's ruling field names, each one the brief of any job on its order binds, a reader's or a design's included, each that settled a question of the reader Researched names and each the `rulings:` line of every reader of its parts of its order and of each order it carries names by id, the older readers' beside the newest's, whatever words surround it, an id cc-notes keeps no answer under, such as a commit or a session, left out, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when none of these names one>
 Research: <a build order's reader only: the Researched: block this build needs>
@@ -489,8 +490,11 @@ would still have to ask for.
 
 His approval of a release starts it, right then. His order or card pick to ship, release or approve a
 release, or the coordinator's record of either, approves starting that release, never what its approve
-hold holds. The job passes `--order <his answer id>` to `tools/ci release start` with no second card
-or question first. At the approve hold it reads each held migration, delete and replace against the
+hold holds. The top coordinator starts it with `drive job add builder --order <o> --goal "<what it
+ships>" --release "<the start> --order <his answer id>"` with no second card or question first. That
+one call starts it from the top's checkout, prints its build link and writes the job's brief on that
+build. With no such answer, the top reads the release's plan and asks him with `drive job ask` whether
+to start that exact command. At the approve hold the job's agent reads each held migration, delete and replace against the
 code at the release's commit, then runs `tools/ci release approve <id> --via <agent>`, naming in
 `--leave-out` each stack it cannot vouch for, never cancelling the release or asking him, by his pick
 "Land whole stacks and read the gate: no schema change merges without its writer; a stack's bottom

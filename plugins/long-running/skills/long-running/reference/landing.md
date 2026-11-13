@@ -434,16 +434,18 @@ the patch.
   or a compiled tool's local build of the merge sha reruns the case, by step 3 of
   [yasyf/* repositories](#yasyf-repositories). A monorepo change is live when its release is live on the
   targets it touches, shown by its card in #releases.
-- Start a regular release (`tools/ci release start`) only when his order covers releasing; otherwise,
-  the change rides the next release and the job returns `WAITING release`.
+- A job never starts a release. One his order covers releasing returns `WAITING release` naming the
+  exact `tools/ci release start` or `hotfix`, outside an incident after reading its `tools/ci release
+  plan`; any other change rides the next release and returns `WAITING release`.
 - His hold on every release is his answer labelled `release-hold` that no later answer of his
   supersedes, such as 15c4de1: "no releases until I say we can again, only I can give exceptions".
   While it stands, a release runs only on his exception, an answer of his recorded after the hold
-  that approves that one release. The `landing_guard` hook refuses every other release call and
-  quotes the hold. It covers `tools/ci release start`, `hotfix`, `resume`, `approve` and `rollback`,
-  `tools/ci bk rerun release`, and a `tools/ci bk api` write to a release build. A wrapper such as
-  `drive break-glass`, `timeout` or `xargs` changes nothing. It holds a drive session, its agents
-  and a Sprite lane, which asks the coordinator's Mac with `drive job held --release`.
+  that approves that one release. `drive job add --release` refuses any other start, and the
+  `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
+  release resume`, `approve` and `rollback`, `tools/ci bk rerun release`, and a `tools/ci bk api`
+  write to a release build. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
+  nothing. It holds a drive session, its agents and a Sprite lane, which asks the coordinator's Mac
+  with `drive job held --release`.
 - A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
   `--order` of its `Release:` line. A call naming none passes only when Jev reads one of his answers
   since the hold as approving it. An incident's order passes on its words, never on its label. Ask
@@ -457,26 +459,29 @@ the patch.
   session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `status` and
   `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
-  for the cut with a `release` record at `root@<drive>`. The top adds the job that starts the cut on
-  the record's order, such as `drive job add builder --order o1094 --goal "release the merged SandSQL
+  for the cut with a `release` record at `root@<drive>`. The top starts the cut in one call on the
+  record's order, such as `drive job add builder --order o1094 --goal "release the merged SandSQL
   changes" --release "go/ci/.build/ci.dev release start sandsql --from a6f826f01131fb9774a1410f95b3480996409aeb --order b9668c9"`,
-  then briefs and starts it. A job with a `Release:` line is the top's on any order, so its watch lines
-  and agent are the top's, and a sub-coordinator is refused adding, briefing or starting one, naming
-  the top.
+  which starts it from the top's checkout, prints its build link and writes the job's brief, whose
+  `Release:` and `Release build:` lines name the command and its build, then starts the job's agent
+  on that brief. A job
+  with a `Release:` line is the top's on any order, so its watch lines and agent are the top's, and a
+  sub-coordinator is refused adding, briefing or starting one, naming the top.
 - His order or his pick on a card to release, or the coordinator's record of either, approves starting
   that release, never the migrations, deletes and replaces its approve hold holds. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
-  fuckl around kjust appriove it". Start it with `--order <his answer id>`, with no `ASK` or card
-  first: nobody asks him again. A resume or re-plan of a release he
-  ordered passes the same `--order` again. At the approve hold the job that started it reads each held
+  fuckl around kjust appriove it". The top starts it with `--order <his answer id>` in the
+  `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
+  top reads the release's plan and asks him with `drive job ask` whether to start that exact command,
+  and his go is the answer it names. A resume or re-plan of a release he ordered passes the same
+  `--order` again. At the approve hold the job's agent reads each held
   migration, delete and replace against the code at the release's commit, then runs `tools/ci release
   approve <id> --via <agent>`, naming in `--leave-out` each stack it cannot vouch for, never
   cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
   change merges without its writer; a stack's bottom waits for its top". Jev reads his approval once:
-  `drive job brief --release` refuses a Release line whose `--order <id>` Jev does not read as his
-  order or pick to release, unless the answer is an incident's, labelled `incident`, and the
-  `landing_guard` hook then lets the job start only that line as written. A drive session's own
-  `ci release start --order <id>`, which no brief names, gets the same reading from the hook.
+  `drive job add --release` refuses a start whose `--order <id>` Jev does not read as his order or
+  pick to release, unless the answer is an incident's, labelled `incident`, and the `landing_guard`
+  hook refuses every `ci release start` and `hotfix` a drive session or agent runs itself.
 - A job never approves a release he has not approved, and never touches one he started himself. An
   incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
 - Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what

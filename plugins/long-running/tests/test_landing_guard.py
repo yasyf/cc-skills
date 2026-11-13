@@ -195,7 +195,7 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
     assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}"]] * 2
     assert run("job", "held", "--release", RESUME) == (0, refused)
     start = "tools/ci release start sandsql --order 8b2e4f7"
-    assert landing_guard.deny_reason(bash(start, session_id="sprite")) == landing_guard.RELEASE_UNBRIEFED.format(job="<job>", named="no release", command=start)
+    assert landing_guard.deny_reason(bash(start, session_id="sprite")) == landing_guard.RELEASE_BY_HAND.format(command=start)
     assert landing_guard.deny_reason(bash("tools/ci release cancel dazzling-kools", session_id="sprite")) == landing_guard.RELEASE_CANCEL
     assert len(sprite) == 2
 
