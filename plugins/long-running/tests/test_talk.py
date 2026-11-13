@@ -421,6 +421,49 @@ def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_i
     assert defect.startswith(f"say posted {POSTED} but it was not recorded on o1")
 
 
+@pytest.mark.parametrize(
+    ("attrs", "lane", "text", "recorded"),
+    [
+        (
+            {"job": "j1", "order": "o1", "progress": "true", "thread": "1794200000.000100"},
+            "platform",
+            "*One team's reads held the customer primary at its 12-core limit 3:00–3:45 PM:* 55 runs read 655 million rows.",
+            "o1 progress line, no part delivered: {answer}",
+        ),
+        (
+            {"job": "j1", "order": "o1", "part": "o1:fix", "thread": "1794200000.000100"},
+            "root",
+            '*App actions no longer fail with "is not materialized on this node":* a read or write of a moved table waits for its move.',
+            'o1 "fix": posted {answer}',
+        ),
+    ],
+)
+def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_the_record_runs_as_no_session(
+    demo: str,
+    run: Callable[..., tuple[int, str]],
+    monkeypatch: pytest.MonkeyPatch,
+    slack_thread: Thread,
+    unrecorded: list[str],
+    attrs: dict[str, str],
+    lane: str,
+    text: str,
+    recorded: str,
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread, "--parts", "fix")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = "communicator-session"
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["handlers"]["a74493d1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {}, "handed": [], "posted": []}
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, attrs, lane=lane)
+    assert talk.say(demo, {"text": text, "thread_ts": thread, "order": "o1", "record": "683585"}) == f"POSTED {answer}; {recorded.format(answer=answer)}"
+    assert unrecorded == []
+    assert state.load(demo)["orders"]["o1"]["last_line"] is not None
+
+
 def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_it_goes(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
