@@ -33,6 +33,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "incident": False,
         "recovered": None,
         "reporter": None,
+        "kind": "build",
         "proof": None,
         "note": None,
         "created": at(-120),
@@ -677,7 +678,7 @@ def test_incidents_list_his_open_incident_orders_oldest_first_but_one_the_watch_
     ]
 
 
-def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it_reached_until_its_reporter_is_told() -> None:
+def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it_reached_until_its_reporter_is_told_and_no_shared_question() -> None:
     def reported(told: str | None = None) -> dict:
         return state.reporter("https://acme.slack.com/archives/C1/p1794200000000100") | {"told": told}
 
@@ -692,6 +693,7 @@ def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it
             "o6": order("ship the dashboard", ["j6"], created=at(-60)),
             "o7": order("an old bug", [], reporter=reported(note), proof="fixed", state="done", created=at(-3000), updated=at(-2000)),
             "o8": order("a dropped bug", [], reporter=reported(), state="dropped", created=at(-70)),
+            "o9": order("what is left for cloud Iris", [], reporter=reported(), kind="answer", created=at(-80)),
         },
         {f"j{n}": job(f"o{n}", "done") for n in (2, 3, 4, 5, 6)},
         [pr(1, "o2"), pr(2, "o3", state="merged"), pr(3, "o3", state="closed"), pr(4, "o4", state="merged"), pr(5, "o5", state="merged")],

@@ -810,11 +810,13 @@ def order_told(args: argparse.Namespace) -> int:
     data = state.load(name)
     order = communicators_order(data, args.id)
     if not (reporter := order["reporter"]):
-        raise DriveError(f"{args.id} names no bug report to tell: drive order set {args.id} --reporter <its permalink> names one")
+        raise DriveError(f"{args.id} names no one to tell: drive order set {args.id} --reporter <their message's permalink> names them")
+    asked = order["kind"] == "answer"
     if reporter["told"]:
-        raise DriveError(f"{args.id}: refused, the thread its bug was reported in heard it is fixed once, in {reporter['told']}, and hears it only once")
+        heard = "the thread its question was asked in heard the answer" if asked else "the thread its bug was reported in heard it is fixed"
+        raise DriveError(f"{args.id}: refused, {heard} once, in {reporter['told']}, and hears it only once")
     if not state.may_tell(order):
-        if order["kind"] == "answer":
+        if asked:
             raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
         raise DriveError(
             f"{args.id}: refused, it keeps no proof that its fix is live, so a note now would come before the fix:"
@@ -826,8 +828,8 @@ def order_told(args: argparse.Namespace) -> int:
         raise DriveError(f"{args.link} is not the drive's post in the group DM of {args.group_dm}, him and the bot, the one cc-slack opens for channel_id {args.group_dm}")
     if not args.group_dm and (not posted.get("from_claude") or (channel, posted.get("thread_ts")) != (reporter["channel"], reporter["thread"])):
         raise DriveError(
-            f"{args.link} is not the drive's post in {reporter['link']}, the thread the bug was reported in; when the bot cannot post"
-            " there, the note goes to the group DM of the reporter, him and the bot: pass the reporter's Slack user id with --group-dm"
+            f"{args.link} is not the drive's post in {reporter['link']}, the thread the {'question was asked' if asked else 'bug was reported'} in;"
+            " when the bot cannot post there, the note goes to the group DM of the reporter, him and the bot: pass the reporter's Slack user id with --group-dm"
         )
     with state.edit(name) as data:
         data["orders"][args.id]["reporter"]["told"] = args.link
@@ -3397,7 +3399,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the order's parts, replacing its list")
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
-    reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the bug's reporter; the order then closes done with no fix-live note")
+    reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporter; the order then closes done with no note to them")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
@@ -3447,8 +3449,9 @@ def parser() -> argparse.ArgumentParser:
         "told",
         parents=both,
         help=(
-            "the communicator's handler posted the one fix-live note in the thread the order's bug was reported in, or in the group DM of"
-            " its reporter, him and the bot when the bot cannot post there, once its proof is kept; done refuses until then"
+            "the communicator's handler posted the one note the order's reporter gets in the thread of their message, or in the group DM of"
+            " the reporter, him and the bot when the bot cannot post there: a bug's fix-live note once its proof is kept, or a question's"
+            " answer once it is posted to him; done refuses until then"
         ),
     )
     verb.add_argument("id", help="the order")

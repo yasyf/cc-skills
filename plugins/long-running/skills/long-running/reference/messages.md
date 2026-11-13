@@ -438,7 +438,9 @@ merged and installed, listing each rule now in the skill.
   order's line whether that thread heard.
 - A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
   there once every part of it is posted to him, with no proof asked, since an answer has no fix to
-  go live.
+  go live. His share of the question orders it: the handler writes the answer again for that person
+  in the same step as his own line, and no card asks him and no line says it waits on him to
+  forward, by his words "we were supposed to send that whas left for cloud update to … and never did".
 - Post it once per bug, once the coordinator keeps the proof the fix is live with `--proof`, never
   before: one or two plain sentences saying what is fixed and since when, with the link. The handler
   of the report on that order posts it with `slack_reply` in the same step as his own line, then
@@ -667,7 +669,8 @@ restating it.
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.
 - A post nobody ordered, such as a reply offered to someone who reported a bug or a line for a
   teammate, needs his word once, on a question card asking whether to send it. The fix-live note is
-  not such a post: his standing grant covers it.
+  not such a post: his standing grant covers it. Nor is the answer to a question someone asked him
+  that he shares or links: his share orders it.
 - Asks of a bug reporter: a bug thread gets its one fix-live note, and no card option offers to ask
   the reporter anything.
 - Messages with no new fact: react with `+1` to chatter instead of acking it, and post no "nothing

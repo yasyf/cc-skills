@@ -4921,7 +4921,7 @@ def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert cli.main(["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix it", "--reporter", "C0REPORTS01/1794400100.000200"]) == 2
-    assert "refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
+    assert "refused, name the message by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
     for words in ("fix the deploy", "fix the cache"):
         run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--reporter", "slack:C0REPORTS01/1794400100.000200")
     run("start", "demo", "--role", "communicator")
@@ -4946,6 +4946,34 @@ def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_
     assert run("order", "set", "o2", "--no-reporter", ours)[0] == 2
     assert run("order", "set", "o2", "--no-reporter", his)[0] == 0
     assert state.load("demo")["orders"]["o2"]["reporter"] is None
+
+
+def test_a_question_a_teammate_asked_him_that_he_shares_reaches_them_once_its_answer_is_posted_to_him_and_its_order_closes_only_then(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asked = "https://acme.slack.com/archives/D0TEAMMATE1/p1794513893775629"
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "what is left for cloud Iris", "--kind", "answer", "--thread", "1794200000.000100", "--reporter", asked)
+    order = state.load("demo")["orders"]["o1"]
+    assert (state.reported_bug(order), state.hurts_now(order)) == (False, False)
+    assert f", asked in {asked}, which hears the answer once it is posted" in run("order", "show", "o1")[1]
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"40": {"close": "o1"}})
+    monkeypatch.setattr(slack, "group_dm", {"U0TEAMMATE1": "C0GROUPDM1"}.get)
+    slack_thread.messages.append({"ts": "1794533324.854699", "from_claude": True})
+    note = "https://acme.slack.com/archives/C0GROUPDM1/p1794533324854699"
+    assert cli.main(["order", "told", "o1", note, "--group-dm", "U0TEAMMATE1"]) == 2
+    assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
+    run("order", "posted", "o1", slack_thread.post(state.now(), from_claude=True), "--record", "40")
+    assert f", asked in {asked}, owed its answer now, since it is posted" in run("order", "show", "o1")[1]
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "40"]) == 2
+    assert f"o1: refused, its question was asked in {asked}, and no note of its answer there is recorded." in capsys.readouterr().err
+    assert run("order", "told", "o1", note, "--group-dm", "U0TEAMMATE1") == (0, f"o1: told in the group DM of U0TEAMMATE1, him and the bot, {note}")
+    assert f", asked in {asked}, told the answer in {note}" in run("order", "show", "o1")[1]
+    assert run("order", "set", "o1", "--state", "done", "--record", "40")[0] == 0
+    assert state.load("demo")["orders"]["o1"]["state"] == "done"
 
 
 def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_one_done_only_by_its_record(

@@ -812,7 +812,7 @@ def bug_reports(drive: dict, moment: datetime) -> list[dict]:
     prs: dict[str, list[dict]] = {}
     for pr in drive["prs"].values():
         prs.setdefault(pr["order"], []).append(pr)
-    reported = sorted(((order_id, order) for order_id, order in drive["orders"].items() if order["reporter"] and shown(order, moment)), key=lambda item: state.parse_time(item[1]["created"]))
+    reported = sorted(((order_id, order) for order_id, order in drive["orders"].items() if state.reported_bug(order) and shown(order, moment)), key=lambda item: state.parse_time(item[1]["created"]))
     return [{"id": order_id, "title": order_title(order), "created": order["created"], "stage": bug_stage(order, prs.get(order_id, []))} for order_id, order in reported]
 
 

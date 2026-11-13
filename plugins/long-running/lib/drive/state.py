@@ -796,8 +796,8 @@ def traced(data: dict, job_id: str, line: str) -> str | None:
         (
             order_id
             for order_id in [job["order"], *job["carries"]]
-            if (order := data["orders"][order_id])["incident"] or order["reporter"]
-            if {INCIDENT_CHECK, INCIDENT_CAUSE} & set(job_parts(job, order_id)) or (job["kind"] == "reader" and order["reporter"])
+            if (order := data["orders"][order_id])["incident"] or reported_bug(order)
+            if {INCIDENT_CHECK, INCIDENT_CAUSE} & set(job_parts(job, order_id)) or (job["kind"] == "reader" and reported_bug(order))
         ),
         None,
     )
@@ -1090,10 +1090,15 @@ def new_part() -> dict:
 
 
 def reporter(link: str) -> dict:
-    """The bug report an order fixes, as the Slack thread its one fix-live note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
+    """The message someone else wrote that an order fixes or answers, a bug they reported or a question they asked him, as the Slack thread its one note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
     if not (linked := link_thread(link)):
-        raise DriveError(f"--reporter {link}: refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>")
+        raise DriveError(f"--reporter {link}: refused, name the message by its Slack permalink or as slack:<channel>/<its thread's ts>")
     return {"link": link, "channel": linked[0], "thread": linked[1], "told": None, "tell_said": None}
+
+
+def reported_bug(order: dict) -> bool:
+    """Whether an order fixes a bug someone else reported: a reporter on any order but an answer order, whose reporter asked him a question."""
+    return bool(order["reporter"]) and order["kind"] != "answer"
 
 
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
@@ -1819,7 +1824,7 @@ def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
 
 def hurts_now(order: dict) -> bool:
     """Whether the bug an order fixes hurts someone now, as an incident or a bug someone reported does, or as the fix their cause report's FIX line named does, which joins them, so its immediate fix ships at once while he picks the proper fix."""
-    return bool(order["incident"] or order["reporter"] or order["joins"])
+    return bool(order["incident"] or reported_bug(order) or order["joins"])
 
 
 def running_stops(data: dict, order_id: str) -> list[str]:

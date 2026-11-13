@@ -36,7 +36,8 @@ STARTS_OUTSIDE = {"pr": "pr add starts the lander", "incident": "open and freeze
 LEADS = {
     "order": (
         "His orders: add records one from his words, set changes one, posted records the communicator's post on one, told records"
-        " the one fix-live note in the thread the bug it fixes was reported in, or in its reporter's group DM with him and the bot."
+        " the one note its reporter gets, a bug's fix-live note or a question's answer, in the thread of their message, or in their"
+        " group DM with him and the bot."
     ),
     "job": "The drive's jobs: add starts one on an order's parts, set changes one, brief writes its brief.",
     "pr": "The drive's PRs: add records one a job opened, set changes one.",

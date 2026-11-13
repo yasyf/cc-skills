@@ -317,7 +317,9 @@ def reporter_said(order: dict) -> str:
     """Where the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted."""
     if (reporter := order["reporter"]) is None:
         return ""
-    if reporter["told"] is None and order["kind"] == "answer":
+    if order["kind"] == "answer" and reporter["told"]:
+        return f", asked in {reporter['link']}, told the answer in {reporter['told']}"
+    if order["kind"] == "answer":
         owed = "owed its answer now, since it is posted" if may_tell(order) else "which hears the answer once it is posted"
         return f", asked in {reporter['link']}, {owed}"
     if reporter["told"] is None:
