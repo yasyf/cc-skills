@@ -1293,6 +1293,39 @@ def test_a_dashboard_still_on_an_older_install_at_the_deadline_takes_blocked_nam
     assert state.load("demo")["orders"]["o1"]["proof"] is None
 
 
+@pytest.mark.parametrize(("lands", "runs"), [("while the dashboard hands over", 1), ("while the proof file fails", 2)])
+def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_on_one_that_landed_while_it_failed(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, lands: str, runs: int
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    script.write_text(
+        '#!/bin/sh\necho "ran on ${PATH%%:*}"\n'
+        '[ "${PATH%%:*}" = /cache/long-running/1.0.4/bin ] || { echo "drive.state.NewerDrive: the demo drive was saved by long-running 1.0.4, newer than this 1.0.3"; exit 1; }\n'
+    )
+    ran = []
+
+    def land() -> None:
+        plugins = json.loads((config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+        newer = {"scope": "user", "version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z", "installPath": "/cache/long-running/1.0.4", "gitCommitSha": BUILD}
+        git.write_installed(plugins | {"long-running@skills": [newer]})
+
+    def run(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        done = git.run(cmd, **options)
+        if cmd[0] == str(script):
+            ran.append(done.stdout)
+            if lands == "while the proof file fails":
+                land()
+        return done
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+    monkeypatch.setattr(dashboard, "serving", lambda name, port: land() if lands == "while the dashboard hands over" else None)
+    install.prove("demo", "j1", 900)
+    assert ran[-1:] == ["ran on /cache/long-running/1.0.4/bin\n"] and len(ran) == runs
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.4"
+    assert state.proof_path("demo", "j1").read_text() == "ran on /cache/long-running/1.0.4/bin\n"
+
+
 def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None) -> dict:
     workflow = {"long-running CI": 366540480, "Guides": 310890487}[name]
     return {"id": run_id, "workflow_id": workflow, "name": name, "created_at": created, "status": status, "conclusion": conclusion, "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}"}
