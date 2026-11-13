@@ -434,7 +434,12 @@ the patch.
   `approve` and `rollback` from a sub-coordinator's session and the agents it starts, naming the top's
   session; `--plan`, `--dry-run`, `status` and `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
-  for the cut with a `release` record at `root@<drive>`.
+  for the cut with a `release` record at `root@<drive>`. The top adds the job that starts the cut on
+  the record's order, such as `drive job add builder --order o1094 --goal "release the merged SandSQL
+  changes" --release "go/ci/.build/ci.dev release start sandsql --from a6f826f01131fb9774a1410f95b3480996409aeb --order b9668c9"`,
+  then briefs and starts it. A job with a `Release:` line is the top's on any order, so its watch lines
+  and agent are the top's, and a sub-coordinator is refused adding, briefing or starting one, naming
+  the top.
 - His order or his pick on a card to release, or the coordinator's record of either, approves starting
   that release, never the migrations, deletes and replaces its approve hold holds. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
