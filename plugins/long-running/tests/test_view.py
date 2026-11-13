@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import timedelta
 
 import pytest
-from drive import page, state, view, watch
+from drive import page, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -58,7 +58,10 @@ def asked_on(*cards: str) -> list[dict]:
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
     url = f"https://github.com/yasyf/cc-skills/pull/{number}"
     entry = state.new_pr(url, "j1", order_id) | {"wants_tap": False, "title": f"New: \U0001f680 change {number}", "updated": at(-number)}
-    return f"yasyf/cc-skills#{number}", entry | {"checks": "pass", "review": "approved"} | overrides
+    entry |= {"checks": "pass", "review": "approved"} | overrides
+    asks = entry["state"] == "open" and stage.carded(entry) and entry["checks"] == "pass" and not (entry["tap"] or entry["hold_label"] or entry["waits"])
+    kept = {"stage": {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": at(-number), "woke": None}} if asks and "stage" not in overrides else {}
+    return f"yasyf/cc-skills#{number}", entry | kept
 
 
 def drive_of(orders: dict, jobs: dict, prs: list[tuple[str, dict]]) -> dict:
@@ -89,7 +92,7 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
         [
             pr(1, "o1", wants_tap=True),
             pr(2, "o1", wants_tap=True, checks="fail"),
-            pr(3, "o1", wants_tap=True, checks="pending"),
+            pr(3, "o1", wants_tap=True),
             pr(4, "o1", wants_tap=True, tap={"label": "Hold", "at": at(-5), "head": "", "source": "pressed"}),
             pr(5, "o1", wants_tap=True, exempt="test-only"),
             pr(6, "o1", wants_tap=False),

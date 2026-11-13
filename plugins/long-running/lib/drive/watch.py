@@ -1876,7 +1876,10 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return read_failed(watcher, "moved heads' diffs", error, moment)
     watcher.failures.pop("moved heads' diffs", None)
     lines = []
+    prs = state.load(watcher.name)["prs"]
     for key in carried:
+        if prs[key]["rework"]:
+            continue
         try:
             slack.redraw_pr_cards(state.pr_url(key))
         except slack.SlackError as error:

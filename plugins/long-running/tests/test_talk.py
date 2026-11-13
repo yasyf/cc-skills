@@ -811,6 +811,8 @@ def test_his_catch_up_closes_with_every_open_card_waiting_on_him_five_a_message_
     questions = [question_card(f"https://acme.slack.com/archives/D123/p179430000000020{n}", f"Question {n}?", f"demo:j{n}-1") for n in range(1, 8)]
     tap = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": questions, "pr_cards": [tap], "closed": []})
+    with state.edit(demo) as data:
+        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": ASKED, "woke": None})
     report(monkeypatch, {"catch_up": "true"})
     title = owe(demo)
     text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."

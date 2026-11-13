@@ -1643,7 +1643,8 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
         "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "baseRefName": "dev", "headRefName": "fix-x", "mergeCommit": None, "checks": [required], "reviewDecision": None,
         "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"], "required_reviews": 1,
     }
-    assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
+    taken = f"JOB j1 o1 READY {url}; Forge-AI/monorepo#7 is at abc1234 on GitHub, red, owed by its builder: forge-pr-reviewer approved nothing at abc1234"
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith(taken)]
 
 
 def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets_the_job(

@@ -2524,7 +2524,7 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.serves or args.design or args.part:
         pr["checker"] = None
     if args.fundamental:
-        pr.update(fundamental=args.fundamental, exempt=None, wants_tap=True)
+        pr.update(fundamental=args.fundamental, tap=None, exempt=None, wants_tap=True)
     if args.exempt:
         pr["exempt"] = args.exempt
     if args.no_exempt:

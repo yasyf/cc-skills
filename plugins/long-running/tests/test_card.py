@@ -90,6 +90,11 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
     }
 
 
+def kept_entry(**fields: object) -> dict:
+    """A PR's row as drive.json keeps it: its entry with no stage, which card.render's callers give it from stage.of."""
+    return {key: value for key, value in entry(**fields).items() if key != "now"}
+
+
 def default_stage(wants_tap: bool, tap: str | None, exempt: str | None, pr_state: str, checks: str) -> str:
     if pr_state != "open":
         return pr_state
@@ -462,9 +467,9 @@ def test_failed_ci_names_the_agent_fixing_it() -> None:
 def drive(state_root: Path) -> str:
     data = judged_job(state.new_drive("demo", "coordinator", "s1", "/work", "D123"))
     data["prs"] = {
-        "Forge-AI/monorepo#42": entry(),
-        "yasyf/cc-skills#42": {**entry(wants_tap=False), "url": "https://github.com/yasyf/cc-skills/pull/42"},
-        "Forge-AI/monorepo#7": {**entry(pr_state="merged"), "url": "https://github.com/Forge-AI/monorepo/pull/7"},
+        "Forge-AI/monorepo#42": kept_entry(),
+        "yasyf/cc-skills#42": {**kept_entry(wants_tap=False), "url": "https://github.com/yasyf/cc-skills/pull/42"},
+        "Forge-AI/monorepo#7": {**kept_entry(pr_state="merged"), "url": "https://github.com/Forge-AI/monorepo/pull/7"},
     }
     state.create(data)
     return "demo"
@@ -675,7 +680,7 @@ def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(
 
 def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: str) -> None:
     copy = judged_job(state.new_drive("copy", "coordinator", "s2", "/work", "D123"))
-    copy["prs"] = {"Forge-AI/monorepo#42": {**entry(), "updated": "2026-11-11T00:20:00-08:00"}}
+    copy["prs"] = {"Forge-AI/monorepo#42": {**kept_entry(), "updated": "2026-11-11T00:20:00-08:00"}}
     state.create(copy)
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["updated"] = "2026-11-11T00:42:12-08:00"
@@ -963,7 +968,7 @@ def stack_url(number: int) -> str:
 @pytest.fixture
 def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     data = judged_job(state.new_drive("demo", "coordinator", "s1", "/work", "D123"))
-    data["prs"] = {f"Forge-AI/monorepo#{number}": {**entry(), "url": stack_url(number)} for number in (41, 42, 43, 44)}
+    data["prs"] = {f"Forge-AI/monorepo#{number}": {**kept_entry(), "url": stack_url(number)} for number in (41, 42, 43, 44)}
     state.create(data)
     asked: list[list[str]] = []
 
@@ -1043,7 +1048,7 @@ def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacke
     keys = [f"Forge-AI/monorepo#{n}" for n in numbers]
     with state.edit("demo") as data:
         for key in keys[4:]:
-            data["prs"][key] = {**entry(), "url": state.pr_url(key)}
+            data["prs"][key] = {**kept_entry(), "url": state.pr_url(key)}
     for key in keys:
         native_stacks[key] = [(member, "open") for member in keys]
     [drawn] = ask(asks(*numbers))["cards"]
@@ -1131,7 +1136,7 @@ def siblings(monkeypatch: pytest.MonkeyPatch, orders: dict[int, str], drawn_alon
         for number, order in orders.items():
             key = f"Forge-AI/monorepo#{number}"
             served = {"serves": order, "checked": {"head": HEAD, "orders": ["o1", order], "patch": ""}}
-            data["prs"][key] = {**entry(), "url": stack_url(number), **served, **({"stack": [key]} if drawn_alone else {})}
+            data["prs"][key] = {**kept_entry(), "url": stack_url(number), **served, **({"stack": [key]} if drawn_alone else {})}
     monkeypatch.setattr(
         card,
         "run",
@@ -1168,7 +1173,7 @@ def test_five_prs_of_one_order_in_no_native_stack_draw_one_card(stacked: list[li
 
 def test_a_base_branch_chain_keeps_its_own_card_beside_a_sibling_pr_of_its_order_as_the_watch_names_them(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#50"] = {**entry(), "url": stack_url(50)}
+        data["prs"]["Forge-AI/monorepo#50"] = {**kept_entry(), "url": stack_url(50)}
     stacked_gh = card.run
     sibling = json.dumps(pr_json(title="Fix: a sibling on main", url=stack_url(50), base="main", branch="sibling-50"))
     monkeypatch.setattr(card, "run", lambda cmd, **_: sibling if cmd[1] != "api" and cmd[3] == "50" else stacked_gh(cmd))
@@ -1281,7 +1286,7 @@ def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain
     keys = {n: f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44, 45, 46)}
     with state.edit("demo") as data:
         for n in (45, 46):
-            data["prs"][keys[n]] = {**entry(), "url": stack_url(n)}
+            data["prs"][keys[n]] = {**kept_entry(), "url": stack_url(n)}
         data["prs"][keys[43]]["state"] = "closed"
         for key in keys.values():
             data["prs"][key]["stack"] = list(keys.values())

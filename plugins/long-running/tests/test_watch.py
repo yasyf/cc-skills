@@ -175,7 +175,7 @@ def test_a_builders_pushed_wakes_no_one_until_the_first_read_after_it_finds_the_
     said.append(watch.run_pass(watching, T0 + timedelta(minutes=1)))
     reads[KEY] = read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])
     said.append(watch.run_pass(watching, T0 + timedelta(minutes=2)))
-    ready = f"JOB j1 o1 READY {state.pr_url(KEY)}"
+    ready = f"JOB j1 o1 READY {state.pr_url(KEY)}; {KEY} is at aaaaaaa on GitHub, grading, owed by Buildkite and forge-pr-reviewer: its checks run at aaaaaaa"
     assert said == [[], [], [ready]]
     data = state.load(demo)
     assert (watch.wakes(ready, data), data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == (True, "waiting", f"READY {state.pr_url(KEY)}")
@@ -192,7 +192,7 @@ def test_a_pushed_waits_while_the_check_its_rules_require_has_not_posted_on_its_
     said.append(watch.run_pass(watching, T0 + timedelta(minutes=2)))
     reads[KEY] = read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])
     said.append(watch.run_pass(watching, T0 + timedelta(minutes=3)))
-    assert said == [[], [], [f"JOB j1 o1 READY {state.pr_url(KEY)}"]]
+    assert said == [[], [], [f"JOB j1 o1 READY {state.pr_url(KEY)}; {KEY} is at aaaaaaa on GitHub, grading, owed by Buildkite and forge-pr-reviewer: its checks run at aaaaaaa"]]
 
 
 def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_its_own_red_check(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,7 +202,8 @@ def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_fi
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
     serve(monkeypatch, {YASYF: read(checks=RED, required_checks=[])})
     said = watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
-    assert {f"PR {YASYF}: checks failed [o1 j1]", f"JOB j1 o1 READY {url}"} <= set(said)
+    assert f"PR {YASYF}: checks failed [o1 j1]" in said
+    assert [line for line in said if line.startswith(f"JOB j1 o1 READY {url}; {YASYF} is at aaaaaaa on GitHub, red, owed by its builder: its checks fail")]
     assert state.load(demo)["jobs"]["j1"]["said"] == f"READY {url}"
 
 
@@ -451,8 +452,9 @@ def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coo
     tooling_order(demo, "running")
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
     sent = posts(monkeypatch)
+    watching = watcher(demo)
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold")
-    assert watch.run_pass(watcher(demo), T0) == []
+    assert watch.run_pass(watching, T0) == []
     assert posted(sent) == [("handoff", f"meta@{demo}", f"TAP Hold {KEY} [o1 j1]")]
 
 
@@ -460,8 +462,8 @@ def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_
     tooling_order(demo, "waiting")
     serve(monkeypatch, {KEY: read()})
     sent = posts(monkeypatch, [False, False, False, True])
-    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold")
     watching = watcher(demo)
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold")
     said = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15, 20)]
     failing = "WATCH handoff post to the meta session failed 3 times in a row: cci post exited 1: no drive demo"
     assert said == [[], [], [failing], [], []]
@@ -2338,7 +2340,7 @@ def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_w
     assert cli.main(["pr", "set", KEY, "--waits", "j9", "--drive", demo]) == 2
     assert "--waits j9" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
-    assert capsys.readouterr().out.strip().endswith(", waits on j1")
+    assert ", waits on j1; " in capsys.readouterr().out
     asking(monkeypatch, demo, "demo:j1-7-a")
     assert cli.main(["pr", "set", KEY, "--waits", "demo:gone-1", "--drive", demo]) == 2
     assert "--waits demo:gone-1" in capsys.readouterr().err
@@ -2747,7 +2749,7 @@ def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_pr
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED"), other: read()}
     serve(monkeypatch, reads)
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0) == [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]"]
     reads[other] = read(state="MERGED", mergeCommit="ccc333")
     freed = f"FREE {KEY} j1 o1: {other} answered or done, nothing else holds it"
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"PR {other}: merged [o1 j2]", freed]
@@ -2756,18 +2758,18 @@ def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_pr
 
 
 @pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
-def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_and_only_its_failures_and_end_are_said(demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str) -> None:
+def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_and_only_its_moves_and_end_are_said(demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str) -> None:
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
     serve(monkeypatch, reads)
     watching = watcher(demo)
     pr = f'PR {KEY}:'
-    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0) == [f"{pr} checks passed [o1 j1]", f"{pr} approved [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
     reads[KEY] = read(checks=RED, reviewDecision="APPROVED")
     assert watch.run_pass(watching, T0 + timedelta(minutes=301)) == [f"{pr} checks failed [o1 j1]"]
     reads[KEY] = read(checks=GREEN, reviewDecision="APPROVED")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=302)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=302)) == [f"{pr} checks passed [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=400)) == []
     reads[KEY] = read(state=ended, checks=GREEN, reviewDecision="APPROVED")
     assert watch.run_pass(watching, T0 + timedelta(minutes=401)) == [f"{pr} {said} [o1 j1]"]
@@ -3029,7 +3031,7 @@ def test_his_approve_above_a_pr_he_has_not_approved_reads_behind_it_owed_by_him_
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     three_stacked(demo, monkeypatch)
-    approve(demo, OTHER)
+    approve(demo, OTHER, THIRD)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     watch.run_pass(watching, T0 + timedelta(minutes=1))
@@ -3039,7 +3041,7 @@ def test_his_approve_above_a_pr_he_has_not_approved_reads_behind_it_owed_by_him_
     assert landers == []
     approve(demo, KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=41))
-    assert landers == [(KEY, OTHER)]
+    assert landers == [STACKED]
 
 
 def test_his_approve_on_a_card_of_one_orders_prs_in_no_native_stack_starts_a_lander_on_each_since_stack_enqueue_refuses_them_named_together(
@@ -3179,7 +3181,7 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
     assert watch.event_lines(watching) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
 
 
-def test_an_approval_on_an_older_head_draws_no_card_and_reads_approved_on_an_older_head_yet_his_approve_starts_its_lander(
+def test_an_approval_on_an_older_head_reads_approved_on_an_older_head_yet_his_approve_starts_its_lander(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
@@ -3188,7 +3190,7 @@ def test_an_approval_on_an_older_head_draws_no_card_and_reads_approved_on_an_old
     monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS)
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED", approvals=["bbbbbbb222", "aaaaaaa111"])})
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0) == [f"PR {KEY}: new head bbbbbbb [o1 j1]", f"PR {KEY}: checks passed [o1 j1]"]
     pr = state.load(demo)["prs"][KEY]
     assert (pr["review"], watch.view.tap_detail(pr), landers) == ("stale", "green, approved on an older head", [])
     approve(demo, KEY)
