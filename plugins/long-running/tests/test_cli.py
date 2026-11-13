@@ -452,7 +452,7 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
     assert "fix the invoice" in run("status", "o2")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
     orders, agentless, text = shown()
-    assert (orders, agentless) == (["o2"], [])
+    assert (orders, agentless) == (["o2"], ["j2"])
     assert "ship the run page" not in text and "fix the watch" not in text
     assert set(json.loads(run("status", "--json")[1])["orders"]) == {"o1", "o2", "o3"}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bound-to-none")
