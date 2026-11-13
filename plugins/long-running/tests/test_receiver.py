@@ -88,7 +88,7 @@ def test_the_receiver_restarts_only_for_an_install_whose_receiver_differs_from_i
     assert receiver.rewritten() is restarts
 
 
-def test_a_delivery_is_written_only_to_each_drive_tracking_an_open_pr_it_names_and_kept_as_its_hooks_last(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_delivery_is_written_only_to_each_drive_tracking_an_unmerged_pr_it_names_and_kept_as_its_hooks_last(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     receiver.took(REPO, 9, "g1", "check_run", {"check_run": {"head_sha": "aaa", "pull_requests": []}})
     receiver.took(REPO, 9, "g2", "ping", {"zen": "Keep it logically awesome."})
     assert (delivered(demo), delivered("quiet"), receiver.hooks()) == (
@@ -96,8 +96,16 @@ def test_a_delivery_is_written_only_to_each_drive_tracking_an_open_pr_it_names_a
         [],
         {REPO: {"id": 9, "last": "g2"}},
     )
-    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [f"check_run g1 {REPO}: demo #42", f"ping g2 {REPO}: no open PR a drive tracks"]
+    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [f"check_run g1 {REPO}: demo #42", f"ping g2 {REPO}: no unmerged PR a drive tracks"]
 
+
+
+def test_the_reopen_of_a_pr_a_drive_holds_closed_is_written_to_that_drive_while_a_merged_ones_delivery_is_written_nowhere(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "closed"
+    receiver.took(REPO, 9, "g1", "pull_request", {"action": "reopened", "pull_request": {"number": 42}})
+    receiver.took(REPO, 9, "g2", "pull_request", {"action": "edited", "pull_request": {"number": 41}})
+    assert delivered(demo) == [{"repo": REPO, "numbers": [42], "event": "pull_request", "guid": "g1"}]
 
 @pytest.fixture
 def listening(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, list[tuple]]]:

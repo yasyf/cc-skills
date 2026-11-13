@@ -2171,6 +2171,11 @@ def open_pr_keys(data: dict) -> list[str]:
     return [key for key, pr in data["prs"].items() if pr["state"] == "open"]
 
 
+def unmerged_pr_keys(data: dict) -> list[str]:
+    """The PRs GitHub can still change the state of: every one not merged, since a closed PR can be reopened and a merged one never unmerged."""
+    return [key for key, pr in data["prs"].items() if pr["state"] != "merged"]
+
+
 def open_prs(data: dict) -> list[dict]:
     return [data["prs"][key] for key in open_pr_keys(data)]
 

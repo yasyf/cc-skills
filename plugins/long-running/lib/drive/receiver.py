@@ -125,7 +125,7 @@ def answering() -> bool:
 
 
 def named(event: str, payload: dict | None, prs: dict[int, dict]) -> list[int]:
-    """The numbers of the open PRs one drive tracks in a delivery's repository, prs, that the delivery names: a PR's or its review's by number, a check run's by its PRs and its head, a commit status's by the head or branch it is on, and a push's by the base it moves, whose PRs GitHub merges again; a missed delivery names them all."""
+    """The numbers of the unmerged PRs one drive tracks in a delivery's repository, prs, that the delivery names: a PR's or its review's by number, a check run's by its PRs and its head, a commit status's by the head or branch it is on, and a push's by the base it moves, whose PRs GitHub merges again; a missed delivery names them all."""
     match event:
         case "pull_request" | "pull_request_review":
             found = {payload["pull_request"]["number"]}
@@ -180,14 +180,14 @@ def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -
     """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it."""
     said = []
     for name in state.names():
-        prs = {int(key.partition("#")[2]): pr for key, pr in state.stored(name, ("prs",)).get("prs", {}).items() if key.partition("#")[0] == repo and pr["state"] == "open"}
+        prs = {int(key.partition("#")[2]): pr for key, pr in state.stored(name, ("prs",)).get("prs", {}).items() if key.partition("#")[0] == repo and pr["state"] != "merged"}
         if numbers := named(event, payload, prs):
             state.append_event(name, DELIVERY, repo=repo, numbers=numbers, event=event, guid=guid)
             said.append(f"{name} {' '.join(f'#{number}' for number in numbers)}")
     marks = marked(event, payload)
     with hooks_kept() as kept:
         kept[repo] = (kept.get(repo) or {}) | {"id": hook_id, "last": guid} | dict.fromkeys(marks, guid)
-    print(f"{moment()} {event} {guid} {repo}: {'; '.join([*said, *(f'marks {kind}' for kind in marks)]) or 'no open PR a drive tracks'}", flush=True)
+    print(f"{moment()} {event} {guid} {repo}: {'; '.join([*said, *(f'marks {kind}' for kind in marks)]) or 'no unmerged PR a drive tracks'}", flush=True)
 
 
 def caught_up() -> None:
