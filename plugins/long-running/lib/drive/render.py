@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, lane_death, may_tell, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, lane_death, may_tell, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -141,7 +141,8 @@ COORDINATOR_RULES = (
     REACHING,
     (
         "Every order goes to one background job that owns its deliverable end to end, past-due ones too, since work you"
-        " do yourself holds every event behind it: read the shape of its brief and handoff in drive manual jobs before"
+        " do yourself holds every event behind it, and work he ordered only to a builder, codex or design job, since research, his"
+        " card and a post carry only words he reads: read the shape of its brief and handoff in drive manual jobs before"
         " you start it. Load a tool only for the step that needs it, and leave a log to a job."
     ),
     (
@@ -426,7 +427,7 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
     limit = WHOLE if whole else 80
     lines = [f"- {order_line(order_id, order, limit, promise_thread(order))}"]
     if whole:
-        lines.append(f"  parts: {'; '.join(order['parts'])}")
+        lines.append(f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}")
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
         lines.append(f"  - {job_line(job_id, job, limit)}")
@@ -435,6 +436,14 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
         lines.extend(f"    - {question_line(question)}" for question in job["questions"])
         lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
     return lines
+
+
+def part_line(drive: dict, order_id: str, part: str) -> str:
+    """A part as drive status lists it: delivered, else each job state.carriers says can carry it, else that no builder carries work he ordered."""
+    if delivered(drive, order_id, part):
+        return f'"{part}": delivered'
+    held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in carriers(drive, order_id, part))
+    return f'"{part}": {held or ("no builder carries it" if work(drive["orders"][order_id]) else "no job carries it")}'
 
 
 def subscribe(role: str, project: str | None = None) -> str:

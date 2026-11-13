@@ -1509,7 +1509,6 @@ def test_a_finished_lane_whose_job_still_runs_is_said_every_thirty_minutes_until
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     asked = branches(monkeypatch, {"Forge-AI/monorepo#53447": {"branch": "ci-mac-box-prove", "checks": "pass", "review": "approved"}})
     with state.edit(remote) as data:
-        data["orders"]["o1"]["parts"]["ship the remote builder"]["posted"] = "https://acme.slack.com/archives/D123/p1794200000000100"
         data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
     said = (
         'ORPHAN o1 "ship the remote builder": j1\'s lane succeeded and its result is not recorded; Forge-AI/monorepo#53447 '
@@ -1521,7 +1520,7 @@ def test_a_finished_lane_whose_job_still_runs_is_said_every_thirty_minutes_until
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [said]
     assert asked[0] == [("Forge-AI/monorepo", "ci-mac-box-prove")]
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="waiting", said="WAITING CI", updated=state.stamp(T0))
+        data["jobs"]["j1"].update(state="waiting", said="WAITING CI", due=state.stamp(T0 + timedelta(hours=2)), updated=state.stamp(T0))
     assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
     assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
 

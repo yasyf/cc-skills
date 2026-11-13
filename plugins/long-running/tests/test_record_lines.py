@@ -299,7 +299,7 @@ def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_ref
 def test_a_report_carrying_a_part_in_an_attr_but_part_is_refused_naming_the_one_part_attr_that_carries_both_in_a_batch_too(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--thread", THREAD, "--parts", SSQL, FOOTERS, "the --only card")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--kind", "answer", "--thread", THREAD, "--parts", SSQL, FOOTERS, "the --only card")
     both = f"o1:{SSQL};o1:{FOOTERS}"
     answered = {"text": "POST o1, both questions: the SandSQL release is live.", "attrs": {"order": "o1", "thread": THREAD, "part": f"o1:{SSQL}", "part2": f"o1:{FOOTERS}"}}
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", to=TO, records=[answered])))
@@ -330,7 +330,7 @@ def test_a_report_about_an_order_names_any_slack_thread_and_reads_none_of_them_w
 
 
 def test_a_report_whose_thread_is_none_goes_without_it_and_one_naming_no_slack_thread_is_refused_every_time(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix", "--kind", "answer", "--parts", "cause", "fix")
     for named in ({"close": "o1"}, {"part": "o1:cause"}):
         made = record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs=named | {"thread": "none"}))
         assert made["updatedInput"]["attrs"] == named
@@ -346,7 +346,7 @@ def test_a_part_whose_name_a_cut_or_its_writer_left_spaces_around_is_saved_trimm
 ) -> None:
     words = "both PRs he approved this morning and the stack he tapped an hour later sat for two hours with no attempt to land them"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the search worker", "--parts", "fix ", " first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the search worker", "--kind", "answer", "--parts", "fix ", " first check")
     run("order", "set", "o2", "--parts", "fix", " first check", "cause ")
     whole = "both PRs he approved this morning and the stack he tapped an hour later sat for"
     assert [list(order["parts"]) for order in state.load(demo)["orders"].values()] == [[whole], ["fix", "first check", "cause"]]
@@ -376,8 +376,8 @@ def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "cause", "fix")
-    run("job", "add", "builder", "--order", "o1", "--part", "cause", "--goal", "find the cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--kind", "answer", "--parts", "cause", "fix")
+    run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     merged = {"kind": "report", "text": "POST the search worker's fix merged", "to": TO}
     reason = refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
     assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
@@ -391,10 +391,6 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     assert 'delivers "fix", the last part of o1' in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix"})))
     assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix", "close": "o1"})) is None
     with state.edit(demo) as data:
-        data["orders"]["o1"]["incident"] = True
-        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
-    assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix"})) is None
-    with state.edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert "the open order it is about" not in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
 
@@ -402,7 +398,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
 def test_a_post_report_naming_one_part_goes_out_while_a_finished_job_holds_another_part_no_post_delivered(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--parts", "first check", "rollback", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--kind", "answer", "--parts", "first check", "rollback", "cause")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
@@ -411,7 +407,7 @@ def test_a_post_report_naming_one_part_goes_out_while_a_finished_job_holds_anoth
         assert record_lines.decision(coordinator(turn, **post, attrs={"job": "j1", **named})) is None
 
 
-def test_a_report_on_an_open_incident_neither_needs_nor_names_its_fix_until_the_watch_records_it_live(
+def test_a_report_on_an_open_incident_names_none_of_its_parts_since_each_is_work_he_ordered(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Journal", "the journal will not open on two Macs", "--parts", "fix", "first check")
@@ -422,17 +418,17 @@ def test_a_report_on_an_open_incident_neither_needs_nor_names_its_fix_until_the_
     mechanism = {"kind": "report", "text": "POST mechanism found: the failing Macs run an older sand, and no release has reached them yet", "to": TO}
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
     reason = refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
-    assert 'o1\'s "fix" is the fix of an open incident' in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
+    assert state.UNPOSTED_WORK.format(order="o1", part="fix") in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", "close": "o1"})) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
-    assert '`--attr part="o1:fix"`' in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})))
-    assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})) is None
+    assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
+    assert state.UNPOSTED_WORK.format(order="o1", part="fix") in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
 
 
 def test_a_part_attr_names_parts_of_several_orders_and_each_must_be_one_the_drive_holds(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Search", "fix the search worker", "--parts", "fix", "first check")
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Search", "raise its RAM", "--parts", "increase the RAM")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Search", "fix the search worker", "--kind", "answer", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Search", "raise its RAM", "--kind", "answer", "--parts", "increase the RAM")
     shared = {"kind": "report", "text": "POST the search worker's fix and its RAM increase are live", "to": TO}
     assert record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o2:increase the RAM", "close": "o2"})) is None
     assert 'delivers "increase the RAM", the last part of o2' in refusal(record_lines.decision(coordinator(turn, **shared, attrs={"order": "o1", "part": "fix;o2:increase the RAM"})))

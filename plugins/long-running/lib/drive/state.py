@@ -32,6 +32,7 @@ JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:rea
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 CHANGE_KINDS = ("builder", "codex")
+WORK_KINDS = (*CHANGE_KINDS, "design")
 INCIDENT_FIX = "fix"
 INCIDENT_STOP = "stop"
 INCIDENT_CHECK = "first check"
@@ -44,10 +45,7 @@ FIX_RULE = (
     "your report ends with one line FIX <the order or PR that fixes the cause, by order id or PR link, comma-separated>,"
     " or FIX none when no fix of ours is owed: drive job report refuses it without one, and the order it names reads as a live bug's fix from then on"
 )
-UNLIVE_FIX = (
-    '{order}\'s "{part}" is the fix of an open incident, which a post delivers only once the fix runs where the incident hurt:'
-    " after the watch records it live, when the release shipping its fix job's change is out or a builder on it returns DONE, or by closing the incident"
-)
+UNPOSTED_WORK = '{order} is no answer order, so "{part}" is work he ordered, which no post delivers: only a builder or codex job on it returning DONE does'
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
 INCIDENT_CHOICE = {
@@ -978,15 +976,25 @@ def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in job_parts(data["jobs"][job_id], order_id)]
 
 
+def work(order: dict) -> bool:
+    """Whether an order's parts are work he ordered, which only a builder carries: any order but an answer order or one limited to options."""
+    return order["kind"] != "answer" and not order["options_only"]
+
+
+def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
+    """The jobs on a part that can carry it: every job on words he reads, but on work he ordered only a builder, codex or design job, a done design only while the builder design_builder names carries it."""
+    jobs = part_jobs(data, order_id, part)
+    if not work(data["orders"][order_id]):
+        return jobs
+    return [(job_id, job) for job_id, job in jobs if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or design_builder(data, job_id))]
+
+
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is posted to him or built by a builder that returned DONE."""
-    done = any(job["state"] == "done" and job["kind"] == "builder" for _, job in part_jobs(data, order_id, part))
-    return bool(data["orders"][order_id]["parts"][part]["posted"]) or done
-
-
-def unlive_fix(data: dict, order_id: str, part: str) -> bool:
-    """Whether the part is the fix of an open incident not recorded live, which no post delivers, since the incident lasts until its fix runs where it hurt: only the order's fixed, set once the release shipping its fix job's change is out or a builder on its fix returns DONE, or the incident's close delivers it."""
-    return part == INCIDENT_FIX and bool(open_incidents(data, [order_id])) and not data["orders"][order_id]["fixed"]
+    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done"}
+    if work(data["orders"][order_id]):
+        return bool(done & set(CHANGE_KINDS))
+    return "builder" in done or bool(data["orders"][order_id]["parts"][part]["posted"])
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:
@@ -996,12 +1004,12 @@ def unposted_answer(data: dict, job_id: str) -> bool:
 
 
 def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
-    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but an open incident's fix the watch has not recorded live, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and its reporter told or none."""
+    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and its reporter told or none."""
     job = data["jobs"][job_id]
     for order_id in [job["order"], *job["carries"]]:
         order = data["orders"][order_id]
         for part in job_parts(job, order_id):
-            if not (order["parts"][part]["posted"] or unlive_fix(data, order_id, part)):
+            if not (order["parts"][part]["posted"] or work(order)):
                 order["parts"][part]["posted"] = link
         finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
         if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not (order["reporter"] and not order["reporter"]["told"]):

@@ -4393,7 +4393,7 @@ def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Ru
     assert lines == [
         "demo: 0 open of 1 orders",
         f"- o1 done: {' '.join(words.split())}",
-        f"  parts: {state.load('demo')['orders']['o1']['parts'].popitem()[0]}",
+        f"  parts: \"{state.load('demo')['orders']['o1']['parts'].popitem()[0]}\": delivered",
         f"  - j1 builder done: {' '.join(('one restore code path ' * 8).split())}",
         f"    said: {' '.join(said.split())}",
     ]
@@ -4606,7 +4606,7 @@ def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: R
 def test_setting_parts_keeps_what_a_kept_part_recorded(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two answers", "--parts", "why", "how")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "two answers", "--kind", "answer", "--parts", "why", "how")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4622,7 +4622,7 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
 def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--kind", "answer", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4645,7 +4645,7 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
 
 
 def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4663,7 +4663,7 @@ def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str,
 def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how fast can restore go?", "--thread", "1794100000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how fast can restore go?", "--kind", "answer", "--thread", "1794100000.000100")
     run("job", "add", "design", "--order", "o1", "--goal", "faster restore")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
@@ -4681,7 +4681,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
 def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_thread(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100", "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
     run("pr", "add", PR, "--job", "j1")
     run("start", "demo", "--role", "communicator")
@@ -4722,7 +4722,7 @@ def test_a_part_delivered_at_the_root_of_another_channel_is_recorded_where_it_wa
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parts = ["answer why it fails silently", "tell the two stopped people now"]
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4740,12 +4740,12 @@ def test_a_part_delivered_at_the_root_of_another_channel_is_recorded_where_it_wa
 def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--kind", "answer", "--parts", "fix", "first check")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"part": "first check"}}}))
     line = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", line, "--record", "660611") == (0, f'o1 "first check": posted {line}, in thread 1794200000.000100, now one of its threads')
     parts = state.load("demo")["orders"]["o1"]["parts"]
@@ -5014,7 +5014,7 @@ def report_records(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, dict], lane
 def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_with_none_is_a_progress_line(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the unfurl", "--thread", "1794200000.000100", "--parts", "fix")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the unfurl", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "fix")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -5036,34 +5036,32 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
 
 
-def test_no_post_delivers_an_open_incidents_fix_until_the_watch_records_it_live_but_the_incidents_close(
+def test_no_post_delivers_an_incidents_parts_but_the_incidents_close(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "the journal will not open", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "the journal will not open", "--thread", "1794200000.000100", "--kind", "build", "--parts", "fix", "first check")
     with state.edit("demo") as data:
         data["orders"]["o1"]["incident"] = True
     line = slack_thread.post(state.now(), from_claude=True)
     assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
-    assert '--part "fix": refused, o1\'s "fix" is the fix of an open incident, which a post delivers only once the fix runs where the incident hurt' in capsys.readouterr().err
+    assert '--part "fix": refused, ' + state.UNPOSTED_WORK.format(order="o1", part="fix") in capsys.readouterr().err
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     report_records(monkeypatch, {"674088": {"order": "o1", "incident": "true", "part": "o1:fix"}, "674089": {"part": "fix;o1:first check"}, "674090": {"close": "o1"}})
     assert run("order", "posted", "o1", line, "--record", "674088") == (0, f"o1 progress line, no part delivered: {line}")
-    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}')
-    assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
-    assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')
     with state.edit("demo") as data:
-        data["orders"]["o1"]["parts"]["fix"]["posted"] = None
         data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
-    assert run("order", "posted", "o1", line, "--record", "674088") == (0, f'o1 "fix": posted {line}')
+    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f"o1 progress line, no part delivered: {line}")
+    assert [part["posted"] for part in state.load("demo")["orders"]["o1"]["parts"].values()] == [None, None]
+    assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')
 
 
 def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_already_answered_it(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--thread", "1794200000.000100", "--parts", "cause", "fix")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "cause", "fix")
     answered = slack_thread.post(state.now(), from_claude=True)
     his = slack_thread.post(state.now() + timedelta(seconds=1))
     assert cli.main(["order", "posted", "o1", his, "--part", "cause"]) == 2
@@ -5132,7 +5130,7 @@ def test_a_report_naming_parts_delivers_each_whatever_its_posts_words_say_and_th
     status = "status of the fixes"
     parts = [status, "the intern cap is sized to the pod's memory, its own PR", "the self-retro: why the row-id change also changed the ids' printed format"]
     words = "whats the status of our fixes, size the intern cap to the pod's memory as its own PR, and do a self-retro on the id format"
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--parts", *parts)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--kind", "answer", "--parts", *parts)
     earlier = slack_thread.post(state.now(), from_claude=True, text="Checking where each fix stands now; I will post it by 1:30 PM.")
     assert run("order", "posted", "o1", earlier, "--part", status) == (0, f'o1 "{status}": posted {earlier}, the post that answered it')
     run("start", "demo", "--role", "communicator")
@@ -5165,8 +5163,8 @@ def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_deliv
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the search worker", "--thread", "1794200000.000100", "--parts", "fix", "first check")
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "raise its RAM", "--thread", "1794200000.000100", "--parts", "increase the RAM")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the search worker", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "raise its RAM", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "increase the RAM")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -5181,7 +5179,7 @@ def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_nam
 def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handler_wrote_from_the_communicators_lane(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--thread", "1794200000.000100", "--owner", "communicator")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--kind", "answer", "--thread", "1794200000.000100", "--owner", "communicator")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]

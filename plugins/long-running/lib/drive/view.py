@@ -727,13 +727,14 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
 
 
 def part_entry(drive: dict, order_id: str, part: str) -> dict:
-    """One part of an order as its task lists it: whether it is the whole order, delivered or not, and the newest job carrying it with that job's kind, state and when it last moved."""
-    newest = max(state.part_jobs(drive, order_id, part), key=lambda pair: state.parse_time(pair[1]["updated"]), default=None)
+    """One part of an order as its task lists it: whether it is the whole order, delivered or not, the post that answered it when it is words he reads, and the newest job carrying it, by state.carriers, with that job's kind, state and when it last moved."""
+    order = drive["orders"][order_id]
+    newest = max(state.carriers(drive, order_id, part), key=lambda pair: state.parse_time(pair[1]["updated"]), default=None)
     return {
         "name": part,
-        "whole": part == state.whole_order(drive["orders"][order_id]["text"]),
+        "whole": part == state.whole_order(order["text"]),
         "delivered": state.delivered(drive, order_id, part),
-        "posted": drive["orders"][order_id]["parts"][part]["posted"],
+        "posted": None if state.work(order) else order["parts"][part]["posted"],
         "job": newest and newest[0],
         "kind": newest and newest[1]["kind"],
         "state": newest and newest[1]["state"],

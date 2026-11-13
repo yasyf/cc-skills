@@ -1250,7 +1250,8 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
     with state.edit(demo) as data:
         data["jobs"]["j3"].update(state="stopped")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [
-        'ORPHAN o2 "redesign the moved tables": j2 answered and the answer is not posted to him',
+        'ORPHAN o2 "redesign the moved tables": no builder carries this work, only design j2 done: start one with drive job add builder --order o2'
+        " --part 'redesign the moved tables' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'redesign the moved tables'; when it asks only for an answer, drive order set o2 --kind answer",
         'ORPHAN o2 "the moved-table interface": j3 stopped',
     ]
 
@@ -1362,7 +1363,7 @@ def test_a_local_job_added_with_no_agent_is_an_orphan_a_minute_on_though_its_par
         data["jobs"]["j1"].update(state="failed", updated=state.stamp(T0 - timedelta(minutes=20)))
         data["orders"]["o1"]["parts"]["ship the watch"]["orphan_said"] = state.stamp(T0 - timedelta(minutes=10))
         data["orders"]["o1"]["jobs"].append("j2")
-        data["jobs"]["j2"] = job(kind="reader", session="session-under-test", parts=["ship the watch"])
+        data["jobs"]["j2"] = job(session="session-under-test", parts=["ship the watch"])
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o1 "ship the watch": j2 has no agent recorded']
@@ -1401,7 +1402,7 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     earlier = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", updated=earlier)
-        data["orders"]["o2"] = order(text="why do old runs fail?", jobs=["j2"])
+        data["orders"]["o2"] = order(text="why do old runs fail?", jobs=["j2"], kind="answer")
         data["jobs"]["j2"] = job(order="o2", kind=kind, state="done", updated=earlier)
     his = slack_thread.post(T0, from_user=True)
     answer = slack_thread.post(T0 + timedelta(seconds=1), from_claude=True)
@@ -1417,6 +1418,32 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     part = state.load(demo)["orders"]["o2"]["parts"]["why do old runs fail?"]
     assert part == state.new_part() | {"posted": answer}
+
+
+def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card_or_a_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    merge = "get the inbox work merged"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text=merge, jobs=["j2"], kind="build", parts={merge: state.new_part() | {"posted": REPORTED}}, updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[merge], updated=earlier)
+    unbuilt = f"start one with drive job add builder --order o2 --part '{merge}' --goal '<what it builds>'{{waits}}, or add it to a builder with drive job set <builder> --part '{merge}'; when it asks only for an answer, drive order set o2 --kind answer"
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{merge}": no builder carries this work, only reader j2 running: {unbuilt.format(waits=" --waits j2")}']
+    card = {"question": "Which inbox lands first?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which inbox lands first?", "waits": "demo:j2-7-a"}}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)])
+        data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": no builder carries this work, only design j2 done: {unbuilt.format(waits="")}']
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(order="o2", kind="codex", parts=[merge], updated=earlier)
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j3"]["state"] = "done"
+    assert state.delivered(state.load(demo), "o2", merge)
 
 
 @pytest.mark.parametrize("ended", ["failed", "done"])
@@ -1522,7 +1549,7 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
     card = {"question": "Which Mac owns a chat?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which Mac owns a chat?", "waits": "demo:j2-7-a"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
-        data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"])
+        data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"], options_only=True)
         data["jobs"]["j2"] = job(
             order="o2",
             kind="design",

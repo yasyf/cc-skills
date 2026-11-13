@@ -22,9 +22,9 @@ STRAY_PARTS = (
 )
 UNKNOWN_ORDER = "refused: the part attr's item {item} names {order}, no order of drive {drive}; name each part as `<o>:<part>`, items separated by `;`"
 UNKNOWN_PART = 'refused: {order} has no part "{part}", so this post would deliver nothing there; its parts: {parts}'
-UNLIVE_PART = (
-    'refused: {unlive}; drop "{order}:{part}" from the part attr, adding `--attr progress=true` when the post delivers nothing else,'
-    " or close the incident with `--attr close={order}` once the fix runs where it hurt"
+UNPOSTED_PART = (
+    'refused: {work}; drop "{order}:{part}" from the part attr, adding `--attr progress=true` when the post delivers nothing else,'
+    " or close {order} with `--attr close={order}` once its work is done"
 )
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
@@ -135,7 +135,7 @@ def stray_parts(kind: str, named: dict) -> str | None:
 
 
 def misnamed_part(drive: dict, record: dict) -> str | None:
-    """Why an item of a report's part attr would deliver nothing: it names an order the drive does not hold, a part its order does not have, or the fix of an open incident the watch has not recorded live on an order the report does not close."""
+    """Why an item of a report's part attr would deliver nothing: it names an order the drive does not hold, a part its order does not have, or work he ordered, which no post delivers, on an order the report does not close."""
     closed = state.closed_orders(attrs(record))
     for order_id, part in state.part_items(attrs(record), state.report_order(drive, attrs(record))):
         if order_id is None:
@@ -144,13 +144,13 @@ def misnamed_part(drive: dict, record: dict) -> str | None:
             return agents.Unjudged(UNKNOWN_ORDER.format(item=json.dumps(f"{order_id}:{part}", ensure_ascii=False), order=order_id, drive=drive["name"]))
         if part not in (held := drive["orders"][order_id]["parts"]):
             return agents.Unjudged(UNKNOWN_PART.format(order=order_id, part=part, parts=", ".join(json.dumps(each, ensure_ascii=False) for each in held)))
-        if order_id not in closed and state.unlive_fix(drive, order_id, part):
-            return agents.Unjudged(UNLIVE_PART.format(unlive=state.UNLIVE_FIX.format(order=order_id, part=part), order=order_id, part=part))
+        if order_id not in closed and state.work(drive["orders"][order_id]):
+            return agents.Unjudged(UNPOSTED_PART.format(work=state.UNPOSTED_WORK.format(order=order_id, part=part), order=order_id, part=part))
     return None
 
 
 def unfinished(drive: dict, record: dict) -> str | None:
-    """Why a report to post leaves its handler guessing what it finishes: it names no close, part or progress attr, or the parts it delivers are the last ones undelivered of an open order it does not close, which would leave that order open once its last answer is posted. An incident's last part is exempt, since its order closes when its fix ships."""
+    """Why a report to post leaves its handler guessing what it finishes: it names no close, part or progress attr, or the parts it delivers are the last ones undelivered of an open order it does not close, which would leave that order open once its last answer is posted. An order of work he ordered names no part, since no post delivers it."""
     named = attrs(record)
     if named.get("catch_up") or named.get("progress"):
         return None
@@ -159,11 +159,11 @@ def unfinished(drive: dict, record: dict) -> str | None:
     closed = state.closed_orders(named)
     if not items and not closed:
         order = state.open_orders(drive).get(order_id or "")
-        quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"]) if order else ""
+        quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"]) if order and not state.work(order) else ""
         return UNFINISHED.format(about=f", here {order_id}, the open order it is about" if order else "", parts=f", one of {quoted}" if quoted else "")
     for on in dict.fromkeys(on for on, _ in items if on not in closed):
         order = state.open_orders(drive).get(on or "")
-        if not order or order["incident"]:
+        if not order or state.work(order):
             continue
         left = [part for part, kept in order["parts"].items() if not kept["posted"]]
         if left and set(left) <= {part for each, part in items if each == on}:
