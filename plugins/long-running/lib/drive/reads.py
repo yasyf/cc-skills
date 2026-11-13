@@ -318,10 +318,12 @@ def run_granted(command: list[str], granted: Grant) -> int:
         print(f"the break-glass grant {granted.link} ended at {clock(granted.ends.astimezone(), seconds=True)} before its command started, so nothing ran", file=sys.stderr, flush=True)
         return GRANT_ENDED
     group = subprocess.Popen(command, env=granted.env, start_new_session=True)
+    stopping = select.poll()
+    stopping.register(granted.stops.reader, select.POLLIN)
     killed_by = time.monotonic()
     try:
         while (status := group.poll()) is None and not granted.stops.signals and (left := ends - STOP_GRACE - time.monotonic()) > 0:
-            if select.select([granted.stops.reader], [], [], left)[0]:
+            if stopping.poll(left * 1000):
                 os.read(granted.stops.reader, 512)
         if status is not None:
             return status

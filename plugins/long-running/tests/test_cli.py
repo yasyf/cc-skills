@@ -2433,7 +2433,8 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     kept_proof(tmp_path, "j1")
     assert run("job", "report", "j1")[0] == 2
     monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
-    assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "jobs" / "j1.replies.jsonl"))
+    code, kept = run("job", "report", "j1", "-")
+    assert (code, kept.splitlines()[0]) == (0, str(state_root / "demo" / "jobs" / "j1.replies.jsonl"))
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
@@ -3910,7 +3911,7 @@ def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, on_github
     pr = state.load("demo")["prs"][with_pr]
     assert code == 0
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"]) == (51234, "pure port", False)
-    assert out.endswith("no tap needed, exempt: pure port of #51234")
+    assert "no tap needed, exempt: pure port of #51234; grading, owed by Buildkite and forge-pr-reviewer: " in out
     assert withdrawals.asked == [(PR, "port of #51234, which lands with no tap")]
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: pure port")
     assert run("pr", "set", PR, "--port-of", "51234", "--tap", "--serves", "o1", "--design", "none")[0] == 2
@@ -5557,7 +5558,7 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
 def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
     code, out = run("manual", "coordinator", "tap")
     assert code == 0
-    assert [line.split("|")[1].strip() for line in out.splitlines()] == ["`TAP Approve …`", "`TAP Approve <pr> not landed <m> minutes after his tap: <why>`", "`TAP Hold …`"]
+    assert [line.split("|")[1].strip() for line in out.splitlines()] == ["`TAP Approve …`", "`TAP Hold …`"]
     assert len(out) < len((cli.PAGES / "coordinator.md").read_text()) / 10
     assert run("manual", "coordinator", "nothing-names-this")[0] == 2
 
@@ -5581,6 +5582,9 @@ def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, 
     tap = {"asked": state.stamp(), "url": TAP_CARD, "prs": list(prs), "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
+    with state.edit("demo") as data:
+        for url in prs:
+            data["prs"][state.pr_key(url)]["stage"] = {"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": state.stamp(), "woke": None}
     settled: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "label": args[4], "at": "now"})
     return settled

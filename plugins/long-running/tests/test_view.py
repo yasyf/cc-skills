@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import timedelta
 
 import pytest
-from drive import page, state, view, watch
+from drive import page, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -58,7 +58,10 @@ def asked_on(*cards: str) -> list[dict]:
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
     url = f"https://github.com/yasyf/cc-skills/pull/{number}"
     entry = state.new_pr(url, "j1", order_id) | {"wants_tap": False, "title": f"New: \U0001f680 change {number}", "updated": at(-number)}
-    return f"yasyf/cc-skills#{number}", entry | {"checks": "pass", "review": "approved"} | overrides
+    entry |= {"checks": "pass", "review": "approved"} | overrides
+    asks = entry["state"] == "open" and stage.carded(entry) and entry["checks"] == "pass" and not (entry["tap"] or entry["hold_label"] or entry["waits"])
+    kept = {"stage": {"name": "card", "owner": stage.HIM, "why": "green, waits on his Approve", "since": at(-number), "woke": None}} if asks and "stage" not in overrides else {}
+    return f"yasyf/cc-skills#{number}", entry | kept
 
 
 def drive_of(orders: dict, jobs: dict, prs: list[tuple[str, dict]]) -> dict:
@@ -89,7 +92,7 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
         [
             pr(1, "o1", wants_tap=True),
             pr(2, "o1", wants_tap=True, checks="fail"),
-            pr(3, "o1", wants_tap=True, checks="pending"),
+            pr(3, "o1", wants_tap=True),
             pr(4, "o1", wants_tap=True, tap={"label": "Hold", "at": at(-5), "head": "", "source": "pressed"}),
             pr(5, "o1", wants_tap=True, exempt="test-only"),
             pr(6, "o1", wants_tap=False),
@@ -115,7 +118,7 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
     assert "answer" not in queue[2]
     assert queue[1]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
     assert (queue[2]["url"], queue[2]["since"], queue[2]["links"]) == ("https://github.com/yasyf/cc-skills/pull/1", None, [])
-    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; no Slack card yet"
+    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve; no Slack card yet"
     assert queue[4]["url"] == f"{TEAM}archives/D123/p1794200000000100"
 
 
@@ -303,7 +306,7 @@ def test_a_small_drive_draws_its_counts_then_a_table_for_each_part_that_has_rows
         "## ✅ Finished (1)",
     ]
     assert f"| [Release now?](https://acme.slack.com/archives/D123/p-20) | — | {when(at(-20))} | Yes |" in markdown
-    assert f"| [change 1](https://github.com/yasyf/cc-skills/pull/1) · {first} | 🟢 green, approved; no Slack card yet | — |" in markdown
+    assert f"| [change 1](https://github.com/yasyf/cc-skills/pull/1) · {first} | 🟢 green, approved; card, owed by him: green, waits on his Approve; no Slack card yet | — |" in markdown
     assert "| **No project** | 1 | 1 | · | · | · | · | 1 |" in markdown
     assert f"| [wait for CI]({thread}) | — | CI runs | 🔴 [#3](https://github.com/yasyf/cc-skills/pull/3) 1 merged |" in markdown
     assert f"| [ship the page]({thread}) | — | drawing it | 🟢 {first} |" in markdown

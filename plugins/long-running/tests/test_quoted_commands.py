@@ -17,6 +17,7 @@ SKILL = cli.PAGES.parent
 PLUGIN = SKILL.parents[1]
 PAGES = sorted([SKILL / "SKILL.md", *cli.PAGES.glob("*.md"), *(PLUGIN / "agents").glob("*.md")])
 HOLE = "placeholder"
+START_META = orca.start_meta
 FENCE = re.compile(r" {0,3}(`{3,})[^`]*")
 TICKS = re.compile(r"`+")
 PLACEHOLDER = re.compile(r"<[^<>]*>")
@@ -169,7 +170,7 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
 @pytest.mark.parametrize("words", [pytest.param(words, id=f"{page}: {line}") for (page, line, _), words in every_quote().items()])
 def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO())
-    parser = cli.parser()
+    parser = cli.parser.__wrapped__()
     lenient(parser, whole(parser, words))
     try:
         parser.parse_args(words if verb(parser, words)[1] else [*words, "--help"])
@@ -180,7 +181,7 @@ def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest
 def test_the_meta_session_drive_start_opens_runs_the_command_start_or_resume_prints(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     created: list[tuple[str, ...]] = []
     monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": "term_meta"}})
-    assert orca.start_meta("demo", "/w/demo", None) == "term_meta"
+    assert START_META("demo", "/w/demo", None) == "term_meta"
     [request] = created
     assert request[:6] == ("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta")
     assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
