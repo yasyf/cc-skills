@@ -289,7 +289,7 @@ before it sends or starts.
   the launcher copies the new handoff onto it, unless that Sprite's own install refused the tools
   a worker needs, a full disk or a toolchain directory it cannot write: the launcher then destroys
   it and exits 76, and the relaunch prepares one fresh Sprite, failing with his answer unsent when
-  that one refuses them too.
+  that one refuses them too, his answer still held.
 - A delivered message, sent to a live worker or carried in a started worker's handoff, marks the
   job sent each answer of his whose words it holds verbatim; nothing else marks a remote lane
   sent, so `drive answer --sent` on one only confirms that mark.
@@ -304,8 +304,15 @@ before it sends or starts.
   relaunch runs on that Sprite instead, through `cc-remote orca prepare --existing`, in the checkout
   the dead lane left, and the handoff and the output name why the save failed. A Sprite that refused
   a worker's tools is never run on again: it is kept, and the relaunch runs on a fresh Sprite.
-- When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
-  and it exits 2 with Orca's refusal; resume again once the watch reads the lane.
+- A remote lane's text is held on the job's undelivered list under one Orca request id before any
+  Orca call, so an outage delays it and never drops it. When Orca cannot reach the lane, as while
+  its Orca remote runtime is down, or refuses the send, the resume exits 0 saying the text is held.
+  The watch, once Orca reads that worker alive and unfinished, runs `drive job resume <j>` with no
+  text as a process of its own, which sends each held text under the id it was held with, so Orca
+  replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
+  handoff, oldest first. A relaunch Orca refuses exits 2 with Orca's refusal, the text still held;
+  `drive job resume <j>` delivers it once Orca reads the lane. An open question's `LOG <url>`s are
+  read ahead of the text once, when it is held, since Orca refuses an id reused with other input.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
   message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.
