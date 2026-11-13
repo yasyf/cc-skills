@@ -1,5 +1,5 @@
 ASK How should a finished run's page find each journal file's page map?
-A finished run's page fetches about 180 journal files and guesses where each one's page map starts, so a wrong guess costs a second request.
+Drive tooling: your pick decides how a finished run's page reads its files; it fetches about 180 journal files and guesses where each one's page map starts, so a wrong guess costs a second request.
 Recommended: one snapshot file per finished run with its map at a fixed place; meanwhile pages keep guessing.
 - One snapshot file per finished run, written when it ends, its map at a fixed place: opens in 3 requests (recommended)
   When a run finishes, the uploader in `journal/snapshot.go` writes one snapshot.ltx to the team's bucket with its page map at a fixed place, and the run page's reader in `site/journal.js` reads that map, then its page ranges; a backfill writes one for each old run.

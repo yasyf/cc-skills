@@ -154,10 +154,15 @@ summary of one feature is a line of at most 60 words.
   `drive job ask` refuses it; put the link in the summary.
 - Its body is its summary, one to three lines: what was found and what is being decided, the
   recommendation, and what happens meanwhile, naming the immediate fix or rollback already shipping
-  when a bug hurts someone now. The first line gives him the investigation's results
-  before he picks. It answers his next question: why, did he already decide this, is it a port, what
-  comes after, or why it is held. `drive job ask` refuses a summary that answers none of them unless
-  the findings carry `Next question: none: <why>`. When the block has a Show me, a `*Show me*` line
+  when a bug hurts someone now. The first line says what the card is: the work it serves, as
+  `{order:<o>}`, which his card draws as his order's own words linked to its thread, `port of #N` as
+  the text of that PR's link, or Drive tooling, and what his pick changes for him, said as "your
+  pick", such as "For {order:o518}: your pick decides whether restoring a SandSQL Env to an earlier
+  point keeps its moved tables readable once the reader switch ships." `drive job ask` refuses a first
+  line missing either, by his words on a card that opened on its findings: "what is this and what the
+  fuck are you talking about". It also counts the words his card draws for each reference in the
+  summary: an `{order:<o>}` draws its order's first 100 characters, so give it a few words of its own,
+  `{order:<o>|<a few words>}`, when the card runs near 150. When the block has a Show me, a `*Show me*` line
   and the Show me follow as written.
 - The card starts from the root cause, the structure that lets the defect happen, and one option is
   always the one that removes it so the defect cannot occur, recommended, every other option saying
@@ -188,8 +193,8 @@ summary of one feature is a line of at most 60 words.
   its body and descriptions as code, so Slack links no `clone.rs` as a website; the title and
   options take no markup, so a file name goes in the description.
 - Name each mechanism by what it does, such as "the Mac reruns the check function every 30 seconds
-  and compares its output; a change sends one inbox message that wakes the agent". The summary's
-  first line says this of what every option shares, and the title asks only what the options differ
+  and compares its output; a change sends one inbox message that wakes the agent". After its first
+  line, the summary says this of what every option shares, and the title asks only what the options differ
   on. `drive job ask` refuses a title or option that leaves polling, a push, a subscription, a
   notification, a listener or an event a bare word, as "Polls only", "a Poll source" and "the event
   system" do, because he cannot tell what is polled and what wakes whom: "That wasn't clear from the

@@ -167,13 +167,8 @@ ROOT_CAUSE_SHAPE = (
     " when that PR ships, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
     " this question, such as a pick between his designs or his approval of an action his rules hold for him>`"
 )
-NEXT_QUESTION = re.compile(
-    r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words|approval)|port(?:s|ed)?"
-    r"|next|then|once|meanwhile|held|holds|waits?|waiting|awaits?|awaiting|paused|pending|until|blocked)\b",
-    re.IGNORECASE,
-)
-NO_NEXT_QUESTION = re.compile(r"^[ \t]*Next question:[ \t]*none[ \t]*:[ \t]*\S", re.MULTILINE | re.IGNORECASE)
-NEXT_QUESTIONS = "why, did he already decide this, is it a port, what comes after, or why it is held"
+PICK = re.compile(r"\byour?\s+pick\b", re.IGNORECASE)
+OPENING_RULING = 'his ruling ebdb6aa, "what is this and what the fuck are you talking about"'
 HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
 SAID = re.compile(r'"[^"\n]*"|“[^”\n]*”')
 QUOTED = re.compile(rf"{SAID.pattern}|`[^`\n]*`")
@@ -579,7 +574,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     problems = []
     if not 1 <= len(summary) <= SUMMARY_LINES:
         problems.append(
-            f"the summary is {len(summary)} lines; it is one to three: what was found and what is being decided,"
+            f"the summary is {len(summary)} lines; it is one to three: the work it serves and what your pick changes,"
             " the recommendation, what happens meanwhile"
         )
     problems += show_me_problems(show_me, bool(example and above), kept, len(options))
@@ -599,10 +594,11 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     shown = [title, *summary, *options, *(line for _, line in prose)]
     if (count := card_words({"title": title, "body": card_body(summary, show_me), "options": options})) > QUESTION_WORDS:
         problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
-    plain = URL.sub(" ", TOKEN.sub(" ", "\n".join(shown)))
+    ordered = [REF.sub(lambda found: f" {found[3] or ''} " if found[1] == "order" else found[0], line) for line in summary]
+    plain = URL.sub(" ", TOKEN.sub(" ", "\n".join([title, *ordered, *options, *(line for _, line in prose)])))
     problems += [
-        f'"{found}" is a drive job or order id, which he cannot open: say what that work is; a function, syscall or file keeps'
-        f" its proper name ({PROPER_TERMS_RULING})"
+        f'"{found}" is a drive job or order id, which he cannot open: say what that work is, or name an order in the summary as'
+        f" `{{order:<o>}}`, which his card draws as his words; a function, syscall or file keeps its proper name ({PROPER_TERMS_RULING})"
         for found in DRIVE_ID.findall(plain)
     ]
     problems += [
@@ -635,7 +631,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         )
     if not kept:
         problems += vague_problems(title, [*summary, *(findings[:1])])
-        problems += next_question_problems(summary, "".join(findings[:1]))
+        problems += opening_problems(summary)
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
@@ -918,16 +914,26 @@ def interim_fix_problems(findings: str) -> list[str]:
     return [unnamed]
 
 
-def next_question_problems(summary: list[str], findings: str) -> list[str]:
-    """Whether the summary answers the question he would ask next, by words saying why, what he already decided, that it is a port, what comes after or why it is held, or the findings say with `Next question: none: <why>` that none follows."""
-    said = URL.sub(" ", LABELLED.sub(r" \1 ", " ".join(summary)))
-    if NEXT_QUESTION.search(said) or NO_NEXT_QUESTION.search(findings):
+def opening_problems(summary: list[str]) -> list[str]:
+    """Whether the summary's first line tells him what the card is: the work it serves, as `{order:<o>}`, which his card draws as his order's own words linked to its thread, `port of #N` or Drive tooling, and what his pick changes for him, said as "your pick" outside a quote or reference."""
+    if not summary:
         return []
-    unanswered = (
-        f"the summary answers none of his next questions: {NEXT_QUESTIONS}; add the one he would ask, as"
-        ' "held until you pick, so nothing ships meanwhile" does, or write `Next question: none: <why>` under `Findings:`'
+    missing = [
+        need
+        for need, found in (
+            ("the work it serves, `{order:<its order>}`, `port of #N` or Drive tooling", KIND_NAMED.search(summary[0])),
+            ('what "your pick" changes for him', PICK.search(SAID.sub(" ", REF.sub(" ", summary[0])))),
+        )
+        if not found
+    ]
+    if not missing:
+        return []
+    unopened = (
+        f'the summary\'s first line never says {" or ".join(missing)}, so he reads findings with no idea what'
+        ' they are for: open it on both, as "For {order:<its order>}: your pick decides <what it changes for you>.", with `port of #N`'
+        f" as the text of that PR's link on a port and Drive tooling on drive tooling ({OPENING_RULING})"
     )
-    return [unanswered]
+    return [unopened]
 
 
 def vague_problems(title: str, evidence: list[str]) -> list[str]:

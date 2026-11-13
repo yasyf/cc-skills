@@ -55,7 +55,7 @@ SECOND_OPTION = (
 )
 DESIGN_RESEARCH = (
     f"DESIGN {DESIGN_TITLE}\n"
-    "store_copy_at copies one store, and it can run on the primary or on a separate worker that reads the bucket.\n"
+    "Drive tooling: your pick decides where store_copy_at runs; it copies one store, on the primary or on a separate worker that reads the bucket.\n"
     "Recommended: on the primary; held until you pick, so nothing ships meanwhile.\n"
     "- store_copy_at runs on the primary, beside the queries it serves, copying each store in list order (recommended)\n"
     "  The primary calls store_copy_at in `supervisor/copies.rs` for each store in list order between the queries it serves, writing"
@@ -1253,7 +1253,7 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
 
 
 PINNED_CHATS_ASK = explained("""ASK Where should pinned chats draw in the Iris sidebar?
-A row's menu gains Pin and Unpin, and the sidebar draws pinned chats and agents ahead of unpinned ones. The choice is which spot counts as the top.
+Drive tooling: your pick decides which spot counts as the top. A row's menu gains Pin and Unpin, and the sidebar draws pinned chats and agents ahead of unpinned ones.
 You have not decided this. A user asked to keep a Unichat pinned at the top at all times, and a Unichat lists under Agents, below every chat, so I recommend one Pinned group above both.
 Show me:
 The sidebar from the top down under each option, with a pinned Unichat and one pinned chat
@@ -1371,25 +1371,71 @@ def test_job_ask_reads_a_readers_design_return_as_the_ask_its_first_line_asks(ru
     assert state.load("demo")["jobs"]["j1"]["said"] == DESIGN_TITLE
 
 
-def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_unless_its_findings_say_none_follows(
-    state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+RESTORE_ASK = explained(
+    "ASK Who links a moved table when a restore brings back a root database from before the one-off link?\n"
+    'Every option runs the one-off break-glass link now; Your "Just do it with break glass now" covers tables moved so far.\n'
+    "Held until you pick, so nothing ships meanwhile.\n"
+    "- The restore relinks each moved table it brings back (recommended)\n- An operator relinks moved tables by hand after a restore\n"
+    "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
+)
+RESTORE_OPENING = RESTORE_ASK.splitlines()[1]
+
+
+@pytest.mark.parametrize(
+    "opening",
+    [
+        RESTORE_OPENING,
+        "The merge queue ejects the run page change each time dev moves, and your pick decides which way it lands.",
+        'For {order:o518}: the restore keeps "your pick" readable once the reader switch ships.',
+    ],
+)
+def test_job_ask_check_refuses_a_summary_whose_first_line_never_says_the_work_it_serves_and_what_his_pick_changes(
+    opening: str, state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
-    bare = explained("ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n")
-    block.write_text(bare)
+    block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, opening))
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
-    assert (
-        "the summary answers none of his next questions: why, did he already decide this, is it a port, what comes after, or why"
-        ' it is held; add the one he would ask, as "held until you pick, so nothing ships meanwhile" does, or write'
-        " `Next question: none: <why>` under `Findings:`"
-    ) in capsys.readouterr().err
-    block.write_text(bare.replace("Two ways to copy.", "Two ways to copy; the copy is held until you pick one."))
+    refusal = capsys.readouterr().err
+    assert "the summary's first line never says" in refusal
+    assert limits.OPENING_RULING in refusal
+    assert limits.question(RESTORE_ASK, kept=True).summary[0] == RESTORE_OPENING
+
+
+@pytest.mark.parametrize(
+    "opening",
+    [
+        "For {order:o518}: your pick decides whether a restore keeps its moved tables readable once the reader switch ships.",
+        "For {order:o518|the moved tables order}: you pick who relinks a moved table after a restore.",
+        "Drive tooling: your pick decides whether the restore relinks each moved table it brings back.",
+        "For the <https://github.com/acme/app/pull/9|port of #9>: your pick decides who relinks a moved table.",
+    ],
+)
+def test_job_ask_check_passes_a_first_line_naming_the_work_it_serves_and_what_his_pick_changes_and_lets_an_order_reference_through(
+    opening: str, state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, opening))
     assert cli.main(["job", "ask", "--check", str(block)]) == 0
-    block.write_text(bare.replace("Two ways to copy.", "Two ways to copy; copying is paused pending your approval."))
+    block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"{opening} It replaces o518's link."))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert '"o518" is a drive job or order id' in capsys.readouterr().err
+
+
+def test_job_ask_refuses_a_summary_over_his_length_as_his_card_draws_its_order_references_and_keeps_one_whose_references_carry_words(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Store copy", "--project", "The drive", "--workstream", "Drive tooling", "copy every store of the team in the order its list names them, one at a time, with no store skipped or copied twice")
+    block = tmp_path / "ask.md"
+    repeated = " ".join(["{order:o2}"] * 8)
+    block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"For {{order:o2}}: your pick decides who relinks a moved table. It serves {repeated}."))
     assert cli.main(["job", "ask", "--check", str(block)]) == 0
-    block.write_text(bare.replace("Findings:\n", "Findings:\nNext question: none: a pick with nothing held on it\n"))
-    assert cli.main(["job", "ask", "--check", str(block)]) == 0
-    assert limits.question(bare, kept=True).summary == ["Two ways to copy."]
+    capsys.readouterr()
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert "words as his card draws them, each reference in the summary drawn as the words that name it" in refusal
+    assert state.load("demo")["jobs"]["j1"]["questions"] == []
+    block.write_text(block.read_text().replace("{order:o2}", "{order:o2|the store copy}"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
 
 
 def test_term_keeps_a_word_he_corrected_beside_its_proper_term_and_a_drive_saved_before_it_loads_with_none(run: Run, demo: str) -> None:
@@ -1420,7 +1466,7 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
     block = tmp_path / "ask.md"
     block.write_text(
         explained(
-            "ASK How do leases stop leaking?\nA lease outlives the run that took it, so the next run waits on it.\n"
+            "ASK How do leases stop leaking?\nDrive tooling: your pick decides how a lease ends; one outlives the run that took it, so the next run waits on it.\n"
             "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
             "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nTwo runs held one lease.\n"
         )
@@ -1492,7 +1538,7 @@ def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str,
 
 
 TEAMMATE_FIX = explained("""ASK A teammate's PR for the missing update button landed first: keep it, add our download status to it, or replace it?
-A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
+Drive tooling: your pick decides which update button ships. A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
 - Keep theirs, close ours: the button is always there and nothing needs a terminal, but the card never says it is downloading. (recommended)
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed PR.
@@ -1605,7 +1651,7 @@ def test_job_ask_keeps_an_option_that_lands_first_and_backfills_after(
 
 
 LANDING_ASK = explained("""ASK Land your run history change so the run page change you approved can land?
-<https://github.com/acme/app/pull/12|The run page change> is built on <https://github.com/acme/app/pull/11|your run history change>, which is green and approved but has no tap of yours.
+Drive tooling: your pick decides when both changes land. <https://github.com/acme/app/pull/12|The run page change> is built on <https://github.com/acme/app/pull/11|your run history change>, which is green and approved but has no tap of yours.
 I recommend landing both together, run history first; meanwhile both stay open.
 - Land both now, run history first (recommended)
 - Move the run page change onto dev without run history, and leave that one with you
@@ -4241,8 +4287,8 @@ def test_job_ask_on_a_port_names_the_pr_it_ports_in_its_summary(
         'drive: j1\'s PR is a port of #4100: its ASK\'s summary says "port of #4100", as the text of that PR\'s link, and what in the'
         " target tree forces a choice #4100 did not make, such as what that tree lacks"
     )
-    ported = "This is a <https://github.com/Forge-AI/monorepo/pull/4100|port of #4100>; the target tree lacks the snapshot writer. A finished run is about"
-    block.write_text(SHORT_ASK.replace("A finished run is about", ported))
+    ported = "This is a <https://github.com/Forge-AI/monorepo/pull/4100|port of #4100>, and your pick decides how a finished run's files are laid out in a target tree that lacks the snapshot writer;"
+    block.write_text(SHORT_ASK.replace("Drive tooling: your pick decides how a finished run's files are laid out;", ported))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 

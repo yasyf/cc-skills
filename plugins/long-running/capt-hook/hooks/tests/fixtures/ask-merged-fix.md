@@ -1,5 +1,5 @@
 ASK Start a release now to carry the page-map fix?
-<https://github.com/acme/app/pull/12|The fix that writes each finished run's page map at a fixed place> merged at 3:40 PM and no release carries it, so pages keep guessing until one does.
+Drive tooling: your pick decides when the page-map fix ships; <https://github.com/acme/app/pull/12|The fix that writes each finished run's page map at a fixed place> merged at 3:40 PM and no release carries it, so pages keep guessing until one does.
 I recommend starting now; meanwhile nothing ships.
 - Start now: a release starts from main tonight and carries the fix; pages stop guessing once it is live (recommended)
   A release starts from main tonight and ships `journal/snapshot.go` as merged, so each new run writes its map at a fixed place and pages stop guessing once it is live; no code changes.

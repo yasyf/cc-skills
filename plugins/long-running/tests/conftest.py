@@ -62,7 +62,7 @@ open: none
 """
 
 SHORT_ASK = """ASK How should a finished run's files be laid out so its page opens without guessing?
-A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
+Drive tooling: your pick decides how a finished run's files are laid out; a run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
 Meanwhile nothing is built on either layout.
 Show me:

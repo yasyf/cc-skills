@@ -245,7 +245,7 @@ UPGRADING_CHAT_SHOTS = r'''![1 · Before, dev at de31bf9]({root}/durable-agents/
 def ask(show_me: str, options: str) -> str:
     shown = show_me.replace("{root}", str(state.root()))
     return explained(
-        f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
+        f"ASK Which way should this go?\nDrive tooling: your pick decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n"
     )
 
 
@@ -453,7 +453,7 @@ TIE_TABLE = """When usage picks no strategy:
 | Hash by key | reach one part | stay busy |"""
 
 
-def partitioned(show_me: str, summary: str = "The rule picks one at the 1.7 GB line, so the split waits on your pick.") -> str:
+def partitioned(show_me: str, summary: str = "Drive tooling: your pick decides how a full table splits at the 1.7 GB line, so the split waits on it.") -> str:
     return explained(
         "ASK Which of the four partition strategies should split a full table when usage picks none?\n"
         f"{summary}\nShow me:\n{show_me}\n"
@@ -468,9 +468,9 @@ def test_a_card_counting_a_set_lists_every_member_of_it_or_is_refused_kept_or_ne
         with pytest.raises(DriveError, match=r'"four partition strategies" names 4 strategies, and the card lists no 4 of them'):
             limits.question(partitioned(TIE_TABLE), kept=kept)
         assert limits.question(partitioned(STRATEGIES_TABLE), kept=kept).show_me
-    named = "The rule checks four strategies: spill values, insertion order, hash by key and equal cut, so the split waits on your pick."
+    named = "Drive tooling: the rule checks four strategies: spill values, insertion order, hash by key and equal cut, so the split waits on your pick."
     assert limits.question(partitioned(TIE_TABLE, named)).show_me
-    measured = "It waits 30 days, at most 3 requests, from 1:28 PM, so the split waits on your pick."
+    measured = "Drive tooling: it waits 30 days, at most 3 requests, from 1:28 PM, so the split waits on your pick."
     assert limits.question(partitioned(STRATEGIES_TABLE, measured)).show_me
     with pytest.raises(DriveError, match=r'"three Macs" names 3 Macs, and the card lists no 3 of them'):
         limits.question(partitioned(STRATEGIES_TABLE, "Each of the three Macs writes the table, so the split waits on your pick."))
