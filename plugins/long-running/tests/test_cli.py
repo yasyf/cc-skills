@@ -826,18 +826,19 @@ def test_incident_open_names_the_jobs_to_start_when_its_record_does_not_open(
     assert state.load("demo")["orders"]["o1"]["note"] is None
 
 
-def test_an_incident_records_the_monitor_or_sentry_issue_of_each_alert_and_refuses_any_other_link(
+def test_an_incident_records_the_monitor_or_sentry_issue_by_number_or_short_id_of_each_alert_and_refuses_any_other_link(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     monitor, lag, sentry = "https://app.datadoghq.com/monitors/315028134?group=forge_cluster%3Aplat", "https://us5.datadoghq.com/monitors/330850820", "https://forge-ai.sentry.io/issues/6012345678/"
-    run("incident", "open", "SandSQL error logs on plat", "--alert", monitor, "--record", RECORD, *FILED)
+    short = "https://forge-rf.sentry.io/issues/API-1NNF"
+    run("incident", "open", "SandSQL error logs on plat", "--alert", monitor, "--alert", short, "--record", RECORD, *FILED)
     run("order", "add", "--title", "Short title", *FILED, "SandSQL replication lag on plat", "--joins", "o1", "--alert", sentry)
     run("order", "set", "o1", "--alert", lag, "--alert", monitor)
     assert cli.main(["order", "set", "o1", "--alert", "https://app.datadoghq.com/dashboard/abc-123"]) == 2
     assert "--alert https://app.datadoghq.com/dashboard/abc-123: refused, name the alert by its Datadog monitor link" in capsys.readouterr().err
     orders = state.load("demo")["orders"]
-    assert (orders["o1"]["alerts"], orders["o2"]["alerts"]) == ([monitor, lag], [sentry])
+    assert (orders["o1"]["alerts"], orders["o2"]["alerts"]) == ([monitor, short, lag], [sentry])
 
 
 def test_incident_stop_gives_an_open_incident_one_running_stop_job(
