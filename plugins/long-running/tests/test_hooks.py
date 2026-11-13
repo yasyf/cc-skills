@@ -806,6 +806,30 @@ def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", tooling)) is None
 
 
+def test_a_brief_whose_runs_as_line_writes_a_teams_data_under_break_glass_starts_no_agent_and_one_ruling_it_out_does(demo: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Search", "re-send the stuck runs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "hand repair the stuck runs")
+    planned = "Order (his words): re-send the stuck runs\nGoal: hand repair the 128 stuck runs\nRuns as: {}\nDrive: demo, order o1, job j1"
+    refused = {
+        "this Mac's machine-profile break-glass, by the incidents page: it re-sends each stuck run": "machine-profile",
+        "drive break-glass j1 --stack plat/prod with no SSO sign-in": "break-glass",
+        "the BreakGlassAccess role on plat-prod": "BreakGlassAccess",
+    }
+    for line, route in refused.items():
+        reason = brief.brief_refusal("demo", state.load("demo"), "j1", planned.format(line))
+        assert reason.startswith(f'j1\'s Runs as line writes a team\'s data under "{route}", which runs on this Mac'), line
+        assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason
+    passing = [
+        "a Job in plat-usw2-prod from the suspended search-wake-repair CronJob via tools/ci cluster-job, never under drive break-glass from this Mac",
+        'the search-wake-repair CronJob via tools/ci cluster-job, by his words "repair his stuck ones with machine profile break glass" superseded',
+        "none: an infra apply under drive break-glass that writes no team's data",
+    ]
+    for line in passing:
+        assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format(line)) is None, line
+    tooling = planned.format("drive break-glass from this Mac") + "\nServes: drive tooling"
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", tooling) is None
+
+
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

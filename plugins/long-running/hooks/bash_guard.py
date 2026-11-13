@@ -61,22 +61,12 @@ OPTIONED = {
 SOURCES = {"source", "."}
 FOLLOWED_DEPTH = 4
 TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
-TEAM_DATA_RULE = (
-    "a drive job reads or writes a team's data only as a service account, on a pass box or in the team's own cluster,"
-    f' never on this Mac, a Sprite or under `drive break-glass`, by his words "{limits.TEAM_DATA_QUOTE}" and'
-    f' "{limits.IRIS_BLOBS_QUOTE}"'
-)
-CLUSTER_JOB = (
-    "runs as a Job in the team's cluster, started from its suspended CronJob with `tools/ci cluster-job --cluster"
-    ' <release env> --cronjob <name> --reason "<why>"`'
-)
-UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the service account that makes it"
 NO_WRITER = (
     "No service account writes or deletes a team's data from a pass box yet, since the pass box role and every reader's"
-    f" grant are read-only: a pass that writes it {CLUSTER_JOB}, and any other write or delete {UNMADE}."
+    f" grant are read-only: a pass that writes it {limits.CLUSTER_JOB}, and any other write or delete {limits.UNMADE}."
 )
 TEAM_DATA = (
-    "refused: this reads or writes `{location}` where the job runs, and " + TEAM_DATA_RULE + ". {route} " + NO_WRITER
+    "refused: this reads or writes `{location}` where the job runs, and " + limits.TEAM_DATA_RULE + ". {route} " + NO_WRITER
     + " Only {forge} are read or written where a job runs, since they hold no team's data: a box's binary goes under"
     " `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
 )
@@ -86,9 +76,9 @@ SECRETS = {"secret", "secrets"}
 KUBECTL_VALUED = {"-n", "--namespace", "--context", "--cluster", "--user", "--kubeconfig", "-c", "--container", "-o", "--output", "-l", "--selector", "-f", "--filename", "--address", "-s", "--server", "--as"}
 SANDSQL_DATA = (
     "refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs, and with them"
-    " every read and write of their rows, and " + TEAM_DATA_RULE + ". A pass box's cluster access grants no secrets,"
-    f" exec or port-forward, so no service account reaches a team's SandSQL rows from a box yet: a pass over them {CLUSTER_JOB},"
-    f" and any other read or write {UNMADE}."
+    " every read and write of their rows, and " + limits.TEAM_DATA_RULE + ". A pass box's cluster access grants no secrets,"
+    f" exec or port-forward, so no service account reaches a team's SandSQL rows from a box yet: a pass over them {limits.CLUSTER_JOB},"
+    f" and any other read or write {limits.UNMADE}."
 )
 RUNS_ROUTE = (
     "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves: launch a box with"
