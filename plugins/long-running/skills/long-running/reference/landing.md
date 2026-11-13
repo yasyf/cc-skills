@@ -341,9 +341,11 @@ hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `mer
 `tools/ci trunk submit --direct` needs his written ruling naming the PR and its full head sha. An
 incident fix lands as [incidents.md](incidents.md) says.
 
-**Every red on your PR is yours**, whether your change or `dev` caused it. Fix your own; for an
+**Every red on your PR is yours**, whether your change or `dev` caused it, and while it waits on his tap
+too. Fix your own; for an
 inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
-a test flaked, whose cause may be in product code. On a conflict or
+a test flaked, whose cause may be in product code. Waiting on a fix in another PR, return `WAITING`
+naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
 the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,

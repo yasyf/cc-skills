@@ -66,14 +66,16 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("landing", LANDER, landing_why(pr))
     if ended := unlanded(data, pr):
         return Stage("unlanded", ORDER, ended)
-    if holds := held(data, pr, cards):
-        return Stage("held", HIM, holds)
+    if stops := stopped(pr):
+        return Stage("held", HIM, stops)
     if pr["rework"]:
         return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
-            return Stage("blocked", WAITED, f"{failing}, and its builder waits on {', '.join(waits)}")
+            return blocked(data, failing, waits)
         return Stage("red", BUILDER, failing)
+    if holds := held(data, pr, cards):
+        return Stage("held", HIM, holds)
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
     if state.cleared(pr) and (waiting := [wait for wait in view.holding(data, pr["waits"], cards) if not state.card_wait(data, wait)]):
@@ -116,12 +118,19 @@ def unlanded(data: dict, pr: dict) -> str | None:
     return f"its lander's try at {lander['head'][:7]}, started {lander['at']}, ended {outcome}"
 
 
-def held(data: dict, pr: dict, cards: dict) -> str:
-    """What of his holds the PR: his Hold, the hold label, a card of his it waits on, or a question card of his open on the work of any job carrying it."""
+def stopped(pr: dict) -> str:
+    """What stops the PR whatever its checks read: his Hold or the hold label, on which his card offers no Approve, so a red PR under one wakes no builder."""
     if (pr["tap"] or {}).get("label") == "Hold":
         return f"held by his Hold of {pr['tap']['at']}"
     if pr["hold_label"]:
         return "held by the hold label on GitHub"
+    return ""
+
+
+def held(data: dict, pr: dict, cards: dict) -> str:
+    """What of his holds the PR: what stops it, a card of his it waits on, or a question card of his open on the work of any job carrying it; a red PR waiting on one of his cards reads red, so its builder keeps it green while he decides."""
+    if stops := stopped(pr):
+        return stops
     if waiting := [wait for wait in view.holding(data, pr["waits"], cards) if state.card_wait(data, wait)]:
         return f"it waits on his cards {', '.join(waiting)}"
     if asking := land.pr_cards(data, pr, cards):
@@ -165,6 +174,20 @@ def answered(data: dict, key: str, failing: str) -> list[str]:
         return []
     waits = job["waited"]["waits"]
     return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
+
+
+def blocked(data: dict, failing: str, waits: list[str]) -> Stage:
+    """A red PR whose builder waits on the PRs and releases that fix it: each PR named by its link, owed by him while one of them waits on his Approve on its drawn card, which it links, else by what it waits on, whose own stage wakes its owner."""
+    asks = any(wait in data["prs"] and view.tap_card(data["prs"][wait]) for wait in waits)
+    return Stage("blocked", HIM if asks else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait) for wait in waits)}")
+
+
+def fix_words(data: dict, wait: str) -> str:
+    if wait not in data["prs"]:
+        return wait
+    pr = data["prs"][wait]
+    asked = f", which waits on his Approve on {view.link('his card', card)}" if (card := view.tap_card(pr)) else ""
+    return view.pr_link(pr) + asked
 
 
 def grading(pr: dict) -> str:
@@ -220,7 +243,8 @@ def owner_job(data: dict, key: str) -> str:
 
 
 def entered(kept: dict | None, now: Stage) -> bool:
-    return not kept or kept["name"] != now.name
+    """Whether the PR entered a stage or its owner changed, as a blocked PR's does once the PR fixing it waits on his Approve or stops waiting, which redraws his card."""
+    return not kept or (kept["name"], kept["owner"]) != (now.name, now.owner)
 
 
 def overdue(data: dict, pr: dict, now: Stage, moment: datetime) -> bool:
