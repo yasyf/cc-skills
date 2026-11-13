@@ -55,7 +55,7 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
-JOB_LINE = re.compile(r"JOB (?P<job>j\d+) o\d+ ")
+JOB_LINE = re.compile(r"JOB (?P<job>j\d+) (?P<order>o\d+) ")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which draws his card on it, since no card draws for it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
@@ -2629,6 +2629,14 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     return data["jobs"][found["job"]]["state"] != "running"
 
 
+def fixing(line: str, data: dict, cards: dict | None) -> bool:
+    """Whether a line is a builder's READY whose every open PR the lander lands on that READY with no step of the holder's, by state.ships_untapped, while stage.of owes its builder the fix, red, reworked to his words or behind a PR its builder fixes, which stage_lines sends that builder through drive pr wake: the communicator or the meta session holding its order would start a second builder on the same fix, so neither gets it, and the lander lands the head the builder pushes on the READY already taken."""
+    if not (job := JOB_LINE.match(line)) or not line.startswith("READY", job.end()):
+        return False
+    keys = [key for key in state.named_prs(data, job["order"], line) if data["prs"][key]["state"] == "open"]
+    return bool(keys) and all(state.ships_untapped(data, key) and stage.of(data, key, cards).owner == stage.BUILDER for key in keys)
+
+
 def wakes(line: str, data: dict, cards: dict | None) -> bool:
     """Whether the coordinator acts on the line now: his tap but an Approve the drive's lander acts on, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR's line that asks for a step, such as its exempt landing or a failure of its landing."""
     return (line.startswith(WAKES) or line.startswith("PR ")) and needs_step(line, data, cards)
@@ -2659,7 +2667,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body, but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, each credential cci refuses withheld from it, and a line that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post each line to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body, but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, or that is a READY whose fix its builder owes, by fixing(), so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, each credential cci refuses withheld from it, and a line that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
         watcher.unsent[lane] += lines
         return []
@@ -2669,7 +2677,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     data = state.load(watcher.name)
     refusal, unsent = None, []
     for line in owed:
-        if lane in state.HOLDERS and not needs_step(line, data, watcher.cards):
+        if lane in state.HOLDERS and (not needs_step(line, data, watcher.cards) or fixing(line, data, watcher.cards)):
             continue
         kind = "defect" if line.startswith(LANDER) else "handoff" if lane in state.HOLDERS or wakes(line, data, watcher.cards) else "evidence"
         topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
