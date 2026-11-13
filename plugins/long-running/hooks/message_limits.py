@@ -55,7 +55,7 @@ UNREAD = (
 )
 DRIVE_ID = re.compile(r"^\d+:\d+ drive-term '[oj]\d+'")
 CAUSE_RULE = (
-    "State a cause, a number or a state only through the record that measured it, as {record:<seq>} on the same line: on"
+    "State a cause, a number or a state only through the read that measured it, as {record:<seq>} on the same line or, in a handler's post, in claims beside that read: on"
     ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
     ' 9:49 PM carried a false "disk full".'
 )
@@ -301,10 +301,13 @@ def thread_words(messages: list[dict]) -> list[dict]:
 
 
 def unbacked(payload: dict, said: str) -> str | None:
-    """Why a line of say's post names a cause with no {record:} of the record that measured it."""
-    if payload["tool_name"] != SAY or not (lines := refs.unbacked(said)):
+    """Why a line of say's post names a cause with no {record:} of the record that measured it, on any post but a handler's listing claims, whose every cause line Jev checks against the read its claims name beside it."""
+    if payload["tool_name"] != SAY or payload.get("agent_id") and payload["tool_input"].get("claims") or not (lines := refs.unbacked(said)):
         return None
-    return agents.Ruled(f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}", CAUSE_RULE)
+    return agents.Ruled(
+        f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line, or, in a handler's post, sits in claims beside the read behind it: {' | '.join(lines)}",
+        CAUSE_RULE,
+    )
 
 
 def unprevented(said: str, found: dict[str, dict]) -> Warned | None:

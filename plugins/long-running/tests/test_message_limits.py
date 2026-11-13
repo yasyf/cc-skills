@@ -1113,10 +1113,13 @@ def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str
     assert "waits-without-card" in posted(transcript, text=text)
 
 
-def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not(talker: str, transcript: Path) -> None:
-    assert say(transcript, text="Merged.\nThe runs failed because the pool was full") == (
-        "refused: a line naming a cause carries {record:<seq>} of the record that measured it, on that line: The runs failed because the pool was full"
+def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_his_own_words_are_not(talker: str, transcript: Path) -> None:
+    caused = "Merged.\nThe runs failed because the pool was full"
+    assert say(transcript, text=caused) == (
+        "refused: a line naming a cause carries {record:<seq>} of the record that measured it, on that line, or, in a handler's post, sits in claims"
+        " beside the read behind it: The runs failed because the pool was full"
     )
+    assert say(transcript, text=caused, claims=[{"claim": "The runs failed because the pool was full", "read": "pool.go:40-52"}]) is None
     assert say(transcript, text='> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.') is None
     assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
     for reading in ("*Why plat SandSQL lagged:* an agent is now reading the cause, minute by minute through the lag.", "Root cause: yes, a read is on it."):

@@ -564,13 +564,14 @@ restating it.
   line of his words.
 - Name a ruling of his as `{answer:<id>}`, which `say` draws as when he said it and its first words,
   linked to the ack of them in his DM, since the id cc-notes keeps it under means nothing to him.
-- State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
-  on the same line. `say` links what the record measured, its `--url`, under the first clause of the record's own
+- State a cause, a number or a state only through the read that measured it: a record, as `{record:<seq>}`
+  on the same line, or, in a handler's post, a read of its own its `claims` list beside that line. `say` links what the record measured, its `--url`, under the first clause of the record's own
   words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
   measuring lane's evidence is one tap away and its whole text never joins the post or its length:
   on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a
   card he tapped at 9:49 PM carried a false "disk full". `say` posts nothing while a line outside a
-  fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it.
+  fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it, unless a
+  handler's post lists it in `claims`, where Jev checks it against the read beside it.
 - A line about code, where it lives, what it does or why, stands on the posting session's own read
   of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
   shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
