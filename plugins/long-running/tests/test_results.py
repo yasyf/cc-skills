@@ -16,6 +16,7 @@ POST = "https://acme.slack.com/archives/D1/p1"
 HANDLER = {"agent_type": "long-running:handler"}
 REAL_CODEX_GAP = watch.codex_gap
 TOOL_RESULT = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}
+SAVED = "/Users/me/.claude/projects/p/s/tool-results/b6.txt"
 
 
 def asked(text: str) -> dict:
@@ -320,6 +321,34 @@ def test_a_drive_role_reaches_no_memory_file_or_whole_saved_output_through_bash(
     assert no_file_tools.deny_reason(bash_call("tail -c 2000 /private/tmp/claude-501/x/tasks/b1.output")) is None
     assert no_file_tools.deny_reason(bash_call("drive status o288")) is None
     assert no_file_tools.deny_reason(bash_call("cat >> ~/.claude/projects/x/memory/a.md", agent_id="a-1")) is None
+
+
+@pytest.mark.parametrize(
+    ("command", "refused"),
+    [
+        (f"{{ printf x; cat {SAVED}; }} > /s/x.md", False),
+        (f'{{ echo "## 4 (times UTC)"; cat {SAVED}; echo; cat $d/4.txt; }} > $d/evidence.md; wc -c $d/evidence.md', False),
+        ("( cat /tmp/c/tasks/b1.output; echo ) >> /s/x.md", False),
+        (f"{{\n  echo head\n  cat {SAVED}\n}} > /s/x.md", False),
+        (f"{{ cat {SAVED}; echo ${{x}}; }} > /s/x.md", False),
+        (f'( cat {SAVED}; echo "$(date)" ) > /s/x.md', False),
+        (f"{{ cat {SAVED}; echo x }} > /s/x.md", False),
+        (f"cat > /s/run.sh <<'EOF'\ncat {SAVED}\nEOF", False),
+        (f"cat {SAVED} > /s/x.md", False),
+        (f"{{ cat {SAVED}; echo; }}", True),
+        (f"( cat {SAVED}; echo )", True),
+        (f"cat {SAVED}; {{ echo; }} > /s/x.md", True),
+        (f"cat {SAVED}; echo \\}} > /s/x.md", True),
+        (f"{{ cat {SAVED}; }} > /s/x.md; cat {SAVED}", True),
+        (f"{{ cat {SAVED}; }} >&2", True),
+        (f"{{ cat {SAVED}; }} 2>/dev/null", True),
+        (f"{{ cat {SAVED}; }} > /dev/stdout", True),
+        (f"bash <<'EOF'\ncat {SAVED}\nEOF", True),
+        (f'echo "$(cat {SAVED})"', True),
+    ],
+)
+def test_a_drive_role_cats_a_whole_saved_output_only_where_its_stdout_reaches_no_session(demo: str, command: str, refused: bool) -> None:
+    assert (no_file_tools.deny_reason(bash_call(command)) is not None) is refused
 
 
 def test_the_coordinators_compaction_summary_names_the_manual_row_of_its_step(demo: str) -> None:

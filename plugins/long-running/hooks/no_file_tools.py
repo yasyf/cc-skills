@@ -6,9 +6,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, state
+from drive.shell import runnable
 
 MEMORY_FILE = re.compile(r"\.claude/projects/\S*/memory/")
-WHOLE_OUTPUT = re.compile(r"\bcat\s+[^|;&]*(?:/tool-results/\S*|\.output)\s*(?:$|[;&])", re.MULTILINE)
+REST_OF_BRACE_GROUP = r"(?:[^{}]|\$\{[^{}]*\})*(?<![^\s;&])\}"
+REST_OF_SUBSHELL = r"(?:[^()]|\$\([^()]*\))*(?<!\\)\)"
+INTO_FILE = r"\s*>>?\s*(?!&|/dev/std)\S"
+WHOLE_OUTPUT = re.compile(
+    rf"\bcat\s+[^|;&]*(?:/tool-results/\S*|\.output)\s*(?:$|[;&])(?!(?:{REST_OF_BRACE_GROUP}|{REST_OF_SUBSHELL}){INTO_FILE})", re.MULTILINE
+)
 
 
 def deny_reason(payload: dict) -> str | None:
@@ -40,7 +46,7 @@ def bash_reason(role: str, command: str) -> str | None:
             " where every session and job finds them: a lesson is a cc-notes note (`ccn note add`) or a defect record,"
             " which reaches the meta session."
         )
-    if WHOLE_OUTPUT.search(command):
+    if WHOLE_OUTPUT.search(runnable(command)):
         return (
             f"refused: the {role} prints no whole saved tool result or background output, since all of it lands in this"
             " session's context. Read a bounded slice such as `tail -c 2000 <file>`."
