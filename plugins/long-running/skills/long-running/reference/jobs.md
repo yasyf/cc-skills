@@ -204,7 +204,7 @@ lane on this Mac.
 `drive job ask <j> <file>`, each refusing it as it refuses yours, then ends its turn through Orca
 mail: a `worker_done` carrying the report it kept, or an `ASK <path> [<path>…]` question naming each
 block `drive job ask` kept. Each is a `JOB <j> <o> <line>` event, as a job's own return is: the report's
-result line the moment the watch sends the lane its `drive job report` answer, a `PUSHED` aside,
+result line once its reader has sent the lane its `drive job report` answer, a `PUSHED` aside,
 which waits on its checks, so the `worker_done` after it is no second event, and `ASK <path>` when
 that question comes. A report `drive job report` never took, such as one
 from a lane launched before its Sprite had `drive`, the watch takes itself, setting the job's state
@@ -236,12 +236,13 @@ lane reads those, and Slack, through this Mac with a blocking question.
   refuses there.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
   which it starts as a process of its own, runs `cci`, `ccn` or the drive's own cc-slack launcher in
-  the directory the coordinator started the drive from, or reads the drive files, and the watch
-  replies with the output, a command's cut to 12,000 characters but for a `cc-slack thread` or
-  `history` read, which goes whole, once that reader ends, so a read that runs for minutes holds up no pass. The
-  reader keeps first the answer its own end leaves, then the one it finishes with, under its
-  question's message id, so a refused reply sends the same answer again and a read stopped mid-run
-  is answered as stopped, never run twice. A read that fails, such as a command off that list or a tool that exits
+  the directory the coordinator started the drive from, or reads the drive files, and replies
+  with the output itself the moment it has it, a command's cut to 12,000 characters but for a
+  `cc-slack thread` or `history` read, which goes whole, so neither a read that runs for minutes,
+  the watch's read of every live lane's mail nor an install that ends the watch's pass holds up an
+  answer. The reader keeps first the answer its own end leaves, then the one it finishes with,
+  under its question's message id, so the watch sends the same answer again when Orca refused the
+  reader's reply, and a read stopped mid-run is answered as stopped, never run twice. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer, its first line, whose record carries the whole question as its body, which cci's read

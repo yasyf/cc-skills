@@ -804,7 +804,7 @@ def merge_lane_prs(watcher: Watcher, job_ids: set[str]) -> list[str]:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes cut, as reply_read sends it."""
+    """Start `drive job read` as its own process on each `READ`, `LOG` or `DRIVE` question a live lane queued with neither an answer nor a reader still running, since a Sprite holds no copy of the drive's records; the reader sends the lane its answer itself the moment it has one, so neither a drive command that runs for minutes nor the mail sweep of every live lane nor an install that ends this pass holds it up. Then hand on the lines each answer that went owes the coordinator, and send again each kept answer whose reply Orca refused, its failures said from the third in a row: one the read cannot answer gets why as its answer and a `JOB` line saying so, and a lane's `drive job report` that took its return wakes the coordinator with its `JOB` line, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. The watch acts on an answer, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue once its answer went, as send_read sends it."""
     running, data = ended_reads(watcher.name, data)
     for job_id, job in live_lanes(watcher, data).items():
         for message_id in job.get("reads", {}):
@@ -818,16 +818,13 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
         for message_id, question in job.get("reads", {}).items() if heard_job(watcher, data, job) else ():
             if (job_id, message_id) in running or not (kept := job.get("read_answers", {}).get(message_id)):
                 continue
-            said, why = kept
+            said, why, *went = kept
             source = f"the answer to {job_id}'s"
             try:
-                lines += reply_read(watcher.name, job_id, job, message_id, question, said)
+                lines += went[0] if went else send_read(watcher.name, job_id, job, message_id, question, said, why)
             except orca.OrcaError as error:
-                if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
-                    lines += read_failed(watcher, source, error, moment)
-                    continue
-            else:
-                lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
+                lines += read_failed(watcher, source, error, moment)
+                continue
             if said.startswith(f"{reads.DRIVE_EXIT} 0\n") and job["said"] and not state.PUSHED_LINE.match(job["said"]) and kept_return(watcher.name, job_id, json.loads(question.partition("\n")[2] or "{}").get("stdin") or ""):
                 lines.append(f"JOB {job_id} {job['order']} {job['said']}")
             watcher.failures.pop(source, None)
@@ -835,6 +832,17 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                 for held in ("reads", "read_answers", "readers"):
                     fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
     return lines
+
+
+def send_read(name: str, job_id: str, job: dict, message_id: str, question: str, said: str, why: str | None) -> list[str]:
+    """Send a lane's read its kept answer, as reply_read sends it, and the lines that owes the coordinator: why a read that failed is no answer, and none once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran. OrcaError for any other refusal, which only delays it."""
+    try:
+        lines = reply_read(name, job_id, job, message_id, question, said)
+    except orca.OrcaError as error:
+        if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
+            raise
+        return []
+    return [*lines, f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else lines
 
 
 def reply_read(name: str, job_id: str, job: dict, message_id: str, question: str, said: str) -> list[str]:
@@ -867,20 +875,23 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> int:
     return state.detach(name, ["job", "read", job_id, message_id], READS_LOG)
 
 
-def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
-    """Run a lane's queued read here and keep its answer, and why it is no answer when it failed, under its message id, for the watch to send. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again."""
+def answer_read(name: str, job_id: str, message_id: str) -> tuple[str, str | None]:
+    """Run a lane's queued read here, send the lane its answer at once, and keep that answer, why it is no answer when it failed, and once it went the lines it owes the coordinator, under its message id, for the watch to hand on, or to send again when Orca refused it. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; that answer stands until the reply was tried, so no watch sends one while this reader still may."""
     data = state.load(name)
     question = data["jobs"][job_id]["reads"][message_id]
     keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF])
     try:
-        kept = [orca.sprite_answer(reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id), data["jobs"][job_id], message_id), None]
+        said, why = orca.sprite_answer(reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id), data["jobs"][job_id], message_id), None
     except reads.ReadError as error:
-        kept = [f"{question}: {error}"] * 2
+        said = why = f"{question}: {error}"
+    kept = [said, why]
+    with contextlib.suppress(orca.OrcaError):
+        kept.append(send_read(name, job_id, state.load(name)["jobs"][job_id], message_id, question, said, why))
     keep_answer(name, job_id, message_id, kept)
-    return kept
+    return said, why
 
 
-def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
+def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | list[str] | None]) -> None:
     with state.edit(name) as data:
         data["jobs"][job_id].setdefault("read_answers", {})[message_id] = kept
 

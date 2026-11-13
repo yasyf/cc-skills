@@ -3006,12 +3006,12 @@ def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: s
     assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
 
 
-def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_from_the_third_refusal(
+def test_a_read_answer_orca_refuses_its_reader_is_sent_again_by_the_watch_until_it_goes_through_and_said_from_the_watchs_third_refusal(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="msg_read")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
-    replies, refusals = [], iter(range(3))
+    replies, refusals = [], iter(range(4))
 
     def fenced_three_times(*args: str) -> dict:
         if args[0] == "reply" and next(refusals, None) is not None:
@@ -3206,6 +3206,30 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_a
     assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_drive"], {}, {}, {})
 
 
+def test_a_reader_sends_its_lane_the_answer_the_moment_it_has_it_and_the_watch_only_hands_on_its_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    question = "READ cci show 2065"
+    deliver(monkeypatch, [message("question", question, id="msg_read")])
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
+
+    def refuse(question: str, root: Path, drive: str, job_id: str) -> str:
+        raise reads.ReadError("cci show 2065 exited 1: no record 2065")
+
+    monkeypatch.setattr(reads, "answer", refuse)
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert staged(watch.lane_lines, watching, T0) == []
+    why = f"{question}: cci show 2065 exited 1: no record 2065"
+    owed = f"JOB j1 o1 READ unanswered, its lane was told why: {why}"
+    assert watch.answer_read(remote, "j1", "msg_read") == (why, why)
+    assert replies == [("run-use", "--id", RUN), ("reply", "--id", "msg_read", "--run", RUN, "--body", why), ("check", "--run", RUN)]
+    assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"msg_read": [why, why, [owed]]}
+    assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=5)) == [owed]
+    assert len([args for args in replies if args[0] == "reply"]) == 1
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["reads"], job["read_answers"], job["readers"]) == ({}, {}, {})
+
+
 @pytest.mark.parametrize("cut_off_kept", [True, False])
 def test_a_reader_that_finishes_as_the_watch_checks_it_starts_no_second_reader_and_its_final_answer_goes(
     cut_off_kept: bool, remote: str, monkeypatch: pytest.MonkeyPatch
@@ -3243,7 +3267,7 @@ def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_r
     deliver(monkeypatch, [message("question", BREAK_GLASS_READ, id="msg_glass")])
     ran = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: ran.append(question) or "DROP TABLE")
-    replies, refusals = [], iter(range(2))
+    replies, refusals = [], iter(range(3))
 
     def refused_twice(*args: str) -> dict:
         if args[0] == "reply" and next(refusals, None) is not None:

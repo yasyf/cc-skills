@@ -2454,7 +2454,7 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
 
 
 def job_read(args: argparse.Namespace) -> int:
-    """Answer one question a remote lane queued, as the watch's reader."""
+    """Answer one question a remote lane queued and send the lane that answer, as the watch's reader."""
     name = state.resolve(args.drive)
     said, why = watch.answer_read(name, args.id, args.message)
     return emit(args, why or said, {"id": args.id, "message": args.message, "answer": said, "why": why})
@@ -4387,7 +4387,7 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "read",
         parents=both,
-        help="what the watch starts on a remote lane's READ, LOG or DRIVE question: answer it here, keeping first the answer its own end leaves so it never runs twice, then the one the watch sends",
+        help="what the watch starts on a remote lane's READ, LOG or DRIVE question: answer it here, keeping first the answer its own end leaves so it never runs twice, then send the lane the one it finishes with, which the watch sends again when Orca refused it",
     )
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")
