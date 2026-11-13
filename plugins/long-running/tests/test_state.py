@@ -624,6 +624,7 @@ def test_a_new_pr_waits_on_his_tap() -> None:
 
 def kept_prs() -> dict:
     data = state.new_drive("demo", "coordinator", None, "/work", None)
+    data["orders"] = {order_id: state.new_order("fix it", "terminal", None, {}, state.stamp(REFERENCE)) for order_id in ("o226", "o359")}
     for number, order_id in ((4289, "o226"), (4279, "o226"), (4284, "o226"), (4302, "o359")):
         key = f"{MONOREPO}#{number}"
         data["prs"][key] = state.new_pr(state.pr_url(key), "j622", order_id) | {"head": "abc"}

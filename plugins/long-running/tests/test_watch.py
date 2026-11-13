@@ -3458,6 +3458,7 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question("/drive/asks/j1-7.md", "Pick demo:j1-7-a?", state.stamp(T0), card=f"{CARD}?thread_ts=1.2") | {"waits": "demo:j1-7-a"})
         data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {"demo:j1-7-a": None}, "jobs": {}}
     watching = watcher(demo)
 

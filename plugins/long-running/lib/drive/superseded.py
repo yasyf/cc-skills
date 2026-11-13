@@ -19,8 +19,8 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
     for job_id, job in data["jobs"].items():
         for question in view.open_questions(job):
             if drawn := question["card"]:
-                card = shown.get(view.message_key(drawn)) or {"question": question["title"], "options": []}
-                asked[question["waits"] or view.message_key(drawn)] = {
+                card = shown.get(view.message_key(drawn)) or {"question": question["title"], "options": [], "card": {}}
+                asked[question["waits"] or card["card"].get("waits") or view.message_key(drawn)] = {
                     "kind": "question",
                     "title": question["title"] or card["question"],
                     "options": card["options"],

@@ -249,7 +249,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
     assert set(answers) == {demo}
 
 
-def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option_and_history_keeps_a_question_answered(
+def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option_which_records_it_in_history_not_the_page(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
@@ -257,7 +257,6 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"], question: ["Raise it", "Shard it"]}
     board.revisions = {card: ("Fix: approve web search?", []), question: ("Raise the limit?", [])}
-    board.questions = {question}
     asked = []
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label, via)) or {"answered": True, "label": label})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
@@ -272,7 +271,7 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     assert gone == (409, {"error": dashboard.GONE})
     assert (taken, picked) == ((200, {"answered": True, "label": "Approve"}), (200, {"answered": True, "label": "Shard it"}))
     assert asked == [(card, "Approve", f"http://box:{port}/"), (question, "Shard it", f"http://box:{port}/")]
-    assert [(event["kind"], event["url"], event["label"], event["question"]) for event, _ in state.read_events("demo")] == [("answered", question, "Shard it", "Raise the limit?")]
+    assert list(state.read_events("demo")) == []
 
 
 def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_the_undo_and_one_already_sent_reopens_its_card_through_cc_slack(
@@ -283,7 +282,6 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_th
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"]}
     board.revisions = {card: ("Fix: approve web search?", [])}
-    board.questions = {card}
     asked, reopened = [], []
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label)) or {"answered": True, "label": label, "undo_until": "2026-11-11T00:10:00Z"})
     monkeypatch.setattr(dashboard, "cc_slack", lambda *args: reopened.append(args) or {})
@@ -310,10 +308,7 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_th
     assert late == (200, {"undone": True, "restored": True})
     assert asked == [(card, "Hold")]
     assert reopened == [("card-reopen", "--card", card)]
-    assert [(event["kind"], event["label"], event.get("undo_until")) for event, _ in state.read_events("demo")] == [
-        ("undone", "Approve", None),
-        ("answered", "Hold", "2026-11-11T00:10:00Z"),
-    ]
+    assert [(event["kind"], event["label"]) for event, _ in state.read_events("demo")] == [("undone", "Approve")]
 
 
 def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2357,7 +2352,7 @@ done({ sent, restored, history: { ...last(), hash: location.hash } });
         "history": {"about": "Shard it · Shard it?", "said": "Restored. This is being asked again.", "acts": ["Open it", "×"], "hash": "#/history"},
     }
     assert reopened == [QUESTION["answer"], second]
-    assert [(event["kind"], event["undo_until"]) for event, _ in state.read_events("demo")] == [("answered", "2099-01-01T08:00:00Z")]
+    assert list(state.read_events("demo")) == []
 
 
 VISITS = ["#/queue/all", "#/now", "#/now/Platform/SandSQL/o1", "#/feature/o1", "#/work", "#/work/Platform/SandSQL", "#/work/Platform/SandSQL/j1", "#/history", "#/history/2026-11-09"]
