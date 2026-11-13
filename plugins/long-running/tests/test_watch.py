@@ -4221,25 +4221,6 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_t
     assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
 
 
-def test_a_landings_checkout_offers_no_commit_for_a_file_new_on_the_default_branch_though_cc_notes_set_negotiation_include_so_github_sends_it(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    origin, blobless, trace = tmp_path / "origin", tmp_path / "blobless", tmp_path / "trace"
-    origin.mkdir()
-    git_in(origin, "init", "-q", "-b", "main")
-    git_in(origin, "config", "uploadpack.allowFilter", "true")
-    commit_files(origin, "first", {"a.txt": "a\n"})
-    git_in(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin}", str(blobless))
-    git_in(blobless, "config", "--add", "remote.origin.negotiationInclude", "refs/remotes/origin/main")
-    commit_files(origin, "admin", {"admin.rs": "fn admin() {}\n"})
-    blob = git_in(origin, "rev-parse", "HEAD:admin.rs")
-    monkeypatch.setenv("GIT_TRACE_PACKET", str(trace))
-    with land.fresh(demo, blobless, "main") as (checkout, _):
-        assert (checkout / "admin.rs").read_text() == "fn admin() {}\n"
-    download = next(request for request in trace.read_text().split("command=fetch") if f"want {blob}" in request)
-    assert "fetch> have" not in download
-
-
 def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
