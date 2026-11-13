@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from drive import land, state, view
+from drive import github, land, state, view
 
 NOBODY = "nobody"
 WATCH = "the watch"
@@ -73,6 +73,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
             return blocked(data, failing, waits)
+        if owners := inherited(data, key, pr):
+            return Stage("blocked", WAITED, f"{failing}, each a test main fails since {', '.join(view.pr_link(data['prs'][owner]) for owner in owners)} broke it, whose builder fixes it forward")
         return Stage("red", BUILDER, failing)
     if holds := held(data, pr, cards):
         return Stage("held", HIM, holds)
@@ -196,6 +198,17 @@ def answered(data: dict, key: str, failing: str) -> list[str]:
         return []
     waits = job["waited"]["waits"]
     return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
+
+
+def inherited(data: dict, key: str, pr: dict) -> list[str]:
+    """The merged PRs owning the tests a red yasyf/* PR fails at its head, when each is a test its repository's main fails since one of them broke it and none of them is work of the job answering for this PR: its red is main's, so it waits on their builders' fixes and wakes nobody."""
+    owned = data["mains"].get(github.repo_of(key), {})
+    tests = pr["failed_tests"]
+    if pr["checks"] != "fail" or not tests or tests["head"] != pr["head"] or not tests["tests"] or not set(tests["tests"]) <= owned.keys():
+        return []
+    owners = sorted({owned[test]["owner"] for test in tests["tests"]})
+    jobs = {pr["job"], owner_job(data, key)} - {None}
+    return [] if any({data["prs"][owner]["job"], owner_job(data, owner)} & jobs for owner in owners) else owners
 
 
 def blocked(data: dict, failing: str, waits: list[str]) -> Stage:

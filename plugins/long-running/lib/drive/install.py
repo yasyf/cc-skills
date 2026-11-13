@@ -10,11 +10,13 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
+from functools import cache
 from pathlib import Path, PurePosixPath
 
 from drive import github, state
 
 POLL_SECONDS = 20
+FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
@@ -686,6 +688,38 @@ def ci_verdict(repo: str, sha: str) -> tuple[bool, list[str]]:
     lines += [f"{names[workflow]}: no run since {sha[:12]} that was not cancelled" for workflow in names.keys() - firsts.keys()]
     passed = bool(triggered) and names.keys() == firsts.keys() and all(run["status"] == "completed" and (run["conclusion"] or "").upper() in github.PASSED for run in firsts.values())
     return passed, lines or [f"no workflow ran on {sha[:12]} on {branch}"]
+
+
+def head_failures(repo: str, head: str) -> dict[str, dict]:
+    """Each test the newest pull request run of each workflow on a PR's head failed, with that run's link and its workflow's id."""
+    jq = ".workflow_runs[] | {id, workflow_id, conclusion, html_url}"
+    runs = [json.loads(line) for line in github.read(f"{repo}'s runs on {head[:12]}", ["gh", "api", f"repos/{repo}/actions/runs?head_sha={head}&event=pull_request&per_page=100", "--jq", jq]).splitlines()]
+    newest = {run["workflow_id"]: run for run in sorted(runs, key=lambda run: run["id"])}
+    return {test: {"run": run["html_url"], "workflow": run["workflow_id"]} for run in newest.values() if run["conclusion"] == "failure" for test in run_failures(repo, run["id"])}
+
+
+def main_failures(repo: str, workflow: int, created: str) -> list[str] | None:
+    """The tests failed by the newest completed run not cancelled of a workflow on repo's default branch among those created in a GitHub date range, such as <2026-11-13T13:05:55Z: none when it passed, and None when no such run finished or its failure names no test, as a timeout's does, so it says nothing of any test."""
+    jq = '[.workflow_runs[] | select(.conclusion != "cancelled") | {id, conclusion}] | first'
+    query = f"branch={github.default_branch(repo)}&status=completed&created={created}&per_page=100"
+    run = json.loads(github.read(f"{repo}'s runs of workflow {workflow} created {created}", ["gh", "api", f"repos/{repo}/actions/workflows/{workflow}/runs?{query}", "--jq", jq]))
+    if run is None:
+        return None
+    if run["conclusion"].upper() in github.PASSED:
+        return []
+    return run_failures(repo, run["id"]) or None
+
+
+@cache
+def run_failures(repo: str, run: int) -> list[str]:
+    """Each test a completed workflow run failed, as pytest's short test summary names it in the log of each of its jobs that failed; read once a process, since a finished run never changes."""
+    jobs = github.read(f"{repo}'s run {run} jobs", ["gh", "api", f"repos/{repo}/actions/runs/{run}/jobs?filter=latest&per_page=100", "--jq", '.jobs[] | select(.conclusion == "failure") | .id']).split()
+    return sorted({found["test"] for job in jobs for found in FAILED_TEST.finditer(github.read(f"{repo}'s job {job} log", ["gh", "api", f"repos/{repo}/actions/jobs/{job}/logs"]))})
+
+
+def merged_at(repo: str, sha: str) -> str:
+    """When a merge commit landed, as its committer date reads, which GitHub sets as it merges."""
+    return github.read(f"{repo}'s commit {sha[:12]}", ["gh", "api", f"repos/{repo}/commits/{sha}", "--jq", ".commit.committer.date"], max_age="1h").strip()
 
 
 def merges_of(data: dict, job_id: str) -> dict[str, str]:

@@ -435,6 +435,7 @@ def new_drive(
         "stand_ins": {},
         "held": {},
         "carried": {},
+        "mains": {},
         "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
@@ -657,6 +658,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
         pr.setdefault("undrawn", None)
+        pr.setdefault("failed_tests", None)
+        pr.setdefault("graded", pr["state"] == "merged")
         if stamp := pr["checked"]:
             stamp.pop("patch", None)
             stamp.setdefault("lines", {})
@@ -679,6 +682,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("carried", {})
+    data.setdefault("mains", {})
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
@@ -2275,6 +2279,11 @@ def merges_untapped(key: str) -> bool:
     return key.split("/")[0] == NO_TAP_OWNER
 
 
+def grading(key: str, pr: dict) -> bool:
+    """Whether a merged PR owes the watch the end of its own CI run: a yasyf/* one, which merges without waiting on CI, whose failing tests the watch has not read since."""
+    return pr["state"] == "merged" and merges_untapped(key) and not pr["graded"]
+
+
 def guarded(key: str) -> bool:
     """Whether only his tap or an exempt class lands a PR of this repository, a Forge-AI one, whoever opened it."""
     return key.split("/")[0].lower() == GUARDED_OWNER
@@ -2467,6 +2476,8 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "author": None,
         "checked": None,
         "undrawn": None,
+        "failed_tests": None,
+        "graded": False,
         "parts": [],
         "lead": None,
         "updated": stamp(),
