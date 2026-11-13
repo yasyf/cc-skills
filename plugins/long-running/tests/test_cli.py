@@ -1047,38 +1047,6 @@ def test_incident_freeze_freezes_the_service_for_twelve_hours_and_notes_the_free
     assert said.endswith("the job that merges the root fix lifts it with tools/ci release unfreeze fvr7477syf before the fix's build starts")
 
 
-def handed(name: str, line: str) -> dict:
-    out = io.StringIO()
-    card.main(io.StringIO(json.dumps({"release": {"name": name, "line": line, "link": f"https://x.slack.com/archives/C1/{name}"}})), out)
-    return json.loads(out.getvalue())
-
-
-def test_a_named_release_failing_a_step_reopens_its_incidents_stop_once_with_a_job_or_the_running_stop_job(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "SandSQL release 60 failed on plat", "--release", *FILED)
-    run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
-    assert cli.main(["incident", "release", "o1", "release 60"]) == 2
-    assert "release 60: refused, name the release as its post in the releases channel does, such as stark-maclean" in capsys.readouterr().err
-    assert run("incident", "release", "o1", "sanguine-neruda") == (0, "o1: sanguine-neruda named; the turn it fails a step, o1's stop reopens")
-    run("incident", "release", "o2", "stark-maclean")
-    assert handed("sanguine-neruda", "sanguine-neruda is running · sandsql") == {"reopened": []}
-    assert handed("quiet-otter", "quiet-otter failed · sandsql") == {"reopened": []}
-    assert handed("sanguine-neruda", "sanguine-neruda is running · sandsql · sandsql on plat failed") == {"reopened": ["o1"]}
-    assert handed("sanguine-neruda", "sanguine-neruda failed · sandsql") == {"reopened": []}
-    assert handed("stark-maclean", "stark-maclean partly released · sandsql") == {"reopened": ["o2"]}
-    data = state.load("demo")
-    assert (list(data["orders"]["o1"]["parts"]), data["orders"]["o1"]["jobs"], data["jobs"]["j6"]["parts"]) == (
-        ["fix", "first check", "stop"],
-        ["j1", "j2", "j6"],
-        ["stop"],
-    )
-    assert data["orders"]["o2"]["jobs"] == ["j3", "j4", "j5"]
-    stops = [(event["order"], event["release"], event.get("job"), event.get("resume")) for event, _ in state.read_events("demo") if event["kind"] == "stop"]
-    assert stops == [("o1", "sanguine-neruda", "j6", None), ("o2", "stark-maclean", None, "j4")]
-
-
 def test_no_stop_ends_the_last_running_job_on_an_open_incidents_fix(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -605,7 +605,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
-        order.setdefault("releases", {})
+        order.pop("releases", None)
         order.pop("shipped", None)
         order.setdefault("fixed", None)
         order.setdefault("proof", None)
@@ -1314,7 +1314,6 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "kept": None,
         "withdrawn": None,
         "jobs": [],
-        "releases": {},
         "fixed": None,
         "alerts": [],
         "recovered": None,
