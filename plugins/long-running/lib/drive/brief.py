@@ -1,8 +1,10 @@
+import functools
 import os
 import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlparse
 
 from drive import limits, settled, state
 from drive.render import cut
@@ -29,6 +31,12 @@ NATIVE = re.compile(r"^NATIVE:[ \t]*(.*)$", re.MULTILINE)
 PROOF = re.compile(r"https?://\S+|(?<![\w.])/[^\s,;)]+")
 SEEN_PROOF = re.compile(r"slack\.com/archives/|\.(?:mov|mp4|webm|gif|png|jpe?g)$", re.IGNORECASE)
 SEEN = "a picture or recording of it, or the live post's link its proof file reads back"
+GITHUB_PAGES = (
+    (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)"), "repos/{0}/pulls/{1}"),
+    (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/commit/([0-9a-f]{7,40})"), "repos/{0}/commits/{1}"),
+    (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/actions/runs/(\d+)"), "repos/{0}/actions/runs/{1}"),
+    (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/releases/tag/([^/?#\s]+)"), "repos/{0}/releases/tags/{1}"),
+)
 NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
 STORIES_RULING = (
     '"you\'re supposed to proactively view and click through every user story and have strict acceptance critera for yourself and'
@@ -624,13 +632,44 @@ def proofs(text: str) -> list[str]:
 
 
 def held(proof: str) -> bool:
-    """Whether a proof is a link, or the path of a folder or of a file holding something, since an empty file proves nothing."""
+    """Whether a proof is a link that opens, as unopened reads it, or the path of a folder or of a file holding something, since an empty file proves nothing."""
     path = Path(proof).expanduser()
-    return proof.startswith("http") or path.is_dir() or path.is_file() and path.stat().st_size > 0
+    return unopened(proof) is None if proof.startswith("http") else path.is_dir() or path.is_file() and path.stat().st_size > 0
+
+
+@functools.cache
+def unopened(link: str) -> str | None:
+    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release that gh api returns, or a Buildkite build that bk build view returns; a link on any other host has no reader, so it does not open."""
+    from drive import github, slack
+
+    host = urlparse(link).hostname or ""
+    try:
+        if host.endswith("slack.com"):
+            if host != (team := slack.workspace()):
+                return f"it is on {host}, not his Slack workspace {team}"
+            slack.message(link)
+        elif host == "github.com":
+            if not (api := next((route.format(*found.groups()) for pattern, route in GITHUB_PAGES if (found := pattern.match(link))), None)):
+                return "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
+            github.read(link, ["gh", "api", api, "--silent"])
+        elif found := github.BUILD.match(link):
+            github.run(["bk", "build", "view", found["number"], "-p", found["pipeline"], "-o", "json"])
+        else:
+            return f"the drive reads no {host or 'such'} link: a proof links a Slack post, a GitHub pull request, commit, Actions run or release, or a Buildkite build, or names the saved file of its check"
+    except (slack.SlackError, github.GithubError) as error:
+        return str(error)
+    return None
+
+
+def dead(named: list[str]) -> list[str]:
+    """Each link among the proofs that does not open, with why, as unopened reads it."""
+    return [f"{link} does not open: {why}" for link in dict.fromkeys(named) if link.startswith("http") and (why := unopened(link))]
 
 
 def unproven(text: str, job_id: str, job: dict) -> str | None:
-    """Why a builder's or codex job's DONE may not be kept: its CHECK: line names no link and no file that exists and is not empty, as held reads it, or, for what he sees, by its NATIVE: line or its brief's Native, falls short of story_gap."""
+    """Why a builder's or codex job's DONE may not be kept: a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees, by its NATIVE: line or its brief's Native, it falls short of story_gap."""
+    if shut := dead(proofs("\n".join([text.strip().splitlines()[0], *CHECK.findall(text)]))):
+        return f"a DONE's links each open as he would open them, and {shut[0]}: link the live post, page or run itself, or name the saved file of the check"
     real = [proof for line in CHECK.findall(text) for proof in proofs(line) if held(proof)]
     if not real:
         return (

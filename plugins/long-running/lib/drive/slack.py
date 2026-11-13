@@ -5,6 +5,7 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from drive import state
 from drive.install import config_dir
@@ -39,9 +40,18 @@ def cc_slack(*args: str) -> dict:
 
 
 @functools.cache
+def whoami() -> dict:
+    return cc_slack("whoami")
+
+
 def dm() -> str:
     """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where dm-status draws every card and post to him."""
-    return cc_slack("whoami")["dm_channel_id"]
+    return whoami()["dm_channel_id"]
+
+
+def workspace() -> str:
+    """His Slack workspace's host, from the team_url `cc-slack whoami` names, such as poetic-technology.slack.com."""
+    return urlparse(whoami()["team_url"]).hostname
 
 
 def check_post(text: str, asked: list[str]) -> list[str]:

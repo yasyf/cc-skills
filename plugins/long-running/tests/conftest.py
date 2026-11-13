@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from drive import (
     agents,
+    brief,
     card,
     cli,
     dashboard,
@@ -399,6 +400,14 @@ def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
     """Every drive reads his DM as cc-slack whoami names it, D123, never this Mac's."""
     monkeypatch.setattr(slack, "dm", lambda: "D123")
     return "D123"
+
+
+@pytest.fixture(autouse=True)
+def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Every proof link opens unless a test says why it does not, so no test reads Slack, GitHub or Buildkite for one."""
+    shut: dict[str, str] = {}
+    monkeypatch.setattr(brief, "unopened", shut.get)
+    return shut
 
 
 @pytest.fixture(autouse=True)

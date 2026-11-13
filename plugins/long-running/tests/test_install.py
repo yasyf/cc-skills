@@ -1650,6 +1650,23 @@ def test_a_proof_file_exiting_0_that_prints_nothing_takes_blocked_and_keeps_no_c
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
 
 
+def test_a_proof_file_exiting_0_that_prints_the_demos_placeholder_slack_link_takes_blocked_and_keeps_no_close_report(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], unopened_links: dict[str, str]
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    stand_in = "https://example.slack.com/archives/D0PROOF/p1794600000000100"
+    unopened_links[stand_in] = "it is on example.slack.com, not his Slack workspace acme.slack.com"
+    script.write_text(f"#!/bin/sh\necho 'ask 1 posts one card line {stand_in}'\n")
+    install.prove("demo", "j1", 900)
+    blocked = (
+        f"BLOCKED {URL}: {script} exits 0 but names a link that does not open on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}:"
+        f" {stand_in} does not open: it is on example.slack.com, not his Slack workspace acme.slack.com: a proof file prints the live post"
+        " or picture it read back, never a stand-in"
+    )
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (blocked, None, None)
+
+
 @pytest.mark.parametrize(
     ("change", "refusal"),
     [

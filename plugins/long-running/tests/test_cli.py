@@ -3534,6 +3534,61 @@ def test_a_builders_done_on_his_slack_dm_is_proven_by_the_live_posts_link_its_pr
     assert "the check names a picture or recording of it, or the live post's link its proof file reads back" in asked
 
 
+STAND_IN = "https://example.slack.com/archives/D0PROOF/p1794600000000100"
+OFF_WORKSPACE = "it is on example.slack.com, not his Slack workspace acme.slack.com"
+READ_LINK = brief.unopened.__wrapped__
+
+
+def test_a_proof_naming_the_demos_placeholder_slack_link_is_refused_on_a_done_and_on_order_set_proof_and_one_naming_what_opens_is_kept(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], unopened_links: dict[str, str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "post one card line")
+    run("job", "add", "builder", "--order", "o1", "--goal", "post it")
+    unopened_links[STAND_IN] = OFF_WORKSPACE
+    output = tmp_path / "j1.proof.txt"
+    output.write_text("ok ask 1 posts one card line\n")
+    refused = f"a DONE's links each open as he would open them, and {STAND_IN} does not open: {OFF_WORKSPACE}"
+    for done in (f"DONE one card line\nCHECK: {output} {STAND_IN}\n", f"DONE one card line at {STAND_IN}\nCHECK: {output}\n"):
+        code, said = keep(monkeypatch, capsys, "j1", done)
+        assert (code, refused in said) == (2, True)
+    assert cli.main(["order", "set", "o1", "--proof", f"{output} {STAND_IN}"]) == 2
+    assert f'--proof "{output} {STAND_IN}": refused, a proof\'s links each open as he would open them, and {STAND_IN} does not open: {OFF_WORKSPACE}' in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["proof"] is None
+    assert keep(monkeypatch, capsys, "j1", f"DONE one card line\nCHECK: {output} {PR}\n")[0] == 0
+
+
+def test_a_proof_link_opens_only_as_a_post_in_his_slack_workspace_cc_slack_reads_back_or_a_github_or_buildkite_page_their_cli_returns(
+    monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    ran: list[list[str]] = []
+
+    def answered(cmd: list[str], **_: object) -> str:
+        ran.append(cmd)
+        if cmd[2].endswith("/404"):
+            raise github.GithubError("HTTP 404")
+        return ""
+
+    monkeypatch.setattr(slack, "whoami", lambda: {"team_url": "https://acme.slack.com/", "dm_channel_id": "D123"})
+    monkeypatch.setattr(github, "run", answered)
+    slack_thread.messages.append({"ts": "1794576780.293900", "text": "his card", "from_claude": True})
+    post = "https://acme.slack.com/archives/D123/p1794576780293900"
+    gone = "https://acme.slack.com/archives/D123/p1794600000000100"
+    assert [READ_LINK(link) for link in (post, STAND_IN, gone)] == [None, OFF_WORKSPACE, f"no message 1794600000.000100 in the thread at --url {gone}"]
+    pages = {
+        "https://github.com/yasyf/cc-skills/pull/5075": "repos/yasyf/cc-skills/pulls/5075",
+        "https://github.com/yasyf/cc-skills/commit/b3351b5": "repos/yasyf/cc-skills/commits/b3351b5",
+        "https://github.com/yasyf/cc-skills/actions/runs/12/job/34": "repos/yasyf/cc-skills/actions/runs/12",
+        "https://github.com/yasyf/cc-skills/releases/tag/v1.0.863": "repos/yasyf/cc-skills/releases/tags/v1.0.863",
+    }
+    assert [READ_LINK(link) for link in pages] == [None] * 4
+    assert [cmd[2] for cmd in ran] == list(pages.values())
+    assert READ_LINK("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
+    assert READ_LINK("https://github.com/yasyf/cc-skills/blob/main/README.md") == "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
+    assert READ_LINK("https://buildkite.com/forge/release/builds/14185") is None
+    assert ran[-1] == ["bk", "build", "view", "14185", "-p", "forge/release", "-o", "json"]
+    assert READ_LINK("https://app.datadoghq.com/logs?query=service%3Aapi").startswith("the drive reads no app.datadoghq.com link")
+
+
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
     monkeypatch.setattr("sys.stdin", io.StringIO(text))
     code = cli.main(["job", "report", job_id, "-"])

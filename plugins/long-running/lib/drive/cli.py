@@ -791,8 +791,11 @@ def untold(order_id: str, order: dict) -> str:
 
 
 def check_proof(proof: str) -> None:
-    """Refuse a proof that is a claim: one line naming no link and no file that exists and is not empty, where a check's link, file or pasted output proves it."""
-    if "\n" in proof.strip() or any(map(brief.held, brief.proofs(proof))):
+    """Refuse a proof naming a link that does not open, as brief.unopened reads it, and one that is a claim: one line naming no link and no file that exists and is not empty, where a check's link, file or pasted output proves it."""
+    named = brief.proofs(proof)
+    if shut := brief.dead(named):
+        raise DriveError(f'--proof "{proof}": refused, a proof\'s links each open as he would open them, and {shut[0]}: link the live post, page or run itself, or name the saved file of the check')
+    if "\n" in proof.strip() or any(map(brief.held, named)):
         return
     raise DriveError(
         f'--proof "{proof}": refused, a proof is the check itself, its link, its saved file or its output, never a claim of what it showed:'

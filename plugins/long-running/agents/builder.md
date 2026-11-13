@@ -228,7 +228,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
      with each changed plugin's `bin/` first on `PATH`, printing a line for each check it passed and
      `FAIL <check>: <why>` for each that failed, the line the watch quotes:
-     `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing. When only his next word can
+     `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing, or whose Slack post or
+     picture link does not open, such as a stand-in permalink. When only his next word can
      let it pass, such as a reply of his it reads, it exits nonzero with `WAIT <what he does next>` as
      its last line and no `FAIL` line, which keeps your job waiting and runs the file again once he is
      next heard; a check that needs time after his word waits for it inside the run. It reaches the installed
@@ -488,7 +489,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `PR:` | the PR's link |
 | `SERVES:` | `port of #N`, `flake fix: <the test>`, or the order of his it carries out, quoted from your brief |
 | `CHANGE:` | what changed for him; on a PR reworked to his words, how they are met, which its fresh card shows him |
-| `CHECK:` | the proof: a link, or the absolute path of a file that exists and is not empty |
+| `CHECK:` | the proof: a link that opens, a Slack post in his workspace that cc-slack reads back or a GitHub pull request, commit, Actions run or release or a Buildkite build their CLI returns, or the absolute path of a file that exists and is not empty |
 | `DESIGN:` | on a `READY`, each design decision the PR makes beside his answer that settled it, named by his card's waits id, its permalink, the answer record as `{record:<seq>}` or the cc-notes answer id, or `none`; kept on each PR the first line names, replacing what it cited before, and a return with none leaves it; the watch's check reads each answer it names whole as his words when it judges the change, a card's with the options it offered and his durable answers on its subject, so build a picked option as its own words and description say, and `drive job report` refuses a line naming none of them |
 | `NATIVE:` | what the platform he sees it on already does for this and what the change builds on, with links, or `none: he never sees it` |
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
