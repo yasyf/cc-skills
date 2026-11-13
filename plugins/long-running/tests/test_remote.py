@@ -2141,6 +2141,58 @@ def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_lin
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_4d6bfb09372e", "--run", RUN, "--body", "log")]
 
 
+LONG_READ = 'DRIVE job replies j1\n{"files": {}}'
+LONG_ANSWER = "drive exited 0\n" + 'a "quoted" line\n' * 15_000
+
+
+def sprite_refuses(workspace: str, folder: str, name: str, text: bytes) -> str:
+    raise orca.Unfit(f"writing {folder}/{name} onto {workspace} exited 255: Connection closed")
+
+
+def test_an_answer_past_one_orca_relay_message_keeps_what_fits_over_a_line_naming_the_cut_and_the_question_that_gets_it_whole() -> None:
+    cut = orca.relayable(LONG_ANSWER, LONG_READ)
+    relayed = len(json.dumps({"questionId": "relay_4ee9b39cd0c6", "answerMessageId": "msg_" + "0" * 32, "body": cut}).encode())
+    assert orca.RELAY_BYTES - 2 * orca.RELAY_ROOM < relayed <= orca.RELAY_BYTES
+    head, _, closing = cut.rstrip("\n").rpartition("\n")
+    assert LONG_ANSWER.startswith(head)
+    assert closing == (
+        f"[cut {len(LONG_ANSWER) - len(head):,} of {len(LONG_ANSWER):,} bytes, past the 64 KiB one Orca relay message carries:"
+        " ask `drive job replies j1` again and its whole answer comes as a file on this Sprite]"
+    )
+    assert orca.relayable("drive exited 0\nshort", LONG_READ) == "drive exited 0\nshort"
+
+
+def test_a_read_answer_kept_whole_past_one_orca_relay_message_goes_cut_and_leaves_the_queue(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
+    monkeypatch.setattr(orca, "put_on_sprite", sprite_refuses)
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_long", "--run", RUN, "--body", orca.relayable(LONG_ANSWER, LONG_READ))]
+    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+
+
+def test_a_read_whose_answer_orca_kept_too_big_to_relay_gets_it_cut_by_message_and_says_so_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
+    monkeypatch.setattr(orca, "put_on_sprite", sprite_refuses)
+    calls = []
+    monkeypatch.setattr(orca, "call", answered_elsewhere(calls))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        f"JOB j1 o1 READ answered by message, since Orca kept its {len(LONG_ANSWER):,}-byte answer as its question's and never relayed it: sent to dispatch {DISPATCH}"
+    ]
+    cut = orca.relayable(LONG_ANSWER, LONG_READ)
+    assert [args for args in calls if args[0] in ("reply", "send")] == [
+        ("reply", "--id", "relay_long", "--run", RUN, "--body", cut),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "The answer to your DRIVE job replies j1", "--body", cut),
+    ]
+    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
+
+
 @pytest.mark.parametrize(
     ("question", "sent"),
     [

@@ -62,6 +62,8 @@ CC_REMOTE_TASKS = CC_REMOTE / "orca"
 SPRITE_BRIEFS = ".local/state/long-running/briefs"
 SPRITE_ANSWERS = ".local/state/long-running/answers"
 ANSWER_BYTES = 4096
+RELAY_BYTES = 64 * 1024
+RELAY_ROOM = 4096
 KEPT_ANSWER = "drive answer kept on this Sprite: "
 DRIVE_STATUS = re.compile(r"drive exited \d+\n")
 CHECKOUT_LOCK = ".checkout.lock"
@@ -648,6 +650,24 @@ def sprite_answer(answer: str, job: dict, message_id: str) -> str:
         return answer
     opening = status[0] if (status := DRIVE_STATUS.match(answer)) else ""
     return f"{opening}{KEPT_ANSWER}{path} ({len(text)} bytes, SHA-256 {hashlib.sha256(text).hexdigest()}); read it in full\n"
+
+
+def relayable(answer: str, question: str) -> str:
+    """The answer whole when one Orca relay message carries it, else as much of its head as fits, over a line saying how many bytes it cut and that the same question asked again gets the whole answer as a file on the lane's Sprite, as sprite_answer writes it. Orca refuses a relay message past RELAY_BYTES of JSON, where each quote, backslash or newline escapes to two bytes, and RELAY_ROOM keeps room for the ids, keys and subject it wraps an answer in and for that line."""
+    room = RELAY_BYTES - RELAY_ROOM
+    kept, size = len(answer), relay_bytes(answer)
+    if size <= room:
+        return answer
+    while size > room:
+        kept = kept * room // size
+        size = relay_bytes(answer[:kept])
+    asked = re.sub(r"^DRIVE\b", "drive", question.partition("\n")[0])
+    total = len(answer.encode())
+    return f"{answer[:kept]}\n[cut {total - len(answer[:kept].encode()):,} of {total:,} bytes, past the 64 KiB one Orca relay message carries: ask `{asked}` again and its whole answer comes as a file on this Sprite]\n"
+
+
+def relay_bytes(text: str) -> int:
+    return len(json.dumps(text, ensure_ascii=False).encode())
 
 
 def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
