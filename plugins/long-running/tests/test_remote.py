@@ -2192,21 +2192,50 @@ def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_
     assert state.load(remote)["jobs"]["j1"]["mail_seen"] == second["sequence"]
 
 
-def test_a_reply_during_a_launch_waits_until_its_worker_start_is_done(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    binds = []
-    monkeypatch.setattr(orca, "call", lambda *args: binds.append(args[2]) if args[0] == "run-use" else {})
+class Started:
+    """A worker-start as Popen runs it: exited with its output, or, given running, still running until communicate calls running for its output."""
+
+    def __init__(self, argv: list[str], stdout: str = "{}", returncode: int = 0, running: Callable[[], str] | None = None) -> None:
+        self.args, self.out, self.running = argv, stdout, running
+        self.returncode = None if running else returncode
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def communicate(self) -> tuple[str, str]:
+        if self.running:
+            self.out, self.returncode = self.running(), 0
+        return self.out, ""
+
+
+@pytest.mark.parametrize("given", [(), ("--retry-request", "req_launcher")])
+def test_a_reply_during_a_launch_waits_only_until_orca_takes_its_worker_start_request(remote: str, monkeypatch: pytest.MonkeyPatch, given: tuple[str, ...]) -> None:
+    binds, shown, started = [], [], []
+
+    def orca_call(*args: str) -> dict:
+        if args[0] == "run-use":
+            binds.append(args[2])
+        if args[0] != "request-show":
+            return {}
+        shown.append(args[2])
+        return {"state": "absent" if len(shown) == 1 else "pending"}
+
+    monkeypatch.setattr(orca, "call", orca_call)
     replying = threading.Thread(target=orca.reply, args=(remote, "run_other", "msg_1", "an answer"))
 
-    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+    def ready() -> str:
         replying.start()
-        replying.join(timeout=0.5)
-        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"bound": binds[-1], "reply_waiting": replying.is_alive()}), stderr="")
+        replying.join(timeout=5)
+        return json.dumps({"reply_waiting": replying.is_alive()})
 
-    monkeypatch.setattr(orca.subprocess, "run", worker_start)
-    done = orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN])
+    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: started.append(argv) or Started(argv, running=ready))
+    done = orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN, *given])
     replying.join()
-    assert json.loads(done.stdout) == {"bound": RUN, "reply_waiting": True}
+    [argv] = started
+    assert json.loads(done.stdout) == {"reply_waiting": False}
     assert binds == [RUN, DRIVE_RUN, "run_other", DRIVE_RUN]
+    assert (argv.count("--retry-request"), shown) == (1, [argv[argv.index("--retry-request") + 1]] * 2)
+    assert not given or shown[0] == "req_launcher"
 
 
 def test_every_lane_call_leaves_the_terminal_on_the_drives_own_run_made_once_even_when_orca_refuses_the_call(
@@ -2225,7 +2254,7 @@ def test_every_lane_call_leaves_the_terminal_on_the_drives_own_run_made_once_eve
         return {}
 
     monkeypatch.setattr(orca, "call", orca_call)
-    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, stdout="{}", stderr=""))
+    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: Started(argv))
     orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN])
     with pytest.raises(orca.OrcaError):
         orca.reply(remote, RUN, "msg_1", "an answer")
@@ -2248,11 +2277,11 @@ def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_sa
     path = state.state_path(remote)
     receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
 
-    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+    def worker_start(argv: list[str], **kwargs: object) -> Started:
         path.write_text(json.dumps(json.loads(path.read_text()) | {"saved_by": "9.9.9"}))
-        return subprocess.CompletedProcess(argv, 0, stdout=receipt, stderr="")
+        return Started(argv, stdout=receipt)
 
-    monkeypatch.setattr(orca.subprocess, "run", worker_start)
+    monkeypatch.setattr(orca.subprocess, "Popen", worker_start)
     assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == 0
     assert capsys.readouterr().out == receipt
     assert binds == [RUN, DRIVE_RUN]
@@ -2282,7 +2311,7 @@ def test_bound_exits_75_when_it_refuses_before_a_worker_start_could_start_anythi
     fenced = json.dumps({"ok": False, "error": {"code": orca.FENCED}})
     started = []
     monkeypatch.setattr(orca, "call", orca_call)
-    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: started.append(argv) or subprocess.CompletedProcess(argv, 1, stdout=fenced, stderr=""))
+    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: started.append(argv) or Started(argv, stdout=fenced, returncode=1))
     assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == orca.UNSTARTED
     out, err = capsys.readouterr()
     assert (out, err.startswith(f"drive: {NO_RUN}"), len(started), bound) == ("", True, starts, binds)

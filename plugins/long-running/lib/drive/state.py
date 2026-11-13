@@ -1138,7 +1138,7 @@ def locked(name: str) -> Iterator[None]:
 
 
 def binding(name: str) -> AbstractContextManager[None]:
-    """Hold the coordinator terminal's one Run binding for a bind and the call that needs it: a launch's worker-start, a reply."""
+    """Hold the coordinator terminal's one Run binding for a bind and the call that needs it: a reply, or a launch's worker-start until Orca admits it."""
     return flocked(drive_dir(name) / ".binding.lock")
 
 
