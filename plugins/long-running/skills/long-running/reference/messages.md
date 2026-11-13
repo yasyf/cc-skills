@@ -106,7 +106,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
   from the next line in the order's thread. The watch says `DUE` every 10
   minutes until a drive post is in that thread, and the order cannot close before one is. An open
-  incident keeps no such time: the watch owes its next line five quiet minutes after its last, by
+  incident keeps no such time: the watch owes its next line five quiet minutes after its last once it has news, by
   [Clocks](incidents.md#clocks).
 - The handler records each post on an order through the post itself,
   `say(order=<o>, record=<the report's seq>)`, in whatever thread it goes, which delivers each part
@@ -488,8 +488,8 @@ restating it.
   names the orders with news; the coordinator sends at most one `report` per thread per tick, then
   `drive order set <o> --lined` for each order it covered.
 - An incident is the exception: until its fix is live he hears each step the moment it happens, and
-  until its users are unblocked a line at least every five minutes, which the watch owes after any
-  five quiet minutes and has a handler post. A report on it goes out even when its thread already had one that turn, by
+  until its users are unblocked a line five quiet minutes after the last while a job works on it or
+  something it names moved, which the watch owes and has a handler post. A report on it goes out even when its thread already had one that turn, by
   [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
   neither written nor tapped a card for an hour, since each tap on a card records him heard as a

@@ -163,7 +163,7 @@ SAY = {
             "visuals": {"type": "array", "items": VISUAL},
             "order": {
                 "type": "string",
-                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due, but on an incident, whose next line the watch owes five quiet minutes after this one; it is recorded wherever it goes, and a thread the order holds not yet becomes one of its threads",
+                "description": "The order this post is on, which records it there, a clock time its words promise his next line by, such as \"Next line by 9:45\", becoming the order's due, but on an incident, whose next line the watch owes five quiet minutes after this one once it has news; it is recorded wherever it goes, and a thread the order holds not yet becomes one of its threads",
             },
             "close": {
                 "type": "boolean",

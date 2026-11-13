@@ -896,7 +896,7 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     assert watch.due_lines(watching, T0 + timedelta(minutes=30)) == []
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
     assert [call["topic"] for call, _ in calls] == ["watch-quiet-o1"]
-    assert state.load(demo)["orders"]["o1"]["quiet"] == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": None}
+    assert {key: state.load(demo)["orders"]["o1"]["quiet"][key] for key in ("record", "at", "handler")} == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": None}
     with state.edit(demo) as data:
         data["orders"]["o2"]["last_line"] = state.stamp(T0 + timedelta(minutes=9))
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=13, seconds=59)) == []
@@ -977,9 +977,102 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
     assert f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}" in lines
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
     orders = state.load(demo)["orders"]
-    assert orders["o1"]["quiet"] == orders["o3"]["quiet"] == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}
+    assert [{key: orders[head]["quiet"][key] for key in ("record", "at", "handler")} for head in ("o1", "o3")] == 2 * [{"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}]
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=11, seconds=59)) == []
     assert len(calls) == 2
+
+
+def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns_or_his_card_is_answered_and_none_while_every_job_waits(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = "https://acme.slack.com/archives/D123/p1794494100000100"
+    quiet_incident(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", questions=[state.new_question(None, "Which way should the fix go?", state.stamp(T0), card=card)])
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+
+    def posted(moment: datetime) -> None:
+        with state.edit(demo) as data:
+            data["orders"]["o1"]["last_line"] = state.stamp(moment)
+            data["handlers"].clear()
+        assert watch.quiet_lines(watching, moment) == []
+
+    def moved(count: int) -> list[str]:
+        assert len(calls) == count
+        return [line for line in calls[-2][1].splitlines() if line.startswith("Moved since")]
+
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    assert moved(2) == ["Moved since the thread's last line: nothing. At work: j2."]
+    posted(T0 + timedelta(minutes=8))
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(state="done", said="DONE first check: the newest dev build fails the same way")
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=12, seconds=59)) == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=13)) == []
+    assert moved(4) == ["Moved since the thread's last line: j2. At work: no job."]
+    posted(T0 + timedelta(minutes=14))
+    assert watch.quiet_lines(watching, T0 + timedelta(hours=3)) == []
+    assert len(calls) == 4
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("tap", "the first option", card)
+    assert watch.quiet_lines(watching, T0 + timedelta(hours=3, seconds=5)) == []
+    assert moved(6) == ["Moved since the thread's last line: j1. At work: no job."]
+
+
+O836_FIX = "Forge-AI/monorepo#55152"
+O836_FIRST_LINE = state.parse_time("2026-11-12T20:17:04-08:00")
+O836_LAST_LINE = state.parse_time("2026-11-13T00:28:10-08:00")
+O836_WAIT_GAINED = state.parse_time("2026-11-12T23:24:38-08:00")
+O836_JOBS = (
+    ("j2244", "codex", "done", "NOT READY: codex prepared the fix but would not open a PR (its rules: Codex edits, Claude ships). No PR URL."),
+    ("j2245", "codex", "done", "REPLY_FILE: codex-r-270490969"),
+    ("j2266", "builder", "waiting", f"waits on {O836_FIX}"),
+    ("j2405", "codex", "failed", "BLOCKED ci release plan refuses: platform is neither a target nor a component in release/targets.yaml"),
+    ("j2441", "codex", "done", "NEEDS #55152 is not live; API releases 15158 and 15166 are running."),
+    ("j2566", "builder", "failed", "BLOCKED on the production cloud-agent create proof only: #55152 is already live in api on plat-usw2-prod"),
+    ("j2616", "reader", "done", "DONE NOT-DRIVE-CAUSED: monitor 329874305 alerted 18:03:05 PST"),
+    ("j2742", "reader", "failed", "BLOCKED no cloud agent create since the fix went live, so a succeeded create is not shown"),
+    ("j2763", "codex", "done", "REPLY_FILE: codex-r-567028048"),
+    ("j2776", "builder", "waiting", "How should the release's tenant smoke remove the cloud agent it creates, when archiveAgent keeps every row createAgent wrote?"),
+)
+
+
+def test_replaying_o836_from_its_first_line_after_his_card_owes_one_line_when_j2266_gains_its_release_wait_and_none_of_the_thirty_it_asked_with_nothing_changed(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question = state.new_question(None, O836_JOBS[-1][-1], "2026-11-12T20:04:40-08:00", card="https://acme.slack.com/archives/D123/p1794542897981259")
+    with state.edit(demo) as data:
+        data["orders"]["o836"] = order(
+            text="Release gilded-mahfouz applies api migration 0530_iris_sessions_cloud_agent_rows to production, whose CHECK refuses the iris_sessions row api writes for a cloud agent",
+            incident=True,
+            joins=None,
+            thread=["D123", INCIDENT_THREAD],
+            jobs=[job_id for job_id, *_ in O836_JOBS],
+            created="2026-11-12T13:59:34-08:00",
+            last_line=state.stamp(O836_FIRST_LINE),
+            quiet={"record": "685584", "at": "2026-11-12T20:15:00-08:00", "handler": None},
+        )
+        for job_id, kind, now, said in O836_JOBS:
+            data["jobs"][job_id] = job(order="o836", kind=kind, state=now, said=said, prs=[state.pr_url(O836_FIX)] if job_id == "j2266" else [], questions=[question] if job_id == "j2776" else [])
+        data["prs"][O836_FIX] = state.new_pr(state.pr_url(O836_FIX), "j2266", "o836") | {"state": "merged", "checks": "pass", "review": "approved", "wants_tap": False}
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    lines = []
+    for minute in range(int((O836_LAST_LINE - O836_FIRST_LINE) / timedelta(minutes=1)) + 1):
+        moment = O836_FIRST_LINE + timedelta(minutes=minute)
+        with state.edit(demo) as data:
+            data["jobs"]["j2266"]["waits"] = [f"release:api:{O836_FIX}"] if moment >= O836_WAIT_GAINED else []
+        before = len(calls)
+        assert watch.quiet_lines(watching, moment) == []
+        if len(calls) > before:
+            lines.append(moment)
+            with state.edit(demo) as data:
+                data["orders"]["o836"]["last_line"] = state.stamp(moment)
+                data["handlers"].clear()
+    assert lines == [state.parse_time("2026-11-12T23:25:04-08:00")]
+    [(report, body), _] = calls
+    assert report["topic"] == "watch-quiet-o836"
+    assert "Moved since the thread's last line: j2266. At work: no job." in body.splitlines()
 
 
 def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

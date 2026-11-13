@@ -569,6 +569,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
         order.setdefault("quiet", None)
+        if order["quiet"]:
+            order["quiet"] = {"heard": None, "facts": {}} | order["quiet"]
         order.setdefault("reporter", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
@@ -2059,7 +2061,7 @@ def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
 
 
 def owed(order: dict) -> bool:
-    """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it. An incident owes none, since the watch owes him its line five quiet minutes after its last, whatever that line promised."""
+    """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it. An incident owes none, since the watch owes him its line five quiet minutes after its last once it has news, whatever that line promised."""
     return bool(order["due"]) and not order["incident"] and not order["kept"] and not order["withdrawn"]
 
 
