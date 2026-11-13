@@ -80,8 +80,8 @@ def resumed_builder(payload: dict, data: dict, job_id: str) -> str | None:
         " to a fresh builder, since a resumed one re-reads everything it ever did on every event. Run `drive job add builder`"
         f" for order {job['order']} and its parts, `drive pr add <url> --job <new>` for each PR it takes over, brief it with a"
         f" `Handoff:` line naming the event and {job_id}'s transcript under `Transcripts:`, then"
-        f' `drive job set {job_id} --state stopped --said "handed to <new>"`. His answer to an ASK goes back by SendMessage'
-        " while the job waits."
+        f' `drive job set {job_id} --state stopped --said "handed to <new>"`. His answers need no message: the drive holds each'
+        " on every builder it frees, and the watch carries it to them."
     )
 
 

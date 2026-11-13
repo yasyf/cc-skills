@@ -662,6 +662,24 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
 
 
+def test_a_launch_briefs_a_builder_none_briefed_and_carries_each_answer_it_holds_under_his_answers_since(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    words = 'His answer on card demo:j9-7, verbatim: "Ring"; the card recommended "Knock"'
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "#9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}]
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    launched: list[str] = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j1") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    [brief] = launched
+    assert ("\nServes: his order\n" in brief, f"\nHis answers since:\n- {words}\n" in brief, state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, True, [])
+
+
 def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_launches_it_with_no_hand_brief(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -990,6 +1008,23 @@ def test_the_watch_holds_a_stopped_agents_job_until_the_session_holding_it_has_a
     assert (lane_lines(watching, T0), relaunches, state.load(demo)["jobs"]["j1"].get("deaths", [])) == ([], [], [])
 
 
+def test_a_launch_hands_the_job_of_an_agent_that_returned_holding_his_answer_to_a_lane_whose_brief_carries_it(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, ENDED_TURN, timedelta(minutes=10))
+    words = 'His answer on card demo:j1-7, verbatim: "Ring"'
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(said="WAITING Forge-AI/monorepo#54870", undelivered=[{"seq": "#9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}])
+    assert run("job", "launch", "j1") == (
+        0,
+        "j1 started on Sprite workspace-2 as dispatch dispatch-2, taking over from its agent a1 on this Mac, which takes no message: it returned"
+        ' "WAITING Forge-AI/monorepo#54870", and only its session\'s SendMessage reaches it',
+    )
+    [brief] = launched
+    job = state.load(demo)["jobs"]["j1"]
+    assert (f"His answers since:\n- {words}\n" in brief, job["agent"], job["where"], job["undelivered"]) == (True, None, "remote", [])
+
+
 @pytest.mark.parametrize(("last", "quiet"), [(ENDED_TURN, timedelta(minutes=10)), (CALLED, timedelta(minutes=10))])
 def test_a_job_whose_agent_on_this_mac_works_or_ended_its_own_turn_keeps_its_agent(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], last: dict, quiet: timedelta
@@ -1035,7 +1070,7 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live lane is never relaunched"))
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(ask="msg_q1", state="waiting", undelivered=[{"seq": "#61", "words": "Approve", "at": state.stamp(), "said": None}])
+        data["jobs"]["j1"].update(ask="msg_q1", state="waiting")
     assert run("job", "resume", "j1", "TAP Approve")[0] == 0
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
@@ -1144,8 +1179,9 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
         raise orca.Unstarted(f"no worker started on Sprite pool-two: WORKER_BIND refused before worker-start ran: {NO_RUN}")
 
     monkeypatch.setattr(orca, "launch", bind_refused)
-    assert cli.main(["job", "resume", "j1", "PR #12 merged: prove it live"]) == 2
-    assert NO_RUN in capsys.readouterr().err
+    assert cli.main(["job", "resume", "j1", "PR #12 merged: prove it live"]) == 0
+    held = capsys.readouterr().out
+    assert (held.startswith("j1: held, not sent yet: "), NO_RUN in held) == (True, True)
 
     def started(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.append((brief, brief.read_text(), run_id))
@@ -1595,7 +1631,7 @@ def test_a_lane_orca_could_not_reach_whose_woken_sprite_says_orcas_runtime_liste
     assert (code, out.startswith(f"j1: held, not sent yet: orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")) == (0, True)
     assert (wakes, launches) == ([("--wake", workspace)], [])
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], "deaths" in job, [kept["words"] for kept in state.held(job)]) == (dispatch, False, [watch.UNREACHED])
+    assert (job["dispatch"], "deaths" in job, [kept["words"] for kept in job["undelivered"]]) == (dispatch, False, [watch.UNREACHED])
 
 
 def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") -> list[tuple[str, str | None]]:
@@ -1795,12 +1831,12 @@ def test_a_resume_whose_fresh_sprite_refuses_the_tools_launches_once_more_on_ano
     assert state.load(remote)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
 
 
-def test_a_resume_whose_fresh_sprites_both_refuse_the_tools_exits_2_and_leaves_his_answer_unsent(
+def test_a_resume_whose_fresh_sprites_both_refuse_the_tools_says_his_answer_held_and_leaves_it_unsent(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     launched = answered_dead_lane(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: None, 2)
-    assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 2
-    assert capsys.readouterr().err == f"drive: {UNFIT}\n"
+    assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 0
+    assert capsys.readouterr().out.startswith(f"j1: held, not sent yet: {UNFIT}; the job keeps its text under the Orca request id")
     assert launched == [("demo-j1-2", FRESH_RUN, None), ("demo-j1-2", FRESH_RUN, None)]
     data = state.load(remote)
     assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
@@ -1835,15 +1871,15 @@ def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_st
     assert (job["launching"], job.get("dispatch")) == (None, None)
 
 
-def test_a_resume_whose_fresh_sprite_took_no_tools_exits_2_naming_the_tool_step_and_leaves_his_answer_unsent(
+def test_a_resume_whose_fresh_sprite_took_no_tools_says_his_answer_held_naming_the_tool_step_and_leaves_it_unsent(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     launch = orca.launch
     answered_dead_lane(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: None, 0)
     untooled(monkeypatch, launch)
-    assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 2
+    assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 0
     attempt = state.drive_dir(remote) / "jobs" / "j1-2.worker"
-    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; attempt in {attempt}\n"
+    assert capsys.readouterr().out.startswith(f"j1: held, not sent yet: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; attempt in {attempt}; the job keeps")
     data = state.load(remote)
     assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
 
@@ -2143,7 +2179,7 @@ def orca_refuses(monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: done)
 
 
-def test_a_relaunch_orca_refuses_exits_2_with_the_refusal_verbatim_and_keeps_the_text_held(
+def test_a_relaunch_orca_refuses_says_the_text_held_with_the_refusal_verbatim(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     first = tmp_path / "first.md"
@@ -2154,10 +2190,10 @@ def test_a_relaunch_orca_refuses_exits_2_with_the_refusal_verbatim_and_keeps_the
     orca_refuses(monkeypatch, refusal)
     monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
-    assert cli.main(["job", "resume", "j1", "the review"]) == 2
-    assert capsys.readouterr().err == f"drive: {refusal}\n"
+    assert cli.main(["job", "resume", "j1", "the review"]) == 0
+    assert capsys.readouterr().out.startswith(f"j1: held, not sent yet: {refusal}; ")
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], [kept["words"] for kept in state.held(job)]) == (DISPATCH, ["the review"])
+    assert (job["dispatch"], [kept["words"] for kept in job["undelivered"]]) == (DISPATCH, ["the review"])
 
 
 def test_a_send_orca_refuses_keeps_the_text_held_under_its_request_id(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2165,7 +2201,7 @@ def test_a_send_orca_refuses_keeps_the_text_held_under_its_request_id(run: Run, 
     orca_refuses(monkeypatch, refusal)
     monkeypatch.setattr(orca, "place_tools", lambda workspace: None)
     code, out = run("job", "resume", "j1", "the review")
-    [kept] = state.held(state.load(remote)["jobs"]["j1"])
+    [kept] = state.load(remote)["jobs"]["j1"]["undelivered"]
     assert (code, out, kept["words"]) == (
         0,
         f"j1: held, not sent yet: {refusal}; the job keeps its text under the Orca request id each was held with, the watch sends them"
@@ -2184,7 +2220,7 @@ def test_resume_holds_the_text_and_sends_nothing_while_orca_cannot_tell_whether_
     code, out = run("job", "resume", "j1", "PR checks failed")
     assert (code, sent, out.startswith("j1: held, not sent yet: ")) == (0, [], True)
     job = state.load(remote)["jobs"]["j1"]
-    assert ("deaths" in job, [kept["words"] for kept in state.held(job)]) == (False, ["PR checks failed"])
+    assert ("deaths" in job, [kept["words"] for kept in job["undelivered"]]) == (False, ["PR checks failed"])
 
 
 def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the_lane_alive(
@@ -2193,11 +2229,9 @@ def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the
     sent = []
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead("unverifiable"))
-    with state.edit(remote) as data:
-        data["jobs"]["j1"]["undelivered"] = [{"seq": "#61", "words": "ship it", "at": state.stamp(), "said": None}]
     assert run("job", "resume", "j1", "ship it, he said")[0] == 0
     assert run("job", "resume", "j1", "ship it, he said")[0] == 0
-    [kept] = state.held(state.load(remote)["jobs"]["j1"])
+    [kept] = state.load(remote)["jobs"]["j1"]["undelivered"]
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
     assert run("job", "resume", "j1") == (0, f"j1: sent to dispatch {DISPATCH}")
     assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
@@ -2433,11 +2467,11 @@ def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach
     assert (len(reads), woken) == (4, [(remote, "j1")])
 
 
-def test_a_held_text_no_send_took_is_said_as_the_watchs_to_send(remote: str) -> None:
+def test_a_held_text_no_send_took_is_said_as_the_watchs_to_carry(remote: str) -> None:
     held = {"seq": None, "words": "TAP Approve #12", "at": state.stamp(T0), "said": None, "request": "req-held"}
     assert watch.unreached("j1", held) == (
-        f'the message "TAP Approve #12" a resume held at {render.when(held["at"])} has not reached j1; the watch sends it once Orca reads its lane alive,'
-        " its next worker gets it in its handoff, and drive job resume j1 delivers it now"
+        f'"TAP Approve #12", held at {render.when(held["at"])}, has not reached j1; the watch sends it to a worker that takes messages,'
+        " hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now"
     )
 
 

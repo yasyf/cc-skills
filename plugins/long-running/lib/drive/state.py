@@ -620,6 +620,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         job["carries"] = {order_id: [part.strip() for part in parts] for order_id, parts in job["carries"].items()}
         if job["kind"] == "reader" and job["state"] in FINISHED_JOB_STATES:
             job["undelivered"] = []
+        for kept in job["undelivered"]:
+            kept.setdefault("request", str(uuid.uuid5(uuid.NAMESPACE_OID, f"{job['created']} {kept['seq']} {kept['at']}")))
         if job.get("brief_flags") and "handoff" not in job["brief_flags"] and job["state"] not in FINISHED_JOB_STATES:
             job["brief_flags"]["handoff"] = briefed_handoff(job.get("brief"))
     for order_id, order in data["orders"].items():
@@ -1246,11 +1248,6 @@ def lane_died(job: dict, worker: str, why: str, moment: datetime) -> bool:
     deaths.append({**held, "why": why, "at": stamp(moment)})
     job["updated"] = stamp(moment)
     return True
-
-
-def held(job: dict) -> list[dict]:
-    """The texts drive job resume keeps on the job's undelivered list until Orca takes them, oldest first, each with the Orca request id every try sends it under."""
-    return [kept for kept in job["undelivered"] if kept.get("request")]
 
 
 def lane_death(job: dict) -> dict | None:

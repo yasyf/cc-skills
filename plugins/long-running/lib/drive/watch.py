@@ -92,6 +92,7 @@ class Watcher:
     released: set[str] = field(default_factory=set)
     release_marks: dict[str, str | None] = field(default_factory=dict)
     sending: dict[str, int] = field(default_factory=dict)
+    carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
 
     @property
     def lane(self) -> str:
@@ -309,6 +310,8 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
                 unlaunched = f", not started yet: drive job launch {job_id} starts it" if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch")) else ""
                 unstarted = f"; Read your brief first: {job['brief']}" if job["kind"] != "codex" and job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
+                if job["undelivered"] and carrier(job_id, job, data, watcher.cards):
+                    unlaunched, unstarted = ", and the watch now carries it the texts it holds, his answers among them", ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         redraws = []
         for key, pr in data["prs"].items():
@@ -1232,7 +1235,7 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his kept on a job not resumed since it came, ten minutes after it came and every ten minutes until drive job resume carries it."""
+    """Each text a job holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a launch carries it."""
     if not any(owed_answers(watcher, state.load(watcher.name), moment)):
         return []
     lines = []
@@ -1244,16 +1247,14 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unreached(job_id: str, answer: dict) -> str:
-    if answer.get("request"):
-        return (
-            f'the message "{cut(answer["words"], 80)}" a resume held at {when(answer["at"])} has not reached {job_id}; the watch sends it once Orca reads its lane alive,'
-            f" its next worker gets it in its handoff, and drive job resume {job_id} delivers it now"
-        )
-    return f'his answer {answer["seq"]} "{cut(answer["words"], 80)}" of {when(answer["at"])} has not reached {job_id}; drive job resume {job_id} "<his answer>" carries it'
+    return (
+        f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
+        f" hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume {job_id} delivers it now"
+    )
 
 
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
-    """Each answer of his a live job holds that was last said ten minutes ago or more; a finished job's answer is its ORPHAN's, since no resume carries it."""
+    """Each text a live job holds that was last said ten minutes ago or more; a finished job's is its ORPHAN's, since no resume carries it."""
     return [
         (job_id, answer)
         for job_id, job in data["jobs"].items()
@@ -1703,7 +1704,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lane |= orca.run_of(worker)
             if any(job.get(field) != value for field, value in lane.items()):
                 found[job_id] = lane
-            if state.held(job) and orca.takes_messages(worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
+            if job["undelivered"] and orca.takes_messages(worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
                 watcher.sending[job_id] = send_held(watcher.name, job_id)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
@@ -1846,6 +1847,32 @@ def wake(name: str, job_id: str) -> int:
 def send_held(name: str, job_id: str) -> int:
     """Run `drive job resume` with no text on a job holding texts a resume could not deliver, once Orca reads its worker alive, as its own process, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice. Its output is appended to the drive's relaunches log."""
     return state.detach(name, ["job", "resume", job_id], RELAUNCHES_LOG)
+
+
+def carry_held(watcher: Watcher, moment: datetime) -> None:
+    """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs as its own process, its output in the drive's relaunches log, once for each new text and again every ten minutes while one stays held."""
+    data = state.load(watcher.name)
+    for job_id, job in data["jobs"].items():
+        held = {kept["request"] for kept in job["undelivered"]}
+        if not held or job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
+            continue
+        if (pid := watcher.sending.get(job_id)) and state.alive(pid) or (tried := watcher.carried.get(job_id)) and held <= tried[0] and moment - tried[1] < DUE_EVERY:
+            continue
+        if command := carrier(job_id, job, data, watcher.cards):
+            watcher.sending[job_id] = state.detach(watcher.name, command, RELAUNCHES_LOG)
+            watcher.carried[job_id] = (held, moment)
+
+
+def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
+    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while a wait holds it, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    started = job.get("agent") or job.get("dispatch")
+    if job["state"] == "running" and started or job["prs"] and not started:
+        return None
+    remote = job.get("where") == "remote" and job.get("dispatch")
+    local = not remote and bool(job.get("brief")) and bool(place.mac_step(Path(job["brief"]).read_text()))
+    if any(local or wait != state.SLOT_WAIT for wait in view.holding(data, job["waits"], cards)):
+        return None
+    return ["job", "resume", job_id] if remote else ["job", "launch", job_id, *(["--local"] if local else [])]
 
 
 def end_lane(name: str, job_id: str) -> None:
@@ -2161,7 +2188,7 @@ def changed_since(order: dict, jobs: dict, last: datetime) -> bool:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     lines += read_lines(watcher, state.load(watcher.name), moment)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
@@ -2193,6 +2220,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         release_lanes(watcher, moment)
         lines += pushed_lines(watcher, moment)
         lines += agent_lines(watcher, moment)
+        carry_held(watcher, moment)
         lines += compact_lines(watcher, moment)
         lines += page_lines(watcher, moment)
         lines += down_lines(watcher, moment)
