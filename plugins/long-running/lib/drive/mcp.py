@@ -166,8 +166,7 @@ SAY = {
             "record": {
                 "type": "string",
                 "description": (
-                    "The seq of the report record this post carries. With order, the post delivers each part its part attr names"
-                    " that Jev reads the post's own words as saying is done, its line and dry_run naming each it leaves undelivered,"
+                    "The seq of the report record this post carries. With order, the post delivers each part its part attr names,"
                     " `<o>:<part>` items separated by `;`, on this order and every other order an item names, or every part when its"
                     " close attr names the order; a record naming neither, as one with progress=true, is a progress line"
                     " delivering no part, whatever job it names, and so is a post with no record. The record is the order's holder's: on an"

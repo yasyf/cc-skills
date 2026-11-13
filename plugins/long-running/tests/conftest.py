@@ -580,8 +580,6 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 class Jev:
     asked: list[dict] = field(default_factory=list)
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
-    unsaid: set[str] = field(default_factory=set)
-    owed: dict[str, float] = field(default_factory=dict)
     changes: dict[str, float] = field(default_factory=dict)
     plain: set[str] = field(default_factory=set)
     illustrated: list[str] = field(default_factory=list)
@@ -590,11 +588,6 @@ class Jev:
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
-
-    def carries(self, question: dict) -> dict:
-        part = question["instructions"].split('"')[1]
-        p_yes = self.owed.get(part, 0.95 if part in self.unsaid else 0.05)
-        return {"type": "binary", "p_yes": p_yes, "confidence": round(abs(2 * p_yes - 1), 2)}
 
 
 def label(choice: str, probabilities: dict[str, float]) -> dict:
@@ -623,7 +616,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         if "changes" in request["questions"]:
             read = {"none": 0.9} | judged.changes
             return {"changes": label(max(read, key=read.__getitem__), read)}
-        return {key: judged.carries(question["binary"]) if "binary" in question else judged.answer for key, question in request["questions"].items()}
+        return {key: judged.answer for key in request["questions"]}
 
     monkeypatch.setattr(settled, "jev", answered)
     return judged

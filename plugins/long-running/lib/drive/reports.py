@@ -26,11 +26,6 @@ UNLIVE_PART = (
     'refused: {unlive}; drop "{order}:{part}" from the part attr, adding `--attr progress=true` when the post delivers nothing else,'
     " or close the incident with `--attr close={order}` once the fix runs where it hurt"
 )
-SKIPPED = (
-    "refused: {answered}, and no post delivered {them}, so this post would go out and leave {them} unposted, which the watch raises"
-    " every 30 minutes; carry {them} in this post with `--attr part=\"{items}\"`, or `--attr close=<o>` on the post that finishes an"
-    " order; when a post of the drive already delivered {them}, the session holding the order marks it first with {marks}"
-)
 OFF_THREAD = (
     "refused: this report is about {orders}, and thread {thread} is none of its threads: {threads}, nor one his message started."
     " Name one of those threads, or pass re naming the record of his message in this thread that the report answers, and its post adds this thread to them"
@@ -97,7 +92,6 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield dm_url(drive, record)
     yield misnamed_part(drive, record)
     yield unfinished(drive, record) if posting else None
-    yield skipped(drive, record) if posting else None
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
@@ -171,22 +165,6 @@ def unfinished(drive: dict, record: dict) -> str | None:
         if left and set(left) <= {part for each, part in items if each == on}:
             return LAST_PART.format(parts=", ".join(f'"{part}"' for part in left), noun="part" if len(left) == 1 else "parts", order=on)
     return None
-
-
-def skipped(drive: dict, record: dict) -> str | None:
-    """Why a report to post leaves out a part of an open order it is about that a finished job answered and no post delivered: its post would go out while that answer stays unposted, the gap the watch raises until someone marks the part by hand."""
-    named = attrs(record)
-    about = state.report_order(drive, named)
-    items = state.part_items(named, about)
-    closed = state.closed_orders(named)
-    orders = [order_id for order_id in dict.fromkeys([about, *(on for on, _ in items)]) if order_id in state.open_orders(drive) and order_id not in closed]
-    left = [(order_id, part, jobs) for order_id in orders for part, jobs in state.answered_parts(drive, order_id).items() if (order_id, part) not in items]
-    if not left:
-        return None
-    answered = "; ".join(f'{order_id}\'s "{part}" was answered by {", ".join(jobs)}, which finished' for order_id, part, jobs in left)
-    carried = ";".join(f"{order_id}:{part}" for order_id, part in [*((on, part) for on, part in items if on), *((order_id, part) for order_id, part, _ in left)])
-    marks = ", ".join(f'`drive order posted {order_id} <that post\'s link> --part "{part}"`' for order_id, part, _ in left)
-    return agents.Unjudged(SKIPPED.format(answered=answered, them="it" if len(left) == 1 else "them", items=carried, marks=marks))
 
 
 def off_thread(drive: dict, record: dict) -> str | None:

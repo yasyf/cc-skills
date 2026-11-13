@@ -1682,6 +1682,16 @@ def test_a_codex_relay_that_asked_codex_nothing_is_parked_like_any_agent(demo: s
     )
 
 
+def test_a_codex_job_run_again_after_its_run_was_taken_waits_on_a_new_run_rather_than_retaking_the_old(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    reply = codex_ask.run("completed", "DONE reviewed\n")
+    write_transcript(tmp_path / "config", relayed(reply, "Codex is done."), timedelta(minutes=45))
+    taken = state.stamp(datetime.fromtimestamp(reply.stat().st_mtime).astimezone() + timedelta(seconds=1))
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex", "returned": None}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run completed and its result is not recorded"
+    assert REAL_LOCAL_GAP("j1", job_of | {"returned": taken}, state.load(demo), state.now()) == (
+        'j1\'s agent ended its turn 45 minutes ago on "Codex is done." with no codex-ask run: SendMessage from the session that started it wakes it, and drive job resume j1 <the event> from any other'
+    )
+
 def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its_relay_ended_on(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
 ) -> None:

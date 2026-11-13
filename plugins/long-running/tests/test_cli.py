@@ -36,6 +36,7 @@ from drive import (
     state,
     tools,
     view,
+    watch,
 )
 
 Run = Callable[..., tuple[int, str]]
@@ -4978,99 +4979,55 @@ def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_alre
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == answered
 
 
-def test_the_holder_marks_no_part_by_a_post_whose_words_say_it_is_not_done(
-    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], jev: Jev
+def test_a_readers_posted_return_delivers_its_parts_and_closes_the_answer_order_once_every_part_is_posted(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--thread", "1794200000.000100", "--parts", "cause", "fix")
-    unconfirmed = slack_thread.post(state.now(), from_claude=True, text="Entries past 1024 tokens OOM the worker; the cause is not confirmed and no fix shipped.")
-    jev.unsaid = {"cause"}
-    assert cli.main(["order", "posted", "o1", unconfirmed, "--part", "cause"]) == 2
-    assert (
-        f'--part "cause": refused, Jev reads the words of {unconfirmed} as not saying "cause" is done, so it delivers nothing;'
-        " mark it by the drive's post whose words do"
-    ) in capsys.readouterr().err
-    assert state.load("demo")["orders"]["o1"]["parts"]["cause"]["posted"] is None
-    assert jev.asked[-1]["state"]["post"] == "Entries past 1024 tokens OOM the worker; the cause is not confirmed and no fix shipped."
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history, and can it filter?", "--kind", "answer", "--parts", "the page", "its filters")
+    run("job", "add", "reader", "--order", "o1", "--part", "the page", "--goal", "find the page")
+    run("job", "add", "reader", "--order", "o1", "--part", "its filters", "--goal", "read its filters")
+    page, filters = slack_thread.post(state.now(), from_claude=True), slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"POSTED {page}\n"))
+    run("job", "report", "j1", "-")
+    order = state.load(demo)["orders"]["o1"]
+    assert ({part: held["posted"] for part, held in order["parts"].items()}, order["state"] == "done") == ({"the page": page, "its filters": None}, False)
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"POSTED {filters}\n"))
+    run("job", "report", "j2", "-")
+    order = state.load(demo)["orders"]["o1"]
+    assert ({part: held["posted"] for part, held in order["parts"].items()}, order["state"]) == ({"the page": page, "its filters": filters}, "done")
 
 
-STATUS, CAP = "status of the fixes", "the intern cap is sized to the pod's memory, its own PR"
-FIXES = "whats the status of our fixes, and size the intern cap to the pod's memory as its own PR"
-RETRO = "the self-retro: why the row-id change also changed the ids' printed format"
-STATUS_ANSWER = (
-    "Where each fix stands: the spill-file PR is approved but its test build failed; the child-table PR conflicts with dev and"
-    " lost its approval; the intern cap is being built now as a small PR. None has shipped yet."
-)
-RETRO_ANSWER = (
-    "Retro on the id format: the switch to UUIDv7 row ids also changed how each id prints, from 32 hex characters to the dashed"
-    " form, though nothing asked for it. The lesson: a change keeps each printed form it was not asked to change."
-)
-
-
-@pytest.mark.parametrize(
-    ("words", "parts", "answers", "post", "part", "owed", "delivers"),
-    [
-        pytest.param(FIXES, [STATUS, CAP], [STATUS], STATUS_ANSWER, STATUS, 0.11, True, id="status answer"),
-        pytest.param("do a self-retro on the id format, and the PR judge refuses what was not asked", [RETRO, "the PR judge"], [RETRO], RETRO_ANSWER, RETRO, 0.20, True, id="retro"),
-        pytest.param(FIXES, [STATUS, CAP], [STATUS], "Checking where each fix stands now; I will post it by 1:30 PM.", STATUS, 0.77, False, id="a promise"),
-        pytest.param(FIXES, [STATUS, CAP], [STATUS], STATUS_ANSWER, CAP, 0.88, False, id="being built now"),
-        pytest.param("why does the search worker OOM?", ["cause", "fix"], [], "Entries past 1024 tokens OOM the worker; the cause is not confirmed and no fix shipped.", "cause", 0.89, False, id="no fix shipped"),
-        pytest.param(FIXES, [STATUS, CAP], [STATUS], "The intern cap is live: its PR merged and shipped, sizing the index to an eighth of the pod's memory.", CAP, 0.07, True, id="merged and live"),
-    ],
-)
-def test_a_post_delivers_a_part_he_reads_by_giving_it_whatever_it_says_and_work_only_once_it_says_it_is_done(
-    run: Run,
-    demo: str,
-    slack_thread: "Thread",
-    capsys: pytest.CaptureFixture[str],
-    jev: Jev,
-    words: str,
-    parts: list[str],
-    answers: list[str],
-    post: str,
-    part: str,
-    owed: float,
-    delivers: bool,
+def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_asked_for_proof_a_fix_is_live(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--parts", *parts, *(["--answers", *answers] if answers else []))
-    link = slack_thread.post(state.now(), from_claude=True, text=post)
-    jev.owed = {part: owed}
-    kind = "answer" if part in answers else "build"
-    code = cli.main(["order", "posted", "o1", link, "--part", part])
-    assert jev.asked[-1]["questions"] == {"part0": {"binary": {"instructions": settled.OWED_QUESTIONS[kind].format(part=part)}}}
-    assert (code, state.load("demo")["orders"]["o1"]["parts"][part]["posted"]) == ((0, link) if delivers else (2, None))
-    refused = capsys.readouterr().err
-    if delivers:
-        return
-    if kind == "answer":
-        assert f'--part "{part}": refused, Jev reads the words of {link} as not giving "{part}", so it delivers nothing; mark it by the drive\'s post that gives it' in refused
-        return
-    marked = " ".join(f'"{each}"' for each in parts if each in answers or each == part)
-    assert f'Jev reads the words of {link} as not saying "{part}" is done' in refused
-    assert f"when it is words he reads, such as his question's answer, a retro or a status, which a post gives whatever it says, mark it so first with drive order set o1 --answers {marked}" in refused
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--kind", "answer", "--thread", "1794200000.000100", "--reporter", REPORTED)
+    run("job", "add", "reader", "--order", "o1", "--goal", "find the page")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    order = state.load(demo)["orders"]["o1"]
+    assert not watch.owes_tell(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    note = note_in(slack_thread, "1794418000.000100")
+    assert cli.main(["order", "told", "o1", note]) == 2
+    assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"POSTED {slack_thread.post(state.now(), from_claude=True)}\n"))
+    run("job", "report", "j1", "-")
+    order = state.load(demo)["orders"]["o1"]
+    assert order["state"] != "done" and not order["proof"]
+    assert watch.owes_tell(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
 
 
-def test_each_part_is_filed_as_words_he_reads_or_work_and_order_set_answers_replaces_which_are(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    def kinds() -> dict[str, str]:
-        return {part: held["kind"] for part, held in state.load("demo")["orders"]["o1"]["parts"].items()}
-
-    filing = ("--title", "Short title", "--project", "p", "--workstream", "w", FIXES, "--parts", STATUS, CAP)
-    assert cli.main(["order", "add", *filing, "--answers", "status"]) == 2
-    assert f'o1 has no part status; its parts are "{STATUS}", "{CAP}"' in capsys.readouterr().err
-    assert state.load("demo")["orders"] == {}
-    run("order", "add", *filing, "--answers", STATUS)
-    assert kinds() == {STATUS: "answer", CAP: "build"}
-    run("order", "set", "o1", "--parts", STATUS, CAP, RETRO)
-    assert kinds() == {STATUS: "answer", CAP: "build", RETRO: "build"}
-    run("order", "set", "o1", "--answers", STATUS, RETRO)
-    assert kinds() == {STATUS: "answer", CAP: "build", RETRO: "answer"}
-    run("order", "set", "o1", "--answers")
-    assert kinds() == {STATUS: "build", CAP: "build", RETRO: "build"}
-    run("order", "set", "o1", "--kind", "answer")
-    assert kinds() == {STATUS: "answer", CAP: "answer", RETRO: "answer"}
-    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--kind", "answer")
-    assert [held["kind"] for held in state.load("demo")["orders"]["o2"]["parts"].values()] == ["answer"]
+def test_a_finished_job_given_a_part_it_does_not_hold_runs_and_one_given_a_part_it_holds_stays_finished(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--parts", "cause", "fix")
+    run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
+    for finished in ("done", "failed"):
+        with state.edit("demo") as data:
+            data["jobs"]["j1"].update(state=finished, parts=["cause"])
+        run("job", "set", "j1", "--part", "cause")
+        assert state.load(demo)["jobs"]["j1"]["state"] == finished
+        run("job", "set", "j1", "--part", "fix")
+        assert state.load(demo)["jobs"]["j1"]["state"] == "running"
 
 
 def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_delivers_the_part_it_built(

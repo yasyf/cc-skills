@@ -582,41 +582,32 @@ def test_a_report_naming_two_parts_of_its_order_in_its_one_part_attr_delivers_bo
     assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {SSQL: answer, FOOTERS: answer}
 
 
-INCIDENT_REPORT = (
-    "Executor Destroy Run Crash Count, 4:09 AM: the first check is back. The monitor counts 5 crashed runs, all on one cluster from"
-    " 3:55 AM, none on the others, and it still alerts. No release is shown to have caused it and dev holds no fix, so nothing shipped"
-    " and nothing was rolled back; the cause is not confirmed. A second cause read is on the journal layer now; next line by 4:20 AM."
+CAUSE_REPORT = (
+    "Cause of the QUEUE_FULL refusals from 23:01Z to 23:45Z: load on the shared pod, not the handover stall and not a restore. Its"
+    " primary ran at 5.1 to 6.1 cores of its 6.1-core limit for those minutes, so the 32-deep write queues filled. No open PR stops"
+    " one team's queries from filling another team's write queue."
 )
 
 
-def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_names_the_rest(
+def test_a_report_delivers_each_part_its_part_attr_names_with_no_judge_of_its_words_but_an_incidents_unlive_fix(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, jev: Jev
 ) -> None:
     thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "Executor Destroy Run Crash Count", "--thread", thread, "--incident", "--parts", "first check", "fix", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "QUEUE_FULL refusals", "--thread", thread, "--incident", "--parts", "first check", "fix", "cause")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    answer = slack_thread.post(state.now(), from_claude=True, text=INCIDENT_REPORT)
+    answer = slack_thread.post(state.now(), from_claude=True, text=CAUSE_REPORT)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
-    report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})
-    jev.unsaid = {"fix", "cause"}
-    unsaid = '"cause": not delivered, Jev reads its words as not saying it is done'
-    dry = talk.say(demo, {"text": INCIDENT_REPORT, "thread_ts": thread, "order": "o1", "record": "672826", "dry_run": True})
-    assert dry.endswith(f'; o1 "first check": would be delivered; {unsaid}')
+    report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:fix;o1:cause"})
+    dry = talk.say(demo, {"text": CAUSE_REPORT, "thread_ts": thread, "order": "o1", "record": "682974", "dry_run": True})
+    assert dry.endswith('; o1 "cause": would be delivered')
     assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
-    line = talk.say(demo, {"text": INCIDENT_REPORT, "thread_ts": thread, "order": "o1", "record": "672826"})
-    assert line.startswith(f'POSTED {answer}; o1 "first check": posted {answer}') and line.endswith(f"; {unsaid}")
-    assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": answer, "fix": None, "cause": None}
-    asked = jev.asked[-1]
-    assert asked["state"] == {"order": "Executor Destroy Run Crash Count", "post": INCIDENT_REPORT}
-    assert [question["binary"]["instructions"].split('"')[1] for question in asked["questions"].values()] == ["first check", "cause"]
-    jev.answer = None
-    code, unheard = run("order", "posted", "o1", answer, "--record", "672826")
-    assert code == 0 and unheard.startswith(f'o1 "first check", "cause": posted {answer}')
-    assert unheard.endswith('; Jev did not say whether its words carry "first check", "cause" (no jev decision within 20s), so each is delivered as named')
-
+    line = talk.say(demo, {"text": CAUSE_REPORT, "thread_ts": thread, "order": "o1", "record": "682974"})
+    assert line.startswith(f'POSTED {answer}; o1 "cause": posted {answer}')
+    assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": None, "fix": None, "cause": answer}
+    assert jev.asked == []
 
 @pytest.mark.parametrize(
     ("text", "due"),

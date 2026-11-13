@@ -968,13 +968,13 @@ def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime
 
 
 def owes_tell(order: dict, moment: datetime) -> bool:
-    """Whether the bug report an order fixes is owed its fix-live note and the watch has not said so: the order keeps its proof, nothing moved on it for ten minutes, and no note is recorded."""
+    """Whether the thread an order's reporter asked in is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, and no note is recorded."""
     reporter = order["reporter"]
-    return bool(reporter and order["proof"] and not reporter["told"] and not reporter["tell_said"] and moment - state.parse_time(order["updated"]) >= TELL_AFTER)
+    return bool(reporter and state.may_tell(order) and not reporter["told"] and not reporter["tell_said"] and moment - state.parse_time(order["updated"]) >= TELL_AFTER)
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each open order proven live whose bug report's thread has not heard it is fixed ten minutes on, said once."""
+    """Each open order proven live, or whose answer is posted, whose reporter's thread has not heard it ten minutes on, said once."""
     data = state.load(watcher.name)
     if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owes_tell(order, moment)]):
         return []
@@ -983,10 +983,16 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for order_id in owing:
             reporter = data["orders"][order_id]["reporter"]
             reporter["tell_said"] = state.stamp(moment)
+            answered = data["orders"][order_id]["kind"] == "answer"
+            happened, heard, note = (
+                ("its answer is posted", "its question was asked in, has not heard the answer", "the answer")
+                if answered
+                else ("its fix is proven live", "its bug was reported in, has not heard it is fixed", "the fix-live note")
+            )
             lines.append(
-                f"TELL {order_id}: its fix is proven live and nothing moved on it for 10 minutes, but {reporter['link']}, the thread its bug"
-                f" was reported in, has not heard it is fixed: send its report with --attr close={order_id}, whose handler posts the fix-live"
-                f" note there and records it with drive order told {order_id} <its permalink>; done refuses until then"
+                f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {reporter['link']}, the thread {heard}:"
+                f" send its report with --attr close={order_id}, whose handler posts {note} there and records it with"
+                f" drive order told {order_id} <its permalink>; done refuses until then"
             )
     return lines
 
@@ -1207,7 +1213,7 @@ def said_last(entry: dict) -> str:
 
 
 class Answered(str):
-    """A running codex job's gap when its relay ended its turn after the codex-ask run it asked ended, carrying that run, which the watch takes as the job's result."""
+    """A running codex job's gap when its relay ended its turn after the codex-ask run it asked ended, carrying that run, which the watch takes as the job's result; a run whose reply predates the job's last return was taken already, so a finished job given a new part waits on a new run."""
 
     run: codex.Run
 
@@ -1280,7 +1286,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
                 run = codex.newest_run(path)
             except codex.CodexError as error:
                 return f"{job_id}'s codex-ask run could not be read: {cut(str(error), 100)}"
-            if run:
+            if run and not (job.get("returned") and run.reply.stat().st_mtime <= state.parse_time(job["returned"]).timestamp()):
                 return Answered(job_id, run) if run.ended else None
         elif state.result_state(job, line):
             return (
