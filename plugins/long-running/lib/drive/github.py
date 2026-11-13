@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+from functools import cache
 from itertools import groupby, takewhile
 from pathlib import Path
 
@@ -20,6 +21,10 @@ FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STAR
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 PRODUCTION = re.compile(r"^Production: (?P<names>.+)$", re.MULTILINE)
+COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
+CANDIDATE = "rc/"
+BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
+PROD_ENV = re.compile(r"^prod: true$", re.MULTILINE)
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
@@ -287,12 +292,12 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
 
 
 def release_of(key: str, service: str, commit: str) -> str | None:
-    """The name of the newest published release that ships the service to production, when it holds the commit."""
+    """The name of the newest published release that ships the service to production, when it holds the commit: by ships once any release read carries a Production line, and by ships_by_components while none does, as go/ci's finish step writes none until Forge-AI/monorepo#55247 lands."""
     repo = repo_of(key)
-    shipping = [release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"], max_age="60s")) if ships(release, service)]
-    if not shipping:
+    published = sorted((release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"], max_age="60s")) if not release["draft"]), key=lambda release: release["published_at"], reverse=True)
+    lined = any(PRODUCTION.search(release["body"] or "") for release in published)
+    if not (newest := next((release for release in published if (ships(release, service) if lined else ships_by_components(repo, release, service))), None)):
         return None
-    newest = max(shipping, key=lambda release: release["published_at"])
     compared = read(f"whether {repo}'s release {newest['tag_name']} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"], max_age="1h")
     return newest["name"] if compared.strip() in HOLDS else None
 
@@ -301,6 +306,28 @@ def ships(release: dict, service: str) -> bool:
     """Whether a published release's notes name the service on their Production line, which go/ci's release finish step writes from the components it applied to an environment flagged prod: true in infra/envs; a release with no such line, staging-only or written before it, never counts."""
     listed = PRODUCTION.search(release["body"] or "")
     return not release["draft"] and bool(listed) and service in listed["names"].split(", ")
+
+
+def ships_by_components(repo: str, release: dict, service: str) -> bool:
+    """Whether a published release written with no Production line ships the service to production: its Components line names the service, it is no GitHub pre-release or rc/ release candidate, and the Buildkite build its notes link started on production, so a person's start on staging alone, such as releases/2026-11-12/27, never counts."""
+    notes = release["body"] or ""
+    listed, build = COMPONENTS.search(notes), BUILD.search(notes)
+    if release["prerelease"] or release["name"].startswith(CANDIDATE) or not (listed and build and service in listed["names"].split(", ")):
+        return False
+    return started_on_production(repo, release["tag_name"], build["pipeline"], build["number"])
+
+
+@cache
+def started_on_production(repo: str, tag: str, pipeline: str, number: str) -> bool:
+    """Whether a go/ci release build started on production: its RELEASE_START named no environments, so it ran on every one, or named one flagged prod: true in infra/envs at the release's tag; read once a process, since neither changes once a release is published."""
+    try:
+        build = json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))
+    except GithubError as error:
+        raise GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: {error}") from None
+    envs = json.loads(build["env"].get("RELEASE_START") or "{}").get("envs") or []
+    return not envs or any(
+        PROD_ENV.search(read(f"{repo}'s {env} environment at {tag}", ["gh", "api", f"repos/{repo}/contents/infra/envs/{env}.yaml?ref={tag}", "-H", "Accept: application/vnd.github.raw"])) for env in envs
+    )
 
 
 def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:

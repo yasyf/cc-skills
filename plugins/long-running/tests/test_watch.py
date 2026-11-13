@@ -2598,8 +2598,26 @@ def release(number: int, published: str, components: str, production: str | None
         "published_at": published,
         "draft": False,
         "prerelease": False,
-        "body": f"Released from `c{number}` by [its build](https://ci.example/{number}).\n\nComponents: {components}\n\nProduction: {production or components}",
+        "body": f"Released from `c{number}` by [its build](https://buildkite.com/forge/release/builds/{number}).\n\nComponents: {components}\n\nProduction: {production or components}",
     }
+
+
+def unlined(published: dict) -> dict:
+    return published | {"body": published["body"].split("\n\nProduction: ")[0]}
+
+
+def release_reads(published: list[dict], starts: dict[str, list[str]], statuses: list[str], calls: list[str]) -> Callable[..., str]:
+    github.started_on_production.cache_clear()
+
+    def run(cmd: list[str], **_: object) -> str:
+        calls.append(" ".join(cmd[:4]) if cmd[0] == "bk" else cmd[2])
+        if cmd[0] == "bk":
+            return json.dumps({"env": {"RELEASE_START": json.dumps({"mode": "release", "envs": starts.get(cmd[3], [])})}})
+        if env := re.search(r"/contents/infra/envs/([\w-]+)\.yaml", cmd[2]):
+            return f"id: {env[1]}\n" + ("prod: true\n" if env[1] == "core-usw2-auto" else "stage: staging\n")
+        return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else f"{statuses.pop(0)}\n"
+
+    return run
 
 
 def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_its_service_holds_its_merged_pr(
@@ -2632,14 +2650,8 @@ def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_it
 def test_a_staging_only_release_frees_no_release_wait_and_the_next_release_reaching_production_frees_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     staged = release(27, "2026-11-12T22:01:54Z", "sandsql, api, dashboard", production="none", day="2026-11-12")
-    as_published = staged | {"body": staged["body"].removesuffix("\n\nProduction: none")}
-    published, calls = [as_published], []
-
-    def gh(cmd: list[str], **_: object) -> str:
-        calls.append(cmd[2])
-        return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n"
-
-    monkeypatch.setattr(watch.github, "run", gh)
+    published, calls = [unlined(staged)], []
+    monkeypatch.setattr(watch.github, "run", release_reads(published, {"27": ["plat-usw2-staging"]}, ["ahead"], calls))
     with state.edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="5273c9b2")
         data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -2651,6 +2663,29 @@ def test_a_staging_only_release_frees_no_release_wait_and_the_next_release_reach
     published.append(release(28, "2026-11-12T22:17:37Z", "sandsql", day="2026-11-12"))
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/28 ships {KEY} on sandsql, nothing else holds it"]
     assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-28"
+    assert [call for call in calls if call.startswith("bk ")] == ["bk build view 27"]
+
+
+def test_while_no_release_carries_a_production_line_a_wait_frees_on_the_newest_release_naming_its_service_whose_build_started_on_production(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    candidate = release(26, "2026-11-12T22:05:00Z", "sandsql", day="2026-11-12") | {"name": "rc/2026-11-12/26", "tag_name": "release/rc-2026-11-12-26"}
+    published, calls = [unlined(release(27, "2026-11-12T22:01:54Z", "sandsql, api", day="2026-11-12")), unlined(candidate)], []
+    monkeypatch.setattr(watch.github, "run", release_reads(published, {"27": ["plat-usw2-staging"], "30": ["core-usw2-auto"]}, ["behind", "ahead"], calls))
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="5273c9b2")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    assert watch.run_pass(watching, T0) == []
+    assert not any("/compare/" in call for call in calls)
+    published.append(unlined(release(28, "2026-11-12T22:17:37Z", "sandsql", day="2026-11-12")))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-28"
+    published.append(unlined(release(30, "2026-11-12T22:40:00Z", "platy, sandsql", day="2026-11-12")))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/30 ships {KEY} on sandsql, nothing else holds it"]
+    assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-30"
+    assert [call for call in calls if call.startswith("bk ")] == ["bk build view 27", "bk build view 28", "bk build view 30"]
 
 
 def test_a_time_set_on_an_order_with_no_thread_is_said_once_and_kept_by_being_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
