@@ -491,7 +491,10 @@ reads nothing.
 cc-remote records under that workspace name holds that a fresh Sprite would not
 get, or nothing: each worktree with uncommitted changes and how many files, each
 branch or stash with commits on no remote, and an unpushed HEAD, all by name, or
-why the read failed. It reads through cc-remote alone, so a Sprite whose Dispatch
+why the read failed. A branch whose first-parent history begins at a root commit
+GitHub's default branch shares no history with, such as the
+`cc-notes-source-live-v2` branch cc-notes pins its own records on, is no lane's
+work: `--held`, `--save`, `--destroy` and `--done` all pass over it. It reads through cc-remote alone, so a Sprite whose Dispatch
 or environment Orca dropped is read too. A root whose job outlives the lane, such as one waiting on CI, reads it
 before `--done`: `--done` keeps such a Sprite, but it stops the lane that could
 push the work.
@@ -588,7 +591,7 @@ runs `cc-remote destroy` through `WORKER_CC_REMOTE` or `ccRemote`, under
 It does this only once no unsettled Dispatch shares the workspace, the terminal
 reads idle twice, and the checkout, read over ssh, is clean in every worktree,
 holds no other branch or stash with commits on no remote, and has its HEAD on origin or landed; `--done` skips the idle check.
-A branch counts as on a remote when its tip is on an origin ref the Sprite holds, or GitHub has it as a branch's head or a landed PR's. GitHub answers whether the HEAD
+A branch counts as on a remote when its tip is on an origin ref the Sprite holds, or GitHub has it as a branch's head or as the head of any open or merged PR, whatever its base. GitHub answers whether the HEAD
 is on origin or landed, for the Sprite's own origin, so the check doesn't depend
 on which checkout you run from. A Sprite without a GitHub origin is kept, and so
 is one GitHub can't answer for, such as under a rate limit, while the rest of

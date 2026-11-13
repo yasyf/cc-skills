@@ -326,8 +326,12 @@ def github_trunk(slug: str) -> str:
     return github(f"repos/{slug}")["default_branch"]
 
 
+def github_compare(commit: str, slug: str) -> dict | None:
+    return github(f"repos/{slug}/compare/{github_trunk(slug)}...{commit}?per_page=1")
+
+
 def on_github_trunk(head: str, slug: str) -> bool:
-    compared = github(f"repos/{slug}/compare/{github_trunk(slug)}...{head}?per_page=1")
+    compared = github_compare(head, slug)
     return compared is not None and compared["status"] in ("behind", "identical")
 
 
@@ -340,12 +344,11 @@ class GitHubTips:
 
 
 @dataclass(frozen=True)
-class GitHubLanded:
+class GitHubPullHeads:
     slug: str
 
     def __contains__(self, head: str) -> bool:
-        pulls = github(f"repos/{self.slug}/commits/{head}/pulls") or []
-        return any(pull["merged_at"] and pull["head"]["sha"] == head and pull["base"]["ref"] == github_trunk(self.slug) for pull in pulls)
+        return any(pull["head"]["sha"] == head for pull in github(f"repos/{self.slug}/commits/{head}/pulls") or [])
 
 
 @dataclass(frozen=True)
@@ -628,7 +631,7 @@ class CcRemote:
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
-        off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s ' \"$name\" \"$tip\"; done; echo; }}"
+        off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s:%s ' \"$name\" \"$tip\" \"$({git_c} rev-list --first-parent --max-parents=0 \"$ref\" --not HEAD --remotes=origin)\"; done; echo; }}"
         changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -c '^'); else files={UNREADABLE}; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
         done = self.ssh(sprite, f"{git_c} remote get-url origin && {off_origin} && {changed} && {git_c} status --porcelain=v2 --branch")
         if done.returncode != 0:
@@ -641,6 +644,7 @@ class CcRemote:
         head, branch = headers["branch.oid"], headers["branch.head"]
         try:
             on_trunk = on_github_trunk(head, hub["slug"])
+            own = tuple((name, tip) for name, tip, root in (ref.split(":") for ref in off_origin.split()) if not root or github_compare(root, hub["slug"]))
         except GitHubRefusal as refused:
             return str(refused)
         return Checkout(
@@ -650,7 +654,7 @@ class CcRemote:
             head=head,
             on_trunk=on_trunk,
             repository=hub["slug"],
-            off_origin=tuple(ref.rpartition(":")[::2] for ref in off_origin.split()),
+            off_origin=own,
             changed=tuple(tree.partition(" ")[::2] for tree in changed.split("\t") if tree),
         )
 
@@ -658,7 +662,7 @@ class CcRemote:
         return subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, script], input=given, capture_output=True, text=True)
 
     def remote(self, slug: str) -> Remote:
-        return Remote(GitHubTips(slug), GitHubLanded(slug), GitHubTrunk(slug))
+        return Remote(GitHubTips(slug), GitHubPullHeads(slug), GitHubTrunk(slug))
 
     def destroy(self, sprite: Sprite) -> str | None:
         done = subprocess.run([CC_REMOTE, "destroy", sprite.workspace], capture_output=True, text=True)
@@ -796,7 +800,7 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
             f'git update-ref "refs/heads/{prefix}$(git -C {tree} symbolic-ref --short -q HEAD || git -C {tree} rev-parse --short=10 HEAD)" "$(git -C {tree} rev-parse HEAD)"',
         ]
     lines += [
-        f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git 'refs/heads/{prefix}*:refs/heads/{prefix}*'",
+        f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git 'refs/heads/{prefix}*:refs/heads/{prefix}*' >&2",
         f"git for-each-ref --format='%(refname:lstrip=2) %(objectname:short=10)' refs/heads/{prefix}",
     ]
     return "\n".join(lines)
@@ -1166,7 +1170,7 @@ def main() -> int:
         "has nothing left to reclaim, and is named gone with no terminal close or worktree read. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label and removes its Orca environment, once no unsettled dispatch "
-        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, a landed PR's head nor in its default branch, and has its HEAD on origin "
+        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, an open or merged PR's head, whatever its base, nor in its default branch, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
@@ -1177,14 +1181,15 @@ def main() -> int:
         "--dry-run reads through a pause. "
         "--held reads, and changes nothing: it prints what the Sprite a cc-remote task records under one workspace name holds that a fresh Sprite would not get, "
         "by the same checkout read that keeps a Sprite, naming each of them: every worktree with uncommitted changes and its count of changed files, every branch "
-        "or stash with commits on no remote, and an unpushed HEAD; or the reason the read failed, or nothing. It needs no Orca, so it reads a Sprite whose dispatch "
+        "or stash with commits on no remote, and an unpushed HEAD; or the reason the read failed, or nothing. A branch whose first-parent history begins at a root commit "
+        "GitHub's default branch shares no history with, such as the cc-notes-source-live-v2 branch cc-notes pins its own records on, is no lane's work and counts for nothing. It needs no Orca, so it reads a Sprite whose dispatch "
         "or environment Orca has dropped. "
         "--save WORKSPACE LANE takes what --held would name to GitHub, so a fresh Sprite gets it: one ssh to that Sprite commits each worktree's "
-        "uncommitted changes there with --no-verify and no hooks, names each commit, branch or stash GitHub holds nowhere, by a branch head, a landed PR's "
+        "uncommitted changes there with --no-verify and no hooks, names each commit, branch or stash GitHub holds nowhere, by a branch head, an open or merged PR's "
         "head or its default branch, as the local branch saved/LANE/<its name>, a worktree's commit by its own branch or short sha, and pushes "
         "refs/heads/saved/LANE/* to github.com over https on the token gh auth token prints, which it reads from stdin into that one shell's "
         "environment and hands git through a credential helper naming only the variable, so nothing writes it to the Sprite's disk or history. "
-        "It prints what it saved and each saved/LANE branch with its short sha, or nothing when the Sprite holds nothing, and exits 1 naming "
+        "It prints what it saved and each saved/LANE branch with its short sha, the push's own output, such as git-lfs's upload progress, going to stderr, or nothing when the Sprite holds nothing, and exits 1 naming "
         "why when the read or the save fails, which leaves each commit it made on its saved/LANE branch, still read as held. "
         "--destroy WORKSPACE destroys the Sprite a cc-remote task records under that workspace name with cc-remote destroy, which closes its forward and removes its Orca environment, "
         "once the same checkout read finds it holds nothing --held would name. It needs no Orca Run or dispatch and no idle terminal, so it reaches a Sprite whose dispatch Orca has dropped, "
