@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, github, install, land, limits, orca, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -3226,6 +3226,13 @@ def plan_search(args: argparse.Namespace) -> int:
     return emit(args, said or f'no plan the coordinator keeps in cc-notes has a section on "{words}"', found)
 
 
+def page_add(args: argparse.Namespace) -> int:
+    """Put a page a page job built for an order under Pages on the drive's dashboard."""
+    name = state.resolve(args.drive)
+    page = pages.add(name, args.slug, args.order, Path(args.dir))
+    return emit(args, f"page {page['slug']} for {args.order}: /pages/{page['slug']}/ on the dashboard, listed under Pages as {page['title']!r}", page)
+
+
 def break_glass(args: argparse.Namespace) -> int:
     """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. It saves nothing to the drive, so it lets go of its install's lock once it has read it, and a newer install's first save never waits out its grant."""
     name = state.resolve(args.drive)
@@ -4236,6 +4243,22 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("words", nargs="+", help="what to look for in the plans, such as a part, a step or a file")
     verb.set_defaults(run=plan_search)
+    page = verbs.add_parser("page", help="the one-off live dashboards page jobs build, listed under Pages on the drive's dashboard").add_subparsers(dest="action", required=True)
+    verb = page.add_parser(
+        "add",
+        parents=both,
+        help="check a page job's folder and put it under Pages, replacing the page of that slug whole",
+        description=(
+            "The folder holds index.html, the page the dashboard opens in a frame sandboxed to allow-scripts, a page.json naming"
+            " its title and goal, and optionally the orders and PRs it shows besides the order's, its source link and the job that"
+            " built it, and only .html, .js, .css, .json, .svg and .png files. The dashboard sends the page its slice of the"
+            " board on each change and turns its actions into his answers, taps and asks, each with Undo; see reference/pages.md."
+        ),
+    )
+    verb.add_argument("slug", help="its name in /pages/<slug>/: lowercase letters, digits and dashes")
+    verb.add_argument("--order", required=True, help="the order it serves, whose project and workstream file it")
+    verb.add_argument("--dir", required=True, metavar="FOLDER", help="the folder the page job built it in")
+    verb.set_defaults(run=page_add)
     verb = verbs.add_parser(
         "break-glass",
         parents=[drive_opt],
