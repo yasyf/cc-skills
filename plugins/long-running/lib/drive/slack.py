@@ -99,23 +99,18 @@ def redraw_pr_cards(url: str) -> int:
 
 
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
-    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread a post on one of them went in, then each of their cards'."""
-    others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
-    own = filter(None, (state.promise_thread(each) for each in [order, *others]))
-    asked = ((channel, ts) for each in [order, *others] for channel, ts, _ in each["asked_in"])
-    return list(dict.fromkeys([*own, *asked, *incident_cards(data, order_id)]))
-
-
-def incident_cards(data: dict, order_id: str) -> list[tuple[str, str]]:
-    """The thread of each card the jobs of every order of the order's incident drew, the order alone when it is in none."""
-    return list(dict.fromkeys(where for other in state.incident_orders(data, order_id) for where in state.card_threads(data, data["orders"][other])))
+    """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at his DM root for a PR it serves."""
+    orders = [order, *(data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id)]
+    own = filter(None, map(state.promise_thread, orders))
+    kept = ((channel, ts) for each in orders for channel, ts, _, _ in each["threads"])
+    return list(dict.fromkeys([*own, *kept]))
 
 
 def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime], str | None]:
     """When the drive posted in an order's threads, its own, its incident's and each of their cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read."""
     if not (threads := order_threads(data, order_id, order)):
         return [], "it has no thread to read; give it one with drive order set --thread"
-    cards = set(incident_cards(data, order_id))
+    cards = {(channel, ts) for other in state.incident_orders(data, order_id) for channel, ts, _, kind in data["orders"][other]["threads"] if kind != "posted"}
     since = str(int(state.parse_time(order["promised"]).timestamp()))
     posts: list[datetime] = []
     unread = None

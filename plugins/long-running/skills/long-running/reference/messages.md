@@ -759,11 +759,13 @@ GET 2 page ranges
 - A finding refuses nothing on its own. The hook hands the post and every finding, check-post's and
   the drive's own, to Jev with the rule each finding stands for, in this skill's and cc-slack's words,
   and his words: his messages in the thread it goes to and each answer or Explain more tap of his a
-  card there shows, read from Slack, beside the session's recent turns. A handler's brief, the record it reads in and
+  card there shows, and on a post on an order his messages and card answers in each of that order's
+  other threads in his DM, read from Slack, beside the session's recent turns. A handler's brief, the record it reads in and
   every prompt of a handler's own `claude --bg` session are the communicator's or a writer's words,
   never his, whatever they quote. Jev judges only the line each finding names, by its rule: the post
   goes out when no finding's rule holds against its line, or his words lift it, and comes back with
-  Jev's reason when one does, never for saying more than his message asked. When Jev cannot finish,
+  Jev's reason when one does, never for saying more than his message asked, and never as unpermitted,
+  since cc-slack's Slack permission hook judges every write. When Jev cannot finish,
   because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or
   a mark decides, the post's word count or his reading as away, still refuses, since no judgment lifts
   it, and each other finding only warns: the post goes out as written, and the session that posts it hears every finding beside it

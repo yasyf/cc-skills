@@ -133,6 +133,8 @@ POST_RULES = """
     drive's fixed checks found in it. Judge two things and nothing else: each finding, and on a handler's post whether
     each claim stands on the reads it names: a line stating as fact what code does on a read of that code, and a line
     telling what a source it names says, such as a job's assignment or a review, on the read of that source.
+    Whether he permitted the post is not one of them: cc-slack's Slack permission hook judges every write, so hold no
+    post back as unpermitted, nor because a word of his in <evidence> approves something other than this post.
 
     Findings. Each is a pattern standing for a rule whose own words <evidence> holds beside his, numbered as the
     findings are, and a pattern can match words its rule never meant. A finding holds back the line it names when its

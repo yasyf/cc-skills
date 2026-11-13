@@ -558,7 +558,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
-        order["asked_in"] = [where if len(where) == 3 else [*where, order["last_line"] or order["created"]] for where in order.get("asked_in", [])]
         order.setdefault("releases", {})
         order.pop("shipped", None)
         order.setdefault("fixed", None)
@@ -686,7 +685,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if not data.get("closed_from_cards"):
         finish_asked_readers(name, data)
         close_from_cards(name, data)
-    return data, keep
+    if unkept := any("threads" not in order for order in data["orders"].values()):
+        keep_threads(name, data)
+    return data, keep and not unkept
 
 
 def briefed_handoff(path: str | None) -> str | None:
@@ -696,6 +697,21 @@ def briefed_handoff(path: str | None) -> str | None:
     if not (path and Path(path).exists()):
         return None
     return next((value.strip() for label, value in brief.fields(Path(path).read_text()) if label == "Handoff"), None)
+
+
+def keep_threads(name: str, data: dict) -> None:
+    """Keep on each order an older install saved the threads it read apart: each a post naming it went in, each card its jobs drew, and each PR card drawn at his DM root for a PR it serves, read once from the dashboard's said events."""
+    for order in data["orders"].values():
+        order.setdefault("threads", [])
+        for where in order.pop("asked_in", []):
+            join_thread(order, (where[0], where[1]), where[2] if len(where) == 3 else order["last_line"] or order["created"], "posted")
+        for job_id in order["jobs"]:
+            for question in data["jobs"][job_id]["questions"]:
+                if question["card"] and (where := link_thread(question["card"])):
+                    join_thread(order, where, order["created"], "question")
+    for event, _ in read_events(name):
+        if event["kind"] == "said" and event.get("card") and (keys := [key for key in event.get("prs") or [] if key in data["prs"]]):
+            join_pr_cards(data, keys, [event["card"]], event["at"])
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -779,6 +795,9 @@ def carry(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job["carries"][order_id] = list(dict.fromkeys([*job["carries"].get(order_id, []), *parts]))
     if job_id not in order["jobs"]:
         order["jobs"].append(job_id)
+    for question in job["questions"]:
+        if question["card"]:
+            join_card(data, job_id, question["card"])
     order["updated"] = stamp()
 
 
@@ -1199,7 +1218,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "text": text,
         "from": source,
         "thread": list(thread) if thread else None,
-        "asked_in": [],
+        "threads": [],
         "state": "open",
         "due": None,
         "due_said": None,
@@ -1645,10 +1664,26 @@ def heard_lane(data: dict, order_id: str) -> str:
     return order_lane(data, data["orders"][order_id]) if data["subcoordinators"] else "root"
 
 
-def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
-    """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
-    links = (link_thread(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
-    return list(dict.fromkeys(filter(None, links)))
+def join_thread(order: dict, where: tuple[str, str], at: str, kind: str) -> None:
+    """Keep a thread among the order's from when it joined, once, unless it is the order's own: posted for a thread a post naming the order went in, question for a card its jobs drew, pr for a card drawn for a PR it serves."""
+    if where != promise_thread(order) and all((channel, ts) != where for channel, ts, _, _ in order["threads"]):
+        order["threads"].append([*where, at, kind])
+
+
+def join_card(data: dict, job_id: str, card: str) -> None:
+    """Join the thread of a card the job asks on to each order the job works on, so his answer under the card is in each one's threads."""
+    if where := link_thread(card):
+        for order in data["orders"].values():
+            if job_id in order["jobs"]:
+                join_thread(order, where, stamp(), "question")
+
+
+def join_pr_cards(data: dict, keys: list[str], cards: list[str | None], at: str) -> None:
+    """Join the thread under each card drawn for these PRs at his DM root to every order whose words they are checked against, so his reply under the card is in each one's threads; a card drawn in another order's thread leaves that thread its order's. A card link names one card or several, space apart."""
+    orders = dict.fromkeys(order_id for key in keys for order_id in served_orders(data, data["prs"][key]))
+    for where in dict.fromkeys((found[0], found[1]) for card in filter(None, cards) for link in card.split() if (found := slack_message(link)) and found[2] == found[1]):
+        for order_id in orders:
+            join_thread(data["orders"][order_id], where, at, "pr")
 
 
 def link_thread(link: str) -> tuple[str, str] | None:
@@ -1673,13 +1708,13 @@ def incident_orders(data: dict, order_id: str) -> list[str]:
 
 
 def thread_order(data: dict, thread: str | None, until: datetime | None = None) -> str | None:
-    """The order that came last into a thread of his, by until when given: added with it as its own thread or the thread of a card its jobs drew, or joined to it by a drive post naming it there, the newer order winning a tie; None when no order is in it."""
+    """The order that came last into a thread of his, by until when given: added with it as its own thread, or joined to it as a thread it keeps, the newer order winning a tie; None when no order is in it."""
     if not thread:
         return None
     came = [
         (moment, index, order_id)
         for index, (order_id, order) in enumerate(data["orders"].items())
-        for at in ([order["created"]] if thread in (order["thread"] and order["thread"][1], *(ts for _, ts in card_threads(data, order))) else []) + [at for _, ts, at in order["asked_in"] if ts == thread]
+        for at in ([order["created"]] if order["thread"] and order["thread"][1] == thread else []) + [at for _, ts, at, _ in order["threads"] if ts == thread]
         for moment in [parse_time(at)]
         if until is None or moment <= until
     ]

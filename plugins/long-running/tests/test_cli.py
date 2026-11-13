@@ -5255,7 +5255,8 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
         data["roles"]["coordinator"]["session"] = "elsewhere"
     answer = slack_thread.post(state.now(), from_claude=True)
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100"))
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp()) | {"waits": "demo:j1-1"})
+    cli.follow_card("demo", "demo:j1-1", set(), "https://acme.slack.com/archives/D123/p1794200000000100")
     report_records(monkeypatch, {"661300": {"job": "j1", "part": "how fast can restore go?"}})
     assert run("order", "posted", "o1", answer, "--record", "661300") == (0, f'o1 "how fast can restore go?": posted {answer}')
     assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer

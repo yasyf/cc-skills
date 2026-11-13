@@ -532,6 +532,7 @@ def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: p
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), "Which ring?", state.stamp(), card=CARD)]
+        state.join_thread(data["orders"]["o1"], ("D123", CARD_THREAD), state.stamp(), "question")
 
 
 def test_the_communicators_record_is_routed_on_the_drive_it_names_while_its_session_holds_a_newer_one(

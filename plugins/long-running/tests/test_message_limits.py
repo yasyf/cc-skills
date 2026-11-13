@@ -762,6 +762,26 @@ def test_a_line_saying_how_a_failure_is_prevented_carries_his_ruling_asking_for_
     assert [word["id"] for word in unrelated] == ["slack:1794310000.000000"]
 
 
+def test_a_post_under_an_orders_pr_card_hands_jev_his_answer_on_its_question_card_in_the_orders_other_thread(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question, card = "1794520890.022349", "1794526059.841239"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs")
+    with state.edit("demo") as data:
+        state.join_thread(data["orders"]["o1"], (DM, question), state.stamp(), "question")
+        state.join_thread(data["orders"]["o1"], (DM, card), state.stamp(), "pr")
+    threads = {
+        question: [{"ts": question, "from_bot": True, "text": "What should the sprite get?\n✓ *give the sprite what it needs* · answered 2:03pm"}],
+        card: [{"ts": card, "from_bot": True, "text": "Approve lands PR 7\n✓ *Approve* · answered 3:28pm"}],
+    }
+    monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[where.index("--thread") + 1]]))
+    words = message_limits.his_words(call("slack_dm_status", transcript, text="PR 7 merged.", thread_ts=card, order="o1") | {"tool_name": message_limits.SAY})
+    assert [(word["quote"], word["detail"]) for word in words] == [
+        ("*Approve* · answered 3:28pm", message_limits.CARD_ANSWERED),
+        ("*give the sprite what it needs* · answered 2:03pm", message_limits.ORDER_CARD),
+    ]
+
+
 def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carries_none(
     talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

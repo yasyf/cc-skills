@@ -1013,7 +1013,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     with state.edit(name) as data:
         order = data["orders"][order_id]
         if gained:
-            order["asked_in"].append([*gained, line])
+            state.join_thread(order, gained, line, "posted")
         if ours:
             if state.owed(order) and closing:
                 state.keep_closing(order, [at], state.parse_time(report["written"]))
@@ -1183,6 +1183,7 @@ def job_set(args: argparse.Namespace) -> int:
         job.update({field: value for field, value in changes.items() if value is not None})
         if args.card:
             hold_card(job, args.card, shown)
+            state.join_card(data, args.id, args.card)
         state.rewait(job, merged_waits(data, job, args, found))
         state.hold_unstarted(job)
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
@@ -1345,15 +1346,16 @@ def asked_on(name: str, waits: str) -> set[str]:
 
 
 def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
-    """Record the card cc-slack drew under the waits id as the card of each question asked under it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
+    """Record the card cc-slack drew under the waits id as the card of each question asked under it, its thread joining each order of the job asking it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
     from drive import view
 
     moved = asked - {view.message_key(url)}
     with state.edit(name) as data:
-        for job in data["jobs"].values():
+        for job_id, job in data["jobs"].items():
             for question in job["questions"]:
                 if question["waits"] == waits:
                     question["card"] = url
+                    state.join_card(data, job_id, url)
         for owner in [*data["jobs"].values(), *data["prs"].values()]:
             state.rewait(owner, list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in owner["waits"])))
 
@@ -1497,6 +1499,8 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     seq = send_ask(name, job_id, kept, held and held["waits"])
     with state.edit(name) as data:
         keep_waits(data["jobs"][job_id], kept, held and held["waits"] or f"{name}:{job_id}-{seq}", held and held["card"])
+        if held and held["card"]:
+            state.join_card(data, job_id, held["card"])
         return kept, asked, state.kept_in(data["jobs"][job_id], kept), None
 
 
@@ -1709,13 +1713,14 @@ def ask_source(name: str, shown: dict) -> Path:
     if not rebuilt.exists():
         rebuilt.write_text(limits.rebuilt(shown["card"], rebuilt.parent))
     with state.edit(name) as data:
-        if job := data["jobs"].get(waits.partition(":")[2].partition("-")[0]):
+        if job := data["jobs"].get(job_id := waits.partition(":")[2].partition("-")[0]):
             job["questions"] = [
                 question
                 for question in job["questions"]
                 if question["waits"] != waits and not (question["card"] and view.message_key(question["card"]) == view.message_key(url))
             ]
             job["questions"].append(state.new_question(str(rebuilt), title, shown["asked"], card=url) | {"waits": waits})
+            state.join_card(data, job_id, url)
     return rebuilt
 
 

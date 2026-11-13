@@ -782,6 +782,7 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
             thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
         )
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(T0), card=f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"))
+        state.join_thread(data["orders"]["o1"], ("D123", card), state.stamp(T0), "question")
     watching = watcher(demo)
     assert said_due(watching, T0)[0].startswith("DUE o1")
     threads[card].append({"ts": f"{(T0 + timedelta(minutes=5)).timestamp():.6f}", "thread_ts": card, "from_claude": True})
