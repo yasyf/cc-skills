@@ -6,17 +6,18 @@ import json
 import mmap
 import os
 import re
+import select
 import shlex
 import subprocess
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, render, served, slack, stage, state, superseded, view
+from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
 from drive.install import MERGED_DONE, PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
@@ -77,7 +78,8 @@ class Watcher:
     failure_said: dict[str, datetime] = field(default_factory=dict)
     page_shape: str | None = None
     cards: dict | None = None
-    fresh: set[str] = field(default_factory=set)
+    owed: set[str] | None = None
+    stale: set[str] = field(default_factory=set)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     made: list[str] = field(default_factory=list)
     unsent: dict[str, list[str]] = field(default_factory=dict)
@@ -151,12 +153,21 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Read from GitHub each heard open PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never read, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it."""
     data = state.load(watcher.name)
-    keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
-    watcher.fresh = set()
+    pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
+    keys = [
+        key
+        for key in state.open_pr_keys(data)
+        if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["required"] is None)
+    ]
+    watcher.owed = set()
     if not keys:
         return []
     reads, refused = github.fetch(keys)
+    unread = set(keys) - set(reads)
+    watcher.owed = (unread if refused else set()) | {key for key, read in reads.items() if read["mergeable"] not in github.CONFLICTS}
+    watcher.stale = watcher.stale - set(reads) | unread
     lines = read_failed(watcher, "github", refused, moment) if refused else []
     if not refused:
         watcher.failures.pop("github", None)
@@ -173,7 +184,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             pr["updated"] = state.stamp(moment)
             lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
-    watcher.fresh = set(reads) - set(foreign)
+    watcher.stale |= set(foreign)
     return lines + dropped_lines(watcher, foreign, moment)
 
 
@@ -198,11 +209,16 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
-    job = data["jobs"][job_id]
-    if job["kind"] != "builder" or job["state"] != "waiting" or not state.PUSHED_LINE.match(job["said"] or "") or not heard_job(watcher, data, job):
+    if not pushing(watcher, data, job_id):
         return None
     verdict = state.pushed_verdict(data, job_id)
     return verdict if verdict[0] != "pending" else None
+
+
+def pushing(watcher: Watcher, data: dict, job_id: str) -> bool:
+    """Whether a builder's PUSHED the watch hears waits on the checks of the PRs it names."""
+    job = data["jobs"][job_id]
+    return job["kind"] == "builder" and job["state"] == "waiting" and bool(state.PUSHED_LINE.match(job["said"] or "")) and heard_job(watcher, data, job)
 
 
 def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], moment: datetime) -> list[str]:
@@ -871,12 +887,13 @@ def event_line(event: dict, prs: dict) -> str:
 
 
 def event_lines(watcher: Watcher) -> list[str]:
-    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's."""
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears."""
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
+    watcher.owed |= {f"{event['repo']}#{number}" for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]}
     prs = state.load(watcher.name)["prs"]
-    said = [event_line(event, prs) for event, _ in events if event["kind"] not in view.HISTORY_ONLY and event.get("lane", "root") == watcher.lane]
+    said = [event_line(event, prs) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY) and event.get("lane", "root") == watcher.lane]
     watcher.offset = events[-1][1]
     return said
 
@@ -1245,6 +1262,25 @@ def dashboard_lines(watcher: Watcher) -> list[str]:
         said, watcher.dashboard_down = watcher.dashboard_down, True
         return [] if said else [f"WATCH no launch agent kept the dashboard, and it did not start under one: {error}; its log is {state.drive_dir(watcher.name) / 'dashboard.log'}"]
     watcher.dashboard_down = False
+    return []
+
+
+def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Keep the receiver taking GitHub's deliveries for every PR the watch hears: its launch agent loaded, and a webhook pointing at it on each of their repositories, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. One that cannot be kept, or a receiver not answering on loopback, is said as a failed read is; a proof's drive leaves it alone."""
+    if state.scratch():
+        return []
+    data = state.load(watcher.name)
+    heard = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    try:
+        receiver.keep()
+        for repo in receiver.unhooked({github.repo_of(key) for key in heard}):
+            receiver.hook(repo)
+            watcher.owed |= {key for key in heard if github.repo_of(key) == repo}
+        if not receiver.answering():
+            raise state.DriveError(f"nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}")
+    except (github.GithubError, state.DriveError) as error:
+        return failed(watcher, "receiver", "upkeep of the receiver", error, moment)
+    watcher.failures.pop("receiver", None)
     return []
 
 
@@ -1905,7 +1941,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, GitHub, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited and a dashboard whose server exited every 60 s, GitHub again next poll after a failure, new events, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited and the receiver every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1939,7 +1975,10 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += page_lines(watcher, moment)
         lines += down_lines(watcher, moment)
         lines += dashboard_lines(watcher)
+        lines += receiver_lines(watcher, moment)
     lines += event_lines(watcher)
+    if "github" not in watcher.failures:
+        lines += github_lines(watcher, moment)
     lines += catch_up_lines(watcher, moment)
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]
@@ -1975,7 +2014,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard open PR's stage, as stage.of names it from the approval, checks and head GitHub answered in this pass's read, and act once on each that entered a stage or passed its deadline, leaving a PR whose read failed as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again on one that waits on him while it fixes a live bug. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
+    """Keep each heard open PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again on one that waits on him while it fixes a live bug. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -1985,7 +2024,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
         acts = []
         for key in state.open_pr_keys(data):
             pr = data["prs"][key]
-            if key not in watcher.fresh or not hears(watcher, data, pr["order"]):
+            if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
                 continue
             now = stage.of(data, key, watcher.cards)
             if stage.entered(pr["stage"], now):
@@ -2239,14 +2278,15 @@ def watching(watcher: Watcher) -> None:
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     state.let_go_install()
     try:
-        while not upgraded():
+        for _ in rests(watcher.name):
+            if upgraded():
+                break
             read_from, moment = watcher.offset, state.now()
             said = handed(watcher, watcher.made, moment) if watcher.made else run_pass(watcher, moment)
             for line in sent(watcher, watcher.lane, said, moment):
                 print(line, flush=True)
             if watcher.offset != read_from:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
-            time.sleep(POLL_SECONDS)
     except Exception as error:
         keep_unposted(watcher)
         if isinstance(error, state.NewerDrive) and upgraded():
@@ -2254,6 +2294,16 @@ def watching(watcher: Watcher) -> None:
         stopped(watcher, error)
         raise
     keep_unposted(watcher)
+
+
+def rests(name: str) -> Iterator[None]:
+    """Yield at once, then POLL_SECONDS after each yield, or the moment anything appends to the drive's events file, as the receiver does for each delivery, so the pass that reads its PRs starts as it lands."""
+    with open(state.events_path(name), "a") as events:
+        queue = select.kqueue()
+        queue.control([select.kevent(events, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)], 0)
+        while True:
+            yield
+            queue.control(None, 1, POLL_SECONDS)
 
 
 def keep_unposted(watcher: Watcher) -> None:

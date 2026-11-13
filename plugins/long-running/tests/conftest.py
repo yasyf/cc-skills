@@ -20,6 +20,7 @@ from drive import (
     page,
     picture,
     public_check,
+    receiver,
     served,
     settled,
     slack,
@@ -551,6 +552,48 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
     monkeypatch.setattr(watch, "listen", lambda name, session, project=None: process.listened.append((name, session, project) if project else (name, session)))
     monkeypatch.setattr(launchd, "session_env", dict)
     return process
+
+
+@dataclass
+class Receiver:
+    unhooked: set[str] = field(default_factory=set)
+    hooked: list[str] = field(default_factory=list)
+    answering: bool = True
+
+
+@pytest.fixture(autouse=True)
+def receiving(monkeypatch: pytest.MonkeyPatch) -> Receiver:
+    taking = Receiver()
+    monkeypatch.setattr(receiver, "keep", lambda: None)
+    monkeypatch.setattr(receiver, "unhooked", lambda repos: sorted(taking.unhooked & repos))
+    monkeypatch.setattr(receiver, "hook", lambda repo: taking.hooked.append(repo) or taking.unhooked.discard(repo))
+    monkeypatch.setattr(receiver, "answering", lambda: taking.answering)
+    return taking
+
+
+@pytest.fixture(autouse=True)
+def delivered_each_minute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GitHub delivering a change of every PR the watch hears before each pass that runs its 60-second block, so a test reads them all there; a test of what deliveries owe runs the real pass."""
+    passed = watch.run_pass
+
+    def run_pass(watching: watch.Watcher, moment: datetime) -> list[str]:
+        if watching.read_at is None or moment - watching.read_at >= watch.READ_EVERY:
+            watching.owed = None
+        return passed(watching, moment)
+
+    monkeypatch.setattr(watch, "run_pass", run_pass)
+
+
+@pytest.fixture(autouse=True)
+def rests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The watch's rest between passes as a sleep of POLL_SECONDS, since the kqueue that wakes it on an event exists on macOS alone."""
+
+    def slept(name: str) -> Iterator[None]:
+        while True:
+            yield
+            watch.time.sleep(watch.POLL_SECONDS)
+
+    monkeypatch.setattr(watch, "rests", slept)
 
 
 @pytest.fixture(autouse=True)

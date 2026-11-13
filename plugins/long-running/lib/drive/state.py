@@ -905,12 +905,18 @@ def required_verdict(prs: dict[str, dict]) -> tuple[str, list[tuple[str, str]]]:
 
 def pushed_verdict(data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]]:
     """The required_verdict on a builder's PUSHED over each PR its line names, pending until the watch's first GitHub read after the job took it, so the head judged is the one its builder pushed; a PR the drive read merged or closed, or a line naming no PR the drive tracks, holds nothing."""
-    job = data["jobs"][job_id]
-    named = {key: data["prs"][key] for key in named_prs(data, job["order"], job["said"])}
-    taken = parse_time(job["updated"])
-    if any(pr["state"] == "open" and not (pr["required"] and parse_time(pr["required"]["read"]) > taken) for pr in named.values()):
+    if unread_since_take(data, job_id):
         return "pending", []
-    return required_verdict(named)
+    job = data["jobs"][job_id]
+    return required_verdict({key: data["prs"][key] for key in named_prs(data, job["order"], job["said"])})
+
+
+def unread_since_take(data: dict, job_id: str) -> list[str]:
+    """Each open PR a builder's line names that the watch has not read from GitHub since the job took that line."""
+    job = data["jobs"][job_id]
+    taken = parse_time(job["updated"])
+    named = {key: data["prs"][key] for key in named_prs(data, job["order"], job["said"])}
+    return [key for key, pr in named.items() if pr["state"] == "open" and not (pr["required"] and parse_time(pr["required"]["read"]) > taken)]
 
 
 def add_changes(data: dict, job_id: str, report: str) -> None:

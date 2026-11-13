@@ -143,7 +143,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
    review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
    first. `READY` counts only on a green required check, so `PUSHED` waits, waking nobody, until the
-   watch's minute read of GitHub finds green every check the rules of its repository's default
+   watch's first read of GitHub after the take finds green every check the rules of its repository's default
    branch name and any GitHub marks required on the head, one not yet posted holding it too, or
    settles it at that read when they name none: green takes it as your `READY`, and a red one comes
    back as `PR … READY refused, its required <check> failed at <head>

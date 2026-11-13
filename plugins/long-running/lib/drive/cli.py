@@ -3277,6 +3277,12 @@ def dashboard_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def receive(args: argparse.Namespace) -> int:
+    from drive import receiver
+
+    return receiver.main()
+
+
 def watch_events(args: argparse.Namespace) -> int:
     """Run the watch with --loop; else load its launch agent unless one is loaded, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets neither the process nor the channel."""
     if args.loop:
@@ -4336,6 +4342,9 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=watch_events)
+    verbs.add_parser(
+        "receive", help="take GitHub's signed webhook deliveries through this Mac's Tailscale Funnel path into each drive's events file: the process the receiver's launch agent runs"
+    ).set_defaults(run=receive)
     cards = verbs.add_parser("cards", help="his open question cards").add_subparsers(dest="action", required=True)
     verb = cards.add_parser(
         "redraw",
