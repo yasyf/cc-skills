@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from drive import install, state
+from drive import brief, install, state
 
 PLUGIN = "codex@skills"
 REPLY_FILE = re.compile(r"REPLY_FILE: (/\S+)$", re.MULTILINE)
@@ -72,7 +72,7 @@ def printed(entry: dict) -> list[Path]:
 
 
 def take(name: str, data: dict, job_id: str, run: Run) -> None:
-    """Set a running codex job from the run its relay asked, once it ended: a completed run's reply opens the job's said line and is kept whole in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as a reply opening with no result or one tracing a live bug's cause that names no fix, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
+    """Set a running codex job from the run its relay asked, once it ended: a completed run's reply opens the job's said line and is kept whole in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as a reply opening with no result or one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line."""
     if data["jobs"][job_id]["state"] != "running":
         return
     reply = ""
@@ -80,7 +80,8 @@ def take(name: str, data: dict, job_id: str, run: Run) -> None:
         reply = run.reply.read_text()
         line = next((line.strip() for line in reply.splitlines() if line.strip()), "")
         state.keep_report(name, job_id, line, reply)
-        if refused := state.result_refusal(data, job_id, line, reply):
+        job = data["jobs"][job_id]
+        if refused := state.result_refusal(data, job_id, line, reply) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(reply, job_id, job)):
             line = f"BLOCKED codex-ask completed, its reply refused: {refused}"
     else:
         line = f"BLOCKED codex-ask {run.state}: {last_line(run.log)}"

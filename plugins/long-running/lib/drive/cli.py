@@ -58,7 +58,6 @@ ANSWER_FIRST = (
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`; then keep your"
     " full report and return as usual"
 )
-NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
 PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
 )
@@ -740,15 +739,9 @@ def filing_pairs(data: dict) -> list[tuple[str, str]]:
     return sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
 
 
-def surface(job: dict) -> str | None:
-    """Where he sees or uses a job's result, by its own brief's Native line; None when it names no surface."""
-    native = (job.get("brief_flags") or {}).get("native")
-    return native if native and not NO_SURFACE.match(native) else None
-
-
 def order_surface(data: dict, order: dict) -> str | None:
     """Where he sees or uses an order's result, by the first of its jobs' briefs naming a surface; None when none does."""
-    return next(filter(None, (surface(data["jobs"][job_id]) for job_id in order["jobs"])), None)
+    return next(filter(None, (brief.surface(data["jobs"][job_id]) for job_id in order["jobs"])), None)
 
 
 def order_unfiled(args: argparse.Namespace) -> int:
@@ -1863,11 +1856,8 @@ def job_brief(args: argparse.Namespace) -> int:
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
             " with --handoff <the PR, its head and the event line verbatim>"
         )
-    if flags["native"] and not NO_SURFACE.match(flags["native"]) and not flags["interactions"]:
-        raise DriveError(
-            f"{args.id}'s result is something he uses, by --native: name each click or step he takes on it with --interactions,"
-            " which its builder walks through and records as its proof"
-        )
+    if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
+        raise DriveError(f"{args.id}'s result is something he uses, by --native: {unstoried}")
     if flags["release"] and (unnamed := brief.release_refusal(flags["release"])):
         raise DriveError(f"{args.id}: {unnamed}")
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
@@ -2465,6 +2455,12 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         raise DriveError(f"{key}: refused, nothing added: {why}")
     refuse_an_unkinded_title(key, read, port_of)
     refuse_an_undrawn_show_me(name, key, read)
+    if key not in known["prs"] and (seen := brief.surface(added)) and brief.stories(added["brief_flags"].get("interactions")) and not added.get("repro"):
+        raise DriveError(
+            f"{key}: refused, nothing added: {job_id} builds something he sees ({seen}), so each user story's strict acceptance criteria"
+            f" come before the build: write them into the proof file that clicks each story on the installed surface, keep it with"
+            f" drive job set {job_id} --repro <file>, then add this PR, by his words {brief.STORIES_RULING}"
+        )
     if port_of:
         refuse_a_port_storing_data(key, port_of)
     if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
@@ -4055,7 +4051,10 @@ def parser() -> argparse.ArgumentParser:
         "--native",
         help='where he sees or uses the result and what that platform already does for it, with links; "none" for work he never sees',
     )
-    verb.add_argument("--interactions", help="each click or step he takes on the result, which its builder walks through and records; needed when --native names a surface")
+    verb.add_argument(
+        "--interactions",
+        help="his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves with one picture each on the installed surface; needed when --native names a surface",
+    )
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
     verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, its targets and --env as it runs them; landing_guard refuses any other")

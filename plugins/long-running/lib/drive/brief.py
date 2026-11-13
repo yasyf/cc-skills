@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 
 from drive import limits, state
@@ -24,6 +25,25 @@ CHECK = re.compile(r"^CHECK:(.*)$", re.MULTILINE)
 NATIVE = re.compile(r"^NATIVE:[ \t]*(.*)$", re.MULTILINE)
 PROOF = re.compile(r"https?://\S+|(?<![\w.])/[^\s,;)]+")
 SEEN_PROOF = re.compile(r"slack\.com/archives/|\.(?:mov|mp4|webm|gif|png|jpe?g)$", re.IGNORECASE)
+NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
+STORIES_RULING = (
+    '"you\'re supposed to proactively view and click through every user story and have strict acceptance critera for yourself and'
+    ' instad are just doing the bare minumum based on what I say"'
+)
+STORY_QUESTION = (
+    'Is "{story}" a user story on the surface below: what he does there, such as a click, key or hover, and what he must then see?'
+    " Pick none when it says both. Pick steps when it lists steps or names a part to walk with no result he must see, such as"
+    ' "open the run page, click a step" or "walk each part the earlier brief names".'
+)
+STORY_OPTIONS = {"none": "It says what he does and what he must then see.", "steps": "It lists steps or a part to walk, with no result he must see."}
+PROOF_QUESTION = (
+    'Does the evidence below prove the user story "{story}" on the installed surface? Pick none when the proof file states strict'
+    " acceptance criteria for it, what he sees first, the result of each click, key or hover, and its empty and error states, and"
+    " asserts each on the installed surface, and the check names a picture or recording of it. Pick bare when it only opens a page"
+    " or checks that something drew, states no criteria for this story, or names no picture of it."
+)
+PROOF_OPTIONS = {"none": "Its criteria are stated, asserted on the installed surface and pictured.", "bare": "It stops at the bare minimum for this story."}
+CRITERIA_CHARS = 6000
 REPRO = re.compile(r"^REPRO:[ \t]*\S", re.MULTILINE)
 LEFT = re.compile(r"^(?:NEXT|UNPROVEN):.*$", re.MULTILINE)
 STEPS = r"(?:runs?|re-?runs?|fills?|back-?fills?|migrates?|applies|apply|executes?|triggers?|kicks?\s+off|flips?|enables?|patch(?:es)?|repairs?)"
@@ -298,7 +318,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, one picture of each user story its brief names when he sees the result, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -346,7 +366,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             " or return ASK when it needs his choice"
         )
     if job["kind"] == "builder" and opening == "DONE":
-        return unproven(text)
+        return unproven(text, job_id, job)
     if job["kind"] == "builder" and opening in READY_OPENINGS and not state.REPORT_CHANGE.search(text):
         if reworked := [key for key in state.named_prs(data, job["order"], lines[0]) if data["prs"][key]["rework"]]:
             return f"{', '.join(reworked)}: being reworked to his words, so its {opening} says in a CHANGE: line how they are met, which its fresh card shows him"
@@ -463,23 +483,89 @@ def he_sees(text: str) -> bool:
     return native is not None and not native[1].casefold().startswith("none")
 
 
+def surface(job: dict) -> str | None:
+    """Where he sees or uses a job's result, by its own brief's Native line; None when it names no surface."""
+    native = (job.get("brief_flags") or {}).get("native")
+    return native if native and not NO_SURFACE.match(native) else None
+
+
+def stories(interactions: str | None) -> list[str]:
+    """The user stories a brief's Interactions line names, one per `;`: each what he does on its surface and what he must then see."""
+    return [story.strip() for story in (interactions or "").split(";") if story.strip()]
+
+
+def unstoried(native: str, interactions: str | None) -> str | None:
+    """Why a brief for a surface he sees may not go out: its Interactions line names no user story, or one Jev reads as steps with no result he must see, at least settled.DECIDES sure, all read in one call; Jev giving no reading lets it out, said on stderr."""
+    from drive import settled
+
+    shape = (
+        f"name each user story on {native} with --interactions, one per `;`, each what he does there and what he must then see,"
+        ' such as "press j on the queue; the next card opens with its question as its first line", which its job writes strict'
+        f" acceptance criteria for before building and proves one picture each on the installed surface, by his words {STORIES_RULING}"
+    )
+    if not (told := stories(interactions)):
+        return shape
+    questions = {f"story{number}": {"label": {"instructions": STORY_QUESTION.format(story=story), "options": STORY_OPTIONS}} for number, story in enumerate(told, 1)}
+    try:
+        read = settled.jev({"state": {"surface": native, "stories": told}, "questions": questions})
+    except settled.Unheard as failure:
+        print(f"drive job brief: Jev did not read --interactions as user stories, so the brief goes out unchecked: {failure}", file=sys.stderr)
+        return None
+    steps = [story for number, story in enumerate(told, 1) if (found := read[f"story{number}"])["choice"] == "steps" and found["probabilities"]["steps"] >= settled.DECIDES]
+    return f'--interactions names "{cut(steps[0], 120)}", steps with no result he must see: {shape}' if steps else None
+
+
 def proofs(text: str) -> list[str]:
     """Each link and absolute path the text names, the punctuation that closes its clause cut off, such as the colon after a picture's path."""
     return [re.sub(r"[^\w/]+$", "", found) for found in PROOF.findall(text)]
 
 
-def unproven(text: str) -> str | None:
-    """Why a builder's DONE may not be kept: its CHECK: line names no proof that exists, or, for what he sees, no recording, picture or live post of it."""
+def unproven(text: str, job_id: str, job: dict) -> str | None:
+    """Why a builder's or codex job's DONE may not be kept: its CHECK: line names no proof that exists, or, for what he sees, by its NATIVE: line or its brief's Native, falls short of story_gap."""
     real = [proof for line in CHECK.findall(text) for proof in proofs(line) if proof.startswith("http") or Path(proof).expanduser().exists()]
     if not real:
         return (
             "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists, such as the"
             " live post, the recording of the click, or the saved output of the installed command"
         )
-    if not he_sees(text) or any(SEEN_PROOF.search(proof) for proof in real):
+    if not (he_sees(text) or surface(job)):
+        return None
+    return story_gap(job_id, job, real, text)
+
+
+def story_gap(job_id: str, job: dict, named: list[str], evidence: str) -> str | None:
+    """Why the proof of a result he sees falls short: it names no recording, picture or live post of that surface, or, for a brief naming user stories, fewer pictures or recordings than stories, no proof file holding their acceptance criteria, or one Jev reads with the evidence as stopping at the bare minimum for a story, at least settled.DECIDES sure, every story read in one call; Jev giving no reading leaves it proven, said on stderr."""
+    from drive import settled
+
+    seen = [proof for proof in named if SEEN_PROOF.search(proof)]
+    if not (told := stories((job.get("brief_flags") or {}).get("interactions"))):
+        return None if seen else (
+            "this builds something he sees, by its NATIVE: line or its brief's Native, so its proof is from that surface: record the"
+            " click through it (agent-browser's recording, or screencapture -v of the window) or link the live post, and name the"
+            " file or link on CHECK:; data fetched from an API or a command's output does not show what he sees"
+        )
+    if len(seen) < len(told):
+        return (
+            f"its brief names {len(told)} user stories and its proof pictures or records {len(seen)} of them on the installed surface:"
+            " its proof file clicks through each story and saves one picture of each, named with its story, by his words " + STORIES_RULING
+        )
+    if not (job.get("repro") and Path(job["repro"]).is_file()):
+        return (
+            f"{job_id}'s brief names user stories and it keeps no proof file holding their acceptance criteria: write them before"
+            f" building into the script that clicks each story on the installed surface, and keep it with drive job set {job_id} --repro <file>"
+        )
+    criteria = Path(job["repro"]).read_text(errors="replace")[:CRITERIA_CHARS]
+    questions = {f"proof{number}": {"label": {"instructions": PROOF_QUESTION.format(story=story), "options": PROOF_OPTIONS}} for number, story in enumerate(told, 1)}
+    try:
+        read = settled.jev({"state": {"proof_file": criteria, "check": evidence[-CRITERIA_CHARS:]}, "questions": questions})
+    except settled.Unheard as failure:
+        print(f"drive: Jev did not read the proof against its user stories, so it stands unchecked: {failure}", file=sys.stderr)
+        return None
+    bare = [story for number, story in enumerate(told, 1) if (found := read[f"proof{number}"])["choice"] == "bare" and found["probabilities"]["bare"] >= settled.DECIDES]
+    if not bare:
         return None
     return (
-        "this builds something he sees, by its NATIVE: line, so its proof is from that surface: record the click through"
-        " it (agent-browser's recording, or screencapture -v of the window) or link the live post, and name the file or"
-        " link on CHECK:; data fetched from an API or a command's output does not show what he sees"
+        f'its proof stops at the bare minimum for the story "{cut(bare[0], 120)}": its proof file states that story\'s strict acceptance'
+        " criteria, what he sees first, each click, key and hover's result and its empty and error states, asserts each on the installed"
+        " surface and saves its picture, by his words " + STORIES_RULING
     )

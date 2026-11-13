@@ -217,6 +217,26 @@ def test_a_codex_relays_reply_file_pointer_sets_no_state_on_its_job(demo: str, r
     assert (job["state"], job["said"]) == ("running", None)
 
 
+@pytest.mark.parametrize(("pictures", "taken"), [(1, "failed"), (2, "done")])
+def test_a_codex_done_on_a_surface_its_brief_names_is_taken_only_with_a_picture_of_each_user_story(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, pictures: int, taken: str
+) -> None:
+    codex_job(run)
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\n")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"brief_flags": {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"}, "repro": str(proof)}
+    shots = [tmp_path / f"story{number}.png" for number in range(1, pictures + 1)]
+    for shot in shots:
+        shot.write_bytes(b"\0")
+    reply = f"DONE the queue redrawn\nCHECK: {' '.join(map(str, shots))}\n"
+    one_line_result.take_codex(agent_stop(reply.splitlines()[0], tmp_path, *relay_ran(codex_ask.run("completed", reply))))
+    job = state.load(demo)["jobs"]["j1"]
+    assert job["state"] == taken
+    if taken == "failed":
+        assert job["said"].startswith("BLOCKED codex-ask completed, its reply refused: its brief names 2 user stories and its proof pictures or records 1 of them")
+
+
 def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
     codex_job(run)
     own = codex_ask.run("completed", "DONE reviewed: no findings\n")

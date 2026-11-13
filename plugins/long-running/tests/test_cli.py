@@ -2758,7 +2758,7 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
     seen = "DONE the queue shows one card\nNATIVE: the dashboard's queue view\nCHECK: {}\n"
     code, refused = keep(monkeypatch, capsys, "j1", seen.format(fetched))
     assert code == 2
-    assert "this builds something he sees, by its NATIVE: line, so its proof is from that surface" in refused
+    assert "this builds something he sees, by its NATIVE: line or its brief's Native, so its proof is from that surface" in refused
     assert keep(monkeypatch, capsys, "j1", seen.format(recording))[0] == 0
     picture = tmp_path / "queue.png"
     picture.write_bytes(b"\0")
@@ -2788,6 +2788,33 @@ def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_
     run("job", "set", "j1", "--said", "DONE installed 1.0.76")
     assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\n(j1 kept no report; this one-line result is all it returned)")
     assert json.loads(run("job", "report", "j1", "--json")[1]) == {"id": "j1", "report": None, "said": "DONE installed 1.0.76"}
+
+
+def test_a_builders_done_on_a_surface_its_brief_names_pictures_each_user_story_against_the_criteria_its_proof_file_kept(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the queue")
+    run("job", "add", "builder", "--order", "o1", "--goal", "draw the queue")
+    told = "press j and the next card opens with its question first; hover a card and its PR's title shows"
+    run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "the dashboard's queue", "--interactions", told)
+    pictures = [tmp_path / name for name in ("press-j.png", "hover-a-card.png")]
+    for picture in pictures:
+        picture.write_bytes(b"\0")
+    one, both = (f"DONE the queue opens each card\nCHECK: {' '.join(map(str, shown))}\n" for shown in (pictures[:1], pictures))
+    code, refused = keep(monkeypatch, capsys, "j1", one)
+    assert code == 2
+    assert "its brief names 2 user stories and its proof pictures or records 1 of them on the installed surface" in refused
+    code, refused = keep(monkeypatch, capsys, "j1", both)
+    assert code == 2
+    assert "j1's brief names user stories and it keeps no proof file holding their acceptance criteria" in refused
+    kept_proof(tmp_path, "j1")
+    jev.picks("bare")
+    code, refused = keep(monkeypatch, capsys, "j1", both)
+    assert code == 2
+    assert 'its proof stops at the bare minimum for the story "press j and the next card opens with its question first"' in refused
+    assert [asked["state"]["proof_file"] for asked in jev.asked if "proof1" in asked["questions"]] == ["#!/bin/sh\nexit 0\n"]
+    jev.picks("none")
+    assert keep(monkeypatch, capsys, "j1", both)[0] == 0
 
 
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
@@ -3823,6 +3850,25 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
     assert (prs[key]["wants_tap"], prs["yasyf/cc-skills#7"]["wants_tap"]) == (True, False)
 
 
+def test_pr_add_refuses_a_new_pr_of_a_job_on_a_surface_until_its_proof_file_holds_the_user_stories_criteria(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the queue")
+    run("job", "add", "builder", "--order", "o1", "--goal", "draw the queue")
+    run(
+        "job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+        "--native", "the dashboard's queue", "--interactions", "press j and the next card opens",
+    )
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert capsys.readouterr().err.startswith(
+        "drive: Forge-AI/monorepo#42: refused, nothing added: j1 builds something he sees (the dashboard's queue), so each user story's"
+        " strict acceptance criteria come before the build"
+    )
+    assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
+    kept_proof(tmp_path, "j1")
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+
+
 def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serves_names_it(
     run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4483,9 +4529,8 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert capsys.readouterr().err.strip() == "drive: j3 has no earlier brief to keep --serves, --done-when, --where from: name each"
     first = ["job", "brief", "j3", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "the dashboard's run page"]
     assert cli.main(first) == 2
-    assert capsys.readouterr().err.strip() == (
-        "drive: j3's result is something he uses, by --native: name each click or step he takes on it with --interactions,"
-        " which its builder walks through and records as its proof"
+    assert capsys.readouterr().err.startswith(
+        "drive: j3's result is something he uses, by --native: name each user story on the dashboard's run page with --interactions, one per `;`,"
     )
     code, out = run(*first, "--interactions", "open the run page, click a step, read its log", "--would-he-ask", "a link to the run from his DM")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
@@ -4500,6 +4545,27 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert "Serves: his order\n" in written.read_text()
     assert "Native: the dashboard's run page\n" in written.read_text()
     assert "Plan: the steps section\n" in written.read_text()
+
+
+def test_job_brief_on_a_surface_refuses_interactions_jev_reads_as_steps_and_sends_user_stories_out(
+    run: Run, demo: str, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
+    run("job", "add", "builder", "--order", "o1", "--goal", "draw the steps")
+    briefed = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "the dashboard's run page"]
+    jev.picks("steps")
+    assert cli.main([*briefed, "--interactions", "open the run page, click a step"]) == 2
+    assert capsys.readouterr().err.startswith(
+        "drive: j1's result is something he uses, by --native: --interactions names \"open the run page, click a step\", steps with no result he must see:"
+    )
+    [read] = [asked["questions"]["story1"]["label"]["instructions"] for asked in jev.asked if "story1" in asked["questions"]]
+    assert read.startswith('Is "open the run page, click a step" a user story on the surface below')
+    jev.picks("none")
+    told = "click a step and its log opens beside it; press j and the next step's log replaces it"
+    code, out = run(*briefed, "--interactions", told)
+    assert code == 0
+    assert [asked["state"] for asked in jev.asked if "story1" in asked["questions"]][-1] == {"surface": "the dashboard's run page", "stories": told.split("; ")}
+    assert f"Interactions: {told}\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
 
 
 def test_an_answer_orders_reader_brief_sends_his_answer_to_his_thread_before_its_full_report(run: Run, demo: str) -> None:
@@ -6183,15 +6249,27 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     [request] = jev.asked
     questions = request["questions"]
     assert list(questions) == ["breaks1", "breaks2", "breaks3", "untapped", "card"]
-    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046"]
+    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046", "ruling:a99b78b"]
     assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
     assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
-    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}]
+    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.STORY_WORDS]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
     assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
     settled.judged(case, asked, [])
     assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "card"]
+
+
+def test_a_card_jev_reads_as_telling_no_story_of_its_decision_is_refused_naming_his_words(jev: Jev) -> None:
+    asked = limits.question(AGENT_START, kept=True)
+    case = limits.ask_case(AGENT_START, asked)
+    assert "or it fails to tell its decision's story, the why, the what or the downstream impact?" in settled.CARD_QUESTION
+    jev.breaks("card", limits.STORY_WORDS["id"])
+    broken = settled.judged(case, asked, [])
+    assert broken == [{"part": "the card", **limits.STORY_WORDS}]
+    refused = settled.broken_refusal(broken, None)
+    assert '- the card breaks ruling:a99b78b: asked "his words Nov 13 2026 12:02 AM on what each decision view needs for it to work", he said "its almost like each one needs to tell a story' in refused
+    assert settled.broken_refusal(broken, "ruling:a99b78b: the card asks only which of two names a flag takes") is None
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
