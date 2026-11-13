@@ -134,7 +134,10 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
    plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
    `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
-   asks, and never touches the PR's branch. After any other refusal the watch starts the lander again
+   asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
+   saying it must be merged using the asynchronous merge REST API, the lander merges it through
+   GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
+   the one the lander lands, and reads its result until GitHub ends it. After any other refusal the watch starts the lander again
    on the head its builder pushes, once GitHub reads it free of conflicts, so nobody registers a
    rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
@@ -359,6 +362,13 @@ find the one the drive already tracks, then run `drive pr set <url> --flaky <the
 Your PR reads `waiting` until that fix merges. Then the lander queues the same commit again with
 `stack-enqueue --flake`, once, and `stack-enqueue` records the retry on the PR. A second ejection at that
 commit reads `unlanded`, and so does a fix that closed unmerged: restack and fix the cause, as above.
+
+An ejection whose record in cci's `trunk` drive gives a `GITHUB_API_` reason, such as
+`GITHUB_API_MERGE_PR_FAILED`, with no failing check needs no push either: Trunk tested the stack green
+and GitHub refused its merge. The watch says `PR … merge refused by GitHub …` on every PR that try
+queued, never `checks failed`, and the lander lands the same PRs again one at a time, bottom first; a
+second refusal at the same head reads `unlanded`. Trunk's own `Trunk Merge Queue` check says what the
+queue did with a PR, never what a test found on its head, so the drive counts it as no check.
 
 ## Read-only repositories
 

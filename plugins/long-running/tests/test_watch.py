@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from conftest import DRIVE_TERMINAL, SHORT_ASK, CodexAsk, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
-from drive import card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
+from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -4629,6 +4629,91 @@ def test_a_pr_trunk_ejected_on_a_flaky_test_reads_unlanded_again_once_that_tests
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, closed)
 
 
+BOTTOM, TOP = "Forge-AI/monorepo#49869", "Forge-AI/monorepo#53227"
+REFUSED_BY_GITHUB = f"{land.REFUSED} once Trunk's merge queue took {TOP}: GITHUB_API_MERGE_PR_FAILED, with no failing check"
+
+
+def trunk_failed(key: str, reason: str, at: str, failing: str = "") -> dict:
+    return {"seq": "7", "kind": "queue", "at": at, "text": f"{key} {agents.TRUNK_FAILED}: {reason}", "fields": {"outcome": "failed", "attrs": {"reason": reason, "failing": failing, "target": "dev"}}, "refs": {"prs": [key]}}
+
+
+def queued_stack(name: str, monkeypatch: pytest.MonkeyPatch, at: datetime = T0) -> None:
+    waiting_job(name)
+    with state.edit(name) as data:
+        for key, head in ((BOTTOM, "aaaaaaa111"), (TOP, "bbbbbbb222")):
+            lander = {"head": head, "pid": 1, "at": state.stamp(at), "outcome": land.QUEUED, "was": None, "below": [], "entry": TOP}
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
+                "head": head,
+                "card": CARD,
+                "checked": CHECKED | {"head": head},
+                "native": [BOTTOM, TOP],
+                "checks": "pass",
+                "review": "approved",
+                "lander": lander,
+            }
+    approve(name, BOTTOM, TOP)
+    native = [(BOTTOM, "open"), (TOP, "open")]
+    ejected = read(
+        headRefOid="bbbbbbb222", checks=[*GREEN, TRUNK_FAILED], reviewDecision="APPROVED", native=native, labels=[github.EJECTED_LABEL], ejected_at=state.stamp(at + timedelta(minutes=5))
+    )
+    serve(monkeypatch, {BOTTOM: read(checks=GREEN, reviewDecision="APPROVED", native=native), TOP: ejected})
+
+
+def test_replayed_53227_a_stack_github_refused_once_trunk_tested_it_green_reads_merge_refused_never_checks_failed_and_lands_one_pr_at_a_time_bottom_first(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], trunk_queue: list[dict]
+) -> None:
+    queued_stack(demo, monkeypatch)
+    trunk_queue.append(trunk_failed(TOP, "GITHUB_API_MERGE_PR_FAILED", "2026-11-09T15:20:00Z"))
+    watching = watcher(demo)
+    assert watch.github_lines(watching, T0 + timedelta(minutes=30)) == [f"PR {key}: ejected from the merge queue [o1 j1]" for key in (BOTTOM, TOP)]
+    data = state.load(demo)
+    assert [(data["prs"][key]["checks"], data["prs"][key]["lander"]["outcome"], stage.of(data, key, NO_CARDS).name) for key in (BOTTOM, TOP)] == [("pass", REFUSED_BY_GITHUB, "ready")] * 2
+    assert watch.event_lines(watching) == [f"PR {key}: {REFUSED_BY_GITHUB} [o1 j1]" for key in (BOTTOM, TOP)]
+    assert land.start(demo, [BOTTOM, TOP], NO_CARDS) == [(BOTTOM,)]
+    with state.edit(demo) as data:
+        data["prs"][BOTTOM] |= {"state": "merged", "lander": data["prs"][BOTTOM]["lander"] | {"outcome": land.QUEUED}}
+    assert land.start(demo, [TOP], NO_CARDS) == [(TOP,)]
+    assert landers == [(BOTTOM,), (TOP,)]
+
+
+def test_a_second_refusal_of_a_pr_landed_alone_at_the_same_head_reads_unlanded_waking_the_session_holding_its_order(
+    demo: str, monkeypatch: pytest.MonkeyPatch, trunk_queue: list[dict]
+) -> None:
+    alone = T0 + timedelta(hours=1)
+    queued_stack(demo, monkeypatch, alone)
+    with state.edit(demo) as data:
+        data["prs"][BOTTOM] |= {"state": "merged", "lander": data["prs"][BOTTOM]["lander"] | {"entry": BOTTOM}}
+        data["prs"][TOP]["lander"]["was"] = REFUSED_BY_GITHUB
+    trunk_queue.extend([trunk_failed(TOP, "GITHUB_API_MERGE_PR_FAILED", "2026-11-09T16:20:00Z"), trunk_failed(TOP, "GITHUB_API_MERGE_PR_FAILED", "2026-11-09T15:20:00Z")])
+    moment = T0 + timedelta(hours=2)
+    lines = watch.run_pass(watcher(demo), moment)
+    unlanded = (
+        f"STAGE {TOP} unlanded since {state.stamp(moment)}, owed by the session holding its order:"
+        f" its lander's try at bbbbbbb, started {state.stamp(alone)}, ended {REFUSED_BY_GITHUB} [o1 j1]"
+    )
+    assert unlanded in lines
+    assert watch.wakes(unlanded, state.load(demo))
+
+
+@pytest.mark.parametrize(
+    ("reason", "failing", "at"),
+    [
+        ("TEST_RUN_REQUIRED_STATUS_FAILED", "buildkite/test", "2026-11-09T15:20:00Z"),
+        ("GITHUB_API_MERGE_PR_FAILED", "buildkite/test", "2026-11-09T15:20:00Z"),
+        ("GITHUB_API_MERGE_PR_FAILED", "", "2026-11-09T14:20:00Z"),
+    ],
+)
+def test_a_stack_trunk_ejected_on_a_failing_check_or_refused_only_before_its_try_reads_unlanded_and_lands_nothing_again(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], trunk_queue: list[dict], reason: str, failing: str, at: str
+) -> None:
+    queued_stack(demo, monkeypatch)
+    trunk_queue.append(trunk_failed(TOP, reason, at, failing))
+    watch.github_lines(watcher(demo), T0 + timedelta(minutes=30))
+    ejected = stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue")
+    assert [stage.of(state.load(demo), key, NO_CARDS) for key in (BOTTOM, TOP)] == [ejected, ejected]
+    assert land.start(demo, [BOTTOM, TOP], NO_CARDS) == []
+
+
 def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_each_plugin_its_merge_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     answers = {"view": "ccc333ddd444eee\n", "api": "plugins/long-running/lib/drive/land.py\nREADME.md\n"}
 
@@ -4838,6 +4923,48 @@ def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_u
     tried(demo, outcome)
     assert not watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo))
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "unlanded"
+
+
+def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_async_past_its_rules_and_reads_its_result_until_it_merged(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stacked_pr = "yasyf/cc-skills#4706"
+    refusal = f"GraphQL: This pull request is part of a stack and {land.STACKED}. (mergePullRequest)"
+    endpoint = "repos/yasyf/cc-skills/pulls/4706/merge-async"
+    pending = {"status": "pending", "details": {"message": "Merge request is in progress.", "uuid": "630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42", "bypass_rules": True}}
+    results = iter([pending, {"status": "merged", "details": {"sha": "ccc333ddd444eee"}}])
+    merges = iter([(1, "", refusal + "\n"), (0, json.dumps(pending), "")])
+    runs: list[list[str]] = []
+    reads_: list[list[str]] = []
+
+    def gh(cmd: list[str], **kwargs: object) -> str:
+        reads_.append(cmd)
+        if cmd[1] == "api" and land.MERGE_ASYNC in cmd[2]:
+            return json.dumps(next(results))
+        return "ccc333ddd444eee\n" if cmd[2] == "view" else "README.md\n"
+
+    monkeypatch.setattr(github, "run", gh)
+    monkeypatch.setattr(land.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(install, "touched", lambda repo, files: [])
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
+    with state.edit(demo) as data:
+        data["prs"][stacked_pr] = state.new_pr(state.pr_url(stacked_pr), "j1", "o1") | {"native": [stacked_pr, "yasyf/cc-skills#4720", "yasyf/cc-skills#4730"]}
+    assert land.merged(demo, stacked_pr, ["--admin"]) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
+    assert runs == [
+        ["gh", "pr", "merge", "4706", "-R", "yasyf/cc-skills", "--squash", "--admin"],
+        ["gh", "api", "-X", "PUT", endpoint, "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-F", "bypass_rules=true"],
+    ]
+    assert [cmd for cmd in reads_ if land.MERGE_ASYNC in " ".join(cmd)] == [["gh", "api", f"{endpoint}/630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42"]] * 2
+    assert state.load(demo)["prs"][stacked_pr]["merged_sha"] == "ccc333ddd444eee"
+
+
+def test_a_stacked_pr_githubs_merge_async_ends_failed_is_not_landed_with_githubs_message(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refusal = f"GraphQL: This pull request is part of a stack and {land.STACKED}. (mergePullRequest)"
+    failed = {"status": "failed", "details": {"message": "Required status check \"test\" is expected."}}
+    merges = iter([(1, "", refusal + "\n"), (0, json.dumps(failed), "")])
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, *next(merges)))
+    head = "aaaaaaa111bbbbbbb222"
+    assert land.merged(demo, "Forge-AI/litestream#12", ["--match-head-commit", head]) == f'not landed: GitHub\'s {land.MERGE_ASYNC} ended it failed: Required status check "test" is expected.'
 
 
 def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(

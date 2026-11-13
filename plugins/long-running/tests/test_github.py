@@ -381,6 +381,12 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
     ]
 
 
+def test_trunks_own_failing_merge_queue_check_is_no_failed_test_of_the_head_it_ejected() -> None:
+    trunk = {"name": "Trunk Merge Queue (dev)", "conclusion": "FAILURE", "detailsUrl": "https://app.trunk.io/forge/merge/monorepo/dev", "workflowName": ""}
+    fresh = github.live(pr_read([{"context": "buildkite/test", "state": "SUCCESS"}, trunk], required_checks=["buildkite/test"]), stored())
+    assert (fresh["checks"], fresh["failed_checks"], fresh["required"]) == ("pass", [], {"checks": "pass", "failed": {}})
+
+
 def test_a_check_that_failed_then_dropped_out_for_its_rerun_reads_pending_until_its_new_run_passes() -> None:
     row = stored()
     said = []
