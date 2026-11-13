@@ -519,13 +519,21 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
     assert (job["where"], job["dispatch"], job["run"], job["state"]) == ("remote", DISPATCH, RUN, "running")
 
 
-def test_launch_starts_a_brief_that_runs_break_glass_only_on_this_mac(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("step", "named"),
+    [
+        ("Repair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls", "break-glass"),
+        ("PROVE: tools/ci mac-box prove --commit f3163cd03c48", "mac-box"),
+        ("PROVE: tools/ci db-read \"select count(*) from iris_sessions\"", "db-read"),
+        ("INSTALL: tools/ci release start --order 680721", "ci release"),
+        ("Goal: read the 500s in Datadog APM", "Datadog"),
+    ],
+)
+def test_launch_starts_a_brief_naming_a_step_only_this_mac_runs_only_on_this_mac(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], step: str, named: str
 ) -> None:
     cloned(tmp_path, demo)
-    (tmp_path / "brief.md").write_text(
-        "Drive: demo, order o1, job j1\nRepair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls\n"
-    )
+    (tmp_path / "brief.md").write_text(f"Drive: demo, order o1, job j1\n{step}\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
@@ -533,7 +541,7 @@ def test_launch_starts_a_brief_that_runs_break_glass_only_on_this_mac(
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     assert capsys.readouterr().err == (
-        f"drive: j1: refused, not launched: its brief runs drive break-glass, which no Sprite lane runs, by {reads.NO_SPRITE_GRANT}: launch it with --local\n"
+        f"drive: j1: refused, not launched: its brief names {named}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local\n"
     )
     assert state.load(demo)["jobs"]["j1"].get("launching") is None
     assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")

@@ -6,7 +6,7 @@ from datetime import timedelta
 import agent_brief
 import pytest
 from conftest import RESEARCH
-from drive import agents, state, watch
+from drive import agents, place, state, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -84,8 +84,8 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     mac = "Order (his words): fix the watch\nServes: his order\nGoal: fix it and replay it on a test Mac\nDrive: demo, "
     counted = "; ".join(f"j{number + 1} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
     assert agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o3, job j1")) == (
-        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 starts on a Sprite at once, since its brief runs no"
-        " drive break-glass, release start, ci mac-box, ci devbox or test Mac: write this brief to a file and run drive job launch j1 <file>"
+        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 starts on a Sprite at once, since its brief names no"
+        f" step only this Mac runs, {place.MAC_ONLY_STEPS}: write this brief to a file and run drive job launch j1 <file>"
     )
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
     for order_id, job_id in (("o1", "j10"), ("o2", "j11"), ("o3", "j1")):
@@ -98,15 +98,15 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     assert "j12" not in refused
     assert "j13" not in refused
     assert refused.endswith(
-        "Only a builder whose brief runs drive break-glass, a release start, ci mac-box, ci devbox or a test Mac waits here;"
+        f"Only a builder whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits here;"
         " start any other on a Sprite at once with drive job launch <j> <brief>"
     )
     held = state.load(demo)["jobs"]["j1"]
     assert (held["state"], held["waits"], held["said"], held["where"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", "local")
     run("job", "set", "j2", "--state", "stopped")
-    for job_id, place in (("j1", "1 of 3"), ("j11", "2 of 3"), ("j10", "3 of 3")):
+    for job_id, spot in (("j1", "1 of 3"), ("j11", "2 of 3"), ("j10", "3 of 3")):
         assert agent_brief.deny_reason(started("long-running:builder", f"{mac}order o3, job {job_id}")).startswith(
-            f"refused: {job_id} waits its turn for a builder slot on this Mac, {place} in line. The watch's FREE line names"
+            f"refused: {job_id} waits its turn for a builder slot on this Mac, {spot} in line. The watch's FREE line names"
         )
     assert agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o1, job j10")).startswith(
         "refused: j10 waits its turn for a builder slot on this Mac, 3 of 3 in line, so j10 starts on a Sprite at once,"
@@ -140,3 +140,32 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
         job_id = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")[1].splitlines()[0]
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}order {order_id}, job {job_id}")) is None
     assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(started("long-running:builder", f"{order}order o1, job j9"))
+
+
+def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(place, "busy", lambda: 0.63)
+    monkeypatch.setattr(place, "limit", lambda: 0.5)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "prove the fixes")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "prove", "--repo", "Forge-AI/monorepo") == (0, "j1")
+    run("job", "add", "builder", "--order", "o1", "--goal", "tidy", "--repo", "yasyf/cc-skills")
+
+    def start(job_id: str, lines: str) -> str | None:
+        return agent_brief.deny_reason(started("long-running:builder", f"Order (his words): prove the fixes\nServes: his order\n{lines}\nDrive: demo, order o1, job {job_id}"))
+
+    assert start("j1", "Goal: fix the run page") == (
+        "refused: this Mac is 63% busy, at or over its 50% limit, so j1 starts on a Sprite: drive job launch j1 <brief>. A brief naming a step"
+        f" only this Mac runs, {place.MAC_ONLY_STEPS}, starts here at any load"
+    )
+    for lines in (
+        "Goal: land the desktop fix\nHandoff: merged\nPROVE: tools/ci mac-box up; tools/ci mac-box prove --commit f3163cd03c48; tools/ci mac-box record",
+        'Goal: prove the session rows\nHandoff: merged\nPROVE: tools/ci db-read "select count(*) from sessions where kind = \'personal\'"',
+        "Goal: read the 500s in Datadog APM traces and fix the endpoint",
+        "Goal: release the fix\nINSTALL: tools/ci release start --order 680721",
+        "Goal: free the stuck rows\nRepair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls",
+    ):
+        assert start("j1", lines) is None
+    assert start("j2", "Goal: fix the run page") is None
+    monkeypatch.setattr(place, "busy", lambda: 0.4)
+    assert start("j1", "Goal: fix the run page") is None

@@ -4118,25 +4118,20 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
 
-def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprite_at_once_and_refuses_a_monorepo_one_while_drive_place_says_remote(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprite_at_once_and_never_refuses_a_monorepo_one_for_load(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
     monkeypatch.setattr(place, "limit", lambda: 0.8)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "land the strip")
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo"]) == 2
-    assert capsys.readouterr().err.strip() == (
-        "drive: refused, no job added: this Mac is 95% busy, at or over its 80% limit, so this builder starts remote: add --remote,"
-        " or wait until drive place says local"
-    )
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo", "--remote")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo") == (0, "j1")
     for _ in range(place.LOCAL_BUILDERS - 1):
         assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
     assert state.load(demo)["jobs"]["j9"]["state"] == "running"
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
-    mac_only = "one whose brief runs drive break-glass, a release start, ci mac-box, ci devbox or a test Mac waits its turn for a slot here once its agent starts"
+    mac_only = f"one whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits its turn for a slot here once its agent starts"
     code, added = run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")
     added_id, sprite, *_ = added.splitlines()
     assert (code, added_id) == (0, "j10")
