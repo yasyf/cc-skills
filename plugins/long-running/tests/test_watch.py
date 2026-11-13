@@ -3075,6 +3075,32 @@ def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding
     assert landers == []
 
 
+@pytest.mark.parametrize(("exempt", "path"), [("ci-only", "infra/ci/src/pipelines/test/images.ts"), ("flake fix", "go/sand/next/internal/vm_run/vmruntest/vmruntest.go")])
+def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_drive_pr_set_puts_it_on_his_card_and_his_approve_lands_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], exempt: str, path: str
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"exempt": exempt, "checks": "pass", "review": "approved"}
+    diff = f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
+    monkeypatch.setattr(land.served, "change", lambda key: {"title": "Fix: pin the release image digest", "body": "", "head": "aaaaaaa111", "diff": diff.encode()})
+    assert land.run(demo, [KEY]).startswith(f'not landed: {KEY} is no "{exempt}"')
+    assert cli.main(["pr", "set", KEY, "--no-exempt", "--tap", "--drive", demo]) == 0
+    with state.edit(demo) as data:
+        data["prs"][KEY]["card"] = CARD
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    for moment in (T0, T0 + timedelta(minutes=30)):
+        assert not [line for line in watch.run_pass(watching, moment) if line.startswith("STAGE")]
+        assert (now := stage.of(state.load(demo), KEY, NO_CARDS)).name == "card" and now.owner == stage.HIM
+    with state.edit(demo) as data:
+        pr = data["prs"][KEY]
+        pr["tap"] = state.new_tap("Approve", pr["head"], "pressed the button", at=state.stamp(state.parse_time(pr["lander"]["at"]) + timedelta(minutes=1)))
+    assert stage.of(state.load(demo), KEY, NO_CARDS).name == "ready"
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert landers == [(KEY,)]
+
+
 def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_prs_job_runs_on(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
