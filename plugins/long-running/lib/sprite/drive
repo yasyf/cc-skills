@@ -56,9 +56,10 @@ def kept_answer(path: str, size: str, digest: str) -> str:
 
 def ask(*words: str) -> dict:
     done = subprocess.run(["orca", "orchestration", "ask", *words, "--wait", "--timeout-ms", str(WAIT_MS), "--json"], capture_output=True, text=True, check=False)
-    if done.returncode:
+    asked = json.loads(done.stdout)["result"] if done.stdout.strip() else {}
+    if done.returncode and not asked.get("timedOut"):
         raise SystemExit(f"drive: orca orchestration ask exited {done.returncode}: {(done.stderr or done.stdout).strip()}")
-    return json.loads(done.stdout)["result"]
+    return asked
 
 
 if __name__ == "__main__":

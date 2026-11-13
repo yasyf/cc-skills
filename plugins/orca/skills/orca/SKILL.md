@@ -92,10 +92,14 @@ Before the releases it places each tool `WORKER_TOOLS` names, its words
 sent whole over the same ssh session, and checks a login shell runs it from
 there: the long-running plugin's drive launcher passes
 `drive=<its lib/sprite/drive>`, so a Sprite lane types the same `drive` verbs a
-Mac lane does. When any step fails, the launcher starts no worker, leaves the
-prepared one idle, and prints the reason from the attempt's `tools.err`. Launching the same
-brief again reuses that Sprite: it reruns this step and starts the worker once
-the step passes.
+Mac lane does. When a step on this Mac fails, such as a release read, the
+launcher starts no worker, leaves the prepared one idle, and prints the reason
+from the attempt's `tools.err`. Launching the same brief again reuses that
+Sprite: it reruns this step and starts the worker once the step passes. When
+the Sprite's own install refuses, as a full home volume or a rustup directory
+it cannot write does, the script exits 76, and the launcher retires the attempt,
+destroys that Sprite unless `WORKER_WORKSPACE` continues the lane on it, and
+exits 76, so launching the brief again prepares a fresh Sprite.
 
 A coordinator whose terminal answers other Runs between launches sets
 `WORKER_BIND` to a command prefix that binds the Run and runs the command it is

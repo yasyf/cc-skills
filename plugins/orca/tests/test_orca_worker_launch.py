@@ -63,6 +63,7 @@ PREPARED = {
 RELEASES = (("ccx", "yasyf/cc-context", "v0.95.43", "a" * 64, ""), ("cc-notes", "yasyf/cc-notes", "v0.76.7", "b" * 64, "ccn"))
 REWRITTEN = BRIEF + "\nA later line.\n"
 INSTALLED = {"out": "ccx v0.95.43\ncc-notes v0.76.7\nccn v0.76.7\n"}
+UNRELEASED = {"out": "v0.95.43\n"}
 RECEIPT = {"ok": True, "result": {"runId": RUN, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
 ALLOCATION_KEPT = ["allocation.json", "prepare.err", "prepare.status", "request.json"]
 PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
@@ -886,7 +887,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite()
                 if failed == "tools":
-                    launch.reply("ssh", {"rc": 1, "err": "zig: download failed\n"})
+                    launch.reply("gh api", UNRELEASED)
                 else:
                     launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
                     launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
@@ -908,7 +909,7 @@ class SpriteTest(LaunchTest):
         rewritten = {**PREPARED, "brief": {**PREPARED["brief"], "sha256": hashlib.sha256(REWRITTEN.encode()).hexdigest(), "bytes": len(REWRITTEN.encode())}}
         gone = "ssh: connect to host pool-spare port 22: Connection refused"
         self.launch.sprite()
-        self.launch.reply("ssh", {"rc": 1, "err": "zig: download failed\n"})
+        self.launch.reply("gh api", UNRELEASED)
         self.assertEqual(self.launch.run().returncode, 1)
         first = self.launch.calls()
         self.launch.brief.write_text(REWRITTEN)
@@ -924,7 +925,7 @@ class SpriteTest(LaunchTest):
     def test_a_prepared_sprite_that_refuses_the_brief_keeps_the_attempt_for_another_launch(self):
         refused = f"bash: line 1: {PREPARED['brief']['path']}: No such file or directory"
         self.launch.sprite()
-        self.launch.reply("ssh", {"rc": 1, "err": "zig: download failed\n"})
+        self.launch.reply("gh api", UNRELEASED)
         self.assertEqual(self.launch.run().returncode, 1)
         first = self.launch.calls()
         self.launch.sprite(copied={"rc": 1, "err": f"{refused}\n"})
@@ -965,28 +966,50 @@ class SpriteTest(LaunchTest):
         self.assertEqual(json.loads(result.stdout)["workspace"], "pool-held")
         self.assertTrue((retired / "worker-start.unsent").is_file())
 
-    def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_a_relaunch_reruns_them_on_it(self):
-        unreleased = {"out": "v0.95.43\n"}
-        refused = {"rc": 1, "err": "a login shell runs ccx from /usr/local/bin/ccx, printing 'v0.89.18', not v0.95.43 from /home/sprite/.local/bin/ccx\n"}
-        cases = (
-            ("gh api", (unreleased,), "the latest yasyf/cc-context release reads 'v0.95.43', not a version tag with a ccx_linux_amd64 asset and its sha256 digest, so no tool was installed", 1),
-            ("ssh", (refused,), refused["err"].strip(), 3),
-        )
-        for command, replies, reason, reached in cases:
-            with self.subTest(command=command):
+    def test_a_sprite_whose_tool_releases_cannot_be_read_stays_idle_and_a_relaunch_reruns_them_on_it(self):
+        self.launch.sprite()
+        self.launch.reply("gh api", UNRELEASED)
+        reason = "the latest yasyf/cc-context release reads 'v0.95.43', not a version tag with a ccx_linux_amd64 asset and its sha256 digest, so no tool was installed"
+        line = f"the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {self.launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
+        first = [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools()[:1]]
+        self.assert_failed(self.launch, self.launch.run(), line, first)
+        self.assertEqual(self.launch.kept(), TOOLS_KEPT)
+        self.launch.sprite(copied={})
+        relaunched = self.launch.run()
+        self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+        self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, self.launch.copy(), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_sprite_whose_own_install_refuses_the_tools_is_destroyed_and_a_relaunch_prepares_a_fresh_one(self):
+        for reason in (
+            "a login shell runs ccx from /usr/local/bin/ccx, printing 'v0.89.18', not v0.95.43 from /home/sprite/.local/bin/ccx",
+            "install: error writing '/home/sprite/.local/bin/ccx': No space left on device",
+            "error: could not create temp file /.sprite/languages/rust/rustup/tmp/0f3a_file: Permission denied (os error 13)",
+        ):
+            with self.subTest(reason=reason):
                 launch = self.fresh()
                 launch.sprite()
-                launch.reply(command, *replies)
-                line = f"the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: {reason}; the prepared worker stays idle and unattached, {launch.attempt} keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
-                first = [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]]
-                self.assert_failed(launch, launch.run(), line, first)
-                self.assertEqual(launch.kept(), TOOLS_KEPT)
-                launch.sprite(copied={})
+                launch.reply("ssh", {"rc": 1, "err": f"{reason}\n"})
+                retired = launch.attempt.with_name(f"{launch.attempt.name}.1")
+                line = f"{retired} keeps the earlier attempt, whose Sprite {WORKSPACE} refused the tools a worker needs: {reason}, and its Sprite {WORKSPACE} is destroyed; launching this brief again prepares a fresh Sprite"
+                first = [VERSION, CURRENT, launch.prepare(), *launch.tools(), DESTROY]
+                self.assert_failed(launch, launch.run(), line, first, code=76)
+                self.assertEqual(sorted(path.name for path in retired.iterdir()), TOOLS_KEPT)
+                launch.sprite()
                 relaunched = launch.run()
                 self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
-                self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
-                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, launch.copy(), *launch.tools(), launch.start()])
+                self.assertEqual(launch.calls(), [*first, VERSION, CURRENT, launch.prepare(), *launch.tools(), launch.start()])
                 self.assertEqual(launch.kept(), SPRITE_KEPT)
+
+    def test_a_continued_sprite_that_refuses_the_tools_is_kept_and_the_attempt_retired(self):
+        reason = "install: error writing '/home/sprite/.local/bin/ccx': No space left on device"
+        self.launch.sprite(allocated=PREPARED)
+        self.launch.reply("ssh", {"rc": 1, "err": f"{reason}\n"})
+        retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
+        line = f"{retired} keeps the earlier attempt, whose Sprite {WORKSPACE} refused the tools a worker needs: {reason}, and its Sprite {WORKSPACE} is kept, since this launch continues the lane on it; launching this brief again prepares a fresh Sprite once WORKER_WORKSPACE is unset"
+        self.assert_failed(self.launch, self.launch.run(WORKER_WORKSPACE=WORKSPACE), line, [VERSION, CURRENT, self.launch.prepare(continued=WORKSPACE), *self.launch.tools()], code=76)
+        self.assertEqual(self.launch.kept(), [])
 
     def test_each_tool_worker_tools_names_goes_to_the_sprite_whole_beside_the_released_ones(self):
         launch = self.fresh()

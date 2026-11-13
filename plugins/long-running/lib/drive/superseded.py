@@ -243,6 +243,19 @@ def unheard(data: dict, kept: dict) -> list[str]:
     return [job_id for job_id, mark in kept["jobs"].items() if mark is None and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
 
 
+def resumed(job: dict) -> bool:
+    """Whether drive job resume carries a message to the job, a remote lane with a dispatch, so only its delivery marks the job sent his words."""
+    return job.get("where") == "remote" and bool(job.get("dispatch"))
+
+
+def hear(data: dict, job_id: str, text: str) -> None:
+    """Mark the job sent his words on each answer of his it has not heard whose words the text a resume delivered to its worker holds verbatim, spacing aside."""
+    carried = " ".join(text.split())
+    for kept in data["answers"].values():
+        if job_id in kept["jobs"] and kept["jobs"][job_id] is None and " ".join(kept["words"].split()) in carried:
+            kept["jobs"][job_id] = {"mark": "sent"}
+
+
 def counted(keys: list[str], asked: dict[str, dict]) -> str:
     """How many cards and PRs these keys name, as `2 cards and 3 PRs`."""
     cards = sum(asked[key]["kind"] == "question" for key in keys)
@@ -272,7 +285,9 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
         ),
     ]
     jobs = [
-        f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: SendMessage it his words verbatim, or mark it untouched"
+        f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: "
+        + (f"drive job resume {job_id} with his words verbatim" if resumed(job) else "SendMessage it his words verbatim")
+        + ", or mark it untouched"
         for job_id in unheard(data, kept)
         for job in [data["jobs"][job_id]]
     ]
@@ -280,8 +295,9 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
         f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each job waiting on an order it touches has heard it:',
         *jobs,
         (
-            f"mark each: drive answer {answer_id} --sent <job>... once SendMessage gave it his words verbatim, drive job resume for a"
-            " remote lane, or --untouched <job>... for one his words leave as it is"
+            f"mark each: drive answer {answer_id} --sent <job>... once SendMessage gave it his words verbatim, or --untouched"
+            " <job>... for one his words leave as it is; a remote lane is marked sent by the drive job resume that delivers his words"
+            " verbatim to its worker, and by nothing else"
         ),
     ]
     return "\n".join([*(cards if keys else []), *(told if jobs else [])])

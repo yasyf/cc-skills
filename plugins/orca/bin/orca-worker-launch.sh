@@ -38,6 +38,7 @@ fi
 
 read -ra bind <<<"${WORKER_BIND:-}"
 bind_unstarted=75
+sprite_unfit=76
 
 repo_value() {
   [ ! -f .orca.json ] || jq -r --arg key "$1" '.[$key] // empty | if type == "array" then join(" ") else . end' .orca.json
@@ -141,7 +142,7 @@ retire() {
   local retired=$attempt.1
   while [ -e "$retired" ] || [ -L "$retired" ]; do retired=$attempt.$((${retired##*.} + 1)); done
   mv "$attempt" "$retired"
-  echo "$retired keeps the earlier attempt, $1; preparing again" >&2
+  echo "$retired keeps the earlier attempt, $1; ${2:-preparing again}" >&2
 }
 unreached() {
   local tasks
@@ -299,7 +300,14 @@ if [ "$route" = sprite ]; then
   base=${verdict#ok }
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
     die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so nothing was attached, $(discard "$(jq -r .workspace "$attempt/allocation.json")"), and nothing is prepared again"
-  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" ||
+  status=0
+  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" || status=$?
+  if [ "$status" -eq "$sprite_unfit" ]; then
+    held=$(jq -r .workspace "$attempt/prepared.json")
+    retire "whose Sprite $held refused the tools a worker needs: $(tail -n 1 "$attempt/tools.err"), and $(discard "$held")" "launching this brief again prepares a fresh Sprite${continued:+ once WORKER_WORKSPACE is unset}"
+    exit "$sprite_unfit"
+  fi
+  [ "$status" -eq 0 ] ||
     die "the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, $attempt keeps tools.err, and launching this brief again reruns the tool check on that Sprite"
 
   terminal=$(jq -r .terminal "$attempt/prepared.json")

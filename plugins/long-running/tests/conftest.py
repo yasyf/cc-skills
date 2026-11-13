@@ -450,6 +450,13 @@ def live_sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, int | None]:
 
 
 @pytest.fixture(autouse=True)
+def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    placed: list[str] = []
+    monkeypatch.setattr(orca, "place_tools", placed.append)
+    return placed
+
+
+@pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
