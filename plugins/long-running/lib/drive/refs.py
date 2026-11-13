@@ -96,29 +96,30 @@ def unbacked(text: str) -> list[str]:
 
 
 def unprevented(text: str, found: dict[str, dict]) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or cites the defect record the drive filed for one, with no order or PR on it carrying the tool change that prevents it; found holds each reference the text makes, as resolved reads it."""
+    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or cites the defect record the drive filed for one, when the text outside its fences names no order or PR carrying the tool change that prevents it; found holds each reference the text makes, as resolved reads it."""
+    told = picture.FENCE.sub("", text)
+    if PREVENTION.search(told):
+        return []
     return [
         line.strip()
-        for line in picture.FENCE.sub("", text).splitlines()
+        for line in told.splitlines()
         if not line.lstrip().startswith(">")
         and (
             FAILURE.search(plain := QUOTED.sub("", line))
             and DRIVE_PART.search(plain)
             or any(found[match[0]].get("defect") for match in REF.finditer(line) if match[1] == "record")
         )
-        and not PREVENTION.search(line)
     ]
 
 
-def prevented(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that names a cause or a failure of the drive's own and carries the order or PR preventing it, the line his ruling on failures asks for."""
-    return [
-        line.strip()
-        for line in picture.FENCE.sub("", text).splitlines()
+def prevented(text: str) -> bool:
+    """Whether a line of the text, outside a fence, a quote and a quoted line, names a cause or a failure of the drive's own while the text outside its fences carries the order or PR preventing it, the post his ruling on failures asks for."""
+    told = picture.FENCE.sub("", text)
+    return bool(PREVENTION.search(told)) and any(
+        CAUSE.search(plain := QUOTED.sub("", line)) or FAILURE.search(plain) and DRIVE_PART.search(plain)
+        for line in told.splitlines()
         if not line.lstrip().startswith(">")
-        and PREVENTION.search(line)
-        and (CAUSE.search(plain := QUOTED.sub("", line)) or FAILURE.search(plain) and DRIVE_PART.search(plain))
-    ]
+    )
 
 
 def record_excuses(text: str) -> list[str]:

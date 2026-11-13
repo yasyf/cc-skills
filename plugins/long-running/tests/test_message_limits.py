@@ -715,7 +715,8 @@ def test_a_line_saying_how_a_failure_is_prevented_carries_his_ruling_asking_for_
     words = message_limits.his_words(call("slack_dm_status", transcript, text=f"Fixed.\n{cause}", thread_ts="1.2"))
     assert [word["id"] for word in words] == ["slack:1794310000.000000", "ruling:6a6edbf"]
     assert words[1] == message_limits.PREVENTION_WORDS
-    assert refs.prevented(f"Fixed.\n{cause}\nThe card never posted because the head was old.\n> {cause}") == [cause]
+    assert refs.prevented("Fixed.\nThe card never posted because the approval check read an old head.\n{order:o2} makes it read the current one.")
+    assert not refs.prevented(f"Fixed.\nThe card never posted because the head was old.\n> {cause}")
     unrelated = message_limits.his_words(call("slack_dm_status", transcript, text="{order:o2} is building.", thread_ts="1.2"))
     assert [word["id"] for word in unrelated] == ["slack:1794310000.000000"]
 
@@ -1148,7 +1149,7 @@ def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_ref
     assert "the pool" not in unjudged and "'the drive'" not in unjudged
 
 
-def test_a_line_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_names_the_order_or_pr_preventing_it(talker: str, transcript: Path) -> None:
+def test_a_post_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_names_the_order_or_pr_preventing_it_on_any_line_or_draws_its_card(talker: str, transcript: Path) -> None:
     failed = "Its card was refused: nobody checked that PR against your words."
     disconnected = "The meta session's cci disconnected, so your order never reached it."
     fix = "<https://github.com/yasyf/cc-skills/pull/4460|the card hook fix>"
@@ -1162,12 +1163,16 @@ def test_a_line_telling_him_the_drive_failed_goes_out_warning_the_session_until_
             'You asked "why was the card refused"; the card is up now.',
         )
     )
-    assert refs.unprevented(said, {}) == [failed, disconnected]
+    assert refs.unprevented(said, {}) == []
     told = f"{failed}\n{disconnected}"
+    assert refs.unprevented(told, {}) == [failed, disconnected]
     assert say(transcript, text=told) is None
     warned = warning(transcript, text=told)
     assert warned.startswith("message_limits: this post goes out as written") and "6a6edbf" in warned
     assert warned.endswith(f"The lines: {failed} | {disconnected}")
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#4460"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/4460", "j1", "o1")
+    assert message_limits.checked(call("slack_dm_status", transcript, text=told, tap_prs=["https://github.com/yasyf/cc-skills/pull/4460"]) | {"tool_name": message_limits.SAY})[0] is None
     prevented = f"Its card was refused: nobody checked that PR against your words. {fix} makes the card hook check it."
     assert message_limits.checked(call("slack_dm_status", transcript, text=prevented) | {"tool_name": message_limits.SAY})[0] is None
 
@@ -1206,9 +1211,9 @@ def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_warns_the_s
     passive = "The drive's staging request was refused by SandSQL."
     defect = "Tables post as Slack tables again, {record:671981}."
     fix = "<https://github.com/yasyf/cc-skills/pull/4486|the say fix>"
-    said = "\n".join((proof, uncited, cited, passive, defect, f"{cited} {fix} counts each table row on its own.", "SandSQL's answer is in {record:672190}."))
-    flagged = [proof, uncited, cited, passive, defect]
-    assert refs.unprevented(said, refs.resolved("demo", said)) == flagged
+    said = "\n".join((proof, uncited, cited, passive, defect, "SandSQL's answer is in {record:672190}."))
+    assert refs.unprevented(said, refs.resolved("demo", said)) == [proof, uncited, cited, passive, defect]
+    assert refs.unprevented(f"{said}\n{cited} {fix} counts each table row on its own.", refs.resolved("demo", said)) == []
     told = f"{cited}\n{defect}"
     assert say(transcript, text=told) is None
     assert warning(transcript, text=told).endswith(f"The lines: {cited} | {defect}")

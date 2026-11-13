@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 import record_lines
-from conftest import SHORT_ASK, Thread
-from drive import agents, limits, reads, settled, state, view
+from conftest import SHORT_ASK
+from drive import agents, limits, reads, settled, slack, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -311,56 +311,22 @@ def test_a_report_carrying_a_part_in_an_attr_but_part_is_refused_naming_the_one_
     assert record_lines.decision(coordinator(turn, kind="report", to=TO, records=[answered | {"attrs": {"order": "o1", "thread": THREAD, "part": both}}])) is None
 
 
-def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["thread"] = ["D123", THREAD]
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": OTHER})))
-    assert f"thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason and "drive order set" not in reason
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1", "thread": THREAD})) is None
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
-
-
-def test_a_report_answering_his_message_finishes_an_order_in_that_messages_thread_and_no_other(
-    run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
+def test_a_report_about_an_order_names_any_slack_thread_and_reads_none_of_them_when_written(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["thread"] = ["D123", THREAD]
-    cci_records["671734"] = {"seq": 671734, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p{OTHER.replace('.', '')}"}, "fields": {"attrs": {}}}
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, re=["671734"], attrs={"part": "ship the fix", "close": "o1", "thread": OTHER})) is None
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, re=["671734"], attrs={"close": "o1", "thread": ALERT})))
-    assert f"thread {ALERT} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
-
-
-def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_written_until_its_re_names_his_message_there(
-    run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
     with state.edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
         data["orders"]["o2"]["thread"] = ["D123", OTHER]
-    cci_records["672468"] = {"seq": 672468, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p1794379200000100?thread_ts={OTHER}&cid=D123"}, "fields": {"attrs": {}}}
-    unnamed = {"progress": "true", "order": "o1", "thread": OTHER}
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs=unnamed)))
-    assert f"this report is about o1, and thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, re="672468", attrs=unnamed)) is None
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
 
+    def unreadable(*where: str) -> list[dict]:
+        raise slack.SlackError("cc-slack can't read this thread (thread_not_found)")
 
-def test_a_report_about_an_order_in_another_orders_thread_his_message_started_is_taken_when_written_and_a_thread_he_did_not_start_refused(
-    run: Callable[..., tuple[int, str]], demo: str, turn: Path, slack_thread: Thread
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the incident badge counts only live incidents")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how is the dashboard looking")
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["thread"] = ["D123", THREAD]
-        data["orders"]["o2"]["thread"] = ["D123", OTHER]
-    slack_thread.messages.append({"ts": OTHER, "thread_ts": OTHER, "from_user": True, "text": "how is the dashboard looking"})
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST The incident badge counts only live incidents.", to=TO, attrs={"close": "o1", "thread": OTHER})) is None
-    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST The fix is building.", to=TO, attrs={"progress": "true", "order": "o1", "thread": ALERT})))
-    assert f"this report is about o1, and thread {ALERT} is none of its threads: {THREAD}, nor one his message started." in reason
+    monkeypatch.setattr(slack, "thread", unreadable)
+    for named in ({"close": "o1"}, {"progress": "true", "order": "o1"}, {"part": "o1:ship the fix"}):
+        for thread in (THREAD, OTHER, ALERT):
+            assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs=named | {"thread": thread})) is None
 
 
 def test_a_report_whose_thread_is_none_goes_without_it_and_one_naming_no_slack_thread_is_refused_every_time(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

@@ -23,15 +23,11 @@ WORD = re.compile(r"\w+")
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names that Jev reads its words as carrying and making the clock time its words promise his next line by the order's due, and one on an order in none of its threads posts nothing; the thread of the message of his that a report about the order answers, followed up the report's re, is one of them, and the post adds it to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post naming an order is recorded on it wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
-    if order := post.get("order"):
-        data = state.load(name)
-        where = (post.get("channel_id") or data["slack"]["channel"], post.get("thread_ts"))
-        if refused := cli.report_refusal(data, order, report) or cli.thread_refusal(data, order, where, report):
-            raise DriveError(f"nothing posted: {refused}")
     known = state.load(name)
-    if refused := correction_refusal(known, post.get("record"), report):
+    order = post.get("order")
+    if refused := (order and cli.report_refusal(known, order, report)) or correction_refusal(known, post.get("record"), report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -221,11 +217,11 @@ def check(name: str, post: dict) -> None:
 
 
 def misplaced(data: dict, post: dict) -> str | None:
-    """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
+    """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's, its own or one it was posted on in, in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
     if post.get("channel_id") or post.get("edit") or not (thread := post.get("thread_ts")):
         return None
     dm = data["slack"]["channel"]
-    place = next((where[0] for order in data["orders"].values() if (where := state.promise_thread(order)) and where[1] == thread and where[0] != dm), None)
+    place = next((where[0] for order in data["orders"].values() for where in [state.promise_thread(order), *order["asked_in"]] if where and where[1] == thread and where[0] != dm), None)
     return place and f"nothing posted: thread {thread} is in channel {place}, not his DM, so pass channel_id {place} with it"
 
 

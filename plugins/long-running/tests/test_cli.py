@@ -646,7 +646,6 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
         "o5": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], ("C0BUGS1", bug_root)),
     }
     assert state.message_order(data, "C0BUGS1", bug_root, bug_reply) == "o2"
-    assert cli.thread_refusal(data, "o1", ("D123", root), {}) is None
     assert cli.main([*filed, "look at this", "--from", "slack:C0GONE1/1794341700.000300"]) == 2
     assert (
         "--from slack:C0GONE1/1794341700.000300: refused, Slack cannot read the message it names: cc-slack can't read this conversation (channel_not_found)"
@@ -4622,7 +4621,7 @@ def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_car
     assert ("--channel", "D123", "--thread", card["ts"], "--limit", "1000") in slack_thread.reads
 
 
-def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_keeps_no_promised_time(
+def test_a_part_delivered_at_the_root_of_another_channel_is_recorded_where_it_was_made_and_keeps_no_promised_time(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parts = ["answer why it fails silently", "tell the two stopped people now"]
@@ -4631,14 +4630,12 @@ def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_k
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    told = slack_thread.post(state.now(), from_claude=True).replace("/D123/", "/C0SHARE01/")
+    told = slack_thread.post(state.now(), from_claude=True, thread_ts=None).split("?")[0].replace("/D123/", "/C0SHARE01/")
     before = state.load("demo")["orders"]["o1"]
-    assert run("order", "posted", "o1", told)[0] == 2
+    away = "at the root of another channel, so it is no line to him and keeps no promised time"
+    assert run("order", "posted", "o1", told) == (0, f"o1 progress line, no part delivered: {told}, {away}")
     report_records(monkeypatch, {"661300": {"part": parts[1]}})
-    assert run("order", "posted", "o1", told, "--record", "661300") == (
-        0,
-        f'o1 "{parts[1]}": posted {told}, outside his threads, so it is no line to him and keeps no promised time',
-    )
+    assert run("order", "posted", "o1", told, "--record", "661300") == (0, f'o1 "{parts[1]}": posted {told}, {away}')
     after = state.load("demo")["orders"]["o1"]
     assert after == before | {"parts": {parts[0]: state.new_part(), parts[1]: {**state.new_part(), "posted": told}}}
 
@@ -4653,16 +4650,13 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
         data["roles"]["coordinator"]["session"] = "elsewhere"
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
     line = slack_thread.post(state.now(), from_claude=True)
-    assert run("order", "posted", "o1", line, "--record", "660611") == (
-        0,
-        f'o1 "first check": posted {line}, outside his threads, so it is no line to him and keeps no promised time',
-    )
+    assert run("order", "posted", "o1", line, "--record", "660611") == (0, f'o1 "first check": posted {line}, in thread 1794200000.000100, now one of its threads')
     parts = state.load("demo")["orders"]["o1"]["parts"]
     assert (parts["fix"]["posted"], parts["first check"]["posted"]) == (None, line)
 
 
-def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_until_the_alert_joins_it_then_counts_on_either_order(
-    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+def test_a_line_on_an_incident_in_the_thread_of_another_alert_joins_that_thread_and_counts_on_the_alerts_order_once_it_joins_the_incident(
+    run: Run, demo: str, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
     run("start", "demo", "--role", "communicator")
@@ -4671,33 +4665,10 @@ def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_until_t
         data["roles"]["coordinator"]["session"] = "elsewhere"
     slack_thread.messages.append({"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_user": True})
     line = slack_thread.post(state.now(), from_claude=True)
-    assert cli.main(["order", "posted", "o1", line]) == 2
-    assert (
-        "when his message at the root of that thread is another alert on this incident, that alert is its own order, which the coordinator"
-        ' records with drive order add "<his alert>" --title "<a few words>" --from slack:D123/1794200000.000100 --thread 1794200000.000100 --joins o1'
-        ' --project "The drive" --workstream "Drive tooling", and this line goes on that order'
-    ) in capsys.readouterr().err
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}, in thread 1794200000.000100, now one of its threads")
     alert = "SandSQL replica lanes unproven on staging"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:D123/1794200000.000100", "--thread", "1794200000.000100", "--joins", "o1")
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
-    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
-
-
-def test_a_line_in_the_thread_of_an_order_outside_the_incident_is_refused_naming_that_order_and_no_join(
-    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
-    run("start", "demo", "--role", "communicator")
-    with state.edit("demo") as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    slack_thread.messages.append({"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_user": True})
-    line = slack_thread.post(state.now(), from_claude=True)
-    assert cli.main(["order", "posted", "o1", line]) == 2
-    refused = capsys.readouterr().err
-    assert f"; that thread is o2's, so a line about o2 is recorded on it with drive order posted o2 {line}" in refused
-    assert "--joins" not in refused
 
 
 def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_and_keeps_no_promised_time_since_the_watch_owes_an_incident_its_lines(
@@ -5028,6 +4999,26 @@ def test_a_finished_job_given_a_part_it_does_not_hold_runs_and_one_given_a_part_
         assert state.load(demo)["jobs"]["j1"]["state"] == finished
         run("job", "set", "j1", "--part", "fix")
         assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+
+
+def test_a_report_naming_parts_delivers_each_whatever_its_posts_words_say_and_the_holder_marks_a_part_by_any_post_of_the_drive(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status = "status of the fixes"
+    parts = [status, "the intern cap is sized to the pod's memory, its own PR", "the self-retro: why the row-id change also changed the ids' printed format"]
+    words = "whats the status of our fixes, size the intern cap to the pod's memory as its own PR, and do a self-retro on the id format"
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--parts", *parts)
+    earlier = slack_thread.post(state.now(), from_claude=True, text="Checking where each fix stands now; I will post it by 1:30 PM.")
+    assert run("order", "posted", "o1", earlier, "--part", status) == (0, f'o1 "{status}": posted {earlier}, the post that answered it')
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"681339": {"part": ";".join(f"o1:{part}" for part in parts)}})
+    line = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True, text="The spill-file PR is approved but its test build failed. None has shipped yet.")
+    quoted = ", ".join(f'"{part}"' for part in parts)
+    assert run("order", "posted", "o1", line, "--record", "681339") == (0, f"o1 {quoted}: posted {line}")
+    assert {part: held["posted"] for part, held in state.load("demo")["orders"]["o1"]["parts"].items()} == dict.fromkeys(parts, line)
 
 
 def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_delivers_the_part_it_built(
