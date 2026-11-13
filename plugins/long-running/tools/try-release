@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+plugin=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(git -C "$plugin" rev-parse --show-toplevel)
+folder=$(git -C "$plugin" rev-parse --show-prefix)
+pinned=$(git -C "$repo" for-each-ref --count=1 --sort=-v:refname --format='%(refname:short)' 'refs/tags/long-running--v*')
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+git -C "$repo" archive "$pinned" "$folder" | tar -x -C "$scratch"
+if [ ! -e "$scratch/${folder}tools/demo-drive" ]; then
+  echo "try-release: $pinned ships no tools/demo-drive, so there is no drive of it to try"
+  exit 0
+fi
+python=(uv run --no-project python -I)
+"${python[@]}" "$scratch/${folder}tools/demo-drive" "$scratch/state"
+LONG_RUNNING_STATE="$scratch/state" "${python[@]}" "$plugin/bin/drive" status --drive demo > "$scratch/status.txt" 2>&1 \
+  || { tail -20 "$scratch/status.txt"; echo "try-release: this tree's drive status cannot read the demo drive $pinned saved"; exit 1; }
+echo "try-release: this tree's drive status reads the demo drive $pinned saved"

@@ -839,3 +839,16 @@ def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
     with pytest.raises(RuntimeError), state.indexed_pr_jobs(data):
         raise RuntimeError("projection failed")
     assert state.PR_JOB_INDEX.get() is None
+
+
+def test_the_demo_drive_a_release_saves_for_the_next_release_to_try_reads_with_its_own_drive_status(
+    tmp_path: Path, run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved = tmp_path / "saved"
+    subprocess.run([sys.executable, "-I", str(Path(__file__).resolve().parents[1] / "tools" / "demo-drive"), str(saved)], check=True)
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(saved))
+
+    code, out = run("status", "--drive", "demo")
+
+    assert code == 0
+    assert len(state.load("demo")["jobs"]) == len(state.JOB_KINDS) * len(state.JOB_STATES)

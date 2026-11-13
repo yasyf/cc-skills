@@ -730,3 +730,41 @@ def test_a_spanning_commit_that_lands_under_the_run_is_never_pushed_on_the_old_p
     assert autobump.main() == 1
     assert _out(remote, "rev-parse", "main") == spanning
     assert _out(remote, "tag", "--list") == "x--v1"
+
+
+@pytest.mark.parametrize(
+    ("check", "verdict", "message"), [("true", "bump", None), ("false", "error", "its release check false exited 1, so this tree is not released")]
+)
+def test_a_plugin_whose_release_check_fails_is_never_bumped(repo, monkeypatch, check, verdict, message):
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, "plugins/a/hook.py", "VERB = 'x'\n")
+    _commit(repo, "hook")
+
+    monkeypatch.setenv("AUTOBUMP_RELEASE_CHECK", f"plugins/a {check}")
+    result = _by_name(autobump.analyze(repo, set(), []), "a")
+    assert (result.verdict, result.message) == (verdict, message)
+
+
+def test_a_commit_that_lands_under_the_run_and_fails_the_release_check_is_never_pushed(repo, tmp_path, monkeypatch):
+    _write(repo, _manifest_path("plugins/a"), _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, "plugins/a/hook.py", "VERB = 'x'\n")
+    _commit(repo, "hook")
+    remote, other = tmp_path / "remote.git", tmp_path / "other"
+    _run(tmp_path, "init", "--bare", str(remote))
+    _run(repo, "remote", "add", "origin", str(remote))
+    _run(repo, "push", "-u", "origin", "main")
+    _run(tmp_path, "clone", "--branch", "main", str(remote), str(other))
+    _run(other, "config", "user.name", "Test")
+    _run(other, "config", "user.email", "test@example.com")
+    _run(other, "config", "commit.gpgsign", "false")
+    _write(other, "plugins/a/broken", "\n")
+    landed = _commit(other, "a tree the release check refuses")
+    _run(other, "push", "origin", "main")
+
+    _set_env(monkeypatch, repo, dry_run="false", force="1")
+    monkeypatch.setenv("AUTOBUMP_RELEASE_CHECK", "plugins/a test ! -e plugins/a/broken")
+    assert autobump.main() == 1
+    assert _out(remote, "rev-parse", "main") == landed
+    assert _out(remote, "tag", "--list") == ""

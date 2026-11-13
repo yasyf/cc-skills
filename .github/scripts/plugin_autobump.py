@@ -14,6 +14,8 @@ build changes both the binary's source and the rest of the plugin; the run its
 pin commit starts bumps it.
 A newer pin since the last bump still ships when AUTOBUMP_LOCKSTEP_CHECK passes on
 the tree at HEAD, so a steady stream of such commits cannot starve the pin.
+A plugin whose AUTOBUMP_RELEASE_CHECK command fails on the tree at HEAD is neither
+bumped, tagged nor pinned, and the run fails, so no installer ever sees that tree.
 
 Env contract:
   AUTOBUMP_DRY_RUN   "true"/"false" — plan only, never write/commit/push
@@ -25,6 +27,8 @@ Env contract:
                      from, and the directory that binary is built from
   AUTOBUMP_LOCKSTEP_CHECK  command that exits 0 when the plugin at HEAD asks nothing
                      the pinned binary lacks; run only when a newer pin would wait
+  AUTOBUMP_RELEASE_CHECK  newline-separated `<plugin root> <command>` pairs: a command
+                     that exits 0 when the plugin's tree at HEAD may be released
   AUTOBUMP_FORCE     "1" to allow mutation outside CI (deliberate local use)
   GITHUB_ACTIONS     "true" in CI; mutation needs this or AUTOBUMP_FORCE
   GITHUB_STEP_SUMMARY  optional path to append the summary table
@@ -204,6 +208,14 @@ def wait_reason(repo: Path, root: str, lockstep: tuple[tuple[str, str], ...], ba
     return None
 
 
+def release_check_failure(repo: Path, root: str) -> str | None:
+    checks = dict(line.split(maxsplit=1) for line in os.environ.get("AUTOBUMP_RELEASE_CHECK", "").splitlines() if line.strip())
+    if not (command := checks.get(root)):
+        return None
+    code = subprocess.run(shlex.split(command), cwd=repo).returncode
+    return f"its release check {command} exited {code}, so this tree is not released" if code else None
+
+
 def analyze(repo: Path, guard: set[str], excludes: list[str], lockstep: tuple[tuple[str, str], ...] = ()) -> list[Result]:
     manifests = discover_manifests(repo)
     roots = [plugin_root(m) for m in manifests]
@@ -233,6 +245,8 @@ def analyze(repo: Path, guard: set[str], excludes: list[str], lockstep: tuple[tu
             results.append(Result(name, root, manifest, version, baseline, "guarded"))
         elif reason := wait_reason(repo, root, lockstep, baseline):
             results.append(Result(name, root, manifest, version, baseline, "waiting", message=reason))
+        elif failure := release_check_failure(repo, root):
+            results.append(Result(name, root, manifest, version, baseline, "error", message=failure))
         elif not drifted:
             results.append(Result(name, root, manifest, version, baseline, "publish", new_version=version, new_text=head_raw))
         else:
@@ -297,6 +311,7 @@ def _version_move(r: Result) -> str:
 
 
 def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tuple[tuple[str, str], ...] = ()) -> bool:
+    analyzed = _git_out(repo, "rev-parse", "HEAD").strip()
     for r in bumps:
         (repo / r.manifest).write_text(r.new_text, encoding="utf-8")  # precomputed + validated in analyze
     _git_out(repo, "add", *(r.manifest for r in bumps), *pin_marketplace(repo, bumps))
@@ -325,6 +340,9 @@ def commit_and_push(repo: Path, bumps: list[Result], branch: str, lockstep: tupl
         if pull.returncode == 0:
             if waits := [f"{r.name}: {reason}" for r in bumps if (reason := wait_reason(repo, r.root, lockstep, r.baseline))]:
                 print(f"::error::a commit its pin does not carry yet landed under this run, so nothing is pushed; that commit's own run bumps: {'; '.join(waits)}")
+                return False
+            if failures := [f"{r.name}: {failure}" for r in bumps if tree_drift(repo, analyzed, r.root, [], []) and (failure := release_check_failure(repo, r.root))]:
+                print(f"::error::a commit that landed under this run fails a release check, so nothing is pushed: {'; '.join(failures)}")
                 return False
             push = subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], cwd=repo, env=env)
             if push.returncode == 0:

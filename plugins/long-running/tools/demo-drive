@@ -1,0 +1,19 @@
+#!/usr/bin/env -S python3 -I
+"""Save a demo drive under the state root named, with this release's own code: a coordinator, an order, and a job of each kind in each state, which tools/try-release has the next release's drive status read before autobump pins it."""
+
+import itertools
+import os
+import sys
+from pathlib import Path
+
+os.environ["LONG_RUNNING_STATE"] = sys.argv[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from drive import state
+
+data = state.new_drive("demo", "coordinator", "demo-session", "/", "D0")
+data["orders"]["o1"] = order = state.new_order("demo order", "owner", None, {}, state.stamp())
+for n, (kind, job_state) in enumerate(itertools.product(state.JOB_KINDS, state.JOB_STATES), 1):
+    data["jobs"][f"j{n}"] = state.new_job("o1", kind, "demo goal", [], state.stamp()) | {"state": job_state}
+    order["jobs"].append(f"j{n}")
+state.create(data)
