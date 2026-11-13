@@ -290,12 +290,13 @@ def run(tool: str, name: str, arguments: dict) -> str:
 
 
 def parsed_arguments(arguments: dict, shapes: dict[str, dict]) -> dict:
-    """The call's arguments with each list or object a client sent as JSON text parsed, the list's items too, as the tool's schema types it."""
-    return {key: parsed(key, value, shapes.get(key, {})) for key, value in arguments.items()}
+    """The call's arguments with each list or object a client sent as JSON text parsed, at any depth, such as an op's flaky pair, as the tool's schema types it."""
+    return parsed("arguments", arguments, {"properties": shapes})
 
 
 def parsed(key: str, value: object, shape: dict) -> object:
-    kinds = {shape.get("type"), *(choice.get("type") for choice in shape.get("oneOf") or shape.get("anyOf") or ())}
+    choices = shape.get("oneOf") or shape.get("anyOf") or ()
+    kinds = {shape.get("type"), *(choice.get("type") for choice in choices)}
     if isinstance(value, str) and "string" not in kinds and kinds & {"array", "object"}:
         try:
             value = json.loads(value)
@@ -303,6 +304,9 @@ def parsed(key: str, value: object, shape: dict) -> object:
             raise DriveError(f"{key} is a list or object, and its text is not JSON: {error}") from None
     if isinstance(value, list) and "items" in shape:
         return [parsed(key, item, shape["items"]) for item in value]
+    if isinstance(value, dict):
+        properties = {field: each for choice in (shape, *choices) for field, each in choice.get("properties", {}).items()}
+        return {field: parsed(field, item, properties.get(field, {})) for field, item in value.items()}
     return value
 
 
