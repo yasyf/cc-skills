@@ -49,7 +49,7 @@ ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its b
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 GO_CI = Path("tools", "ci")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
-BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
+BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
@@ -1070,7 +1070,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(f"{builder_id} builder on {parts_named} {data['jobs'][builder_id]['said']}: start no agent for it until the watch's FREE line says its last wait ended")
     if crowd:
         waiting.append(
-            f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits its turn for a slot here once its agent starts"
+            f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
 
@@ -1874,6 +1874,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         "Where": flags["where"],
         "Runs as": flags["runs_as"],
         "Release": flags["release"],
+        "Mac": flags["mac"],
         "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
@@ -1939,7 +1940,7 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief naming a step only this Mac runs starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or that another session holds; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or that another session holds; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
     return relaunch(args, state.resolve(args.drive), None)
 
 
@@ -2073,7 +2074,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         state.held_elsewhere(data, job["order"], role)
         or brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
-        or (f"its brief names {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
+        or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     with state.edit(name) as data:
@@ -4077,6 +4078,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
     verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, as it runs them, refused when Jev does not read the answer its --order names as his approval; landing_guard refuses any other")
+    verb.add_argument(
+        "--mac",
+        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox, ci db-read, a Datadog read or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+    )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the earlier brief's; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted")

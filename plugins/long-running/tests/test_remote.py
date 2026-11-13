@@ -634,35 +634,34 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
 
 
 @pytest.mark.parametrize(
-    ("step", "named"),
+    ("flag", "named"),
     [
-        ("Repair: drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls", "break-glass"),
-        ("PROVE: tools/ci mac-box prove --commit f3163cd03c48", "mac-box"),
-        ("PROVE: tools/ci db-read \"select count(*) from iris_sessions\"", "db-read"),
-        ("INSTALL: tools/ci release start --order 680721", "ci release"),
-        ("Goal: read the 500s in Datadog APM", "Datadog"),
-        ("Interactions: he opens the Executor OOM Run Crash Count monitor in Datadog and sees it quiet", "Datadog"),
-        ("Runs as: drive break-glass j1 --stack sandsql/plat-usw2-prod on this Mac's machine profile", "break-glass"),
-        ("INSTALL: drive install long-running@skills --sha 7765bd2", "drive install"),
-        ("Interactions: he opens the drive's dashboard and walks each part, recording it", "drive's dashboard"),
+        ("--mac", "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- aws s3 ls"),
+        ("--mac", "tools/ci mac-box prove --commit f3163cd03c48"),
+        ("--mac", 'tools/ci db-read "select count(*) from iris_sessions"'),
+        ("--mac", "read the 500s in Datadog APM"),
+        ("--mac", "drive install long-running@skills --sha 7765bd2"),
+        ("--mac", "record the drive's dashboard walking each part"),
+        ("--release", "tools/ci release start api --env prod --order 680721"),
     ],
 )
-def test_launch_starts_a_brief_naming_a_step_only_this_mac_runs_only_on_this_mac(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], step: str, named: str
+def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_mac(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flag: str, named: str
 ) -> None:
     cloned(tmp_path, demo)
-    (tmp_path / "brief.md").write_text(f"Goal: ship it\nHandoff: merged\n{step}\nDrive: demo, order o1, job j1\n")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", flag, named)
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
-    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert cli.main(["job", "launch", "j1"]) == 2
     assert capsys.readouterr().err == (
-        f"drive: j1: refused, not launched: its brief names {named}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local\n"
+        f"drive: j1: refused, not launched: its brief's Mac: or Release: line declares {named}, a step only this Mac runs: start it here,"
+        " with the Agent tool at any load or with --local\n"
     )
     assert state.load(demo)["jobs"]["j1"].get("launching") is None
-    assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
+    assert run("job", "launch", "j1", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
     assert state.load(demo)["jobs"]["j1"]["route"] == state.LOCAL_ROUTE
 
 
@@ -692,51 +691,48 @@ def test_launch_starts_on_a_sprite_a_brief_whose_mac_only_words_sit_only_in_his_
 
 
 @pytest.mark.parametrize(
-    "written",
+    ("refused", "declared"),
     [
-        "Order (his words): Drive tooling: one long command of a break-glass job on an older install held every newer verb, so for about ten"
-        " minutes no session could add a job, post a record or start a handler\n"
-        "Serves: drive tooling\n"
-        "Goal: build j2675's recommended option for the install lock that makes newer verbs wait on older ones\n"
-        "Done when: a launch, resume or pr check refused mid-verb finishes on the newest install, then the install lock and its first-save wait"
-        " are deleted from every drive verb; return BUILT <branch>, waits on durable-agents:j2728-684145\n"
-        "Where: yasyf/cc-skills main, plugins/long-running lib/drive install lock and every verb's first-save wait; a new branch\n"
-        "Handoff: Researched: j2675; designed: j2728 (drive job report j2728). Build its recommended option on a pushed branch, no PR until he answers.\n"
-        "Decisions that bind:\n- May the drive end a stuck drive process that jams every command, without asking him first? (8770f47)\n"
-        "Drive: durable-agents, order o966, job j2729\n",
-        "Order (his words): Drive tooling: drive job add refuses a proof-only builder on this Mac for load, yet a Sprite cannot reach a Mac box"
-        " or run ci db-read, so the proof of a merged desktop fix on a Mac box, and of a production read through ci db-read, gets no builder\n"
-        "Serves: drive tooling\n"
-        "Goal: make the proof pass on the installed build\n"
-        "Where: yasyf/cc-skills main, merged PR yasyf/cc-skills#4648\n"
-        "Decisions that bind:\n- his answer \"Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load check\"\n"
-        "Drive: durable-agents, order o860, job j2775\n",
-        "Goal: a monorepo check that pipes each PR's request into tools/ci release select --pr and fails on an unknown target\n"
-        "Done when: tools/ci release select --pr prints the targets the changed files name\n"
-        "Drive: durable-agents, order o900, job j2678\n",
-        "Goal: one launchd agent per bound drive keeps each watch loop running across crashes and installs, and drive install's reopen stops"
-        " restarting watches itself\n"
-        "Drive: durable-agents, order o901, job j2451\n",
+        ("Incident: Every release a drive job starts starts the regular way, `tools/ci release start <target> --from <sha>`, whose `Release-With` trailer", None),
+        ("Would he ask: that every env value a Claude session has (Datadog, GitHub, AWS profile) reaches the launchd watch the same way", None),
+        ("Goal: build j2624's fix: one drive check asks tools/ci release select --pr for a release wait's service", None),
+        ("Order (his words): Drive tooling: one long command of a break-glass job on an older install held every newer verb", None),
+        ("Order (his words): I thoguth we fixed OOMs? Shared from Datadog in <#C0822AHFY3G>: Executor OOM Run Crash Count (16Gi)", None),
+        (
+            "Order (his words): Drive tooling: a Sprite cannot reach a Mac box or run ci db-read\n"
+            "Done when: j2412.py exits 0 on the installed long-running release, showing a brief naming ci mac-box or ci db-read placed on this Mac",
+            None,
+        ),
+        ("Order (his words): Drive tooling: drive job launch refused a builder because its order text names break-glass as the cause of a stall", None),
+        ("Handoff: Found by job j2806 on a test Mac during a 48-subagent fan-out, verbatim from its record", None),
+        (
+            "Handoff: On his Install now, run drive install captain-hook@captain-hook and drive job prove for j2206's PRs",
+            "drive install captain-hook@captain-hook on his Install now",
+        ),
+        ("Goal: build reader j2939's fold so no drive session, handlers included, can read Datadog with pup", None),
+        ("Goal: j2266 still waits on release:api of Forge-AI/monorepo#55152, which tools/ci release live shows live", None),
+        ("Handoff: fix forward on main. INSTALL: drive install once the fix merges.", "drive install of the long-running release holding the fix"),
+        ("Plan: His words, verbatim, typed on the drive's dashboard under the card", None),
+        ("Handoff: Rebase onto main, resolve, push, merge. INSTALL: drive install of the release.", "drive install of the long-running release holding the merge"),
+        (
+            "Goal: prove Forge-AI/monorepo#55444 on ci mac-box, the test Mac's screen recording, once its release is out",
+            "tools/ci mac-box record of Forge-AI/monorepo#55444's desktop build",
+        ),
+        ("Goal: immediate fix: the release start hook passes j2666's clock release on his picks", None),
+        (
+            "Goal: change 3 of j2152's design: a Datadog alert on SandSQL read breaker trips and the SandSQL CPU monitor's message reworded to today's read gate\n"
+            "Done when: one PR on dev: a Datadog monitor alerts on read breaker trips, and monitor 344179363's message no longer says the per-team share caps streams\n"
+            "Where: Forge-AI/monorepo, base dev; the Datadog monitors' IaC beside monitor 344179363\n"
+            "Runs as: none: an IaC and code change graded by CI",
+            None,
+        ),
     ],
-    ids=["j2729", "j2775 order", "j2678 release select", "j2451 drive install's code"],
+    ids=["j2776", "j2773", "j2678", "j2729", "j2821", "j2775", "j2845", "j2885", "j2941", "j2940", "j3003", "j3038", "j3065", "j3100", "j3104", "j3120", "j3222"],
 )
-def test_mac_step_reads_only_the_steps_a_brief_runs_never_his_order_words_or_tools_ci_release_select(written: str) -> None:
-    assert place.mac_step(written) is None
-
-
-def test_mac_step_names_the_drive_install_and_dashboard_proof_j2860_runs() -> None:
-    j2860 = (
-        "Order (his words): Drive tooling: dashboard improvements: the queue as a priority queue sorted by urgency\n"
-        "Serves: drive tooling\n"
-        "Goal: long-running 1.0.608 is released; install it on this Mac and prove the change live on the dashboard with a recording, then return DONE\n"
-        "Where: this Mac; yasyf/cc-skills main at or after 7765bd2\n"
-        "Handoff: drive install and the dashboard recording run only on the Mac. INSTALL: drive install of long-running 1.0.608 or newer.\n"
-        "Native: the drive dashboard on this Mac\n"
-        "Interactions: open the dashboard and walk each part, recording it\n"
-        "Drive: durable-agents, order o937, job j2860\n"
-    )
-    assert place.mac_step(j2860) == "live on the dashboard"
-    assert place.mac_step(j2860.replace(" live on the dashboard", "")) == "drive install"
+def test_each_refused_mac_only_launch_replayed_stays_here_only_when_its_brief_declares_a_mac_line(refused: str, declared: str | None) -> None:
+    written = f"{refused}\nServes: his order\nDrive: durable-agents, order o1, job j1\n"
+    declaring = written.replace("Drive:", f"Mac: {declared}\nDrive:") if declared else written
+    assert (place.mac_step(written), place.mac_step(declaring)) == (None, declared)
 
 
 def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(

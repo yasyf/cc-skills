@@ -77,7 +77,7 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def overloaded(data: dict, text: str) -> str | None:
-    """Why a Forge-AI/monorepo builder starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief names no step only this Mac runs, which starts here at any load."""
+    """Why a Forge-AI/monorepo builder starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief declares no step only this Mac runs, by place.mac_step, which starts here at any load."""
     match = brief.BRIEF_JOB.search(text)
     job = data["jobs"].get(match[1]) if match else None
     if job is None or (job.get("repo") or "").casefold() != place.MONOREPO.casefold() or place.mac_step(text):
@@ -86,8 +86,8 @@ def overloaded(data: dict, text: str) -> str | None:
     if where == "local":
         return None
     return (
-        f"refused: {why}, so {match[1]} starts on a Sprite: drive job launch {match[1]} <brief>. A brief naming a step only this Mac runs,"
-        f" {place.MAC_ONLY_STEPS}, starts here at any load"
+        f"refused: {why}, so {match[1]} starts on a Sprite: drive job launch {match[1]} <brief>. A brief declaring a step only this Mac runs,"
+        f" on {place.MAC_LINES}, starts here at any load"
     )
 
 
@@ -101,7 +101,7 @@ def crowded(name: str, data: dict, text: str) -> str | None:
     elif not (why := place.crowded(data, job_id, moment)):
         return None
     if job_id and not place.mac_step(text):
-        return f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief names no step only this Mac runs, {place.MAC_ONLY_STEPS}: write this brief to a file and run drive job launch {job_id} <file>"
+        return f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>"
     if job_id in places:
         return f"refused: {why}{line(data)}"
     if job_id is None or not place.queueable(data, job_id):
@@ -115,7 +115,7 @@ def line(data: dict) -> str:
     waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
     return (
         f". The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: {waiting or 'none'}."
-        f" Only a builder whose brief names a step only this Mac runs, {place.MAC_ONLY_STEPS}, waits here; start any other on a Sprite at once with drive job launch <j> <brief>"
+        f" Only a builder whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits here; start any other on a Sprite at once with drive job launch <j> <brief>"
     )
 
 
@@ -126,7 +126,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a monorepo builder starts here over this Mac's load limit only when its brief names a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
