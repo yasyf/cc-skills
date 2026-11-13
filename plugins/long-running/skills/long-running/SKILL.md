@@ -34,7 +34,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 ### His words
 
-- His message is the order: his plan, rulings and recorded answers spare him a repeat question, never a reason to leave his words undone, by his words "Who cares if you have a record if they or not I'm telling you to do it". A brief, record or handoff carries his words verbatim, your reading marked as yours beside them, since a paraphrase becomes the spec downstream.
+- His message is the order: his plan, rulings and recorded answers spare him a repeat question, never a reason to leave his words undone, by his words "Who cares if you have a record if they or not I'm telling you to do it". A brief, record or handoff carries his words verbatim, your reading marked as yours beside them, since a paraphrase becomes the spec downstream; a reading on a job's PR goes only after `cc-notes answer search` on its subject, as a question for the job to reconcile with its own read of the code, never a change to make.
 - His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling). One on how code must work is written, his words verbatim, into the AGENTS.md nearest that code.
 - A ruling binds only what his words name; ask him on a card before carrying it to another surface.
 - His reminder of dropped work, or feedback on a post or card, is a tool defect: fix the drive tool, card library or `check-post` that let it through.

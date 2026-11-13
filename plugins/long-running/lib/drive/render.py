@@ -158,7 +158,9 @@ COORDINATOR_RULES = (
     ),
     (
         "A ruling travels by its words: a brief, handoff or `SendMessage` carries what he wrote verbatim to each live"
-        " job it touches, your reading marked as yours, never an answer id alone; an id or title seen after a"
+        " job it touches, your reading marked as yours, never an answer id alone, and a reading on a job's PR only after"
+        " `cc-notes answer search` on its subject, as a question for the job to reconcile with its own read of the code,"
+        " never a change to make; an id or title seen after a"
         " compaction is read whole with `cc-notes answer show` first. It binds only what his words name; carrying it to"
         " another surface is a question card first."
     ),

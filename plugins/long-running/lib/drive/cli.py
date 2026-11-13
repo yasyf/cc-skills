@@ -2774,7 +2774,7 @@ def pr_wake(args: argparse.Namespace) -> int:
     job = data["jobs"][job_id or pr["job"]]
     lane = state.holder_lane(data["orders"][job["order"]]) or "root"
     said = (
-        f"STAGE {text}; its builder {job_id} is agent {job.get('agent')} of session {job.get('session')}: send it this line"
+        f"STAGE {text}; its builder {job_id} is agent {job.get('agent')} of session {job.get('session')}: send it this line verbatim and alone"
         if job_id
         else f"STAGE {text}; no live job answers for it and its job {pr['job']} is {job['state']}, so no wake starts it: close it, or move it to a live job with drive pr add {pr['url']} --job <j>"
     )
