@@ -134,11 +134,12 @@ def take_codex(payload: dict) -> None:
 
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
-    agents.hold(payload)
-    reason = block_reason(payload)
-    take_codex(payload)
-    if not reason and "handler_session" in payload:
-        reason = agents.end_handler(payload)
+    if "handler_session" in payload:
+        reason = agents.end_handler(payload, block_reason)
+    else:
+        agents.hold(payload)
+        reason = block_reason(payload)
+        take_codex(payload)
     if reason:
         print(json.dumps({"decision": "block", "reason": reason} | agents.ruled(reason)))
 
