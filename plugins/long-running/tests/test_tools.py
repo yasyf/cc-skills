@@ -1065,6 +1065,28 @@ def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_cal
     assert len(posted) == 2
 
 
+def test_his_answer_ends_its_question_before_cci_takes_the_record_and_the_call_sent_again_after_a_refusal_posts_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    cci = Cci(refusal="cci: database is locked")
+    monkeypatch.setattr(subprocess, "run", cci.run)
+    open_cards(monkeypatch, "demo:j1-7")
+    answer = {"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}
+    with pytest.raises(DriveError, match="database is locked"):
+        tools.run("record", demo, {"records": [answer]})
+    [question] = state.load(demo)["jobs"]["j1"]["questions"]
+    assert (question["closed"]["how"], question["closed"]["seq"], view.holds(state.load(demo), "demo:j1-7", view.NO_CARDS)) == ("answered", None, False)
+    cci.refusal = None
+    assert tools.run("record", demo, {"records": [answer]}).splitlines()[:2] == ["1 answer 51", '1 j1\'s question "Which ring?" ended answered by 51']
+    [question] = state.load(demo)["jobs"]["j1"]["questions"]
+    assert question["closed"]["seq"] == "51"
+    assert [record["topic"] for batch in cci.posted for record in batch] == ["card:1794200000.000700"] * 2
+    with pytest.raises(DriveError, match="1: refused, nothing posted: the question this answer names ended already"):
+        tools.run("record", demo, {"records": [answer]})
+
+
 def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_work_and_his_drive_feedback_leaves_a_product_card_asking(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
