@@ -231,7 +231,7 @@ def behind(data: dict, key: str, cards: dict, now: Stage) -> Stage:
 
 def live(data: dict, pr: dict) -> bool:
     """Whether the PR fixes a bug hurting someone now, so a card asking him is asked again every EVERY of its stage."""
-    return any(state.hurts_now(data["orders"][order_id]) for order_id in state.served_orders(data, pr))
+    return any(state.hurts_now(data, data["orders"][order_id]) for order_id in state.served_orders(data, pr))
 
 
 def adopt(data: dict) -> list[str]:

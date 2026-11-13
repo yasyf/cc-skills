@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, SETTLED_NOTE, SHORT_ASK, Answers, explained, Chrome, Draws, Drawing, Heard, Jev, Judge, MetaLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -838,8 +838,32 @@ def test_an_incident_order_with_no_fix_part_is_refused_unless_it_joins_an_open_i
     joined = state.load("demo")["orders"]["o2"]
     assert (joined["incident"], joined["note"], joined["jobs"]) == (True, "record 3fa2c1", [])
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
-    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slower", "--joins", "o3"]) == 2
-    assert "--joins o3: name an open incident order; o3 is open, not an incident" in capsys.readouterr().err
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slower", "--incident", "--joins", "o3"]) == 2
+    assert "--joins o3: name an open order, an open incident order for --incident; o3 is open, not an incident" in capsys.readouterr().err
+
+
+def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_on_that_orders_jobs(run: Run, meta: str, jev: Jev) -> None:
+    filed = ("order", "add", "--title", "Install lock stall", "--project", "The drive", "--workstream", "Drive tooling")
+    run(*filed, LOCK_STALL, "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the install lock")
+    jev.picks("o1")
+    assert run(*filed, LOCK_STALL_AGAIN) == (0, "o2\njoins o1: no record; carried by j1, j2, so no job starts on it")
+    [asked] = [request for request in jev.asked if "repeats" in request["questions"]]
+    assert (asked["state"], list(asked["questions"]["repeats"]["label"]["options"])) == ({"order": LOCK_STALL_AGAIN}, ["none", "o1"])
+    data = state.load("demo")
+    again = data["orders"]["o2"]
+    carried = {"o2": [state.whole_order(LOCK_STALL_AGAIN)]}
+    assert (again["joins"], again["incident"], again["kind"], again["jobs"], [job["carries"] for job in data["jobs"].values()], state.hurts_now(data, again)) == (
+        "o1", False, "build", ["j1", "j2"], [carried, carried], False
+    )
+    watching = watch.Watcher("demo", offset=state.events_end("demo"))
+    gaps = [watch.part_gap(watching, data, order_id, state.whole_order(words), state.now()) for order_id, words in (("o1", LOCK_STALL), ("o2", LOCK_STALL_AGAIN))]
+    assert gaps == [watch.SETTLING, watch.SETTLING]
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "research: who holds the lock")[0] == 0
+    assert [job["carries"] for job in state.load("demo")["jobs"].values()] == [carried] * len(state.load("demo")["jobs"])
+    jev.picks("o1", 0.6)
+    assert run(*filed, "Drive tooling: cards say why") == (0, "o3")
+    assert state.load("demo")["orders"]["o3"]["joins"] is None
 
 
 def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -3312,7 +3336,7 @@ def test_a_cause_report_names_its_fix_whose_order_reads_live_from_it(
     assert (code, "its FIX line names o9, neither an order of the drive nor a GitHub PR link" in err) == (2, True)
     assert keep(monkeypatch, capsys, "j3", traced + "FIX o2\n") == (0, "")
     orders = state.load("demo")["orders"]
-    assert [(orders[order_id]["joins"], state.hurts_now(orders[order_id])) for order_id in ("o2", "o3")] == [("o1", True), (None, False)]
+    assert [(orders[order_id]["joins"], state.hurts_now(state.load("demo"), orders[order_id])) for order_id in ("o2", "o3")] == [("o1", True), (None, False)]
     assert state.incident_orders(state.load("demo"), "o1") == ["o1", "o2"]
 
 
@@ -5664,7 +5688,7 @@ def test_a_question_a_teammate_asked_him_that_he_shares_reaches_them_once_its_an
     asked = "https://acme.slack.com/archives/D0TEAMMATE1/p1794513893775629"
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "what is left for cloud Iris", "--kind", "answer", "--thread", "1794200000.000100", "--reporter", asked)
     order = state.load("demo")["orders"]["o1"]
-    assert (state.reported_bug(order), state.hurts_now(order)) == (False, False)
+    assert (state.reported_bug(order), state.hurts_now(state.load("demo"), order)) == (False, False)
     assert f", asked in {asked}, which hears the answer once it is posted" in run("order", "show", "o1")[1]
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:

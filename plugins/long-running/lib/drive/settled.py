@@ -75,6 +75,11 @@ APPROVES_QUESTION = (
     " enqueue one, lands it and releases nothing, and so does a pick of which code or data layout to build, how to repair"
     " something, or whether a check holds. Pick none when unsure."
 )
+REPEATS_QUESTION = (
+    "A drive tooling order is being added in the words below. Does it ask for what one of these open drive tooling orders already"
+    " asks, the same fault or the same change in other words, so it joins that order and the job building it instead of starting a"
+    " second order, builder and card? Pick that order, or none when it asks for anything none of them asks, even about the same code."
+)
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
 TAP_HEADER = "header:Tap"
@@ -273,6 +278,23 @@ def changed(title: str, words: str, asked: dict[str, dict], instructions: str = 
             " card it settles would keep asking him; run this drive answer again"
         ) from None
     return {cards[short] for short, probability in read["probabilities"].items() if short in cards and probability >= bar}
+
+
+def repeats(data: dict, words: str) -> str | None:
+    """The open drive tooling order these new tooling words ask for again, as Jev reads them against every open tooling order in one call, each order's title and words an option, picked at the DECIDES bar; None when no tooling order is open or Jev picks none, refused when Jev gives no answer."""
+    orders = {order_id: order for order_id, order in state.open_orders(data).items() if order["text"].startswith(state.TOOLING)}
+    if not orders:
+        return None
+    options = {order_id: " — ".join(filter(None, [order["title"], cut(order["text"], QUOTED_CHARS)])) for order_id, order in orders.items()}
+    label = {"instructions": REPEATS_QUESTION, "options": {UNDECIDED: "It repeats none of them.", **options}}
+    try:
+        pick = jev({"state": {"order": words[:BODY_CHARS]}, "questions": {"repeats": {"label": label}}})["repeats"]
+    except Unheard as failure:
+        raise DriveError(
+            f"no order added: Jev did not read these words against the {len(orders)} open drive tooling orders ({failure}), so a repeat of"
+            " one would start a second order, builder and card on it; run it again, or name the order it repeats with --joins <o>"
+        ) from None
+    return pick["choice"] if pick["choice"] in orders and pick["probabilities"][pick["choice"]] >= DECIDES else None
 
 
 def approving(action: str, answer: dict) -> bool:

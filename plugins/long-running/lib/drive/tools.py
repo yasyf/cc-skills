@@ -39,7 +39,7 @@ LEADS = {
         " the one note its reporter gets, a bug's fix-live note or a question's answer, in the thread of their message, or in their"
         " group DM with him and the bot."
     ),
-    "job": "The drive's jobs: add starts one on an order's parts, set changes one, brief writes its brief.",
+    "job": "The drive's jobs: add starts one on an order's parts, none when its inline order joins an open order, set changes one, brief writes its brief.",
     "pr": "The drive's PRs: add records one a job opened, set changes one.",
     "incident": (
         "Incidents: open adds his order as one, with its fix and diagnosis jobs and its evidence record; stop adds the"
@@ -391,7 +391,7 @@ def listed(value: object) -> list[str]:
 
 
 def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
-    """Check every op first, then run them in order, the order and job tools under one save of the drive."""
+    """Check every op first, then run them in order, the order and job tools under one save of the drive; a job add whose inline order joins an open order adds no job, since a job of that order carries it."""
     if refused := refusals(name, group, ops):
         raise DriveError("\n".join([f"refused, nothing written: {len(refused)} of {len(ops)} ops refused; fix each and send the whole call again", *refused]))
     said: list[str] = []
@@ -404,6 +404,10 @@ def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
                 words = (group, verb)
                 if words == ("job", "add") and isinstance(given.get("order"), dict):
                     given = given | {"order": first(ran(name, said, index, ("order", "add"), given["order"], dry_run))}
+                    if not dry_run and (joins := state.load(name)["orders"][given["order"]]["joins"]):
+                        said.append(f"{index} job add: none, since {given['order']} joins {joins}")
+                        made = None
+                        continue
                 if verb != "add" and "id" in fields(leaf(*words)) and "id" not in given:
                     given = given | {"id": made}
                 printed = ran(name, said, index, words, given, dry_run)

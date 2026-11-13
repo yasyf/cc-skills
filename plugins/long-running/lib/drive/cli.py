@@ -202,7 +202,7 @@ def lane_posted(name: str, lane: str) -> bool:
 
 
 def order_add(args: argparse.Namespace) -> int:
-    """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up."""
+    """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a "Drive tooling:" order whose words Jev reads as asking what an open tooling order asks joins that order, every job on that order carrying it, so one fault keeps one job and one card; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up."""
     name = state.resolve(args.drive)
     refuse_unreworkable(state.load(name), args.rework)
     order_id, order, started, incidents = added_order(args)
@@ -285,6 +285,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
     title = titled(args.title)
     if tooling:
         check_tooling_words(name, args.words)
+    if tooling and not (args.joins or args.incident):
+        args.joins = settled.repeats(state.load(name), args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
@@ -300,8 +302,10 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             )
         owner = args.owner or ("meta" if tooling else role or "coordinator")
         joined = find(data["orders"], args.joins, "order") if args.joins else None
-        if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
-            raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
+        if joined and (joined["state"] in state.CLOSED_ORDER_STATES or args.incident and not joined["incident"]):
+            raise DriveError(
+                f"--joins {args.joins}: name an open order, an open incident order for --incident; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}"
+            )
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
         parts = {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]}
@@ -311,8 +315,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "alerts": alerts,
             "reporter": reported,
             "watch": watched,
-            "incident": args.incident or joined is not None,
-            "kind": "build" if args.incident or joined is not None else args.kind,
+            "incident": args.incident or bool(joined and joined["incident"]),
+            "kind": joined["kind"] if joined else "build" if args.incident else args.kind,
             "complex": args.complex,
             "options_only": args.options_only,
             "once": args.once,
@@ -327,8 +331,14 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             need_thread(order_id, order)
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
         started += [state.INCIDENT_BRIEF] if started else []
+        head = order["joins"]
+        repeats = joined and not state.hurts_now(data, order)
+        carriers = [job_id for job_id in data["orders"][head]["jobs"] if data["jobs"][job_id]["order"] == head and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES] if repeats else []
+        for job_id in carriers:
+            state.carry(data, job_id, order_id, list(order["parts"]))
     if joined:
-        started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
+        carried = f"carried by {', '.join(carriers) or 'the next job added on ' + head}, so no job starts on it" if repeats else f"its owner job carries this order with --carries {order_id}"
+        started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; {carried}")
     return order_id, order, started, incidents
 
 
@@ -1092,6 +1102,10 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order["jobs"].append(job_id)
         builder_id = waiting_builder(name, data, job_id, created)
         order["updated"] = created
+        for other_id, other in state.open_orders(data).items():
+            if other["joins"] == args.order and not state.hurts_now(data, other):
+                for carrier in filter(None, [job_id, builder_id]):
+                    state.carry(data, carrier, other_id, list(other["parts"]))
         state.end_carried_designs(data, args.order, created)
         named = state.named_prs(data, args.order, args.goal)
     if named:
@@ -1420,7 +1434,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     if unsettled is None:
         title = next(line.strip() for line in text.splitlines() if line.strip()).removeprefix("ASK ").strip()
         unsettled = next((question["unsettled"] for question in job["questions"] if question["unsettled"] and state.same_question(question["title"], title)), None)
-    asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
+    asked = limits.shape(text, name, job_id, state.drive_dir(name) / "pictures", unsettled, any(state.hurts_now(data, data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     if (question := state.kept_in(job, kept)) and question["closed"] is None and (question["card"] or question["waits"] and not resend):
         return kept, asked, question, None
@@ -3852,7 +3866,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--joins",
         metavar="ORDER",
-        help="an incident order on the same failing service as this open incident order: it takes that order's record and starts no job, since that incident's owner carries it",
+        help=(
+            "the open order this one repeats, an incident's on the same failing service: it takes that order's record and kind and starts no job,"
+            " since that incident's owner, or else each unfinished job on that order and each added on it later, carries it; a \"Drive tooling:\" order Jev reads as"
+            " repeating an open tooling order joins it unasked"
+        ),
     )
     verb.add_argument(
         "--kind",

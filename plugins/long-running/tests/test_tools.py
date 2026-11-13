@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from drive import card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
-from conftest import RESEARCH, Answers, Heard, Withdrawals
+from conftest import LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -35,6 +35,15 @@ def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_mad
     assert (job["order"], job["branch"], job["said"]) == ("o1", "lr-fix", "pushed")
     status = tools.run("status", demo, {"ids": ["o1", "j1"]}).splitlines()
     assert len(status) > 2 and not status[0].startswith("1 status")
+
+
+def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_and_that_orders_reader_carries_it(meta: str, jev: Jev) -> None:
+    filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
+    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    jev.picks("o1")
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
+    assert said.splitlines() == ["1 order add: o2; joins o1: no record; carried by j1, so no job starts on it", "1 job add: none, since o2 joins o1"]
+    assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if "repeats" in request["questions"]])) == (["j1"], 1)
 
 
 def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with_its_fix(demo: str) -> None:

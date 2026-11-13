@@ -996,7 +996,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     if (bug := traced(data, job_id, line)) and (fixes := FIX_LINE.findall(report)):
         head = data["orders"][bug]["joins"] or bug
         for order_id in fix_named(data, job["order"], fixes[-1])[0]:
-            if not (hurts_now(order := data["orders"][order_id]) or order["state"] in CLOSED_ORDER_STATES):
+            if not (hurts_now(data, order := data["orders"][order_id]) or order["state"] in CLOSED_ORDER_STATES):
                 order["joins"] = head
     if (posted := POSTED_LINE.match(line)) and unposted_answer(data, job_id):
         deliver_posted(data, job_id, posted["link"], moment)
@@ -2048,9 +2048,9 @@ def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
     return [order_id for order_id in order_ids if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES]
 
 
-def hurts_now(order: dict) -> bool:
-    """Whether the bug an order fixes hurts someone now, as an incident or a bug someone reported does, or as the fix their cause report's FIX line named does, which joins them, so its immediate fix ships at once while he picks the proper fix."""
-    return bool(order["incident"] or reported_bug(order) or order["joins"])
+def hurts_now(data: dict, order: dict) -> bool:
+    """Whether the bug an order fixes hurts someone now, as an incident or a bug someone reported does, or as an order joined to one does, such as the fix their cause report's FIX line named, which joins them, so its immediate fix ships at once while he picks the proper fix; a drive tooling order joined to the open order it repeats hurts no more than that order does."""
+    return bool(order["incident"] or reported_bug(order) or order["joins"] and hurts_now(data, data["orders"][order["joins"]]))
 
 
 def running_stops(data: dict, order_id: str) -> list[str]:
