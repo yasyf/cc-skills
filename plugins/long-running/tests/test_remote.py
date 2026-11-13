@@ -1,4 +1,5 @@
 import hashlib
+import io
 import itertools
 import json
 import os
@@ -11,7 +12,7 @@ from pathlib import Path
 from unittest.mock import ANY
 
 import pytest
-from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, Drawing, cloned, git_in, staged
+from conftest import DRIVE_TERMINAL, LIVE_WORKER, REAL_DRIVE_TERMINAL, REAL_KEEP_LOGS, RESEARCH, Drawing, cloned, git_in, staged
 from drive import cli, github, orca, place, reads, render, state, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
@@ -569,6 +570,29 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
+
+
+def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_launches_it_with_no_hand_brief(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the run page")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's log", "--kind", "build")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the run's log")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    code, out = run("job", "report", "j1", "-")
+    jobs = state.load(demo)["jobs"]
+    assert (code, out.splitlines()[1], jobs["j4"].get("brief")) == (0, f"j2: Read your brief first: {jobs['j2']['brief']}", None)
+    brief = Path(jobs["j2"]["brief"]).read_text()
+    assert ("Serves: his order\n" in brief, "Researched: j1\n" in brief, "Done when:" in brief) == (True, True, False)
+    assert watch.waits_lines(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0) == [f"FREE j2 o1: j1 answered or done, nothing else holds it; Read your brief first: {jobs['j2']['brief']}"]
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    assert run("job", "brief", "j2", "--plan", "the run page section")[0] == 0
+    assert ("Serves: his order\n" in (rewritten := Path(jobs["j2"]["brief"]).read_text()), "Plan: the run page section\n" in rewritten) == (True, True)
 
 
 def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(

@@ -276,7 +276,8 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                         parts[part]["orphan_said"] = state.stamp(moment)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
                 unlaunched = f", not started yet: drive job launch {job_id} starts it" if job.get("where") == "remote" and not job.get("dispatch") else ""
-                lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}")
+                unstarted = f"; Read your brief first: {job['brief']}" if job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
+                lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         redraws = []
         for key, pr in data["prs"].items():
             if not hears(watcher, data, pr["order"]):
