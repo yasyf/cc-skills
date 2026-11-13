@@ -2865,6 +2865,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_a_port_storing_data(key, port_of)
     if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
+    if exempt and exempt != state.FLAKE_FIX:
+        refuse_an_unexempt(key, exempt, "added")
     wants_tap = state.guarded(key) or not tooling(known["orders"][added["order"]])
     flaky = flake_tap(key, wants_tap) if exempt == state.FLAKE_FIX else None
     with state.edit(name) as data:
@@ -2981,6 +2983,8 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_a_port_storing_data(key, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
             refuse_an_exempt_revert(known, key, order, read)
+    if args.exempt and args.exempt != state.FLAKE_FIX:
+        refuse_an_unexempt(key, args.exempt, "set")
     serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in answered or [])
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
@@ -3267,6 +3271,12 @@ def refuse_a_port_storing_data(key: str, port_of: int) -> None:
         f" never copied from #N's storage, by {PORT_DATA_RULING}. That model is a design part of the order: a design job puts it"
         " on his card, and the PR serves the order with drive pr set <url> --tap --serves <o> --design asked:<his answer>"
     )
+
+
+def refuse_an_unexempt(key: str, exempt: str, done: str) -> None:
+    """Refuse an exempt class the PR is not in, by land.outside, the class check the lander runs before it lands an exempt PR, on the PR as GitHub has it now, before anything is kept, so no class the lander would refuse takes Approve off his card, by his ruling to keep a lane's exempt word and check the class; a flake fix outside test and fixture code keeps his tap instead, by flake_tap."""
+    if why := land.outside(exempt, served.change(key)):
+        raise DriveError(f'{key}: refused, nothing {done}: it is no "{exempt}": {why}, by the class check the lander runs before it lands an exempt PR')
 
 
 def flake_tap(key: str, wants_tap: bool) -> bool:

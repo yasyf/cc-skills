@@ -100,26 +100,29 @@ def stored(paths: list[str]) -> list[str]:
     return [path for path in paths if STORED_DATA.search(path)]
 
 
+def outside(exempt: str, read: dict) -> str:
+    """Why a PR, by its changed files, title and body as served.change read them, is not in the exempt class, the one check of an exempt class: the lander's before it lands, `drive pr add`'s and `drive pr set`'s before they keep the class, and a flake fix's tap; "" when it is."""
+    paths = [path for path, _ in served.files(read["diff"])]
+    match exempt:
+        case "pure port":
+            found = stored(paths)
+            return f"it changes {', '.join(found)}, how its data is stored, which a port models anew for the target tree on his card" if found else ""
+        case "test-only" | state.FLAKE_FIX:
+            found = [path for path in paths if not served.TESTS.search(path)]
+            return f"it changes {', '.join(found)}, outside test and fixture code" if found else ""
+        case "ci-only":
+            found = [path for path in paths if not CI_FILES.search(path)]
+            return f"it changes {', '.join(found)}, outside CI configuration and CI tooling" if found else ""
+        case "incident fix":
+            return "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
+
+
 def unexempt(data: dict, key: str) -> str | None:
-    """Why a PR landing by its exempt class rather than his Approve is not in that class, by its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, or he approved it."""
+    """Why a PR landing by its exempt class rather than his Approve is not in that class, by outside() on its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, or he approved it."""
     pr = data["prs"][key]
     if approved(pr):
         return None
-    read = served.change(key)
-    paths = [path for path, _ in served.files(read["diff"])]
-    match pr["exempt"]:
-        case "pure port":
-            outside = stored(paths)
-            why = f"it changes {', '.join(outside)}, how its data is stored, which a port models anew for the target tree on his card" if outside else ""
-        case "test-only" | state.FLAKE_FIX:
-            outside = [path for path in paths if not served.TESTS.search(path)]
-            why = f"it changes {', '.join(outside)}, outside test and fixture code" if outside else ""
-        case "ci-only":
-            outside = [path for path in paths if not CI_FILES.search(path)]
-            why = f"it changes {', '.join(outside)}, outside CI configuration and CI tooling" if outside else ""
-        case "incident fix":
-            why = "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
-    if not why:
+    if not (why := outside(pr["exempt"], served.change(key))):
         return None
     if pr["exempt"] == state.FLAKE_FIX:
         return f'{key} is a "{pr["exempt"]}", which lands with no tap only in test or fixture code, and {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --tap puts it on his card'

@@ -49,11 +49,12 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
     return behind(data, key, cards, alone(data, key, cards))
 
 
-def own(data: dict, key: str, cards: dict) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses."""
+def own(data: dict, key: str, cards: dict | None) -> Stage:
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it, by view.tap_card: none is drawn yet, or cc-slack keeps the one drawn closed in place, which the watch redraws in place, so no stage names a closed card as his to tap."""
     pr = data["prs"][key]
-    if not pr["card"] and not pr["rework"] and state.asks_tap(pr):
-        return Stage("uncarded", WATCH, "his card on it is not drawn yet")
+    if not pr["rework"] and state.asks_tap(pr) and not view.tap_card(pr, cards):
+        closed = "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
+        return Stage("uncarded", WATCH, closed if pr["card"] else "his card on it is not drawn yet")
     return alone(data, key, cards)
 
 
@@ -72,7 +73,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
-            return blocked(data, failing, waits)
+            return blocked(data, failing, waits, cards)
         return Stage("red", BUILDER, failing)
     if holds := held(data, pr, cards):
         return Stage("held", HIM, holds)
@@ -200,17 +201,17 @@ def answered(data: dict, key: str, failing: str) -> list[str]:
     return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
 
 
-def blocked(data: dict, failing: str, waits: list[str]) -> Stage:
+def blocked(data: dict, failing: str, waits: list[str], cards: dict | None) -> Stage:
     """A red PR whose builder waits on the PRs and releases that fix it: each PR named by its link, owed by him while one of them waits on his Approve on its drawn card, which it links, else by what it waits on, whose own stage wakes its owner."""
-    asks = any(wait in data["prs"] and view.tap_card(data["prs"][wait]) for wait in waits)
-    return Stage("blocked", HIM if asks else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait) for wait in waits)}")
+    asks = any(wait in data["prs"] and view.tap_card(data["prs"][wait], cards) for wait in waits)
+    return Stage("blocked", HIM if asks else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in waits)}")
 
 
-def fix_words(data: dict, wait: str) -> str:
+def fix_words(data: dict, wait: str, cards: dict | None) -> str:
     if wait not in data["prs"]:
         return wait
     pr = data["prs"][wait]
-    asked = f", which waits on his Approve on {view.link('his card', card)}" if (card := view.tap_card(pr)) else ""
+    asked = f", which waits on his Approve on {view.link('his card', card)}" if (card := view.tap_card(pr, cards)) else ""
     return view.pr_link(pr) + asked
 
 

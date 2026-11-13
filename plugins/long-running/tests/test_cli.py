@@ -4791,6 +4791,30 @@ def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: test-only")
 
 
+def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_check_before_pr_add_or_pr_set_keeps_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], redraws: Redraws
+) -> None:
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    paths = ["go/sand/next/cmd/runtime-api/followed_reads_test.go", "go/sand/next/internal/sandsql/sidecar/sidecartest/run.go"]
+    diff = "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: follow reads", "body": "", "head": "abc", "diff": "".join(diff.format(path=path) for path in paths).encode()})
+    refused = f'it is no "test-only": it changes {paths[1]}, outside test and fixture code, by the class check the lander runs before it lands an exempt PR'
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "test-only", *LEAD]) == 2
+    assert f"Forge-AI/monorepo#42: refused, nothing added: {refused}" in capsys.readouterr().err
+    assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert cli.main(["pr", "set", PR, "--exempt", "test-only"]) == 2
+    assert f"Forge-AI/monorepo#42: refused, nothing set: {refused}" in capsys.readouterr().err
+    assert cli.main(["pr", "set", PR, "--exempt", "ci-only"]) == 2
+    assert f'it is no "ci-only": it changes {", ".join(paths)}, outside CI configuration and CI tooling' in capsys.readouterr().err
+    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["exempt"], state.asks_tap(pr), redraws.asked) == (None, True, [])
+    paths.pop()
+    assert run("pr", "set", PR, "--exempt", "test-only")[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "test-only"
+
+
 def test_pr_tapped_refuses_a_pr_the_drive_holds_with_the_hold_label_even_when_exempt(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
     with state.edit("demo") as data:
