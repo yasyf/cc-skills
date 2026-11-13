@@ -544,6 +544,14 @@ holds, or cc-remote's refusal. `drive job end` runs it after `--done`, `drive jo
 resume` runs it on a dead lane's Sprite once the relaunch starts on a fresh one,
 and a drive's watch runs it on the Sprite of each done, failed or stopped job.
 
+`orca-reclaim.py --wake <workspace>` wakes the Sprite cc-remote records under
+that workspace name with `cc-remote orca reconnect`, which reopens its forward,
+waits for the Orca runtime a cold boot starts and adopts it, so Orca reaches the
+Sprite again. It starts no worker, prints `woke <workspace>`, and exits 1 naming
+cc-remote's refusal. `drive job resume`, `drive job launch` and `drive pr wake`
+run it on a lane whose worker-show answers `remote_runtime_unavailable`, then
+read the lane again.
+
 When `orca worktree rm` answers with an error such as `runtime_unavailable`
 but the directory is gone, the reclaimer counts the worktree as removed. The
 Orca error prints on its own `error` line, and a dropped runtime connection

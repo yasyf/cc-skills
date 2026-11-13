@@ -669,6 +669,10 @@ class CcRemote:
         done = subprocess.run([CC_REMOTE, "destroy", sprite.workspace], capture_output=True, text=True)
         return None if done.returncode == 0 else (done.stderr.strip().splitlines() or [f"cc-remote destroy exited {done.returncode}"])[-1]
 
+    def wake(self, workspace: str) -> str | None:
+        done = subprocess.run([CC_REMOTE, "orca", "reconnect", workspace], capture_output=True, text=True)
+        return None if done.returncode == 0 else (done.stderr.strip().splitlines() or [f"cc-remote orca reconnect exited {done.returncode}"])[-1]
+
 
 def current(worker: Worker, orca: Orca) -> str | Action | None:
     presence = orca.presence(worker.terminal, worker.environment)
@@ -1194,6 +1198,8 @@ def main() -> int:
         "It needs no Orca Run or dispatch and no idle terminal, so it reaches a Sprite whose dispatch Orca has dropped, and the pause does not hold it. It prints what it saved, as --save does, "
         "and the workspace it destroyed, or nothing when no task records a Sprite under that name, and exits 1 naming why the read or the save failed, what the Sprite still holds, "
         "or cc-remote's refusal. "
+        "--wake WORKSPACE wakes the Sprite a cc-remote task records under that workspace name with cc-remote orca reconnect, which reopens its forward, waits for the Orca runtime "
+        "a cold boot starts and adopts it, so Orca reaches the Sprite again; it starts no worker. It prints the workspace it woke, or exits 1 naming cc-remote's refusal. "
         "--new is the recurring pass. Without --run it takes one Run a pass, those no pass has swept first, then the one swept longest ago, and skips a Run whose "
         f"coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
         f"In that Run it sweeps up to {SWEPT_BATCH} settled dispatches with an open terminal or a worktree still on disk, those no pass has swept first, newest first, "
@@ -1213,6 +1219,7 @@ def main() -> int:
     parser.add_argument("--held", metavar="WORKSPACE", help="print what this cc-remote workspace's Sprite holds on no remote, or nothing, and change nothing")
     parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name> branches on GitHub, and print what it saved")
     parser.add_argument("--destroy", nargs=2, metavar=("WORKSPACE", "LANE"), help="save what this cc-remote workspace's Sprite holds on no remote as --save does, then destroy it and its Orca environment, and print both")
+    parser.add_argument("--wake", metavar="WORKSPACE", help="wake this cc-remote workspace's Sprite and reconnect Orca to the runtime it runs, starting no worker")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
@@ -1221,8 +1228,8 @@ def main() -> int:
         parser.error("--new picks its own dispatches; drop --dispatch and --done")
     if args.shells and not args.new:
         parser.error("--shells runs only with --new")
-    if (args.held or args.save or args.destroy) and (args.run or args.new or args.dispatch or args.done or args.dry_run or sum(map(bool, (args.held, args.save, args.destroy))) > 1):
-        parser.error("--held, --save and --destroy each take one Sprite by its workspace name; use one, and drop --run, --new, --dispatch, --done and --dry-run")
+    if (args.held or args.save or args.destroy or args.wake) and (args.run or args.new or args.dispatch or args.done or args.dry_run or sum(map(bool, (args.held, args.save, args.destroy, args.wake))) > 1):
+        parser.error("--held, --save, --destroy and --wake each take one Sprite by its workspace name; use one, and drop --run, --new, --dispatch, --done and --dry-run")
     if args.held:
         print(held(args.held, CcRemote()) or "")
         return 0
@@ -1240,8 +1247,14 @@ def main() -> int:
             print(refused, file=sys.stderr)
             return 1
         return 0
+    if args.wake:
+        if refusal := CcRemote().wake(args.wake):
+            print(refusal, file=sys.stderr)
+            return 1
+        print(f"woke {args.wake}")
+        return 0
     if not args.new and not args.run:
-        parser.error("--run is required without --new, --held, --save or --destroy")
+        parser.error("--run is required without --new, --held, --save, --destroy or --wake")
     if args.new:
         tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED, FILES_PAUSED))
     else:

@@ -1243,12 +1243,12 @@ def test_resume_continues_a_dead_lane_on_its_own_sprite_when_what_that_sprite_ho
         "j1: the message went to the job's next worker, relaunched on Sprite pool-sleeping as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-sleeping was"
         " dead (Orca no longer holds its Sprite's environment), and it continues in the checkout the dead lane left on pool-sleeping,"
-        f" since what that Sprite holds on no remote could not be saved: {why}",
+        f" since what that Sprite holds on no remote could not be saved to GitHub: {why}",
     )
     assert (launched["lane"], launched["workspace"]) == ("demo-j1-2", "pool-sleeping")
     brief = orca.brief_of(launched["brief"])
     assert (
-        "You continue the job on the same Sprite, in the checkout it left as it was, since what it holds on no remote could not be"
+        "You continue the job on the same Sprite, in the checkout it left as it was, since what that Sprite holds on no remote could not be"
         f" saved to GitHub: {why}. Read its git status and log before anything else." in brief
     )
     assert orca.UNPUSHED not in brief
@@ -1258,6 +1258,123 @@ def test_resume_continues_a_dead_lane_on_its_own_sprite_when_what_that_sprite_ho
         "pool-sleeping",
         [(DISPATCH, "pool-sleeping")],
     )
+
+
+J1409_LANES = {
+    "j242": ("pool-oqjx23ri66atfgfg", "ctx_c44e96f422c4", 65303),
+    "j489": ("pool-2hwh2ntcbx2vi2jh", "ctx_df202ff0ae15", 53666),
+    "j414": ("pool-cmvrj533rully62b", "ctx_de61a1b48f4c", 56897),
+    "j601": ("pool-ereynip6pqkdwptf", "ctx_cdf88856d82c", 60892),
+    "j290": ("pool-2ga7fnjkv5qghs7b", "ctx_7ce8b24fa959", 52522),
+}
+J2504_LANE = ("pool-k2iqtr6xv3wolr6f", "ctx_0afc9f8512dd", 59582)
+NO_WAKE = "failed to start sprite command: failed to connect: read tcp [2600:1700:2f71:844f:98cd:4e66:a709:7381]:49893->[2a09:8280:1::99:d7b3:0]:443: i/o timeout"
+
+
+def unreachable(port: int) -> str:
+    return f"Orca could not reach its Sprite: orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"
+
+
+def unreachable_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane: tuple[str, str, int], after_wake: Callable[[], dict] | None) -> tuple[list[tuple[str, ...]], list[dict]]:
+    """j1's lane on the Sprite, dispatch and port j1409 read remote_runtime_unavailable on; a wake that reads the lane as after_wake does, or one that fails as j489's did, whose Sprite then refuses prepare --existing too."""
+    workspace, dispatch, port = lane
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), dispatch=dispatch, workspace=workspace, branch="durable-agents-j2504/sandsql-two-redo-volumes", said="building the tallies")
+    wakes, launches = [], []
+    down = refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")
+
+    def reclaimer(checkout: Path, *args: str) -> str:
+        wakes.append(args)
+        if after_wake is None:
+            raise orca.OrcaError(f"orca-reclaim.py exited 1: {NO_WAKE}")
+        return f"woke {args[1]}"
+
+    def launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launches.append({"workspace": workspace, "session": session, "brief": brief.read_text()})
+        if workspace and after_wake is None:
+            raise orca.Unstarted(f"orca-worker-launch.sh exited 1 before a worker started: cc-remote orca prepare {workspace} --existing: {NO_WAKE}")
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane")} | {"workspace": workspace or "workspace-2"}
+
+    monkeypatch.setattr(orca, "reclaimer", reclaimer)
+    monkeypatch.setattr(orca, "worker", lambda shown: after_wake() if wakes and after_wake else down(shown))
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "launch", launch)
+    return wakes, launches
+
+
+@pytest.mark.parametrize("job_id", J1409_LANES)
+@pytest.mark.parametrize(
+    "after_wake",
+    [dead, lambda: refused("remote_runtime_unavailable", "Could not connect to the remote Orca runtime at ws://127.0.0.1:61207")(DISPATCH)],
+    ids=["exited once woken", "unreachable once woken"],
+)
+def test_a_lane_orca_could_not_reach_restarts_on_its_own_sprite_once_the_wake_reaches_it(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, job_id: str, after_wake: Callable[[], dict]
+) -> None:
+    workspace, dispatch, port = J1409_LANES[job_id]
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J1409_LANES[job_id], after_wake)
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a lane continuing on its own Sprite saves nothing"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane that ended: {args}"))
+    code, out = run("job", "resume", "j1", watch.UNREACHED)
+    assert (code, out.startswith(f"j1: the message went to the job's next worker, relaunched on Sprite {workspace} as dispatch dispatch-2")) == (0, True)
+    assert out.endswith(f"and it continues in the checkout the dead lane left on {workspace}, since Orca could not reach that Sprite")
+    assert f"was dead ({unreachable(port)}, and " in out
+    assert (wakes, [launched["workspace"] for launched in launches]) == ([("--wake", workspace)], [workspace])
+    brief = orca.brief_of(launches[0]["brief"])
+    assert "You continue the job on the same Sprite, in the checkout it left as it was, since Orca could not reach that Sprite." in brief
+    assert brief.endswith(f"which you act on now:\n\n{watch.UNREACHED}")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == ("dispatch-2", workspace, [(dispatch, workspace)])
+
+
+def test_a_lane_orca_could_not_reach_resumes_its_own_claude_session_on_its_sprite_once_the_wake_reaches_it(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str]
+) -> None:
+    workspace, dispatch, port = J1409_LANES["j290"]
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J1409_LANES["j290"], dead)
+    sessions[workspace] = "4f9cdc9b-50e4-429f-ad12-d06b9798712a"
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a lane resuming its own session saves nothing"))
+    code, out = run("job", "resume", "j1", watch.UNREACHED)
+    assert (code, out.startswith(f"j1: the message went to the job's worker, which resumed its own Claude session {sessions[workspace]} on Sprite {workspace}")) == (0, True)
+    assert (wakes, [(launched["workspace"], launched["session"]) for launched in launches]) == ([("--wake", workspace)], [(workspace, sessions[workspace])])
+    assert launches[0]["brief"].rstrip().endswith(watch.UNREACHED)
+
+
+@pytest.mark.parametrize("lane", [J1409_LANES["j489"], J1409_LANES["j414"], J1409_LANES["j601"], J2504_LANE])
+def test_a_pushed_job_whose_sprite_will_not_wake_restarts_on_a_fresh_sprite_from_its_pushed_branch_with_its_held_text(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane: tuple[str, str, int]
+) -> None:
+    workspace, dispatch, port = lane
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, lane, None)
+    monkeypatch.setattr(orca, "save", unsaveable(UNREAD))
+    monkeypatch.setattr(orca, "release", lambda *args: pytest.fail("a Sprite holding what no save reached is kept"))
+    held = "Next event for builder j2504, from the coordinator. Design job j3161 picked the two redo volumes."
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
+    code, out = run("job", "resume", "j1")
+    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
+    assert f"was dead ({unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and orca-worker-launch.sh exited 1" in out
+    assert out.endswith(f"{workspace} is kept, since what it holds on no remote could not be saved: {UNREAD}")
+    assert (wakes, [launched["workspace"] for launched in launches]) == ([("--wake", workspace)], [workspace, None])
+    brief = orca.brief_of(launches[-1]["brief"])
+    assert f"You take the job over on a fresh Sprite from its pushed branches; {orca.UNPUSHED}" in brief
+    assert "Its branch: durable-agents-j2504/sandsql-two-redo-volumes\n" in brief and brief.endswith(f"which you act on now:\n\n{held}")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], job["undelivered"], [death["workspace"] for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [workspace])
+
+
+def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_nothing_restarts(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, ("pool-ochwykolpjebecve", DISPATCH, 61207), lambda: LIVE_WORKER)
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    assert run("job", "resume", "j1", watch.UNREACHED) == (0, f"j1: sent to dispatch {DISPATCH}")
+    assert (wakes, launches) == ([("--wake", "pool-ochwykolpjebecve")], [])
+    assert sent == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", watch.UNREACHED, "--retry-request", ANY)]
 
 
 def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_with_the_handoff(
@@ -1781,19 +1898,12 @@ def test_a_send_orca_refuses_keeps_the_text_held_under_its_request_id(run: Run, 
     )
 
 
-@pytest.mark.parametrize("unknown", ["remote_runtime_unavailable", "unverifiable"])
 def test_resume_holds_the_text_and_sends_nothing_while_orca_cannot_tell_whether_the_lane_lives(
-    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, unknown: str
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sent = []
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
-
-    def show(dispatch: str) -> dict:
-        if unknown == "unverifiable":
-            return dead(unknown)
-        raise orca.OrcaError(f"orca orchestration worker-show: {unknown}: the host did not answer")
-
-    monkeypatch.setattr(orca, "worker", show)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead("unverifiable"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a lane Orca cannot see is never relaunched"))
     code, out = run("job", "resume", "j1", "PR checks failed")
     assert (code, sent, out.startswith("j1: held, not sent yet: ")) == (0, [], True)
@@ -1806,11 +1916,7 @@ def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the
 ) -> None:
     sent = []
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
-
-    def down(dispatch: str) -> dict:
-        raise orca.OrcaError("orca orchestration worker-show: remote_runtime_unavailable: the host did not answer")
-
-    monkeypatch.setattr(orca, "worker", down)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead("unverifiable"))
     with state.edit(remote) as data:
         data["jobs"]["j1"]["undelivered"] = [{"seq": "#61", "words": "ship it", "at": state.stamp(), "said": None}]
     assert run("job", "resume", "j1", "ship it, he said")[0] == 0
@@ -2033,6 +2139,25 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive(remote
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     watch.run_pass(watching, T0 + timedelta(minutes=2))
     assert senders == ["j1"]
+
+
+def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach_three_reads_running(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    workspace, dispatch, port = J1409_LANES["j242"]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(dispatch=dispatch, workspace=workspace, state="running", said="building the tallies")
+    reads, woken = [], []
+    monkeypatch.setattr(orca, "worker", lambda shown: reads.append(shown) or refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(shown))
+    monkeypatch.setattr(watch, "wake", lambda name, job_id: woken.append((name, job_id)) or os.getpid())
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    said = (
+        f"LANE j1 o1 unreachable on Sprite {workspace}: orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime"
+        f' at ws://127.0.0.1:{port}, while it worked on "building the tallies". The watch ran drive job resume j1, which wakes that Sprite and restarts the lane there,'
+        f" else on a fresh Sprite, its output in the drive's {watch.RELAUNCHES_LOG}"
+    )
+    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said], []]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    assert (len(reads), woken) == (4, [(remote, "j1")])
 
 
 def test_a_held_text_no_send_took_is_said_as_the_watchs_to_send(remote: str) -> None:

@@ -1975,7 +1975,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
                 hold(name, args.id, text)
                 return deliver(args, name)
             try:
-                end = orca.lane_end(job)
+                end = orca.lane_end(name, job)
             except orca.OrcaError as error:
                 raise DriveError(
                     f"{args.id}'s lane cannot be checked, so nothing was started: {error}; launch it again once Orca reaches its lane {orca.ON_MAC if state.on_mac(job) else 'on its Sprite'}"
@@ -2014,7 +2014,7 @@ def deliver(args: argparse.Namespace, name: str) -> int:
     if not held:
         return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
     try:
-        end = orca.lane_end(job)
+        end = orca.lane_end(name, job)
     except orca.OrcaError as error:
         return unsent(args, job, held, error)
     if end:
@@ -2195,11 +2195,12 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd, text: str | None, here: bool = False) -> int:
-    """Start the job's next worker with a handoff, carrying the text when a resume brought one: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run, unless that Sprite refuses the tools a worker needs; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. A dead lane's Sprite first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools, when it is kept and the relaunch runs on a fresh one. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, moves the job to a fresh worktree on this Mac whether its worker finished or died, once what its Sprite holds on no remote is saved, and refuses with nothing recorded when that save fails. The handoff carries every text a resume holds on the job, oldest first, then the text given, since the start it records clears what the job holds."""
+    """Start the job's next worker with a handoff, carrying the text when a resume brought one: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, on that worker's Run, unless that Sprite refuses the tools a worker needs; else, on a Run this terminal makes, on a fresh Sprite, or in a fresh worktree on this Mac. A dead lane's Sprite first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed; when that Sprite cannot be read or the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools or started no worker, as a Sprite that will not prepare does, when it is kept and the relaunch runs on a fresh one. A lane Orca could not reach, whose Sprite lane_end woke or tried to, relaunches on that Sprite in the checkout it left with no save when no session of it resumes there, and on a fresh one the same way when that Sprite starts no worker. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, moves the job to a fresh worktree on this Mac whether its worker finished or died, once what its Sprite holds on no remote is saved, and refuses with nothing recorded when that save fails. The handoff carries every text a resume holds on the job, oldest first, then the text given, since the start it records clears what the job holds."""
     data = state.load(name)
     job = data["jobs"][args.id]
     message = "\n\n".join([*(kept["words"] for kept in state.held(job)), *filter(None, [text])]) or None
     same = end.worktree and not here
+    unreached = end.unreached and not (here or end.unfit)
     root = None if same else orca.checkout(name, data)
     left = None
     if not (end.worktree or state.on_mac(job)):
@@ -2210,13 +2211,17 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             except orca.Unstarted as error:
                 end = end._replace(why=f"{end.why}, and its Claude session {session} did not resume there: {error}", unfit=isinstance(error, orca.Unfit))
     try:
-        saved = None if same else orca.save(name, args.id, job, root)
+        saved = None if same or unreached else orca.save(name, args.id, job, root)
     except orca.OrcaError as error:
         if here:
             raise DriveError(f"{args.id}: not moved to this Mac, since what its Sprite {job['workspace']} holds on no remote could not be saved to GitHub: {error}") from None
         saved, left = None, str(error)
-    branches = [] if same else orca.saved(name, args.id, job, root)
-    continued = left if not end.unfit else None
+    branches = [] if same or unreached else orca.saved(name, args.id, job, root)
+    continued = None
+    if unreached:
+        continued = "Orca could not reach that Sprite"
+    elif left and not end.unfit:
+        continued = f"what that Sprite holds on no remote could not be saved to GitHub: {left}"
     route = state.LOCAL_ROUTE if here else job["route"]
     with state.edit(name) as data:
         job = data["jobs"][args.id]
@@ -2243,7 +2248,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     else:
         try:
             receipt = orca.adopted(kept) or launch_attempt(name, job | {"route": route}, attempt, kept, brief, root, job["workspace"] if continued else None, None)
-        except orca.Unfit as error:
+        except orca.Unstarted as error:
             if not continued:
                 raise
             return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {error}", end.branch, None, unfit=True), text)
@@ -2265,7 +2270,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             + (
                 f"what {source} held on no remote is saved on GitHub as {', '.join(branches)}"
                 if branches
-                else f"it continues in the checkout the dead lane left on {source}, since what that Sprite holds on no remote could not be saved: {left}"
+                else f"it continues in the checkout the dead lane left on {source}, since {continued}"
                 if continued
                 else f"{source} is kept, since what it holds on no remote could not be saved: {left}"
                 if left
@@ -2289,7 +2294,7 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
     kept.parent.mkdir(exist_ok=True)
     receipt = orca.adopted(kept) or launch_attempt(name, job, attempt, kept, orca.resumed(ended, message), root, ended["workspace"], session)
     started = {field: receipt[field] for field in LAUNCHED}
-    record_start(name, args.id, started, str(kept), message)
+    record_start(name, args.id, started, str(kept))
     went = "the message went to the job's worker, which" if message is not None else "the job's worker"
     line = f"{args.id}: {went} resumed its own Claude session {session} on Sprite {ended['workspace']} as dispatch {started['dispatch']}, in the checkout its lane left there dead ({end.why})"
     return emit(args, line, {"id": args.id, "how": "resumed", "ended": ended, "handoff": str(kept), "session": session, **started})
@@ -2464,7 +2469,7 @@ def pr_wake(args: argparse.Namespace) -> int:
             data = state.load(name)
             job = data["jobs"][job_id]
             if job["state"] != "stopped":
-                if end := orca.lane_end(job):
+                if end := orca.lane_end(name, job):
                     return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end, text)
                 how = orca.send(job, f"{key}: its next step is yours", text)
                 return emit(args, f"{key}: {job_id} {how}", {"key": key, "job": job_id, "how": how})
@@ -4179,9 +4184,12 @@ def parser() -> argparse.ArgumentParser:
             "it commits each worktree's uncommitted changes there and pushes each commit, branch or stash on no remote as saved/<the dead lane>/<its "
             "branch>, on the token gh auth token prints, lent to that one push through the ssh session's stdin, so it never reaches the Sprite's disk; "
             "its output and the new worker's handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read of its refs. When that Sprite does not answer or the save fails, it relaunches the job on that "
-            "Sprite instead, in the checkout the dead lane left. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
+            "Sprite instead, in the checkout the dead lane left. When Orca cannot reach the lane's Sprite, it wakes that Sprite with "
+            "orca-reclaim.py --wake and reads the lane again: a worker that takes messages gets the text, and any other lane relaunches on "
+            "that Sprite in the checkout it left with no save, or on a fresh Sprite when that Sprite starts no worker. Either new worker "
+            "gets a handoff carrying the job's brief, its branch, its last line, "
             "its report, its PRs and this text. A remote lane's text is held on the job under one Orca request id before any "
-            "Orca call: when Orca cannot reach the lane, or refuses the send, it stays held and the resume exits 0 saying so, "
+            "Orca call: when Orca cannot tell whether the lane lives, or refuses the send, it stays held and the resume exits 0 saying so, "
             "the watch sends it once Orca reads that worker alive, under the same id so Orca never applies it twice, and a "
             "relaunch meanwhile carries every held text in its handoff; a relaunch Orca refuses exits 2 with Orca's refusal, "
             "the text still held. With no text, it sends what the job holds now. A job held by an Agent another session started, which this session cannot "

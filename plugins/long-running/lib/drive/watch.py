@@ -39,6 +39,7 @@ READS_LOG = "reads.log"
 RELAUNCHES_LOG = "relaunches.log"
 PROOFS_LOG = "proofs.log"
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
+UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
 CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
@@ -1552,7 +1553,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
@@ -1591,7 +1592,14 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if why := orca.gone(error):
                     deaths[job_id] = (job["dispatch"], why)
                     continue
-                lines += read_failed(watcher, source, error, moment)
+                said = read_failed(watcher, source, error, moment)
+                if running and orca.UNREACHABLE in str(error) and watcher.failures[source] == FAILURES_BEFORE_SAYING:
+                    wake(watcher.name, job_id)
+                    said = [
+                        f'LANE {job_id} {job["order"]} unreachable {orca.place(job)}: {error}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
+                        f" drive job resume {job_id}, which wakes that Sprite and restarts the lane there, else on a fresh Sprite, its output in the drive's {RELAUNCHES_LOG}"
+                    ]
+                lines += said
                 continue
             watcher.failures.pop(source, None)
             lane = orca.placement(worker) if state.on_mac(job) else {}
@@ -1720,6 +1728,11 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
 def relaunch(name: str, job_id: str) -> int:
     """Run `drive job resume` on a running job whose lane died as its own process, outliving the pass that started it, its output appended to the drive's relaunches log."""
     return state.detach(name, ["job", "resume", job_id, CARRY_ON], RELAUNCHES_LOG)
+
+
+def wake(name: str, job_id: str) -> int:
+    """Run `drive job resume` with UNREACHED on a running job whose lane Orca could not reach FAILURES_BEFORE_SAYING reads running, as its own process, its output appended to the drive's relaunches log: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, or restarts the lane on that Sprite with the text in its handoff, else on a fresh one."""
+    return state.detach(name, ["job", "resume", job_id, UNREACHED], RELAUNCHES_LOG)
 
 
 def send_held(name: str, job_id: str) -> int:
