@@ -43,7 +43,12 @@ DOWN = re.compile(
 RESTARTED = re.compile(r"\brestart", re.IGNORECASE)
 DOWN_RULING = "his Nov 8 ruling: \"The coordinator is down? Then why the fuck haven't you restarted it?\" and \"It's unacceptable to just say it's down\""
 WAITING = "WAITING-ON-HIM"
-AWAY_RULE = "While he is away, a line of news to him that is not a card, a line saying what waits on him, an incident line or an answer to a message of his."
+AWAY_RULE = (
+    "He is away when the drive marks him so, as it has for this post, from his saying so or an hour with no word or tap of his;"
+    ' while he is away a line to him waits for his catch-up, by his words "Just do less realtime more summary / batching, with a'
+    " catch up post once I'm back\": only a card, a line saying what waits on him, an incident line or the answer to a question"
+    " of his goes out, and news that work moved, such as a fix merging, waits even when that work is his order."
+)
 REPORTER_RULE = (
     "The thread someone else reported a bug or asked him a question in hears from the drive once: that the bug is fixed once its fix"
     " is proven live, or the answer once it is posted to him, by his words \"we have authorization to message once in bug fix threads"
