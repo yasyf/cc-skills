@@ -174,9 +174,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
      with each changed plugin's `bin/` first on `PATH`. A fix to red CI proves itself in that file
-     by reading with `gh` the first CI run on the default branch after its merge that was not
-     cancelled, exiting 0 only when that run concluded success, never by a local test run, which
-     passes while the default branch stays red; `drive job prove` runs the file only once that run
+     with `drive pr ci <its PR's url>`, which exits 0 only once the first run not cancelled of each
+     workflow from its merge commit's own run on concluded success, never by a local test run, which
+     passes while the default branch stays red, nor by a run the file picks itself, which can be the
+     run of a push merged seconds before it; `drive job prove` runs the file only once those runs
      completed. `drive job report` refuses the `READY` or `PUSHED` without one. A `Forge-AI/*` one
      returns `READY` with `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an
      exempt class covers it; the meta session registers it under its Drive tooling order, and the exempt class
