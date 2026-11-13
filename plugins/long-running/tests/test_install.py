@@ -1121,6 +1121,33 @@ def test_a_product_merge_takes_done_at_once_its_merge_commit_its_check_and_keeps
     assert proof_events() == [("Forge-AI/monorepo#9", change)]
 
 
+def test_a_product_merge_asks_for_proof_on_the_surface_its_own_brief_names_while_a_sibling_jobs_surface_holds_the_orders_close(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    page = "the dashboard's run details page: the browser view of a step shows its screenshot"
+    port, shown = "https://github.com/Forge-AI/monorepo/pull/9", "https://github.com/Forge-AI/monorepo/pull/10"
+    with state.edit("demo") as data:
+        order = data["orders"]["o1"]
+        order["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "show each step", [*order["parts"]], state.stamp()) | {
+            "state": "waiting",
+            "said": f"READY {shown}",
+            "prs": [shown],
+            "brief_flags": {"native": page, "interactions": "open a run's page, click a step"},
+        }
+        data["jobs"]["j1"].update(said=f"READY {port}", prs=[port], repro=None, brief_flags={"native": "none"})
+        for url, job_id, sha in ((port, "j1", "fedcba9876543210"), (shown, "j2", "0123456789abcdef")):
+            data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
+        asked = install.merged_done("demo", data, "j2")
+        merged = install.merged_done("demo", data, "j1")
+    assert asked.startswith(f"its PRs merged and j2 took DONE, but he sees this on {page}: prove it there")
+    assert merged == f"{install.MERGED_DONE}: Forge-AI/monorepo#9 at fedcba987654"
+    data = state.load("demo")
+    assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2")] == ["done", "done"]
+    assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
+
+
 def test_an_incidents_fix_proven_live_records_it_live_and_leaves_its_close_to_the_watch(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)

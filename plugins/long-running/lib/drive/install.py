@@ -614,7 +614,7 @@ def merges_of(data: dict, job_id: str) -> dict[str, str]:
 
 
 def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str, kind: str) -> tuple[str | None, bool]:
-    """Take the line the watch's finish of a merged READY or PUSHED sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once DONE records its fix live, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees the order's result on a surface no CHECK: came from. That surface and whether the order closes."""
+    """Take the line the watch's finish of a merged READY or PUSHED sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once DONE records its fix live, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees any of the order's results on a surface no CHECK: came from. The surface the job's own brief names, when no CHECK: came from it, and whether the order closes."""
     from drive import cli
 
     job = data["jobs"][job_id]
@@ -623,8 +623,8 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen
     whole = f"{line}\nPR: {urls}\nCHECK: {' '.join(check)}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
-    unseen = None if seen else cli.surface(data, order)
-    closes = line.startswith("DONE") and not unseen and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
+    unseen = None if seen else cli.surface(job)
+    closes = line.startswith("DONE") and (seen or not cli.order_surface(data, order)) and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
     closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [order_id])
     if closes:
         title = "; ".join(data["prs"][state.pr_key(url)]["title"] for url in job["prs"])

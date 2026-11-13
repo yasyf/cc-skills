@@ -588,7 +588,7 @@ def order_set(args: argparse.Namespace) -> int:
             " an incident takes --no-options-only, and an order limited to options --no-incident"
         )
     proof = args.proof or (order["proof"] if args.state == "done" else None)
-    if proof and (seen := surface(data, order)) and not any(brief.SEEN_PROOF.search(found) for found in brief.proofs(proof)):
+    if proof and (seen := order_surface(data, order)) and not any(brief.SEEN_PROOF.search(found) for found in brief.proofs(proof)):
         raise DriveError(
             f"{'--proof' if args.proof else 'its proof'} {proof}: refused, {args.id} builds something he uses ({seen}), so it is proven"
             " done on that surface: a recording of each step through it (agent-browser's recording, or screencapture -v of the window)"
@@ -716,10 +716,15 @@ def filing_pairs(data: dict) -> list[tuple[str, str]]:
     return sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
 
 
-def surface(data: dict, order: dict) -> str | None:
-    """Where he sees or uses an order's result, by the Native line of a brief of one of its jobs; None when no brief names a surface."""
-    natives = [(data["jobs"][job_id].get("brief_flags") or {}).get("native") for job_id in order["jobs"]]
-    return next((native for native in natives if native and not NO_SURFACE.match(native)), None)
+def surface(job: dict) -> str | None:
+    """Where he sees or uses a job's result, by its own brief's Native line; None when it names no surface."""
+    native = (job.get("brief_flags") or {}).get("native")
+    return native if native and not NO_SURFACE.match(native) else None
+
+
+def order_surface(data: dict, order: dict) -> str | None:
+    """Where he sees or uses an order's result, by the first of its jobs' briefs naming a surface; None when none does."""
+    return next(filter(None, (surface(data["jobs"][job_id]) for job_id in order["jobs"])), None)
 
 
 def order_unfiled(args: argparse.Namespace) -> int:
