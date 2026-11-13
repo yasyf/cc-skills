@@ -123,7 +123,7 @@ def counts_table(counts: dict) -> Table:
     return Table("", columns, [(f"**{counts['queue']}**", *(f"**{counts[name]}**" for name in names))], 1, "")
 
 
-def projects_table(groups: dict, dashboard: str) -> Table:
+def projects_table(groups: dict, dashboard: str, shown: int | None) -> Table:
     names = (*OPEN_STATES, *FINISHED_STATES)
     counts = Counter((entry["project"] or "No project", name) for name in names for entry in groups[name])
     projects = sorted(
@@ -131,26 +131,26 @@ def projects_table(groups: dict, dashboard: str) -> Table:
         key=lambda project: (-sum(counts[project, name] for name in OPEN_STATES), -sum(counts[project, name] for name in names), project),
     )
     rows = [(f"**{cell(project, NAME_CHARS)}**", *(str(counts[project, name] or "·") for name in names)) for project in projects]
-    return Table("📊 Every project at a glance", ("Project", *(STATE_MARKS[name] for name in names)), rows[:ROWS], len(rows), f"{dashboard}#/now")
+    return Table("📊 Every project at a glance", ("Project", *(STATE_MARKS[name] for name in names)), rows[:shown], len(rows), f"{dashboard}#/now")
 
 
-def table_of(heading: str, columns: tuple[str, ...], row: Callable[[dict], tuple[str, ...]], items: list[dict], rest: str) -> Table:
-    return Table(f"{heading} ({len(items)})", columns, [row(item) for item in items[:ROWS]], len(items), rest)
+def table_of(heading: str, columns: tuple[str, ...], row: Callable[[dict], tuple[str, ...]], items: list[dict], rest: str, shown: int | None) -> Table:
+    return Table(f"{heading} ({len(items)})", columns, [row(item) for item in items[:shown]], len(items), rest)
 
 
-def layout(model: dict, dashboard: str) -> list[Table]:
-    """The status page as typed rows: a strip counting what waits on him and each state, then a table for each part of his queue, every project's count by state, each open state's features and finished work, each at most `ROWS` rows with its total, so `rest` on the dashboard holds the others. A table with no rows is left out."""
+def layout(model: dict, dashboard: str, shown: int | None = ROWS) -> list[Table]:
+    """The status page as typed rows: a strip counting what waits on him and each state, then a table for each part of his queue, every project's count by state, each open state's features and finished work, each at most `shown` rows, all of them when None, with its total, so `rest` on the dashboard holds the others. A table with no rows is left out."""
     groups = {group["state"]: group["features"] for group in model["status"]}
     queue = {kind: [item for item in model["queue"] if item["kind"] == kind] for kind in ("question", "tap", "late")}
     finished = sorted((entry for name in FINISHED_STATES for entry in groups[name]), key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     tables = [
         counts_table(model["counts"]),
-        table_of("❓ Your questions", ("Question", "Holds up", "Asked", "Recommended"), question_row, queue["question"], f"{dashboard}#/queue/question"),
-        table_of("👆 PRs waiting on your tap", ("Pull request", "Checks", "Card since"), tap_row, queue["tap"], f"{dashboard}#/queue/tap"),
-        table_of("⏰ Promised times that passed", ("Order", "Promised", "Now"), late_row, queue["late"], f"{dashboard}#/queue/all"),
-        projects_table(groups, dashboard),
-        *(table_of(f"{STATE_MARKS[name]} {STATE_TITLES[name]}", ("Feature", "Project", "Now", "PRs"), feature_row, groups[name], f"{dashboard}#/now") for name in OPEN_STATES),
-        table_of("✅ Finished", ("Feature", "State", "Now", "When"), finished_row, finished, f"{dashboard}#/history"),
+        table_of("❓ Your questions", ("Question", "Holds up", "Asked", "Recommended"), question_row, queue["question"], f"{dashboard}#/queue/question", shown),
+        table_of("👆 PRs waiting on your tap", ("Pull request", "Checks", "Card since"), tap_row, queue["tap"], f"{dashboard}#/queue/tap", shown),
+        table_of("⏰ Promised times that passed", ("Order", "Promised", "Now"), late_row, queue["late"], f"{dashboard}#/queue/all", shown),
+        projects_table(groups, dashboard, shown),
+        *(table_of(f"{STATE_MARKS[name]} {STATE_TITLES[name]}", ("Feature", "Project", "Now", "PRs"), feature_row, groups[name], f"{dashboard}#/now", shown) for name in OPEN_STATES),
+        table_of("✅ Finished", ("Feature", "State", "Now", "When"), finished_row, finished, f"{dashboard}#/history", shown),
     ]
     return [table for table in tables if table.rows]
 
@@ -162,12 +162,12 @@ def table_lines(table: Table) -> list[str]:
     return ["", *head, rows[0], "|" + "---|" * len(table.columns), *rows[1:], *more]
 
 
-def render(model: dict, dashboard: str) -> str:
-    """The Slack status page of a drive's model, which `drive view` prints too: its `layout` drawn as native markdown tables under an Updated line linking the dashboard."""
+def render(model: dict, dashboard: str, shown: int | None = ROWS) -> str:
+    """The Slack status page of a drive's model, which `drive view` prints too: its `layout` of at most `shown` rows a table drawn as native markdown tables under an Updated line linking the dashboard."""
     lines = [f"Updated {when(model['at'])} · [open the dashboard]({dashboard})"]
     if model.get("cards", "live") != "live":
         lines += ["", f"Your Slack questions are not listed here: cc-slack {cut(model['cards'], CELL_CHARS)}"]
-    for table in layout(model, dashboard):
+    for table in layout(model, dashboard, shown):
         lines += table_lines(table)
     return "\n".join(lines) + "\n"
 

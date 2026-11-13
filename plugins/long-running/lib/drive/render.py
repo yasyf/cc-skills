@@ -116,8 +116,7 @@ COMMUNICATOR_RULES = (
         " tooling, his ruling or feedback on it included, and his work for the rest; the record tool sends a defect and an"
         " owner record about the drive to the meta session alone, adding first the order its order field names, which tells"
         " the coordinator what changes for its work,"
-        " and a handoff, a step only the session holding an order takes on it, to that session by its order attr, or to the"
-        " coordinator session whose agent runs the job its job attr names, since only that session's SendMessage reaches it."
+        " and a handoff, a step only the session holding an order takes on it, to that session by its order attr."
     ),
     REACHING,
     (
@@ -215,7 +214,7 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
-FILED = "The projects and workstreams in use, which a new order reuses where it fits: drive order unfiled lists each pair."
+FILED = "The projects and workstreams in use, which a new order reuses where it fits, one home a subject, since drive order add and set refuse a name other orders file only as the other of the two: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as handler or job, is one an install added"

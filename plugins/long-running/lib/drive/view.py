@@ -303,10 +303,10 @@ def link(label: str, url: str) -> str:
     return f"[{cut(label, TITLE_CHARS).translate(LINK_LABEL)}]({url})"
 
 
-def read(name: str, moment: datetime) -> dict:
-    """The named drive's model from its stored state and its stored cards."""
+def read(name: str, moment: datetime, project: str | None = None, workstream: str | None = None) -> dict:
+    """The named drive's model from its stored state and its stored cards, of the orders `build` files under project and workstream when named."""
     found, source = stored_cards(name)
-    return build(state.load(name), found, moment) | {"cards": source}
+    return build(state.load(name), found, moment, project=project, workstream=workstream) | {"cards": source}
 
 
 def plain(text: str, limit: int) -> str:
@@ -734,15 +734,22 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
     return [{"state": name, "features": [entry for entry in features if entry["state"] == name]} for name in STATES]
 
 
-def build(drive: dict, found: dict, moment: datetime, events: Iterable[dict] = ()) -> dict:
-    """The drive's model from its stored state with each open PR at the stage stage.of names now, never one the watch kept a pass ago, his open cards as cc-slack lists them, the events naming his words typed under a card and the drive's posts since, and the time it is drawn for."""
+def build(drive: dict, found: dict, moment: datetime, events: Iterable[dict] = (), project: str | None = None, workstream: str | None = None) -> dict:
+    """The drive's model from its stored state with each open PR at the stage stage.of names now, never one the watch kept a pass ago, his open cards as cc-slack lists them, the events naming his words typed under a card and the drive's posts since, and the time it is drawn for; naming a project, and a workstream of it, only the features and queue items filed there, ignoring case as `status` merges spellings."""
     from drive import stage
 
     stage.shown(drive, found, state.open_pr_keys(drive))
     groups = status(drive, moment, found)
     waiting = queue(drive, found, moment, [entry for group in groups for entry in group["features"]], answering(events))
+    if project:
+        groups = [group | {"features": [entry for entry in group["features"] if filed_under(entry, project, workstream)]} for group in groups]
+        waiting = [item for item in waiting if filed_under(item, project, workstream)]
     counts = {"queue": len(waiting), **{group["state"]: len(group["features"]) for group in groups}}
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
+
+
+def filed_under(entry: dict, project: str, workstream: str | None) -> bool:
+    return (entry["project"] or "").casefold() == project.casefold() and (workstream is None or (entry["workstream"] or "").casefold() == workstream.casefold())
 
 
 def job_entry(job_id: str, job: dict, reports: set[str], heard: dict[str, list[dict]]) -> dict:
