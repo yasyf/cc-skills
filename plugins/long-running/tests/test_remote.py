@@ -441,6 +441,14 @@ def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_w
     assert (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain")) == untouched
 
 
+def test_a_first_launch_while_another_fetch_holds_the_clones_remote_tracking_ref_makes_the_drives_checkout_at_the_default_branchs_head(demo: str, tmp_path: Path, ccx_worktrees: Path) -> None:
+    cloned(tmp_path, demo)
+    head = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.38\n"})
+    (tmp_path / "clone" / ".git" / "refs" / "remotes" / "origin" / "main.lock").write_text(f"{head}\n")
+    kept = orca.checkout(demo, state.load(demo))
+    assert (kept, git_in(kept, "rev-parse", "HEAD"), (ccx_worktrees / "made").read_text()) == (ccx_worktrees / "drive-demo", head, "drive-demo\n")
+
+
 def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_kept_only_in_the_drive_included(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

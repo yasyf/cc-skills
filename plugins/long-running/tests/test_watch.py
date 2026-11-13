@@ -4303,7 +4303,7 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_t
     loose.unlink()
     watching = watcher(demo)
     failed = land.run(demo, [KEY])
-    sha = git_in(blobless, "rev-parse", "refs/remotes/origin/main")
+    sha = git_in(origin, "rev-parse", "HEAD")
     assert failed.startswith(f"{land.NO_WORKTREE} Forge-AI/monorepo's default branch to queue {KEY} from: git worktree add at {sha[:12]} failed: ")
     assert f"could not fetch {blob} from promisor remote" in failed
     assert (len(git_in(blobless, "worktree", "list").splitlines()), (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()) == (1, False)
