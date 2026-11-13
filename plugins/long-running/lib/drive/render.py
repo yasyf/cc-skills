@@ -1,9 +1,10 @@
+import json
 import shlex
 import sys
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -293,6 +294,20 @@ def when(iso: str, seconds: bool = False) -> str:
 
 def corrected_by(seqs: list[str]) -> str:
     return f", corrected by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}" if seqs else ""
+
+
+def builder_lines(data: dict, builder_ids: list[str]) -> list[str]:
+    """When to start each builder the drive added itself, beside a reader or for a design's change: on the watch's FREE line once its last wait on a job, PR or release ends, or now when only his cards hold it, since it builds his recommended option and opens no PR until he answers them."""
+    lines = []
+    for builder_id in builder_ids:
+        builder = data["jobs"][builder_id]
+        named = ", ".join(json.dumps(part, ensure_ascii=False) for part in builder["parts"])
+        if any(not card_wait(data, wait) for wait in builder["waits"]):
+            lines.append(f"{builder_id} builder on {named} {builder['said']}: start no agent for it until the watch's FREE line says its last wait ended")
+        else:
+            cards = f", building his recommended option with no PR until he answers {', '.join(builder['waits'])}" if builder["waits"] else ""
+            lines.append(f"{builder_id} builder on {named}: start its agent now, the design as its brief's Plan:{cards}")
+    return lines
 
 
 def job_prs(drive: dict, job_id: str) -> dict[str, dict]:

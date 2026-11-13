@@ -45,7 +45,7 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      fact; `drive job report` refuses an entry naming no change of its list, and a `none` while the
      order's reader found something. Then a `Change:` line for each PR its builders open, in at most 80
      characters with no backtick, double quote, `$` or backslash, which becomes a part of the order
-     under those words, and a `Fork:` line for each `ASK` block it kept with
+     under those words with a builder of its own the drive adds as the design returns, and a `Fork:` line for each `ASK` block it kept with
      `drive job ask`. Each piece has a worked example, such as an API's calls, imperative beside
      declarative, or a file format's bytes.
    - A design makes a bad state impossible by its shape, under one durable owner. When one leans

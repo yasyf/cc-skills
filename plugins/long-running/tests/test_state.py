@@ -688,18 +688,18 @@ def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untit
     assert not state.same_question(None, None)
 
 
-def test_a_drive_saved_with_one_change_a_part_waited_on_loads_it_as_the_list_of_changes_it_waits_on(state_root: Path) -> None:
+def test_a_drive_saved_with_the_changes_each_part_waited_on_loads_its_parts_without_them(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")
     parts = {
         "the interface": {"posted": None, "design": "j2", "after": None},
-        "the reads": {"posted": None, "design": "j2", "after": "the interface"},
+        "the reads": {"posted": None, "design": "j2", "after": ["the interface"]},
         "the order": {"posted": None},
     }
     saved["orders"] = {"o1": {"text": "move the tables", "jobs": [], "parts": parts, "promised": None}}
     state.store("demo", saved)
     loaded = state.load("demo")["orders"]["o1"]["parts"]
-    assert {part: held["after"] for part, held in loaded.items()} == {"the interface": [], "the reads": ["the interface"], "the order": []}
+    assert {part: (held["design"], "after" in held) for part, held in loaded.items()} == {"the interface": ("j2", False), "the reads": ("j2", False), "the order": (None, False)}
 
 
 def test_an_order_an_older_install_saved_keeps_the_threads_posts_on_it_went_in_its_jobs_cards_and_its_pr_cards_at_his_dm_root_once(state_root: Path) -> None:
@@ -728,14 +728,14 @@ def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed
     make("demo")
     saved = state.stored("demo")
     cut = "both PRs he approved this morning and the stack he tapped an hour later sat for "
-    parts = {cut: {"posted": None, "design": None, "after": []}, " fix": {"posted": None, "design": None, "after": [cut]}}
+    parts = {cut: {"posted": None, "design": None}, " fix": {"posted": None, "design": None}}
     saved["orders"] = {"o1": {"text": "the stack sat", "jobs": ["j1", "j2"], "parts": parts, "promised": None}, "o2": {"text": "why", "jobs": [], "parts": {"cause ": {"posted": None}}, "promised": None}}
     saved["jobs"] = {"j1": state.new_job("o1", "reader", "find why", [cut], state.stamp()), "j2": state.new_job("o2", "builder", "fix it", ["cause "], state.stamp()) | {"carries": {"o1": [" fix"]}}}
     saved["prs"] = {"yasyf/cc-skills#7": state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j2", "o1") | {"parts": [" fix"]}}
     state.store("demo", saved)
     loaded = state.load("demo")
     whole = cut.rstrip()
-    assert {part: held["after"] for part, held in loaded["orders"]["o1"]["parts"].items()} == {whole: [], "fix": [whole]}
+    assert list(loaded["orders"]["o1"]["parts"]) == [whole, "fix"]
     assert list(loaded["orders"]["o2"]["parts"]) == ["cause"]
     assert (loaded["jobs"]["j1"]["parts"], loaded["jobs"]["j2"]["parts"], loaded["jobs"]["j2"]["carries"]) == ([whole], ["cause"], {"o1": ["fix"]})
     assert loaded["prs"]["yasyf/cc-skills#7"]["parts"] == ["fix"]
