@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import signal
@@ -30,6 +31,7 @@ RETARGETS = re.compile(r"(?:targets \S+ without a native GitHub stack|sits in a 
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
+BRANCH_HISTORY = 50
 
 
 def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) -> list[str]:
@@ -192,7 +194,7 @@ def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...
 
 
 def merge_ready(name: str, key: str, read: dict) -> str:
-    """Start the lander on a yasyf/* PR a builder's taken READY or PUSHED names, which merges it with --admin past its checks and installs what it changes, unless a lander already runs on it or it may not merge yet; what was started, or why not."""
+    """Start the lander on a yasyf/* PR a builder's taken READY or PUSHED names, which merges it with --admin past its checks unless own_red() reads one red on its own change and installs what it changes, unless a lander already runs on it or it may not merge yet; what was started, or why not."""
     why = unmergeable(key, read)
     cards = view.live_cards(name)
     with state.edit(name) as data:
@@ -284,7 +286,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin past its checks, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin past its checks unless own_red() reads one red on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -295,6 +297,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     below: list[str] = []
     if holding := held(data, keys, view.live_cards(name)):
         outcome = f"{HELD}: {holding}"
+    elif state.merges_untapped(keys[0]) and (red := own_red(keys[0])):
+        outcome = f"not landed: {red}"
     elif state.merges_untapped(keys[0]):
         outcome = f"would merge it with {' '.join(MERGE)} --admin, then install each plugin it changes" if dry_run else merged(name, keys[0], ["--admin"])
     else:
@@ -318,6 +322,43 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     if dry_run:
         return outcome
     return record(name, keys, outcome, below)
+
+
+def own_red(key: str) -> str | None:
+    """Each check a yasyf/* PR's head fails by its own change, read once as its lander starts, by his rule that a PR of his own repositories merges without waiting for CI unless a check is red on its own change: a check run its head failed whose run on the default branch passed at the commit the PR's run merged its head onto, or at the newest commit below it where one ran, as on a `[skip ci]` commit no workflow runs on. A check still running, one the default branch fails too or has not concluded, and one no workflow ran are none, so the PR merges at once. That its checks did not read, when GitHub did not answer; None when no check is red on its own change."""
+    repo, number = key.split("#")
+    try:
+        found, error = github.fetch([key])
+        if error:
+            raise error
+        head = found[key]["headRefOid"]
+        reds = [(*run, github.check_name(check)) for check in github.counted(found[key]["checks"]) if github.outcome(check) in github.FAILED and (run := github.run_of(check))]
+        bases = {run: github.read(f"the commit run {run} of {key} tested", ["gh", "api", f"repos/{repo}/actions/runs/{run}", "--jq", f".pull_requests[] | select(.number == {number}) | .base.sha"]).strip() for run in {run for _, run, _ in reds}}
+        branch = {base: branch_checks(repo, base) for base in set(bases.values())}
+    except github.GithubError as error:
+        return f"its checks did not read: {cut(str(error), SAID_CHARS)}"
+    owned = [
+        f"{workflow} {name} fails at {head[:7]} on its own change, since the default branch passed it at {main['sha'][:7]} ({main['url']}), the newest run of it at or below {bases[run][:7]}, which the PR's run merged onto"
+        for workflow, run, name in reds
+        if (main := branch[bases[run]].get((workflow, name))) and main["conclusion"] in github.PASSED
+    ]
+    return "; ".join(owned) or None
+
+
+def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
+    """Each check of a workflow run on the default branch, by its workflow and name, at the newest of base and the BRANCH_HISTORY commits below it where it ran and was not cancelled: that commit, its run's link and its conclusion, None while it runs."""
+    owner, name = repo.split("/")
+    text = (
+        f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ object(oid: {json.dumps(base)}) {{ ... on Commit {{ history(first: {BRANCH_HISTORY}) {{ nodes {{ oid "
+        "checkSuites(first: 20) { nodes { workflowRun { url workflow { name } } checkRuns(first: 20) { nodes { name conclusion } } } } } } } } } }"
+    )
+    found: dict[tuple[str, str], dict] = {}
+    for commit in github.graphql(text, f"the default branch's checks at and below {repo}@{base[:12]}")["data"]["repository"]["object"]["history"]["nodes"]:
+        for suite in commit["checkSuites"]["nodes"]:
+            for check in suite["checkRuns"]["nodes"] if suite["workflowRun"] else []:
+                if check["conclusion"] != "CANCELLED":
+                    found.setdefault((suite["workflowRun"]["workflow"]["name"], check["name"]), {"sha": commit["oid"], "url": suite["workflowRun"]["url"], "conclusion": check["conclusion"]})
+    return found
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:

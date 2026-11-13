@@ -4338,6 +4338,91 @@ def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_u
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "unlanded"
 
 
+CC_SKILLS_RUNS = "https://github.com/yasyf/cc-skills/actions/runs"
+MERGED_UNCHANGED = "merged at ccc333ddd444; it changes no plugin installed on this Mac"
+TESTED_4770 = "3021b51a8b9f346321a534e0e2405c88707cb510"
+OWN_RED_4770 = (
+    "not landed: long-running CI test fails at e075270 on its own change, since the default branch passed it at 3021b51"
+    f" ({CC_SKILLS_RUNS}/43376501738), the newest run of it at or below 3021b51, which the PR's run merged onto"
+)
+
+
+def long_running_test(conclusion: str | None, run: str) -> dict:
+    return {"name": "test", "workflowName": "long-running CI", "conclusion": conclusion, "detailsUrl": f"{CC_SKILLS_RUNS}/{run}/job/1"}
+
+
+def branch_history(commits: list[tuple[str, str | None, str | None]]) -> str:
+    nodes = [
+        {
+            "oid": oid,
+            "checkSuites": {"nodes": [{"workflowRun": {"url": f"{CC_SKILLS_RUNS}/{run}", "workflow": {"name": "long-running CI"}}, "checkRuns": {"nodes": [{"name": "test", "conclusion": conclusion}]}}] if run else []},
+        }
+        for oid, run, conclusion in commits
+    ]
+    return json.dumps({"data": {"repository": {"object": {"history": {"nodes": nodes}}}}})
+
+
+@pytest.mark.parametrize(
+    ("head", "check", "tested", "history", "outcome"),
+    [
+        pytest.param(
+            "e075270e40a351eb071f51503c02d8d9ad9a64a8",
+            long_running_test("FAILURE", "43376582330"),
+            TESTED_4770,
+            [(TESTED_4770, "43376501738", "SUCCESS")],
+            OWN_RED_4770,
+            id="4770-failed-before-its-lander-started-on-a-green-main",
+        ),
+        pytest.param(
+            "e075270e40a351eb071f51503c02d8d9ad9a64a8",
+            long_running_test("FAILURE", "43376582330"),
+            TESTED_4770,
+            [(TESTED_4770, "43376501738", None)],
+            MERGED_UNCHANGED,
+            id="4770-while-mains-run-at-its-base-still-runs",
+        ),
+        pytest.param(
+            "eab2e22d4ecfa48006fc6a40ebd1288a683b6728",
+            long_running_test("FAILURE", "43377605582"),
+            "027d661092a9f6259d21a27071c7daea85a958e6",
+            [("027d661092a9f6259d21a27071c7daea85a958e6", "43377579145", "FAILURE")],
+            MERGED_UNCHANGED,
+            id="4772-red-inherited-from-main",
+        ),
+        pytest.param(
+            "d92014c82c1112381ca6fefdda13c6e6467d18b0",
+            long_running_test("FAILURE", "43379455455"),
+            "260782f7136c8044fa90bb05e3c471f902d84908",
+            [("260782f7136c8044fa90bb05e3c471f902d84908", None, None), ("7b805cd62195d4de8361e291011fc2ec559a0e06", "43378680760", "FAILURE")],
+            MERGED_UNCHANGED,
+            id="4778-tested-on-a-skip-ci-autobump-commit-whose-parent-main-fails",
+        ),
+        pytest.param("344f41af3c48aa6b3c178912ef559d993ede08eb", long_running_test(None, "43376687013"), None, [], MERGED_UNCHANGED, id="4765-its-check-still-running"),
+    ],
+)
+def test_a_yasyf_lander_holds_a_head_that_already_fails_a_check_the_default_branch_passed_where_its_run_merged_and_merges_any_other(
+    demo: str, monkeypatch: pytest.MonkeyPatch, head: str, check: dict, tested: str | None, history: list[tuple[str, str | None, str | None]], outcome: str
+) -> None:
+    def gh(cmd: list[str], **kwargs: object) -> str:
+        if cmd[2] == "graphql":
+            assert f'object(oid: "{tested}")' in cmd[-1]
+            return branch_history(history)
+        if cmd[2].startswith("repos/yasyf/cc-skills/actions/runs/"):
+            assert (cmd[2].rsplit("/", 1)[1], cmd[-1]) == (check["detailsUrl"].split("/")[-3], ".pull_requests[] | select(.number == 7) | .base.sha")
+            return f"{tested}\n"
+        return "ccc333ddd444eee\n" if cmd[2] == "view" else "README.md\n"
+
+    monkeypatch.setattr(github, "run", gh)
+    serve(monkeypatch, {YASYF: read(headRefOid=head, checks=[check])})
+    monkeypatch.setattr(install, "touched", lambda repo, files: [])
+    merges: list[list[str]] = []
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: merges.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
+    with state.edit(demo) as data:
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": head, "wants_tap": False}
+    assert land.run(demo, [YASYF]) == outcome
+    assert merges == ([] if outcome == OWN_RED_4770 else [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]])
+
+
 def test_a_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_next_read_free_of_conflicts_with_no_builder_registering_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:

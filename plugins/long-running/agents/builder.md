@@ -173,7 +173,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    - A PR that is not a port and whose brief names no order of his is not his order. Drive tooling
      is such a PR: its his-words section says none rather than borrow his words for the order it
      unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken: the lander merges it with
-     `--admin` and installs each plugin it changes, and once every PR your job names merged the watch's
+     `--admin`, unless a check is red on its own change, and installs each plugin it changes, and once every PR your job names merged the watch's
      `drive job prove` runs your job's proof file on the installed build, takes `DONE` or `BLOCKED` on
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
