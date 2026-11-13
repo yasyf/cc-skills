@@ -181,6 +181,17 @@ def card_words(found: dict | None, source: str, card: str | None) -> str:
     return f"card {closed['url']} closed: {cut(closed['tapped'], 80)}"
 
 
+def question_card_words(found: dict | None, source: str, question: dict) -> str:
+    """His card for this question as cc-slack's store holds it, or, once the store forgets the card, as the drive's question stands: open since it was asked, or how it ended."""
+    card = question["card"]
+    if found is None or not card or card_open(card, found) or closed_card(found, card):
+        return card_words(found, source, card or question["waits"])
+    if (closed := question["closed"]) is None:
+        return f"card {card} open since {when(question['asked'])}"
+    said = f' "{cut(closed["words"], 80)}"' if closed["words"] else ""
+    return f"card {card} {closed['how']}{said} at {when(closed['at'])}"
+
+
 def pr_card_words(found: dict | None, source: str, url: str) -> str | None:
     """His newest card carrying the PR at url as cc-slack's store holds it now, open ones first; None when he never got one."""
     if found is None:

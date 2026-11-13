@@ -740,6 +740,22 @@ OLDER_CARD = "https://acme.slack.com/archives/D123/p1794100000000100"
 NEWER_CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
 
 
+def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_question(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(drive) as data:
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
+        data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    posted: list[list[dict]] = []
+    ok = subprocess.CompletedProcess([], 0, "661500\n", "")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    assert [(item["text"], item["re"]) for batch in posted for item in batch] == [("Ring", ["661440"])]
+    closed = state.load(drive)["jobs"]["j3"]["questions"][0]["closed"]
+    assert (closed["how"], closed["words"], closed["link"]) == ("answered", "Ring", NEWER_CARD)
+
+
 def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, str, str, bool]], list[list[dict]]]:
     """j3's older question on one card and its newer one on another, as cc-slack lists his cards; each card the drive closes in place, and each record batch posted."""
     with state.edit(drive) as data:
