@@ -3,9 +3,11 @@
 
 It asks the verb as one blocking Orca question, `DRIVE <its words>` over the JSON of what goes with it: stdin when a word
 is `-`, and the text of each file a word names. The drive's watch runs it there for this lane's job and answers
-`drive exited <status>` over what it printed, which this prints, exiting with that status.
+`drive exited <status>` over what it printed, which this prints, exiting with that status. A long answer comes as a line naming
+the file the coordinator wrote it to on this Sprite, which this reads in its place once its size and SHA-256 match.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -15,6 +17,7 @@ import sys
 from pathlib import Path
 
 ANSWER = re.compile(r"drive exited (\d+)\n?")
+KEPT = re.compile(r"drive answer kept on this Sprite: (\S+) \((\d+) bytes, SHA-256 ([0-9a-f]{64})\); read it in full\n?")
 QUESTION_BYTES = 120_000
 WAIT_MS = 600_000
 
@@ -36,9 +39,19 @@ def main(argv: list[str]) -> int:
         asked = ask("--resume", asked["messageId"])
     answer = asked.get("answer") or ""
     status = ANSWER.match(answer)
+    if kept := KEPT.fullmatch(answer[status.end() :] if status else answer):
+        answer = kept_answer(*kept.groups())
+        status = ANSWER.match(answer)
     if printed := answer[status.end() :] if status else answer:
         print(printed)
     return int(status[1]) if status else 1
+
+
+def kept_answer(path: str, size: str, digest: str) -> str:
+    text = Path(path).read_bytes()
+    if len(text) != int(size) or hashlib.sha256(text).hexdigest() != digest:
+        raise SystemExit(f"drive: the answer at {path} is {len(text)} bytes with SHA-256 {hashlib.sha256(text).hexdigest()}, not the {size} bytes with SHA-256 {digest} the coordinator kept")
+    return text.decode()
 
 
 def ask(*words: str) -> dict:

@@ -57,6 +57,10 @@ CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "s
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
 SPRITE_BRIEFS = ".local/state/long-running/briefs"
+SPRITE_ANSWERS = ".local/state/long-running/answers"
+ANSWER_BYTES = 4096
+KEPT_ANSWER = "drive answer kept on this Sprite: "
+DRIVE_STATUS = re.compile(r"drive exited \d+\n")
 CHECKOUT_LOCK = ".checkout.lock"
 CHECKOUT_SECONDS = 600
 
@@ -620,9 +624,26 @@ def place_tools(workspace: str) -> None:
 
 
 def place_brief(workspace: str, lane: str, text: bytes) -> str:
-    """Write the brief onto the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since a handoff outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes."""
+    return put_on_sprite(workspace, SPRITE_BRIEFS, f"{lane}.md", text)
+
+
+def sprite_answer(answer: str, job: dict, message_id: str) -> str:
+    """What a Sprite lane's question gets through Orca: the answer whole when it fits in ANSWER_BYTES, else a line naming the file on the lane's Sprite that holds it, after the `drive exited` line a DRIVE answer opens with, so a lane's drive that reads no such line still exits with the verb's status. Orca keeps a reply four times over, in the message, its question, its relay item and its receipt, so a long answer costs the database four times its size; one the Sprite cannot take goes whole."""
+    text = answer.encode()
+    if state.on_mac(job) or len(text) <= ANSWER_BYTES:
+        return answer
+    try:
+        path = put_on_sprite(job["workspace"], SPRITE_ANSWERS, f"{message_id}.txt", text)
+    except (OrcaError, OSError, subprocess.TimeoutExpired):
+        return answer
+    opening = status[0] if (status := DRIVE_STATUS.match(answer)) else ""
+    return f"{opening}{KEPT_ANSWER}{path} ({len(text)} bytes, SHA-256 {hashlib.sha256(text).hexdigest()}); read it in full\n"
+
+
+def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
+    """Write the text to the folder under the home of the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since a handoff outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes."""
     forward = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["forward"]
-    target = f'"$HOME/{SPRITE_BRIEFS}/{lane}.md"'
+    target = f'"$HOME/{folder}/{name}"'
     done = subprocess.run(
         [
             "ssh",
@@ -633,7 +654,7 @@ def place_brief(workspace: str, lane: str, text: bytes) -> str:
             "-o",
             "ConnectTimeout=30",
             forward["host"],
-            f'mkdir -p "$HOME/{SPRITE_BRIEFS}" && cat >{target} && sha256sum {target}',
+            f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}',
         ],
         input=text,
         capture_output=True,
@@ -643,7 +664,7 @@ def place_brief(workspace: str, lane: str, text: bytes) -> str:
     said = done.stdout.decode().split()
     if done.returncode or len(said) != 2 or said[0] != hashlib.sha256(text).hexdigest():
         why = done.stderr.decode().strip().splitlines()
-        raise Unfit(f"writing the brief onto {workspace} exited {done.returncode}, so no worker started: {why[-1] if why else ' '.join(said) or 'no output'}")
+        raise Unfit(f"writing {folder}/{name} onto {workspace} exited {done.returncode}: {why[-1] if why else ' '.join(said) or 'no output'}")
     return said[1]
 
 

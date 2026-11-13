@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shlex
@@ -66,3 +67,22 @@ def test_a_question_past_what_an_orca_argument_carries_is_refused_and_sends_noth
     done, asked = drive(tmp_path, [], "job", "report", "j7", "-", stdin="x" * 130_000)
     assert (done.returncode, asked) == (2, [])
     assert done.stderr.startswith("drive: refused, nothing sent: its words, stdin and files come to ")
+
+
+def test_an_answer_kept_on_this_sprite_is_read_from_its_file_and_exits_with_the_status_inside_it(tmp_path: Path) -> None:
+    kept = tmp_path / "msg_1.txt"
+    text = "drive exited 4\n" + "line\n" * 2000
+    kept.write_text(text)
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    pointer = f"drive exited 4\ndrive answer kept on this Sprite: {kept} ({len(text)} bytes, SHA-256 {digest}); read it in full\n"
+    done, _ = drive(tmp_path, [{"answer": pointer}], "status")
+    assert (done.returncode, done.stdout) == (4, text.removeprefix("drive exited 4\n") + "\n")
+
+
+def test_an_answer_kept_on_this_sprite_that_does_not_hash_to_what_the_coordinator_kept_exits_naming_both(tmp_path: Path) -> None:
+    kept = tmp_path / "msg_1.txt"
+    kept.write_text("drive exited 0\ntorn")
+    pointer = f"drive exited 0\ndrive answer kept on this Sprite: {kept} (9999 bytes, SHA-256 {'0' * 64}); read it in full\n"
+    done, _ = drive(tmp_path, [{"answer": pointer}], "status")
+    assert done.returncode == 1
+    assert done.stderr.startswith(f"drive: the answer at {kept} is 19 bytes with SHA-256 ")

@@ -2596,8 +2596,35 @@ def test_placing_a_brief_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_
     monkeypatch.setattr(orca.subprocess, "run", ssh)
     assert orca.place_brief("pool-one", "demo-j1-2", text) == path
     assert ran == [(["ssh", "-F", "/ssh/pool-one.ssh"], "pool-one", text)]
-    with pytest.raises(orca.Unfit, match="^writing the brief onto pool-one exited 0, so no worker started: "):
+    with pytest.raises(orca.Unfit, match="^writing .local/state/long-running/briefs/demo-j1-2.md onto pool-one exited 0: "):
         orca.place_brief("pool-one", "demo-j1-2", text)
+
+
+def test_a_long_answer_to_a_sprite_lane_goes_as_the_file_it_was_kept_in_there_after_its_exit_line_and_a_short_or_mac_one_goes_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    placed = []
+
+    def put(workspace: str, folder: str, name: str, text: bytes) -> str:
+        placed.append((workspace, folder, name, text))
+        if workspace == "pool-gone":
+            raise orca.Unfit("no Sprite")
+        return f"/home/sprite/{folder}/{name}"
+
+    monkeypatch.setattr(orca, "put_on_sprite", put)
+    sprite = {"route": None, "workspace": "pool-one"}
+    long = "drive exited 3\n" + "x" * orca.ANSWER_BYTES
+    digest = hashlib.sha256(long.encode()).hexdigest()
+    assert orca.sprite_answer(long, sprite, "msg_1") == (
+        "drive exited 3\ndrive answer kept on this Sprite: /home/sprite/.local/state/long-running/answers/msg_1.txt"
+        f" ({len(long)} bytes, SHA-256 {digest}); read it in full\n"
+    )
+    assert placed == [("pool-one", ".local/state/long-running/answers", "msg_1.txt", long.encode())]
+    assert orca.sprite_answer("LOG x: " + "y" * orca.ANSWER_BYTES, sprite, "msg_2").startswith("drive answer kept on this Sprite: ")
+    assert orca.sprite_answer("drive exited 0\nshort", sprite, "msg_3") == "drive exited 0\nshort"
+    assert orca.sprite_answer(long, {"route": state.LOCAL_ROUTE, "workspace": None}, "msg_4") == long
+    assert orca.sprite_answer(long, {"route": None, "workspace": "pool-gone"}, "msg_5") == long
+    assert len(placed) == 3
 
 
 def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it_launches(
