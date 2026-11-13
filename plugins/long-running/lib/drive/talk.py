@@ -237,7 +237,7 @@ def dry(name: str, post: dict) -> str:
     visuals, words, lifted = shown(name, post)
     data = state.load(name)
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
-    where = f"edit of {post['edit']}" if post.get("edit") else ", ".join(shown_at(data, place) for place in places(data, post, stack))
+    where = f"edit of {post['edit']}" if post.get("edit") else ", ".join(shown_at(place) for place in places(data, post, stack))
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
@@ -248,7 +248,7 @@ def check(name: str, post: dict) -> None:
     """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or with no thread in a channel, where only a person's user id opens a conversation, the group DM of that person, him and the bot, and a card there, a thread outside his DM named with no channel_id, and a PR card leaving out the thread outside his DM of an order its PRs carry out, which its line goes in."""
     data = state.load(name)
     if channel := post.get("channel_id"):
-        if channel == data["slack"]["channel"]:
+        if channel == slack.dm():
             raise DriveError(f"nothing posted: channel_id {channel} is his DM; leave channel_id out, and say posts there through cc-slack dm-status")
         if not post.get("thread_ts") and not cli.SLACK_USER.fullmatch(channel):
             raise DriveError(f"nothing posted: channel_id {channel} names the channel of a thread outside his DM, so it takes that thread's thread_ts; a person's user id with no thread posts in the group DM of that person, him and the bot")
@@ -270,7 +270,7 @@ def check(name: str, post: dict) -> None:
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in data["prs"]]:
         raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
-    outside = [where for where in state.pr_threads(data, stack) if where[0] != data["slack"]["channel"]]
+    outside = [where for where in state.pr_threads(data, stack) if where[0] != slack.dm()]
     if outside and (post.get("channel_id"), post.get("thread_ts")) not in outside:
         raise DriveError(
             f"nothing posted: {', '.join(stack)} carry out an order whose thread is {outside[0][1]} of channel {outside[0][0]}, so the card's line"
@@ -283,7 +283,7 @@ def misplaced(data: dict, post: dict) -> str | None:
     """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's, its own or one it keeps, in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
     if post.get("channel_id") or post.get("edit") or not (thread := post.get("thread_ts")):
         return None
-    dm = data["slack"]["channel"]
+    dm = slack.dm()
     place = next((where[0] for order in data["orders"].values() for where in [state.promise_thread(order), *order["threads"]] if where and where[1] == thread and where[0] != dm), None)
     return place and f"nothing posted: thread {thread} is in channel {place}, not his DM, so pass channel_id {place} with it"
 
@@ -319,7 +319,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     card = post.get("card")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     data = state.load(name)
-    dm = data["slack"]["channel"]
+    dm = slack.dm()
     sent = refs.slack(words, found, shown_in(name, post))
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
@@ -374,7 +374,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
 
 def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackError) -> dict:
     """cc-slack's reply, read back from Slack, for a new post of words alone it reported failing: the bot's message sent since the call began, in the post's thread or at its channel's root, opening with the post's words, since cc-slack can post and then fail, as dm-status does when its deadline passes after the post went out; the error again when Slack holds no such message."""
-    channel = post.get("channel_id") or state.load(name)["slack"]["channel"]
+    channel = post.get("channel_id") or slack.dm()
     if thread := post.get("thread_ts"):
         read = slack.cc_slack("thread", "--channel", channel, "--thread", thread, "--since-ts", str(int(began)), "--limit", str(RECENT_POSTS))
         team_url = view.stored_cards(name)[0]["team_url"]
@@ -393,7 +393,7 @@ def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackErr
 
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:
     """Each channel and thread the post goes in, (his DM, None) for his DM root and (a person's user id, None) for the group DM of that person, him and the bot: the one it names; for a card, which cc-slack dm-status draws in his DM alone, first each place in his DM, the one it names, then for a PR card each thread of the orders its PRs carry out, else his DM root, then the one outside his DM it names, such as an alert's thread, which takes the card's line, since cc-slack's Slack permission hook judges a say for the place it names alone."""
-    dm = data["slack"]["channel"]
+    dm = slack.dm()
     named = (post.get("channel_id") or dm, post.get("thread_ts"))
     if not (post.get("card") or stack):
         return [named]
@@ -402,8 +402,8 @@ def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | No
     return [*([where for where in spots if where[0] == dm] or [(dm, None)]), *(where for where in spots if where[0] != dm)]
 
 
-def shown_at(data: dict, place: tuple[str, str | None]) -> str:
-    if place[0] == data["slack"]["channel"]:
+def shown_at(place: tuple[str, str | None]) -> str:
+    if place[0] == slack.dm():
         return f"thread {place[1]}" if place[1] else "his DM root"
     return f"thread {place[1]} of channel {place[0]}" if place[1] else f"the group DM of {place[0]}, him and the bot"
 

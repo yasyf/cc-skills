@@ -137,7 +137,7 @@ His rulings already live in cc-notes answers.
 ## Carry
 
 1. Start the new drive's sessions by [Start or resume](start.md). The coordinator runs
-   `drive setup` first, and its `drive start <name> --role coordinator --channel <his DM>` adds a
+   `drive setup` first, and its `drive start <name> --role coordinator` adds a
    `--watch <channel id>` for each other channel the old drive watched, its alert channels above
    all, which `cc-slack follows --session <old holder's session id>` lists.
 2. Hand the watches over: one session holds a channel at a time, and stopping the old holder's

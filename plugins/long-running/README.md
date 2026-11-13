@@ -24,7 +24,7 @@ Open three sessions in the same checkout and run the skill in each:
 /long-running durable-agents-rebuild
 ```
 
-One runs `drive start <name> --role coordinator --watch <alert channel>`, which starts the drive's watch as its own process, and subscribes to the alert channels, which reach it as one line per alert or release. Another runs `drive start <name> --role communicator --channel <your DM>` and holds your Slack DM. The third runs `drive start <name> --role meta` and holds drive tooling; a drive with none keeps tooling with the communicator. The sessions talk through cci records on the drive. After a restart, the same command rebinds that role to the new session, and the role's cci cursor delivers what it missed.
+One runs `drive start <name> --role coordinator --watch <alert channel>`, which starts the drive's watch as its own process, and subscribes to the alert channels, which reach it as one line per alert or release. Another runs `drive start <name> --role communicator` and holds your Slack DM, the one `cc-slack whoami` names. The third runs `drive start <name> --role meta` and holds drive tooling; a drive with none keeps tooling with the communicator. The sessions talk through cci records on the drive. After a restart, the same command rebinds that role to the new session, and the role's cci cursor delivers what it missed.
 
 Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR cards without the plugin on its `PATH`.
 

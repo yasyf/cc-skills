@@ -4,6 +4,7 @@ import sys
 from collections.abc import Callable, Iterable
 from datetime import datetime
 
+from drive import slack
 from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
@@ -421,10 +422,9 @@ FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <
 
 
 def held_channels(drive: dict, role: str) -> list[str]:
-    slack = drive["slack"]
     if role == "communicator":
-        return [f"his DM {slack['channel']}" if slack["channel"] else "no DM set"]
-    return slack.get("watch", []) if role == "coordinator" else []
+        return [f"his DM {slack.dm()}"]
+    return drive["slack"].get("watch", []) if role == "coordinator" else []
 
 
 def hold_line(drive: dict, role: str) -> str:
@@ -571,7 +571,7 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
         "roles": drive["roles"],
         "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
-        "slack": {"channel": drive["slack"]["channel"], "watch": drive["slack"].get("watch", [])},
+        "slack": {"channel": slack.dm(), "watch": drive["slack"].get("watch", [])},
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
         "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},

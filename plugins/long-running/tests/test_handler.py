@@ -246,7 +246,7 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
         "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
     ]
     assert removed == [["claude", "rm", BACKGROUND_JOB]]
-    assert slack_calls[-1] == ("unfollow", "--channel", state.load("demo")["slack"]["channel"], "--session", "h-session", "--cwd", str(tmp_path))
+    assert slack_calls[-1] == ("unfollow", "--channel", "D123", "--session", "h-session", "--cwd", str(tmp_path))
     data = state.load("demo")
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))

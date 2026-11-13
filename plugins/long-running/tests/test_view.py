@@ -69,7 +69,7 @@ def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
 
 
 def drive_of(orders: dict, jobs: dict, prs: list[tuple[str, dict]]) -> dict:
-    data = state.new_drive("demo", "coordinator", "s1", "/work", "D123")
+    data = state.new_drive("demo", "coordinator", "s1", "/work")
     data.update(orders=orders, jobs=jobs, prs=dict(prs))
     return data
 

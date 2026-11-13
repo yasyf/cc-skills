@@ -40,7 +40,7 @@ def order(
 
 
 def sample() -> dict:
-    drive = state.new_drive("demo", "coordinator", "s1", "/work", "D123")
+    drive = state.new_drive("demo", "coordinator", "s1", "/work")
     drive["orders"] = {
         "o1": order(
             "Ship the drive rewrite and install it", due=state.stamp(state.now() + timedelta(hours=1)), jobs=["j1"]
@@ -156,7 +156,7 @@ def live_sized() -> dict:
         drive["orders"][order_id] = order(f"order {n} " + "x" * 200, "open" if still_open else "done", passed if still_open else None, [job_id]) | filing
         drive["jobs"][job_id] = drive["jobs"]["j1"] | {"order": order_id, "goal": f"goal {n} " + "y" * 200, "prs": []}
     drive["name"] = "durable-agents"
-    drive["slack"] |= {"channel": "D0C4HQWPLCC", "watch": [f"C0B75AL{n:04d}" for n in range(8)]}
+    drive["slack"]["watch"] = [f"C0B75AL{n:04d}" for n in range(8)]
     drive["roles"] = {role: drive["roles"]["coordinator"] | {"session": f"{n:08x}-ce81-4ce1-b1dc-8bbdf3e90a5e"} for n, role in enumerate(state.ROLES)}
     return drive
 
@@ -194,9 +194,9 @@ def test_hold_line_reads_a_drive_saved_before_watch_existed() -> None:
     assert render.hold_line(drive, "coordinator") == "Hold no Slack channel."
 
 
-def test_hold_line_says_when_no_dm_is_set() -> None:
-    drive = state.new_drive("empty", "coordinator", None, "/work", None)
-    assert render.hold_line(drive, "communicator") == "Hold with slack_watch: no DM set"
+def test_the_communicators_hold_line_names_his_dm_as_cc_slack_whoami_names_it_on_a_drive_started_with_no_dm_channel(his_dm: str) -> None:
+    drive = state.new_drive("empty", "coordinator", None, "/work")
+    assert render.hold_line(drive, "communicator") == f"Hold with slack_watch: his DM {his_dm}"
 
 
 def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:

@@ -98,7 +98,7 @@ def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_i
 
 
 def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    run("start", "demo", "--role", "coordinator", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})
     context = output["hookSpecificOutput"]["additionalContext"]
     assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G' in context
@@ -313,7 +313,7 @@ J2776_PART = "the release's tenant smoke creates one cloud agent and deletes it"
 def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run_and_ends_built_where_j2776_ended_waiting_with_nothing_built(
     run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("start", "durable-agents", "--role", "coordinator", "--channel", "D123")
+    run("start", "durable-agents", "--role", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", J2776_PART)
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
     with state.edit("durable-agents") as data:
