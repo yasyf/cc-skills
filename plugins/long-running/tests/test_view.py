@@ -114,6 +114,10 @@ def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -
         ("tap", "change 1"),
         ("question", "Release now?"),
     ]
+    assert [item["priority"]["rank"] for item in queue] == list(range(1, 7))
+    assert [item["priority"]["overdue"] for item in queue] == [True, True, False, False, False, False]
+    assert [item["priority"]["weight"] for item in queue] == [0, 0, 2, 2, 2, 0]
+    assert all(not item["priority"]["incident"] for item in queue)
     assert queue[5]["detail"] == "Recommended: Yes"
     assert (queue[5]["card"]["body"], queue[5]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
     assert queue[2]["url"] == card["url"]
