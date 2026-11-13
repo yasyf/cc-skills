@@ -64,10 +64,16 @@ SUPERSEDES_QUESTION = (
     " does not settle."
 )
 APPROVES_QUESTION = (
-    "Does this answer, in his own words, approve the action? Pick the answer when it is his order to ship, release or approve"
-    " the release the action starts, or his pick on a card that asked whether to release it. Pick none when it picks an option"
-    " on a card that asked anything else, such as whether to land a pull request, which design to build or whether a check"
-    " holds, or when unsure."
+    "Does this answer, in his own words, approve the action? It does when, read with the card it answers, it has the"
+    " release the action starts run: his order to ship or release that work, or his pick on a card about that work reaching"
+    " production, such as whether, when or how to release it or what the release carries or does as it runs, whose option"
+    " has the release run. A card asking how a release runs, such as whether it hands a service over, asks about that"
+    " release and is no design to build, so his yes approves the release with that part in it. A pick that names a"
+    " condition, such as once tests pass or after a fix merges, approves the release once it holds, which the drive sees to"
+    " before it starts, and the drive writes the release's targets, envs and flags from his pick, so his words need not name"
+    " them. Pick none when his pick has no release run: his Approve or tap on a pull request, or a pick to land, merge or"
+    " enqueue one, lands it and releases nothing, and so does a pick of which code or data layout to build, how to repair"
+    " something, or whether a check holds. Pick none when unsure."
 )
 APPROVAL = "kind:approval"
 INCIDENT = "incident"

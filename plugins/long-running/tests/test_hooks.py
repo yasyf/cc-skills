@@ -1130,6 +1130,43 @@ def test_a_drive_starts_a_release_on_order_naming_an_incidents_answer_or_one_jev
     assert len(jev.asked) == 3
 
 
+HANDOVER_PICK = {
+    "id": "7fe7efc" + "0" * 33,
+    "title": "Should your normal clock release hand SandSQL's primaries over, since a footer pulls sandsql into it?",
+    "body": "Yes: the normal release hands each SandSQL primary over on its own node, and they come back following in process",
+    "tags": ["scope:durable"],
+}
+POLICY_PICK = {
+    "id": "cb96889" + "0" * 33,
+    "title": "When should the production release carrying the clock, CLOCK_URL and clock schedules start?",
+    "body": "Start after the network policy fix merges: one release ships clock, CLOCK_URL, schedules and policy; timers fire",
+    "tags": ["scope:durable"],
+}
+QUEUE_PICK = {
+    "id": "6881a3a" + "0" * 33,
+    "title": "PR #46370 (a release order that contradicts an earlier one is now dropped) is green and approved. Should I put it in the merge queue?",
+    "body": "Enqueue it (Recommended)",
+    "tags": ["scope:ephemeral"],
+}
+
+
+def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ships_and_never_on_his_pick_to_enqueue_a_pr(
+    demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev
+) -> None:
+    top = {"session_id": "session-under-test"}
+    picks = (CLOCK_PICK, HANDOVER_PICK, POLICY_PICK)
+    recorded.shown = {answer["id"][:7]: answer for answer in (*picks, QUEUE_PICK)}
+    for pick in picks:
+        jev.picks(pick["id"][:7])
+        assert landing_guard.deny_reason(bash(J2666_START.replace("5419ffd", pick["id"][:7])) | top) is None
+    assert [asked["state"]["answers"] for asked in jev.asked] == [[{"id": pick["id"][:7], "asked": pick["title"], "said": pick["body"]}] for pick in picks]
+    jev.picks("none")
+    assert landing_guard.deny_reason(bash(J2666_START.replace("5419ffd", "6881a3a")) | top) == (
+        f'refused: `--order 6881a3a` names his answer to "{QUEUE_PICK["title"]}", "Enqueue it (Recommended)", and Jev does not read it'
+        f" as approving this release. {brief.RELEASE_APPROVAL}"
+    )
+
+
 def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: list[list[str]]) -> None:
     approve(drive_pr)
     reason = landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash --admin"))
