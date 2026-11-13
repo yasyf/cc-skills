@@ -45,8 +45,8 @@ ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws
 @pytest.mark.parametrize(
     ("body", "question"),
     [
-        (f"LOG {BUILD}", None),
-        (f"j242 READ: LOG {BUILD} (#7 head 1234abc), failing while it still runs. Give every failed job's name.", None),
+        (f"LOG {BUILD}", f"LOG {BUILD}"),
+        (f"j242 READ: LOG {BUILD} (#7 head 1234abc), failing while it still runs. Give every failed job's name.", f"LOG {BUILD}"),
         ("READ cci show 2065", "READ cci show 2065"),
         ("j247: READ ccn answer show 5299250c9a85\nfor his words", "READ ccn answer show 5299250c9a85"),
         (
@@ -59,10 +59,20 @@ ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws
         ("READ: please send the full text of design-run-read-api.md", None),
     ],
 )
-def test_a_read_question_opens_with_its_read_past_the_job_id_and_a_log_url_is_no_read(
-    body: str, question: str | None
-) -> None:
+def test_a_read_question_opens_with_its_read_past_the_job_id(body: str, question: str | None) -> None:
     assert reads.request(body) == question
+
+
+def test_a_log_question_from_a_lane_on_the_old_builder_rules_gets_the_rule_that_replaced_the_mac_read_and_reads_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: pytest.fail(f"ran {argv}"))
+    question = reads.request("LOG https://buildkite.com/forge/test/builds/129091")
+    said = reads.answer(question, tmp_path, "demo", "j982")
+    assert said.startswith("LOG https://buildkite.com/forge/test/builds/129091: this Mac reads no build log for a lane; read it on your Sprite")
+    assert "tools/ci bk log <pipeline> <build> <job>" in said
+    assert "ccx vcs job-log <job> -R <owner/repo> --budget 1000000" in said
+    assert said.endswith("return BLOCKED naming the read and its command.")
 
 
 def test_a_record_read_runs_the_allowed_command_from_the_checkout(
