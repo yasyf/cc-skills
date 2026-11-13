@@ -2021,6 +2021,44 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
     assert state.load(remote)["jobs"]["j2"]["waits"] == ["j1"]
 
 
+def test_an_end_holds_no_install_lock_while_it_saves_and_releases_and_hands_its_end_to_the_newer_install_that_saved_meanwhile(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    carrying(run, remote)
+    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING CI", ask="a question", workspace="pool-one")
+    held, handed = [], []
+    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
+
+    def saved(drive: str, job_id: str, job: dict, root: Path) -> str:
+        held.append(dict(state.HELD_INSTALL))
+        monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return "saved/j1/restack"
+
+    real = subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        handed.append(argv[1:])
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(orca, "save", saved)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "destroyed pool-one dispatch ctx_lane0001")
+    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
+    monkeypatch.setattr(cli.install.subprocess, "run", newer)
+    state.hold_install()
+    assert run("job", "end", "j1")[1].endswith("j1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved: saved/j1/restack")
+    [argv] = handed
+    assert (held, argv[:3], argv[4:], Path(argv[3]).exists()) == ([{}], ["job", "ended", "j1"], ["--drive", remote, "--json"], False)
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["deaths"][-1]["saved"], job["deaths"][-1]["why"]) == (None, "saved/j1/restack", "ended by drive job end")
+
+
 def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
