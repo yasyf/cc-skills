@@ -166,9 +166,13 @@ change".
    asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
    saying it must be merged using the asynchronous merge REST API, the lander merges it by the same method through
    GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
-   the one the lander lands, and reads its result until GitHub ends it. A refusal for a conflict with its base reads `red`, which
+   the one the lander lands, and reads its result until GitHub ends it. When GitHub refuses its squash
+   merge on a conflict with its base, the lander rebases the PR onto it as one commit in the drive's own clone,
+   by his rule for direct merges, "always rebase first", merging each markdown page git's merge
+   conflicts in again clause by clause with `git merge-file`, and pushes it with a lease on the head it
+   fetched; a conflict in any other file, or in one clause both sides changed, reads `red`, which
    wakes its builder to rebase. After any other refusal, a failing check included, the watch
-   starts the lander again on the head its builder pushes once its stage reads `ready` there, free of
+   starts the lander again on the head the lander or its builder pushes once its stage reads `ready` there, free of
    conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
    changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, and runs the job's proof file right after the install, since no install reads a CI run, with those plugins' `bin/` first on
