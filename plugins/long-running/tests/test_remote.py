@@ -63,6 +63,11 @@ UNSENT = (
     " runtime_error: Timed out waiting for the remote Orca runtime; its terminal term_lane waits idle, and launching this"
     " brief again retries worker-start in it"
 )
+UNTOOLED = (
+    "the Sprite did not take the released ccx and cc-notes, the tools WORKER_TOOLS names, or the wasm toolchain: gh could not read the latest"
+    " yasyf/cc-context release, so no tool was installed; the prepared worker stays idle and unattached, {attempt} keeps tools.err, and launching"
+    " this brief again reruns the tool check on that Sprite"
+)
 DESIGN_PICK = "Root cause: none: a design pick, with no defect behind it"
 ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
 Drive tooling: your pick decides where the nightly store copy runs; it reads every store once, on the primary or on its own worker.
@@ -1328,6 +1333,48 @@ def test_a_resume_whose_fresh_sprites_both_refuse_the_tools_exits_2_and_leaves_h
     assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 2
     assert capsys.readouterr().err == f"drive: {UNFIT}\n"
     assert launched == [("demo-j1-2", FRESH_RUN, None), ("demo-j1-2", FRESH_RUN, None)]
+    data = state.load(remote)
+    assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
+
+
+def untooled(monkeypatch: pytest.MonkeyPatch, launch: Callable[..., dict]) -> None:
+    ran = subprocess.run
+    monkeypatch.setattr(orca, "launch", launch)
+    monkeypatch.setattr(orca, "tool", lambda name: name)
+
+    def launcher(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if argv[0] != orca.LAUNCHER:
+            return ran(argv, **kwargs)
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr=UNTOOLED.format(attempt=Path(argv[-1]).with_suffix(".worker")) + "\n")
+
+    monkeypatch.setattr(orca.subprocess, "run", launcher)
+
+
+def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_stops_reading_as_launching(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    untooled(monkeypatch, orca.launch)
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    attempt = state.drive_dir(demo) / "jobs" / "j1.worker"
+    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; attempt in {attempt}\n"
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["launching"], job.get("dispatch")) == (None, None)
+
+
+def test_a_resume_whose_fresh_sprite_took_no_tools_exits_2_naming_the_tool_step_and_leaves_his_answer_unsent(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    launch = orca.launch
+    answered_dead_lane(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: None, 0)
+    untooled(monkeypatch, launch)
+    assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 2
+    attempt = state.drive_dir(remote) / "jobs" / "j1-2.worker"
+    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; attempt in {attempt}\n"
     data = state.load(remote)
     assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
 
