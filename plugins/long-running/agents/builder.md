@@ -62,21 +62,25 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 3. Design choices are his. One is a choice neither the brief's `Plan` nor his answers settle between two
    reasonable shapes that cost a lot to switch once built (a data layout or file format, a schema or
    migration shape, a lock, queue or scheduler, a public or Sand-facing API shape, a new background
-   process), or a limit, capacity or architecture question your work turns up. Stop before building
-   either shape and return `ASK` with options from your evidence, even mid-build. The exception: when
-   `Decisions that bind` names an open card's option to build, build it, push the branch, open no PR
-   and return `BUILT`. He ruled the recommended option may be built but no PR for the proper fix
-   goes up until he answers. While any open card of his bears on your work, one your job waits on or
-   one whose question's `Holds:` line names a change your job builds, the design you build included,
-   the `bash_guard` hook refuses a `ccx vcs ship` that would open your PR, on this Mac and on a
-   Sprite, and `drive pr add` refuses the PR, since work does not land with a question of his on it
-   unanswered: push the branch with `ccx vcs ship --no-pr`.
+   process), or a limit, capacity or architecture question your work turns up. The moment the fork
+   shows, even mid-build, keep an `ASK` with options from your evidence with `drive job ask`, which
+   puts his card up and leaves your job running, then build its recommended option in the same run:
+   push the branch with `ccx vcs ship --no-pr`, open no PR and return
+   `BUILT <branch>, waits on <the card's waits id>`, by his words "build recommended options on
+   branches until I select the option then build / turn my option into PRs". When `Decisions that
+   bind` names an open card's option to build, build that one the same way. While any open card of
+   his bears on your work, one your job waits on or one whose question's `Holds:` line names a change
+   your job builds, the design you build included, the `bash_guard` hook refuses a `ccx vcs ship`
+   that would open your PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
+   work does not land with a question of his on it unanswered. Only when his words ask for options
+   and no build, or the recommended option is no change you build, does the `ASK` end your run:
+   keep it with `drive job report <your job> -` and return it, and the `one_line_result` hook refuses
+   any other `ASK` ending a running builder's run.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
-   On an open incident a choice never stops you: return `ASK` the moment the fork shows, even
-   mid-build, and build its recommended option when the coordinator resumes you in that turn. Its
-   PR lands on that option while his card stays open, by his pick "The repair lands on the
-   recommendation, the question stays open, another pick is a follow-up: no incident waits; costs a
-   second PR."
+   On an open incident a choice never stops you either: keep its `ASK` the same way, build its
+   recommended option in the same run, open its PR and return `PUSHED`, since that PR lands on the
+   option while his card stays open, by his pick "The repair lands on the recommendation, the
+   question stays open, another pick is a follow-up: no incident waits; costs a second PR."
 4. Write the change:
    - Change only what his words ask. What already exists, a value's printed form, a wire, file or
      API shape, a default, a command's output or a behavior, stays as it was unless his words name
@@ -344,9 +348,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 - Keep your report with `drive job report` and an `ASK` block with `drive job ask` as on this Mac,
   each refusing what it refuses on this Mac. `kept <your job>'s report: <its first line>` is the
-  proof it was kept, so read nothing back. Then end your turn through Orca, never a final message:
-  an `ASK` with `orca orchestration ask --question "ASK <each path drive job ask printed>"`, then end
-  your turn until his answer wakes you; `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
+  proof it was kept, so read nothing back. An `ASK` kept with `drive job ask` leaves your job
+  running, so build its recommended option and return `BUILT` as on this Mac. Then end your turn
+  through Orca, never a final message: an `ASK` that ends your run, as Build step 3 allows, with
+  `orca orchestration ask --question "ASK <each path drive job ask printed>"`, then end your turn
+  until his answer wakes you; `DONE`, `PUSHED`, `BUILT`, `WAITING` and `HANDOFF` with
   `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<the report you kept>"`,
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
 - Orca brings the coordinator's mail, his answer to your `ASK` included, by typing "You have N
@@ -359,7 +365,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 - Once the PR is registered, return `PUSHED` rather than watch it: no `gh pr checks`, `gh run watch`
   or repeated `gh pr view`, no sleep. The watch sees each change, which a fresh builder handles; you
-  are resumed with `SendMessage` only to bring his answer to your `ASK`. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
+  hear from `SendMessage` only his answer to your `ASK`, while you build its recommended option or
+  after an `ASK` ended your run: build his pick where it differs. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
 - Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
   prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's
@@ -379,8 +386,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Before your final message, keep your whole return by piping it on stdin in one Bash call:
   `drive job report <your job> - <<'EOF'`, its lines, then `EOF`. That is the one place a report is
   kept, so write no report file, and your final line is sent back until it is; others read it
-  with `drive job report <your job>`. An `ASK` keeps no report: `drive job ask`
-  keeps its block.
+  with `drive job report <your job>`. `drive job ask` keeps an `ASK` block, and an `ASK` that ends
+  your run is kept as your report too.
 - Its first line is exactly one result line below. The lines after it are the inputs a handler writes
   his message from, one fact a line, unpolished, never the write-up itself, plus any exact quote,
   number or path the message needs. Name when a job started as `{started:<job>}` and when a record
@@ -412,9 +419,9 @@ listing decisions that block nothing is not a result.
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
 | `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch's check judges its change against his words at its head. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. |
 | `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; his card, drawn at `drive pr add`, shows it ready for his Approve. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
-| `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
+| `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names and each card your `drive job ask` put up in this run, by its waits id or Slack link, which `drive status <your job>` shows. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. A red PR of yours whose fix waits on another job's PR or a release reads `blocked` while every PR and release your `WAITING` names holds and its red stays the one you answered, so name each by its link or `release:<service>:<owner>/<repo>#<n>`. |
-| `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. On an open incident, the moment the fork shows, then build its recommended option once resumed. |
+| `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. It ends your run only when his words ask for options and no build, or its recommended option is no change you build; any other `ASK` you keep with `drive job ask` and build its recommended option in the same run, returning `BUILT`, or `PUSHED` on an open incident. |
 | `BLOCKED <what>`, then what you tried | Only when no route works, never on a choice, which is an `ASK`. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
 
@@ -441,7 +448,8 @@ Write the block to a new file under your scratch directory, one per question, an
 `drive job ask --check <file>`, which checks its words and the card cc-slack draws from it, draws each
 Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
 or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
-and names each fix, and return the path it prints. He may already have answered this same
+and names each fix, prints the path it kept, and leaves your job running to build the recommended
+option, by Build step 3; return that path only on an `ASK` that ends your run. He may already have answered this same
 question, asked in the same words, on or under its card or recorded under it. Then it keeps the block
 settled by that answer instead, draws no card, tells the coordinator, and prints his words: build on
 them and return no `ASK`. An answer he gave another question settles nothing there, so its card

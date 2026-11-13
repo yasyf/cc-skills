@@ -1287,7 +1287,7 @@ def test_job_ask_refuses_a_card_typing_when_past_work_happened_keeping_nothing(
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-def test_job_ask_keeps_an_ask_in_the_shape_he_reads_sets_the_job_waiting_and_posts_its_ask_record_again_under_its_waits_id_until_its_card_is_up(
+def test_job_ask_keeps_an_ask_in_the_shape_he_reads_keeps_its_builder_running_to_build_the_recommended_option_and_posts_its_ask_record_again_under_its_waits_id_until_its_card_is_up(
     run: Run, asking: str, tmp_path: Path, state_root: Path, asks_sent: list[dict]
 ) -> None:
     block = tmp_path / "ask.md"
@@ -1298,7 +1298,7 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_sets_the_job_waiting_and_pos
     assert kept.read_text() == SHORT_ASK
     job = state.load("demo")["jobs"]["j1"]
     assert [question["file"] for question in job["questions"]] == [str(kept)]
-    assert job["state"] == "waiting"
+    assert (job["state"], job["returned"]) == ("running", None)
     assert job["said"] == "How should a finished run's files be laid out so its page opens without guessing?"
     first = {"lane": "root", "kind": "ask", "text": job["said"], "to": ["communicator@demo"], "attr": {"job": "j1", "ask": str(kept)}}
     assert asks_sent == [first]
@@ -2466,7 +2466,7 @@ def test_job_ask_never_settles_a_question_on_his_message_in_its_orders_thread_so
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block)) == (0, str(state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"))
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], [question["closed"] for question in job["questions"]]) == ("waiting", [None])
+    assert (job["state"], [question["closed"] for question in job["questions"]]) == ("running", [None])
     assert ("--channel", "D123", "--thread", "1794200000.000100", "--limit", "1000") in slack_thread.reads
     assert not [request for request in jev.asked if "decides" in request["questions"]]
 
@@ -2575,7 +2575,7 @@ def test_job_ask_settles_a_question_only_on_his_answer_to_that_same_question_so_
     block.write_text(SHORT_ASK.replace("ASK How should", "ASK When should"))
     assert run("job", "ask", asking, str(block))[0] == 0
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["questions"][-1]["closed"], job["questions"][-1]["waits"], len(asks_sent)) == ("waiting", None, "demo:j1-7", 1)
+    assert (job["state"], job["questions"][-1]["closed"], job["questions"][-1]["waits"], len(asks_sent)) == ("running", None, "demo:j1-7", 1)
 
 
 def test_a_settled_question_tells_the_session_holding_its_order_in_one_record_that_wakes_nobody(
@@ -2661,7 +2661,7 @@ def test_job_ask_asked_again_replaces_its_question_once_kept_settled_with_no_car
     block.write_text(SHORT_ASK)
     assert run("job", "ask", asking, str(block)) == (0, str(kept))
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], [(question["file"], question["closed"]) for question in job["questions"]]) == ("waiting", [(str(kept), None)])
+    assert (job["state"], [(question["file"], question["closed"]) for question in job["questions"]]) == ("running", [(str(kept), None)])
 
 
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:

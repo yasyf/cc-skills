@@ -60,8 +60,8 @@ INCIDENT_CHOICE = {
         " and return your result with an ASK: <that file> line, which puts his card up as you return; never BLOCKED on a choice"
     ),
     "builder": (
-        "a choice never stops it: return ASK <path> the moment the fork shows, which puts his card up, and build its recommended"
-        " option when the coordinator resumes you in that turn; never BLOCKED on a choice"
+        "a choice never stops it: keep the ASK block with drive job ask the moment the fork shows, which puts his card up, then build"
+        " its recommended option in the same run and open its PR, which lands on that option while his card stays open; never BLOCKED on a choice"
     ),
 }
 INCIDENT_BRIEF = f'each brief\'s Incident: line carries, word for word: "{INCIDENT_CHOICE["codex"]}"'

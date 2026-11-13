@@ -727,7 +727,7 @@ me drawn whole above them, and no findings post before it.
 *How should a finished run's files be laid out so its page opens without guessing?*
 A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
-Meanwhile nothing is built on either layout, and the run page works as it does today.
+Meanwhile the snapshot file is built on a branch, and its PR waits on your pick.
 *Show me*
 The requests a finished run's page makes today, then with one snapshot file:
 ```
