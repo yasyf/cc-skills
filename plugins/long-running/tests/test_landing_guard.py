@@ -428,6 +428,13 @@ def test_his_words_on_his_open_question_posted_with_cci_post_are_refused_for_the
     assert landing_guard.deny_reason(bash("cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' 'a new order'", agent_id="a1")) is None
 
 
+def test_a_cci_post_in_bash_to_a_lane_nobody_reads_is_refused_naming_the_lanes_someone_reads(demo: str, no_calls: None) -> None:
+    for to in ("coordinator@demo", "coordinator --drive demo", "coordinator"):
+        reason = landing_guard.deny_reason(bash(f"cci post --kind handoff --lane root --to {to} 'j1 may start'"))
+        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, owner", to
+    assert landing_guard.deny_reason(bash("cci post --kind handoff --lane root --to meta@demo 'j1 may start'")) is None
+
+
 def cci_delta(path: Path, field: str, names: list[str]) -> None:
     with path.open("a") as rows:
         rows.write(json.dumps({"type": "attachment", "attachment": {"type": "deferred_tools_delta", field: names}}) + "\n")

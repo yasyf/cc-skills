@@ -68,6 +68,7 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
+AGENT_LINE = re.compile(r"^(?:STUCK|LANE) (?P<job>j\d+) ")
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 
 
@@ -108,7 +109,9 @@ def hears(watcher: Watcher, data: dict, order_id: str) -> bool:
 
 
 def heard_job(watcher: Watcher, data: dict, job: dict) -> bool:
-    """Whether the watch hears a job: the top's watch one starting a production cut, whatever order it serves, by his words "the top hears unfiled orders and releases", else one whose own order it hears, never one only carrying it, so one watch alone makes every line about a job, and a job whose order moves to another coordinator session moves with it, its agent or lane running on."""
+    """Whether the watch hears a job, so one watch alone makes every line about it: the watch of the coordinator session whose agent runs it on this Mac, by state.agent_lane, whatever coordinator session holds its order now, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; else the top's watch one starting a production cut, whatever order it serves, by his words "the top hears unfiled orders and releases"; else one whose own order it hears, never one only carrying it, so a Sprite or Orca lane whose order moves to another coordinator session moves with it, running on."""
+    if (lane := state.agent_lane(data, job)) in state.coordinator_lanes(data):
+        return lane == watcher.lane
     return watcher.project is None if state.starts_cut(job) else hears(watcher, data, job["order"])
 
 
@@ -2217,7 +2220,7 @@ def send_held(name: str, job_id: str) -> int:
 
 
 def carry_held(watcher: Watcher, moment: datetime) -> None:
-    """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs as its own process, its output in the drive's relaunches log, once for each new text and again every ten minutes while one stays held."""
+    """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned and that no session reaches by state.agent_lane, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs as its own process, its output in the drive's relaunches log, once for each new text and again every ten minutes while one stays held."""
     data = state.load(watcher.name)
     for job_id, job in data["jobs"].items():
         held = {kept["request"] for kept in job["undelivered"]}
@@ -2231,9 +2234,9 @@ def carry_held(watcher: Watcher, moment: datetime) -> None:
 
 
 def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
-    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose SendMessage the ANSWER undelivered line names, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, or for an adopted PR's job no builder started, which starts only on a PR event."""
     started = job.get("agent") or job.get("dispatch") or job.get("codex_run")
-    if job["state"] == "running" and started or job["prs"] and not started:
+    if job["state"] == "running" and started or job["prs"] and not started or state.agent_lane(data, job):
         return None
     remote = job.get("where") == "remote" and job.get("dispatch")
     local = not remote and bool(job.get("brief")) and bool(place.mac_step(Path(job["brief"]).read_text()))
@@ -2860,6 +2863,13 @@ def landed(watcher: Watcher) -> None:
     land.start(watcher.name, keys, watcher.cards)
 
 
+def line_lane(line: str, data: dict, own: str) -> str | None:
+    """The lane of the session a line is for when the watch's own coordinator does not act on it: a STUCK or LANE line, which the watch hearing the job's order makes, about a job whose agent another coordinator session runs on this Mac, to that session, the one whose SendMessage reaches it and whose watch makes the job's other lines; else holder_line's."""
+    if (found := AGENT_LINE.match(line)) and (job := data["jobs"].get(found["job"])) and (lane := state.agent_lane(data, job)) not in (None, own):
+        return lane
+    return holder_line(line, data)
+
+
 def holder_line(line: str, data: dict) -> str | None:
     """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator."""
     found = ABOUT.search(line)
@@ -2900,9 +2910,9 @@ def wakes(line: str, data: dict, cards: dict | None) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, and an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its PR through drive pr wake unless he approved the PR, whose card alone shows it, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and a holder's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, a job's STUCK or LANE line to the coordinator session whose agent runs it on this Mac, and an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its PR through drive pr wake unless he approved the PR, whose card alone shows it, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and another session's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
     lines = [LINE_BREAKS.sub(" ", line) for line in lines]
-    if not lines and not any(watcher.unsent.get(lane) for lane in state.HOLDERS):
+    if not lines and not any(owed for lane, owed in watcher.unsent.items() if lane != watcher.lane):
         return []
     data = state.load(watcher.name)
     kept, routed = [], {}
@@ -2913,12 +2923,13 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
         elif line.startswith(LANDER):
             if line not in [*watcher.unsent.get("meta", []), *(meta := routed.setdefault("meta", []))]:
                 meta.append(line)
-        elif holder := holder_line(line, data):
-            routed.setdefault(holder, []).append(line)
+        elif lane := line_lane(line, data, watcher.lane):
+            routed.setdefault(lane, []).append(line)
         else:
             kept.append(line)
     watcher.made = kept
-    failures = [failure for lane in state.HOLDERS if lane in routed or not lines for failure in sent(watcher, lane, routed.get(lane, []), moment)]
+    lanes = dict.fromkeys([*state.HOLDERS, *routed, *watcher.unsent])
+    failures = [failure for lane in lanes if lane != watcher.lane and (lane in routed or not lines) for failure in sent(watcher, lane, routed.get(lane, []), moment)]
     watcher.made = []
     return kept + failures
 
@@ -2946,7 +2957,8 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
             unsent.append(line)
             refusal = error
     watcher.unsent[lane] = unsent
-    what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {watcher.project}")
+    project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
+    what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {project}")
     if refusal is None:
         watcher.failures.pop(what, None)
         return []

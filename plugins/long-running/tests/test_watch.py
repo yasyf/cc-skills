@@ -1817,10 +1817,10 @@ def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_boun
     assert calls == [[KEY], [KEY]]
 
 
-def test_a_free_line_reaches_the_watch_hearing_its_order_whichever_session_started_its_agent_and_the_agent_is_left_running(
+def test_a_free_line_reaches_the_watch_of_the_session_whose_agent_runs_the_job_and_the_watch_hearing_its_order_once_none_does(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """His words on binding SandSQL's own sub-coordinator, "dont kill any existing handlers or workers just reparent them": a job whose order a newly bound sub-coordinator hears is that session's, whichever session started its agent."""
+    """His pick "Send them to the agent's starter": FREE 682910 on j2600 reached platform, which could not SendMessage the top's agent, and its hand-off to the top took 8 minutes 21 seconds."""
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
@@ -1832,9 +1832,33 @@ def test_a_free_line_reaches_the_watch_hearing_its_order_whichever_session_start
     with state.edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     freed = T0 + timedelta(seconds=60)
-    assert (watch.run_pass(iris, freed), watch.run_pass(top, freed)) == (["FREE j1 o1: j2 answered or done, nothing else holds it"], [])
-    kept = state.load(demo)["jobs"]["j1"]
-    assert (kept["state"], kept["agent"], kept["session"]) == ("waiting", "agent-j1", "session-under-test")
+    assert (watch.run_pass(iris, freed), watch.run_pass(top, freed)) == ([], ["FREE j1 o1: j2 answered or done, nothing else holds it"])
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["j2"], session="gone")
+        data["jobs"]["j2"]["state"] = "running"
+    assert (watch.run_pass(iris, freed + timedelta(minutes=1)), watch.run_pass(top, freed + timedelta(minutes=1))) == ([], [])
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    later = freed + timedelta(minutes=2)
+    assert (watch.run_pass(iris, later), watch.run_pass(top, later)) == (["FREE j1 o1: j2 answered or done, nothing else holds it"], [])
+
+
+def test_a_projects_watch_hands_a_stuck_or_lane_line_to_the_session_that_started_its_jobs_agent_and_keeps_the_rest(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sub_coordinated(demo, "Platform", "platform-1")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"agent": "a4667d5c611bb5233", "session": "session-under-test"}
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(agent="a-gone", session="ended-session")
+    sent = posts(monkeypatch)
+    platform = watch.Watcher(demo, offset=state.events_end(demo), project="Platform")
+    stuck = 'STUCK j1 o1: its agent\'s Bash call "gh pr checks" has had no result for 30 minutes'
+    died = 'LANE j1 o1 died as agent a4667d5c611bb5233 on this Mac: its transcript ended, while it worked on "watch"'
+    kept = [f"PR {KEY}: checks failed [o1 j1]", 'STUCK j2 o1: its agent\'s Bash call "gh pr checks" has had no result for 30 minutes']
+    assert watch.handed(platform, [stuck, died, *kept], T0) == kept
+    assert posted(sent) == [("evidence", f"root@{demo}", stuck), ("handoff", f"root@{demo}", died)]
+    assert platform.unsent == {"root": []}
 
 
 def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_stands_and_posts_to_its_sub_coordinators_lane(
@@ -2034,7 +2058,7 @@ def test_a_sendmessage_written_before_he_gave_his_words_leaves_his_answer_undeli
     assert [line.split(":")[0] for line in watch.undelivered_lines(watcher(demo), tapped + timedelta(minutes=10))] == ["ANSWER undelivered j1"]
 
 
-def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_builder_never_started_once_its_waits_end(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_builder_never_started_once_its_waits_end_leaving_an_agent_its_starter_reaches_to_its_sendmessage(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     detached = []
 
     def detach(name: str, args: list[str], log: str) -> int:
@@ -2046,18 +2070,20 @@ def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_bui
     monkeypatch.setattr(state, "detach", detach)
     held = [{"seq": "9", "words": 'His answer on card demo:j1-7, verbatim: "Ring"', "at": state.stamp(T0), "said": None, "request": "req-ring"}]
     with state.edit(demo) as data:
-        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["orders"]["o1"]["jobs"] += ["j2", "j3", "j4", "j5"]
         data["jobs"]["j1"]["undelivered"] = held
         data["jobs"]["j2"] = job(state="built", where="remote", dispatch="ctx_lane2", undelivered=held)
         data["jobs"]["j3"] = job(state="waiting", waits=["j1"], undelivered=held)
+        data["jobs"]["j4"] = job(state="built", where="local", agent="agent-j4", session="session-under-test", undelivered=held)
+        data["jobs"]["j5"] = job(state="built", where="local", agent="agent-j5", session="ended-session", undelivered=held)
     watching = watcher(demo)
     watch.carry_held(watching, T0)
     watch.carry_held(watching, T0 + timedelta(minutes=5))
-    assert detached == [["job", "resume", "j2"]]
+    assert detached == [["job", "resume", "j2"], ["job", "launch", "j5"]]
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     watch.carry_held(watching, T0 + timedelta(minutes=11))
-    assert detached == [["job", "resume", "j2"], ["job", "resume", "j2"], ["job", "launch", "j3"]]
+    assert detached == [["job", "resume", "j2"], ["job", "launch", "j5"], ["job", "resume", "j2"], ["job", "launch", "j3"], ["job", "launch", "j5"]]
 
 
 def test_the_watch_starts_no_launch_of_a_codex_job_while_its_codex_ask_run_goes_and_launches_it_with_its_held_text_once_it_returned(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1911,7 +1911,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
 
 
 def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -> None:
-    """Tell the session holding the job's order, in one record that wakes nobody, that his answer to this same question settled the job's question, so it builds on his words with no card."""
+    """Tell the session that acts on the job, by state.job_lane, in one record that wakes nobody, that his answer to this same question settled the job's question, so it builds on his words with no card."""
     job = data["jobs"][job_id]
     lane = state.job_lane(data, job)
     where = answered_at(answer)
@@ -3325,7 +3325,7 @@ def releaded(pr: dict) -> str:
 
 
 def pr_wake(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to any other builder as a handoff record to the session holding its order, naming superseded.delivery's step that reaches the builder from there. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes to that session the same way, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to any other builder as a handoff record to the session job_lane names, the coordinator session that started its agent on this Mac, else the session holding its order, naming superseded.delivery's step that reaches the builder from there. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
@@ -3347,7 +3347,7 @@ def pr_wake(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][job_id or pr["job"]]
-    lane = state.job_lane(data, job)
+    lane = state.job_lane(data, job) if job_id else state.holding_job_lane(data, job)
     said = (
         f"STAGE {text}; its builder {job_id} takes this line alone: {superseded.delivery(data, job_id, job, 'this line')}"
         if job_id

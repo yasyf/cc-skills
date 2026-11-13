@@ -210,9 +210,11 @@ RELEASE_BY_HAND = (
 )
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
-    " session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote"
-    " the record it answers, its other owner, answer, handoff or refused record, and any other session's handoff,"
-    " to the session holding the order it serves; post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
+    " session, the communicator's answer, handoff or refused record, and any other session's handoff, naming a job a"
+    " coordinator session's agent runs on this Mac to that session, the communicator's answer, handoff or refused record"
+    " naming no job to the coordinator that wrote the record it answers, its other owner, answer, handoff or refused record,"
+    " and any other session's handoff, to the session holding the order it serves; post it again with `{flags}`, or on the"
+    " cci `post` tool, whose hook addresses it"
 )
 
 
@@ -620,6 +622,7 @@ def cci_posts(script: str, shell: Shell) -> list[dict]:
                 "kind": (options.get("kind") or [""])[-1].lower(),
                 "attrs": dict(pair.split("=", 1) for value in options.get("attr", []) for pair in ([value.strip('"')] if value.count("=") == 1 else next(csv.reader([value])))),
                 "to": [lane for value in options.get("to", []) for lane in value.split(",")],
+                "drive": (options.get("drive") or [None])[-1],
                 "text": " ".join(positionals) or (options.get("text") or [""])[-1] or limits.opening_line(file_text(run_in.cwd, path)),
                 "body": file_text(run_in.cwd, (options.get("body-file") or [path])[-1]),
                 "url": (options.get("url") or [None])[-1],
@@ -695,7 +698,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record, which no session posts since `drive job ask` draws his card itself, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, a record a handler posts to him typing a clock time for work already done, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, which blocks outright, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record, which no session posts since `drive job ask` draws his card itself, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to a lane no session reads or to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, a record a handler posts to him typing a clock time for work already done, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, which blocks outright, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
@@ -704,7 +707,10 @@ def judged_reason(payload: dict) -> str | None:
         return settled.HAND_ASK
     if names and (misnamed := next(filter(None, (reports.stray_parts(post["kind"], post["attrs"]) or limits.misnamed(post["kind"], post["attrs"]) for post in posts)), None)):
         return misnamed
-    if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
+    drives = state.bound_drives(names) if posts else {}
+    if unread := next(filter(None, (state.unread(drives, post["to"], post["drive"] or next(iter(names), None)) for post in posts)), None):
+        return unread
+    if posts and (wrong := misrouted(posts, drives, session)):
         return wrong
     drive = state.load(names[0]) if names and posts else None
     if drive and (unreported := next(filter(None, (refused for index in range(len(posts)) for refused in reports.report_refusals(payload, drive, posts, index))), None)):

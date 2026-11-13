@@ -3152,7 +3152,7 @@ def test_the_watch_records_the_death_of_a_lane_whose_job_stopped_since_its_pass_
     assert (death["dispatch"], death["why"], "relaunch" in death) == (DISPATCH, GONE_SPRITE, False)
 
 
-def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_session_holding_its_order_naming_its_sendmessage_only_when_that_session_started_it_else_a_resume(
+def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session_that_started_it_by_sendmessage_else_to_the_session_holding_its_order_by_a_resume(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
@@ -3174,7 +3174,14 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_session_holding_its
         f"STAGE {line}; its builder j1 takes this line alone: SendMessage it this line verbatim from platform@{demo}, the session platform-1 that started its agent a8e6e8443b2472bdb",
     )
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
+        top = data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
+    posted.clear()
+    assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
+    assert [record["text"] for record in posted] == [
+        f"STAGE {line}; its builder j1 takes this line alone: SendMessage it this line verbatim from root@{demo}, the session {top} that started its agent a8e6e8443b2472bdb"
+    ]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["session"] = "ended-session"
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
     assert [record["text"] for record in posted] == [f"STAGE {line}; its builder j1 takes this line alone: drive job resume j1 with this line verbatim"]

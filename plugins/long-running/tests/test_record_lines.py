@@ -205,7 +205,7 @@ def test_a_record_goes_out_without_a_max_words_attr_on_any_kind(demo: str) -> No
 def test_a_report_opens_post_or_fyi(demo: str) -> None:
     assert "`POST`" in refusal(record_lines.decision(post(kind="report", text="j702 merged", to=TO)))
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs=PROGRESS)) is None
-    assert record_lines.decision(post(kind="report", text="j702 merged", to=["builder@demo"])) is None
+    assert record_lines.decision(post(kind="report", text="j702 merged", to=META)) is None
 
 
 def test_a_reports_url_names_what_it_measured_never_his_message_its_thread_names(demo: str, turn: Path) -> None:
@@ -589,6 +589,19 @@ def test_the_communicators_record_is_routed_on_the_drive_it_names_while_its_sess
     assert state.session_drives("talker") == ["newer", demo]
     answer = {"kind": "answer", "text": "Ring", "to": ["root@demo", "root@newer"], "re": ["7"], "attrs": {"job": "j1", "maps": "none"}}
     assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["iris@demo", "root@newer"]
+
+
+def test_a_record_naming_a_job_goes_to_the_session_that_started_its_agent_and_one_to_a_lane_nobody_reads_is_refused(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bound_to_iris(run, demo, monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
+    run("job", "set", "j1", "--agent", "a4667d5c611bb5233")
+    answer = {"kind": "answer", "text": "Ring", "to": ["iris@demo"], "re": ["7"], "attrs": {"job": "j1", "maps": "none"}}
+    assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["root@demo"]
+    for to in (["coordinator@demo"], ["coordinator"]):
+        reason = refusal(record_lines.decision(post("iris-1", kind="handoff", text="j1 may start", to=to)))
+        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, iris, owner", to
 
 
 def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_hearing_that_order(

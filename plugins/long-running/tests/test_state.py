@@ -633,8 +633,7 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
     assert list(state.bound_sessions(data)) == ["coordinator", "sub-coordinator Iris"]
 
 
-
-def test_only_the_session_holding_a_jobs_order_reaches_its_agent_by_sendmessage_so_a_moved_or_meta_held_job_takes_a_resume(state_root: Path) -> None:
+def test_a_jobs_agent_stays_with_the_coordinator_that_started_it_whatever_coordinator_holds_its_order_and_a_meta_held_job_takes_a_resume(state_root: Path) -> None:
     make("demo", "top", "2026-11-11T01:00:00-08:00")
     with state.edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
@@ -654,7 +653,8 @@ def test_only_the_session_holding_a_jobs_order_reaches_its_agent_by_sendmessage_
         for job_id, (order_id, where, session, agent) in ran.items():
             data["jobs"][job_id] = state.new_job(order_id, "builder", "build it", [], "2026-11-11T03:00:00-08:00") | {"where": where, "session": session, "agent": agent}
     data = state.load("demo")
-    assert {job_id: state.agent_lane(data, job) for job_id, job in data["jobs"].items()} == {"moved": None, "iris": "iris", "top": "root", "sprite": None, "ended": None, "tooling": None, "meta": "meta"}
+    assert {job_id: state.agent_lane(data, job) for job_id, job in data["jobs"].items()} == {"moved": "root", "iris": "iris", "top": "root", "sprite": None, "ended": None, "tooling": None, "meta": "meta"}
+    assert {job_id: state.job_lane(data, job) for job_id, job in data["jobs"].items()} == {"moved": "root", "iris": "iris", "top": "root", "sprite": "iris", "ended": "root", "tooling": "meta", "meta": "meta"}
 
 
 def test_resolve_falls_back_to_the_only_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
