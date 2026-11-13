@@ -336,14 +336,15 @@ class Board:
         folder = pages.pages_dir(self.name)
         if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.pages[0]:
             self.pages = (listed_at, pages.listed(self.name))
-        model = view.board(drive, found, source, self.events, state.now(), self.reports, heard) | {
-            "code": CODE,
-            "site": site_stamp(),
-            "pid": os.getpid(),
-            "links": self.links,
-            "repo": repo,
-            "pages": pages.shown(drive, self.pages[1]),
-        }
+        with state.indexed_pr_jobs(drive):
+            model = view.board(drive, found, source, self.events, state.now(), self.reports, heard) | {
+                "code": CODE,
+                "site": site_stamp(),
+                "pid": os.getpid(),
+                "links": self.links,
+                "repo": repo,
+                "pages": pages.shown(drive, self.pages[1]),
+            }
         built = time.thread_time()
         self.show(model)
         self.timings = {"prepare_ms": (prepared - started) * 1000, "load_ms": (loaded - prepared) * 1000, "model_ms": (built - loaded) * 1000, "publish_ms": (time.thread_time() - built) * 1000}

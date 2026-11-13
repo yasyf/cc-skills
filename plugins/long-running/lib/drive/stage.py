@@ -39,9 +39,9 @@ class Stage:
     why: str
 
 
-def of(data: dict, key: str, cards: dict) -> Stage:
+def of(data: dict, key: str, cards: dict, under: dict[str, str | None] | None = None) -> Stage:
     """What a PR is now and who owes its next step, the first rule that matches, the last matching every PR; the only place the drive says what a PR is, which the watch, the lander, his card, the dashboard and drive status read."""
-    return behind(data, key, cards, own(data, key, cards))
+    return behind(data, key, cards, own(data, key, cards), under)
 
 
 def on_card(data: dict, key: str, cards: dict) -> Stage:
@@ -217,11 +217,11 @@ def grading(pr: dict) -> str:
     return f"its checks run at {pr['head'][:7]}" if pr["checks"] == "pending" else ""
 
 
-def behind(data: dict, key: str, cards: dict, now: Stage) -> Stage:
+def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None) -> Stage:
     """The PR's stage now, unless a PR under it, bottom first, holds it: one GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
     if now.name in OWN_STEP:
         return now
-    for member in land.chain(land.unders(data), key)[:-1]:
+    for member in land.chain(land.unders(data) if under is None else under, key)[:-1]:
         below = data["prs"][member]
         if (below["conflict"] or now.name == "ready") and (other := own(data, member, cards)).name != "ready":
             conflicts = f" conflicts with its base {below['base']}," if below["conflict"] else ","
@@ -293,9 +293,10 @@ def kept(pr: dict, now: Stage) -> None:
 
 def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
     """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard, the status page and his catch-up, show what a decision made now reads."""
+    under = land.unders(data)
     for key in keys:
         pr = data["prs"][key]
-        now = of(data, key, cards)
+        now = of(data, key, cards, under)
         since = pr["stage"]["since"] if pr["stage"] and pr["stage"]["name"] == now.name else None
         pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": since, "woke": None}
 

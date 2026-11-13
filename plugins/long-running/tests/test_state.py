@@ -766,3 +766,34 @@ def test_a_detached_verb_names_its_drive_and_no_session_in_its_environment(state
     [(argv, options)] = started
     assert argv[1:] == ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7", "--drive", "demo"]
     assert options["env"][state.DRIVE_ENV] == "demo" and "CLAUDE_CODE_SESSION_ID" not in options["env"]
+
+
+def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
+    class Jobs(dict):
+        scans = 0
+
+        def items(self):
+            self.scans += 1
+            return super().items()
+
+    jobs = Jobs({f"j{n}": {"prs": [f"pr{n}", "shared", "shared"]} for n in range(64)})
+    data = {"jobs": jobs}
+    prs = [{"job": f"j{n}", "url": f"pr{n}"} for n in range(64)] + [{"job": "outside", "url": "shared"}, {"job": "outside", "url": "unknown"}]
+    expected = [state.pr_jobs(data, pr) for pr in prs]
+    assert jobs.scans == len(prs)
+    jobs.scans = 0
+    other = {"jobs": {"other": {"prs": ["shared"]}}}
+    with state.indexed_pr_jobs(data):
+        assert [state.pr_jobs(data, pr) for pr in prs] == expected
+        assert jobs.scans == 1
+        assert state.pr_jobs(other, prs[-2]) == ["outside", "other"]
+        with state.indexed_pr_jobs(other):
+            assert state.pr_jobs(other, prs[-2]) == ["outside", "other"]
+        assert state.pr_jobs(data, prs[-2]) == expected[-2]
+        assert jobs.scans == 1
+    jobs["new"] = {"prs": ["shared"]}
+    assert state.pr_jobs(data, prs[-2]) == [*expected[-2], "new"]
+    assert jobs.scans == 2
+    with pytest.raises(RuntimeError), state.indexed_pr_jobs(data):
+        raise RuntimeError("projection failed")
+    assert state.PR_JOB_INDEX.get() is None
