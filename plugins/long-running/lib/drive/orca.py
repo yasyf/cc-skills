@@ -58,6 +58,7 @@ ON_MAC = "on this Mac"
 PUSH_FIRST = "Commit and push before any long build."
 UNPUSHED = f"work it had not committed and pushed is not carried over. {PUSH_FIRST}"
 RELOAD = "/reload-plugins"
+MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
 SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
 ANSWERED_ELSEWHERE = "answer_conflict"
@@ -198,6 +199,12 @@ def reload_plugins(terminal: str, wait_ms: int) -> bool:
         raise OrcaError(f"orca terminal wait: it shows {waited['blockedReason']}")
     request("terminal", "send", "--terminal", terminal, "--text", RELOAD, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
     return waited is not None
+
+
+def type_prompt(terminal: str, text: str) -> None:
+    """Type a one-line prompt into a Claude Code session's terminal and submit it as two writes, the text and then Enter, which Orca takes whatever it reads of the pane, since it refuses one write of both as agent_prompt_blocked on a pane it reads as showing a permission prompt, as it reads a lane's API error; a drive lane runs with every permission granted and no question tool, so no prompt shows that the Enter could answer."""
+    request("terminal", "send", "--terminal", terminal, "--text", text)
+    request("terminal", "send", "--terminal", terminal, "--enter")
 
 
 def terminal(handle: str) -> dict:
@@ -631,7 +638,7 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(drive: str, job: dict, wake: bool = True) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. OrcaError when Orca cannot tell either way."""
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. OrcaError when Orca cannot tell either way."""
     try:
         return shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
@@ -678,9 +685,18 @@ def shown_end(job: dict, shown: dict) -> LaneEnd | None:
             return LaneEnd(f"its worker {finished}, and its terminal {terminal} is no longer connected", branch, None)
         why = f"its worker {finished}, and Orca sends nothing to a finished worker {ON_MAC if state.on_mac(job) else 'on a Sprite'}"
         return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"], terminal, shown["dispatch"]["runId"])
-    if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
+    if (verdict := shown["projection"]["liveness"]["verdict"]) != "live" and not typed(job, shown):
         raise OrcaError(f"orca orchestration worker-show: {UNLIVE} {verdict}")
     return None
+
+
+def typed(job: dict, shown: dict) -> str | None:
+    """The terminal of a lane on this Mac that Orca shows as its own unfinished worker in a terminal it can write to, which the drive types into to reach it whatever liveness Orca reads, since Orca reads none once an Orca restart restores the pane's hook status unconfirmed or the pane sat 30 minutes with no hook event; None for any other lane."""
+    observation = shown.get("observation") or {}
+    reachable = observation.get("status") == "live" and observation.get("exactWorker") and (shown.get("terminal") or {}).get("writable")
+    if not state.on_mac(job) or shown["worker"]["state"] in FINISHED or not reachable:
+        return None
+    return shown["worker"]["agentTerminalHandle"]
 
 
 def start_after(drive: str, lane: str, brief: Path, end: LaneEnd) -> dict:
@@ -930,7 +946,7 @@ def answer(drive: str, job: dict, text: str, request: str) -> str:
             if error.code != ANSWERED_ELSEWHERE:
                 raise
         else:
-            return f"answered its question {job['ask']}"
+            return woke(job, f"answered its question {job['ask']}")
     return send(drive, job, "From the coordinator", text, str(uuid.uuid5(uuid.UUID(request), "send")))
 
 
@@ -938,9 +954,17 @@ def send(drive: str, job: dict, subject: str, text: str, request: str | None = N
     """Send the text to the lane's Dispatch as a message, as the drive's own terminal, which neither answers nor clears a question it asked."""
     speak_as_drive(drive)
     call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text, *retried(request))
-    return f"sent to dispatch {job['dispatch']}"
+    return woke(job, f"sent to dispatch {job['dispatch']}")
 
 
-def takes_messages(worker: dict) -> bool:
-    """Whether a worker-show's worker is alive and unfinished, so a message to its Dispatch reaches it."""
-    return worker["worker"]["state"] not in FINISHED and worker["projection"]["liveness"]["verdict"] == "live"
+def woke(job: dict, how: str) -> str:
+    """How a message reached the lane, once a lane on this Mac that Orca cannot tell is live has had MAIL typed into its terminal, since Orca may hold a message for such a worker without delivering it."""
+    if not state.on_mac(job) or (shown := worker(job["dispatch"]))["projection"]["liveness"]["verdict"] == "live" or not (terminal := typed(job, shown)):
+        return how
+    type_prompt(terminal, MAIL)
+    return f"{how}, and typed into its terminal {terminal} that it has mail"
+
+
+def takes_messages(job: dict, worker: dict) -> bool:
+    """Whether a worker-show's worker is unfinished and reachable: alive, so a message to its Dispatch reaches it, or on this Mac in a terminal the drive types into."""
+    return typed(job, worker) is not None or (worker["worker"]["state"] not in FINISHED and worker["projection"]["liveness"]["verdict"] == "live")

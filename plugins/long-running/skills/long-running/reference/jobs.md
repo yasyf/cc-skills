@@ -283,7 +283,11 @@ lane reads those, and Slack, through this Mac with a blocking question.
   on an API error or a refusal, once the session holding it has had a response answered since, so
   its next worker does not start inside the outage that stopped it: its `LANE … died as agent`
   line says the watch ran that resume, which starts the next worker on a Sprite, or on this Mac
-  when its brief declares a step only this Mac runs. A PR's next step goes to its lane by `drive pr wake`, as its
+  when its brief declares a step only this Mac runs. A running lane on this Mac whose newest transcript
+  in its worktree ends the same way, once any session bound to the drive has had a response
+  answered since, has the resume prompt the StopFailure hook sends typed into its terminal, once
+  per stop, and its `LANE … stopped on this Mac` line says so; after four resumes met the same stop
+  the line says the watch types no more. A PR's next step goes to its lane by `drive pr wake`, as its
   stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
   `ORPHAN`s even when another job or a posted answer carries them, as does work he ordered that only
@@ -373,7 +377,10 @@ before it sends or starts.
   the save fails.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
   Orca call, so an outage delays it and never drops it. When Orca cannot tell whether the lane
-  lives, or refuses the send, the resume exits 0 saying the text is held.
+  lives, or refuses the send, the resume exits 0 saying the text is held. A lane on this Mac that
+  Orca shows as its own unfinished worker in a terminal it can write to takes the text whatever
+  liveness Orca reads, as after an Orca restart, and when Orca reads it not live, the send is
+  followed by a line typed into that terminal telling the lane to read its orchestration mail.
   The watch, once Orca reads that worker alive and unfinished, or once a lane that returned has no
   card of his asking it anything, runs `drive job resume <j>` with no text as a process of its own, which sends each held text under the id it was held with, so Orca
   replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
