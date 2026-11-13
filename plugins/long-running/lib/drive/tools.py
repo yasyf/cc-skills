@@ -142,7 +142,16 @@ RECORD = {
                 " attrs.order names, else the order of the job it answers, else its thread's newest order, whatever lane this names"
             ),
         },
-        "attrs": {"type": "object", "additionalProperties": TEXT},
+        "attrs": {
+            "type": "object",
+            "additionalProperties": TEXT,
+            "description": (
+                "the record's attrs; an owner record sharing a report someone else wrote names reporter, that message's permalink,"
+                " title, a few words naming it, and job, the job at work on its fix: his words joining an open order become an order"
+                " of their own holding that reporter, filed like the order they join and carried by that job, while an order his same"
+                " message added takes the reporter itself"
+            ),
+        },
         "body": {"type": "string", "description": "the rest past the text's one line"},
     },
     "required": ["kind", "text"],
@@ -612,10 +621,10 @@ def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: l
 
 
 def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry_run: bool) -> None:
-    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. The record names the order as attr order, and a part it added as attr part."""
+    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, holding the reporter attr reporter names, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Words sharing someone else's report, attr reporter, that serve an open order go to the order reporters_order names in place of a part. The record names the order as attr order, and a part it added as attr part."""
     named = item.get("order")
     if isinstance(named, dict):
-        fields = new_order_fields(item) | named
+        fields = {"kind": "build", "owner": "meta"} | sourced(item) | ({"reporter": attrs["reporter"]} if attrs.get("reporter") else {}) | named
         if fields["owner"] != "meta":
             raise DriveError(f"{index}: refused, his words about the drive go to an order the meta session holds, so leave order.owner out or name it meta")
         attrs["order"] = first(order_op(name, said, index, "add", fields, dry_run))
@@ -634,17 +643,42 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
             f' name order, the fields of drive order add for a new order the meta session holds, such as "{state.TOOLING} <what his words'
             ' ask for>" with its title, or the id of the open order the meta session holds that his words carry on'
         )
+    if attrs.get("reporter"):
+        attrs["order"] = reporters_order(name, said, index, item, attrs, data, order_id, dry_run)
+        return
     part = state.whole_order(item["text"])
     attrs |= {"order": order_id, "part": f"{order_id}:{part}"}
     if part not in order["parts"]:
         order_op(name, said, index, "set", {"id": order_id, "parts": [*order["parts"], part]}, dry_run)
 
 
-def new_order_fields(item: dict) -> dict:
-    """What a new order a record of his words about the drive adds takes from the record: kind build, owner the meta session, from his message at its url, else in the thread it names."""
+def reporters_order(name: str, said: list[str], index: int, item: dict, attrs: dict, data: dict, served: str, dry_run: bool) -> str:
+    """The order keeping the reporter of a report his words share into the open order they serve, so that person hears once its own fix is live, never at the proof of another fix the served order holds: an open order holding that reporter already, then the served order when his same message added it and it holds none, else a new order of his words filed, owned and kinded like the served one, titled by attr title and carried by the job attr job names while that job is at work on his feature work."""
+    link, order = attrs["reporter"], data["orders"][served]
+    if holder := next((order_id for order_id, held in state.open_orders(data).items() if (held["reporter"] or {}).get("link") == link), None):
+        return holder
+    message = state.slack_message(item.get("url") or "")
+    if message and order["from"] == cli.slack_key(item["url"], message) and not order["reporter"]:
+        order_op(name, said, index, "set", {"id": served, "reporter": link}, dry_run)
+        return served
+    if not attrs.get("title"):
+        raise DriveError(
+            f"{index}: refused, these words share a report someone else wrote into {served}, so they become an order of their own holding"
+            " its reporter, which hears once that order's fix is live: name that order's few words as attrs.title"
+        )
+    fields = {"words": item["text"], "title": attrs["title"], "project": order["project"], "workstream": order["workstream"], "owner": order["owner"], "kind": order["kind"], "reporter": link}
+    added = first(order_op(name, said, index, "add", sourced(item) | fields, dry_run))
+    job = data["jobs"].get(attrs.get("job") or "")
+    if job and job["state"] not in state.FINISHED_JOB_STATES and not cli.tooling(data["orders"][job["order"]]):
+        ran(name, said, index, ("job", "set"), {"id": attrs["job"], "carries": [added]}, dry_run)
+    return added
+
+
+def sourced(item: dict) -> dict:
+    """Where an order a record of his words adds comes from: his message at its url, else the thread it names."""
     if state.slack_message(item.get("url") or ""):
-        return {"kind": "build", "owner": "meta", "from": item["url"]}
-    return {"kind": "build", "owner": "meta"} | ({"thread": item["thread"]} if item.get("thread") else {})
+        return {"from": item["url"]}
+    return {"thread": item["thread"]} if item.get("thread") else {}
 
 
 def order_op(name: str, said: list[str], index: int, verb: str, given: dict, dry_run: bool) -> list[str]:
