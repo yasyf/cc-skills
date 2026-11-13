@@ -3063,6 +3063,9 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     assert place.waiting_builders(state.load(demo)) == ["j9"]
 
 
+ELSEWHERE = "Forge-AI/docs#42"
+
+
 def release(number: int, published: str, components: str, production: str | None = None, day: str = "2026-11-09") -> dict:
     return {
         "name": f"releases/{day}/{number}",
@@ -3092,7 +3095,76 @@ def release_reads(published: list[dict], starts: dict[str, list[str]], statuses:
     return run
 
 
-def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_its_service_holds_its_merged_pr(
+def live_checkout(tmp_path: Path) -> Path:
+    checkout = tmp_path / "checkout"
+    (checkout / "infra" / "envs").mkdir(parents=True)
+    for env, spec in {"plat-usw2-staging": "stage: staging", "plat-usw2-prod": "prod: true", "plat-usw2-heritage": "prod: true"}.items():
+        (checkout / "infra" / "envs" / f"{env}.yaml").write_text(f"id: {env}\n{spec}\n")
+    (checkout / "release").mkdir()
+    (checkout / "release" / "targets.yaml").write_text(
+        "components:\n  api:\n    title: API\n    images: [api]\n    promotes: argo\n  rsw-search:\n    title: Search Restate worker\n    part: search\n"
+        "    promotes: restate-worker\n    restate: restate-store\n  data:\n    title: Data\n"
+    )
+    return checkout
+
+
+def test_a_monorepo_release_wait_frees_once_every_prod_env_running_its_service_runs_a_commit_holding_its_merge_as_release_live_reads_at_most_every_five_minutes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    checkout = live_checkout(tmp_path)
+    live = [{"target": "data", "env": "plat-usw2-staging", "commit": "aaa111"}, {"target": "api", "env": "plat-usw2-heritage", "commit": "bbb222"}, {"target": "data", "env": "plat-usw2-prod", "commit": "ccc333"}]
+    holding, ran, read = {"aaa111", "bbb222", "2d718fe1b890"}, [], []
+
+    def run(argv: list[str], at: Path, **_: object) -> str:
+        ran.append((argv, at))
+        return json.dumps(live)
+
+    def gh(cmd: list[str], **_: object) -> str:
+        read.append(cmd[2])
+        return "ahead\n" if cmd[2].rsplit("...", 1)[1] in holding else "behind\n"
+
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(watch.reads, "run", run)
+    monkeypatch.setattr(watch.github, "run", gh)
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="d6b2eaf6")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of data", waits=[f"release:data:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert read == ["repos/Forge-AI/monorepo/compare/d6b2eaf6...ccc333"]
+    live.append({"target": "data", "env": "plat-usw2-heritage", "commit": "2d718fe1b890"})
+    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    live[2]["commit"] = "eee555"
+    holding.add("eee555")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [
+        f"FREE j1 o1: data runs {KEY} on every production env it runs on: plat-usw2-heritage, plat-usw2-prod, nothing else holds it"
+    ]
+    assert ran == [([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout)] * 3
+    assert all("/compare/" in each for each in read)
+    assert state.load(demo)["jobs"]["j1"]["waits"] == []
+
+
+def test_a_release_wait_on_a_component_switched_after_its_apply_stays_held_while_release_live_shows_every_prod_env_applied_its_merge(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    checkout = live_checkout(tmp_path)
+    live = [{"target": target, "env": env, "commit": "fff666"} for target in ("rsw-search", "api", "data") for env in ("plat-usw2-prod", "plat-usw2-heritage")]
+    read = []
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(watch.reads, "run", lambda argv, at, **_: json.dumps(live))
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: read.append(cmd[2]) or "ahead\n")
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="d6b2eaf6")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of rsw-search, api and data", waits=[f"release:rsw-search:{KEY}", f"release:api:{KEY}", f"release:data:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    assert watch.run_pass(watcher(demo), T0) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [f"release:rsw-search:{KEY}", f"release:api:{KEY}"]
+    assert read == ["repos/Forge-AI/monorepo/compare/d6b2eaf6...fff666"] * 2
+
+
+def test_a_job_waiting_on_a_release_outside_the_monorepo_is_freed_once_the_newest_release_shipping_its_service_holds_its_merged_pr(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -3104,16 +3176,16 @@ def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_it
         return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else f"{statuses.pop(0)}\n"
 
     monkeypatch.setattr(watch.github, "run", gh)
-    wait = f"release:api:{KEY}"
+    wait = f"release:api:{ELSEWHERE}"
     with state.edit(demo) as data:
-        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["prs"][ELSEWHERE] = state.new_pr(state.pr_url(ELSEWHERE), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
         data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    assert calls[-1] == "repos/Forge-AI/monorepo/compare/abc123...release/releases-2026-11-09-1"
+    assert calls[-1] == "repos/Forge-AI/docs/compare/abc123...release/releases-2026-11-09-1"
     published.append(release(2, "2026-11-09T15:00:00Z", "dashboard, api"))
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: release releases/2026-11-09/2 ships {KEY} on api, nothing else holds it"]
-    assert calls[-1] == "repos/Forge-AI/monorepo/compare/abc123...release/releases-2026-11-09-2"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: release releases/2026-11-09/2 ships {ELSEWHERE} on api, nothing else holds it"]
+    assert calls[-1] == "repos/Forge-AI/docs/compare/abc123...release/releases-2026-11-09-2"
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
     assert len(calls) == 4
@@ -3125,16 +3197,16 @@ def test_a_staging_only_release_frees_no_release_wait_and_the_next_release_reach
     published, calls = [unlined(staged)], []
     monkeypatch.setattr(watch.github, "run", release_reads(published, {"27": ["plat-usw2-staging"]}, ["ahead"], calls))
     with state.edit(demo) as data:
-        data["prs"][KEY].update(state="merged", merged_sha="5273c9b2")
-        data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["prs"][ELSEWHERE] = state.new_pr(state.pr_url(ELSEWHERE), "j1", "o1") | {"state": "merged", "merged_sha": "5273c9b2"}
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{ELSEWHERE}"], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     published[0] = staged
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert not any("/compare/" in call for call in calls)
     published.append(release(28, "2026-11-12T22:17:37Z", "sandsql", day="2026-11-12"))
-    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/28 ships {KEY} on sandsql, nothing else holds it"]
-    assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-28"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/28 ships {ELSEWHERE} on sandsql, nothing else holds it"]
+    assert calls[-1] == "repos/Forge-AI/docs/compare/5273c9b2...release/releases-2026-11-12-28"
     assert [call for call in calls if call.startswith("bk ")] == ["bk build view 27"]
 
 
@@ -3146,17 +3218,17 @@ def test_while_no_release_carries_a_production_line_a_wait_frees_on_the_newest_r
     published, calls = [unlined(release(27, "2026-11-12T22:01:54Z", "sandsql, api", day="2026-11-12")), unlined(candidate)], []
     monkeypatch.setattr(watch.github, "run", release_reads(published, {"27": ["plat-usw2-staging"], "30": ["core-usw2-auto"]}, ["behind", "ahead"], calls))
     with state.edit(demo) as data:
-        data["prs"][KEY].update(state="merged", merged_sha="5273c9b2")
-        data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["prs"][ELSEWHERE] = state.new_pr(state.pr_url(ELSEWHERE), "j1", "o1") | {"state": "merged", "merged_sha": "5273c9b2"}
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of sandsql", waits=[f"release:sandsql:{ELSEWHERE}"], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     assert not any("/compare/" in call for call in calls)
     published.append(unlined(release(28, "2026-11-12T22:17:37Z", "sandsql", day="2026-11-12")))
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-28"
+    assert calls[-1] == "repos/Forge-AI/docs/compare/5273c9b2...release/releases-2026-11-12-28"
     published.append(unlined(release(30, "2026-11-12T22:40:00Z", "platy, sandsql", day="2026-11-12")))
-    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/30 ships {KEY} on sandsql, nothing else holds it"]
-    assert calls[-1] == "repos/Forge-AI/monorepo/compare/5273c9b2...release/releases-2026-11-12-30"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: release releases/2026-11-12/30 ships {ELSEWHERE} on sandsql, nothing else holds it"]
+    assert calls[-1] == "repos/Forge-AI/docs/compare/5273c9b2...release/releases-2026-11-12-30"
     assert [call for call in calls if call.startswith("bk ")] == ["bk build view 27", "bk build view 28", "bk build view 30"]
 
 
@@ -3396,17 +3468,6 @@ def test_a_wait_added_to_a_pr_redraws_his_open_card_in_place_never_withdraws_it_
     assert "redrawing his open card in place failed, so it does not name them yet: cc-slack exited 1; run this again" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--tap", "--serves", "o1", "--design", "none", "--drive", demo]) == 0
     assert state.load(demo)["prs"][KEY]["wants_tap"] is True
-
-
-def test_a_release_wait_whose_release_is_already_out_is_never_stored(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    shipped = "Forge-AI/monorepo#43"
-    with state.edit(demo) as data:
-        data["prs"][shipped] = state.new_pr(state.pr_url(shipped), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
-    published = [release(2, "2026-11-09T15:00:00Z", "dashboard")]
-    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
-    assert cli.main(["pr", "set", KEY, "--waits", f"release:dashboard:{shipped}", "--waits", f"release:api:{shipped}", "--drive", demo]) == 0
-    assert f"\nrelease releases/2026-11-09/2 ships {shipped} on dashboard, so it is not a wait" in capsys.readouterr().out
-    assert state.load(demo)["prs"][KEY]["waits"] == [f"release:api:{shipped}"]
 
 
 def test_job_held_names_his_open_cards_holding_a_jobs_pr_until_he_answers_or_it_has_an_open_pr(
@@ -5507,6 +5568,10 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     calls, asked = [], []
     monkeypatch.setattr(watch.github, "run", release_reads([], {}, [], calls))
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"]}})
+    checkout = live_checkout(tmp_path)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: checkout)
+    run = reads.run
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout, **kw: "[]" if argv[1:3] == ["release", "live"] else run(argv, checkout, **kw))
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
@@ -6602,6 +6667,7 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_a_communicator_its_dr
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
     release = f"release:sand:{OTHER}"
     with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
         data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[release])}
     watching = watcher(demo)
@@ -6643,6 +6709,7 @@ def test_watchdog_agents_count_those_still_searching_and_those_started_within_th
 )
 def test_no_chain_is_aged_past_his_hold_his_card_a_time_to_come_or_a_running_job(demo: str, stops: Callable[[dict], None], subjects: list[str]) -> None:
     with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:sand:{OTHER}"]}
         data["prs"][KEY]["stage"] = RED_STAGE
         stops(data)

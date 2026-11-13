@@ -3215,11 +3215,6 @@ def pr_set(args: argparse.Namespace) -> int:
             " open, and the proper fix's PR replaces it"
         )
     found = check_waits(name, args.waits)
-    try:
-        shipped = {wait: shipping for wait in args.waits if (shipping := view.shipped_by(known, wait))}
-    except github.GithubError as error:
-        raise DriveError(f"{key}: could not read from GitHub whether each release it would wait on is out: {error}; run this again") from None
-    args.waits = [wait for wait in args.waits if wait not in shipped]
     if args.port_of or args.tap or args.exempt == INCIDENT_EXEMPTION:
         read = github_pr(key)
         if args.port_of or args.tap:
@@ -3245,13 +3240,12 @@ def pr_set(args: argparse.Namespace) -> int:
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
     told = state.after_save(name, lambda: set_outside(name, key, pr["url"], args, dropped, lane, withdrawn))
-    out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
     now = state.load(name)
     stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
-    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + out + "".join(told)
+    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, pr["url"])) + serving + untapped + "".join(told)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -4319,14 +4313,16 @@ def parser() -> argparse.ArgumentParser:
         metavar="CARD|JOB|PR|RELEASE",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
-            " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
+            " release:<service>:<owner>/<repo>#<n>, that service running that PR's merge on every production env it runs on, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
             " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
-            " stops or fails, each part it carries is delivered, or GitHub shows the"
-            " newest release of that service holds the PR's merge commit, and says FREE once when the last is gone, which wakes the"
+            " stops or fails, each part it carries is delivered, or every env flagged prod: true that runs that service runs it at a"
+            " commit holding the PR's merge commit, as tools/ci release live reads it at most every five minutes, never for a component"
+            " release/targets.yaml gives a promotes: switch, such as api or a Restate worker, the newest GitHub release of that service"
+            " holding it for a PR outside Forge-AI/monorepo, and says FREE once when the last is gone, which wakes the"
             " coordinator. On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say"
-            " what it waits on, and a release GitHub shows already out is not stored"
+            " what it waits on"
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")

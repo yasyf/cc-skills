@@ -5589,7 +5589,7 @@ def test_a_job_with_no_dispatch_reads_as_starting_until_a_launch_would_have_fini
 
 
 def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_free_names_its_launch(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     key = "Forge-AI/monorepo#7"
     shipping = f"release:api:{key}"
@@ -5610,8 +5610,12 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
     assert watching.agent_gaps == {"j1": "j1 never started on its Sprite"}
     with state.edit(demo) as data:
         data["prs"][key].update(state="merged", merged_sha="abc123")
-    shipped = f"release releases/2026-11-09/1 ships {key} on api"
-    monkeypatch.setattr(watch.view, "shipped_by", lambda drive, wait: shipped)
+    shipped = f"api runs {key} on every production env it runs on: plat-usw2-prod"
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release" / "targets.yaml").write_text("components:\n  api:\n    title: API\n")
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: tmp_path)
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: "[]")
+    monkeypatch.setattr(watch.view, "shipped_by", lambda drive, wait, running: shipped)
     assert watch.waits_lines(watching, T0) == [
         f"FREE j2 o1: {key} answered or done, {shipped}, nothing else holds it, not started yet: drive job launch j2 starts it",
         f"FREE j3 o1: {key} answered or done, nothing else holds it, not started yet: drive job launch j3 starts it",
