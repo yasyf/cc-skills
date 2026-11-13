@@ -2,12 +2,14 @@ import fcntl
 import hashlib
 import itertools
 import json
+import marshal
 import math
 import os
 import re
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import uuid
@@ -123,6 +125,8 @@ ROUTED_KINDS = ("owner", "answer", "handoff", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 BATCHED: dict[str, str] = {}
 HELD_INSTALL: dict[Path, IO] = {}
+WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
+READING = threading.Lock()
 INSTALL_HOLDER = "LONG_RUNNING_INSTALL_HOLDER"
 WAITED_OLDER: set[Path] = set()
 MOVED_REPORTS: set[Path] = set()
@@ -419,6 +423,23 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     """The drive as saved, its saved_by the install that saved it last, or only these top-level fields of it, read in one transaction; a drive no install moved to its database yet read from its drive.json whole."""
     if not (path := database_path(name)).exists():
         return stored_json(name)
+    return whole(path) if fields is None else rows_read(path, fields)
+
+
+def whole(path: Path) -> dict:
+    """The drive's whole saved state, read again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it read last, so a verb's many loads parse the drive's rows once."""
+    with READING:
+        key = (path, path.stat().st_ino)
+        watcher, version, kept = WHOLE_READS.get(key) or (sqlite3.connect(path, check_same_thread=False, isolation_level=None), None, b"")
+        if (now := watcher.execute("PRAGMA data_version").fetchone()[0]) == version:
+            return marshal.loads(kept)
+        data = rows_read(path, None)
+        WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
+        return data
+
+
+def rows_read(path: Path, fields: tuple[str, ...] | None) -> dict:
+    """The drive's rows, or those of these top-level fields, read in one transaction and built back into the drive."""
     named = "" if fields is None else f" WHERE collection = '' AND key IN ({', '.join('?' * len(fields))}) OR collection IN ({', '.join('?' * len(fields))})"
     with closing(connect(path)) as db:
         db.execute("BEGIN")
