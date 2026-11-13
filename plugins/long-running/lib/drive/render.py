@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, lane_death, may_tell, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title, work
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -444,6 +444,25 @@ def part_line(drive: dict, order_id: str, part: str) -> str:
         return f'"{part}": delivered'
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in carriers(drive, order_id, part))
     return f'"{part}": {held or ("no builder carries it" if work(drive["orders"][order_id]) else "no job carries it")}'
+
+
+def pr_history(drive: dict, key: str, skip: str) -> list[str]:
+    """The drive PR at key, then each job but skip on any order that opened the PR, lists it or names it in its goal, under its order, with each card of his the job asked, so a job added on that PR starts from what was already asked and decided."""
+    pr = drive["prs"][key]
+    number = key.rpartition("#")[2]
+    named = [
+        job_id
+        for job_id, job in drive["jobs"].items()
+        if job_id != skip
+        and (job_id == pr["job"] or key in map(pr_key, job["prs"]) or number in job["goal"] and key in named_prs(drive, job["order"], job["goal"]))
+    ]
+    lines = [pr_line(key, pr, pr["card_state"])]
+    for order_id in dict.fromkeys(drive["jobs"][job_id]["order"] for job_id in named):
+        lines.append(f"- {order_line(order_id, drive['orders'][order_id], 80)}")
+        for job_id in (job_id for job_id in named if drive["jobs"][job_id]["order"] == order_id):
+            lines.append(f"  - {job_line(job_id, drive['jobs'][job_id], 80)}")
+            lines.extend(f"    - {question_line(question)}" for question in drive["jobs"][job_id]["questions"])
+    return lines
 
 
 def subscribe(role: str, project: str | None = None) -> str:
