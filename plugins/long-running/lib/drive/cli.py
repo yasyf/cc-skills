@@ -2505,7 +2505,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each text the job holds and each answer of his it has not heard whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each text the job holds and each answer of his it has not heard whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs. Once nothing refuses it the job runs, stamped as launching, its line no longer naming the waits that ended, so the watch reads a builder whose reader finished before its FREE line as starting, never as waiting on nothing."""
     from drive import view
 
     data = state.load(name)
@@ -2540,13 +2540,9 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         job = data["jobs"][job_id]
         if taker or died:
             job.update(agent=None, dispatch=None, session=taker or job["session"])
-        job.update(
-            where="remote",
-            route=state.LOCAL_ROUTE if local else None,
-            launching=state.stamp(),
-            waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT],
-            researched=brief.research_links(job, written),
-        )
+        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(job, written))
+        state.rewait(job, [wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
+        state.start(job)
     kept.parent.mkdir(exist_ok=True)
     try:
         receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, written, job["route"]), root, None, None)
