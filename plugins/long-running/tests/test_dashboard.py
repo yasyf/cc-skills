@@ -794,7 +794,7 @@ const stepped = box.querySelector('.lb-stage img').getAttribute('src');
 box.querySelector('[data-close]').click();
 await wait(50);
 await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', history: NEWER });
-const said = () => [...document.querySelectorAll('#main li[data-kind="said"] .said-text')].map((text) => text.textContent.trim());
+const said = () => [...document.querySelectorAll('#main li[data-kind="said"] .said-text')].map((text) => text.querySelector('p').textContent);
 await until(() => said().length === 2);
 done({ drawn, afterPlayerClick, opened, stepped, closed: !box.open, rows: said(), kept: document.querySelector('#main figure.recording') === figure && figure.querySelector('video') === player });
 """.replace("NEWER", json.dumps([newer, said])), board(history=[said]))
