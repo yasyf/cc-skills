@@ -279,13 +279,17 @@ def coming(drive: dict, job_id: str) -> bool:
     )
 
 
-def shipped_by(drive: dict, wait: str) -> str | None:
-    """The release that already ships a release wait's merged PR, read from GitHub: the newest release of its service holds the PR's merge commit."""
+def shipped_by(drive: dict, wait: str, running: list[dict]) -> str | None:
+    """What ships a release wait's merged PR: for a Forge-AI/monorepo PR, every row of running, the `tools/ci release live` rows of the envs flagged prod: true, that runs its service, there being one at least, serving a commit holding the PR's merge commit, a row printing no commit, a stack whose switch never passed, holding nothing, so a release build that switched it on each and then failed a later step ships it too; for another repository's, the newest GitHub release of its service holding it."""
     found = state.RELEASE_WAIT.fullmatch(wait)
-    if not (found and (merged := drive["prs"][found["pr"]]["merged_sha"])):
+    key, service, merged = found["pr"], found["service"], drive["prs"][found["pr"]]["merged_sha"]
+    if github.repo_of(key).casefold() != state.MONOREPO.casefold():
+        release = github.release_of(key, service, merged)
+        return f"release {release} ships {key} on {service}" if release else None
+    rows = [row for row in running if row["target"] == service]
+    if not rows or not all(row.get("commit") and github.contains(state.MONOREPO, row["commit"], merged) for row in rows):
         return None
-    release = github.release_of(found["pr"], found["service"], merged)
-    return f"release {release} ships {found['pr']} on {found['service']}" if release else None
+    return f"{service} runs {key} on every production env it runs on: {', '.join(sorted(row['env'] for row in rows))}"
 
 
 def wait_words(drive: dict, wait: str, found: dict | None) -> str:

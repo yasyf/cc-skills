@@ -28,6 +28,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
 FREED_AGAIN = timedelta(minutes=30)
+LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
@@ -91,6 +92,7 @@ class Watcher:
     releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
     released: set[str] = field(default_factory=set)
     release_marks: dict[str, str | None] = field(default_factory=dict)
+    live_at: datetime | None = None
     sending: dict[str, int] = field(default_factory=dict)
     resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
@@ -609,7 +611,7 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit. A wait whose PR merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it."""
+    """Each release wait of a live job or open PR whose change is out, with what ships it, by view.shipped_by. A wait whose Forge-AI/monorepo PR merged is read from `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since that read takes most of a minute, each row's commit being the one serving its env, which for a component release/targets.yaml gives a `promotes:` switch, such as api or a Restate worker, is the newest release whose switch passed there, and none while none did; one whose PR in another repository merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it."""
     waits = {
         wait: found["pr"]
         for order_id, owner in release_owners(data)
@@ -617,14 +619,27 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
         for wait in owner["waits"]
         if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]
     }
-    out, marks = {}, {wait: receiver.heard(github.repo_of(key), "release") for wait, key in waits.items()}
-    for wait in sorted(waits):
+    applied = sorted(wait for wait, key in waits.items() if github.repo_of(key).casefold() == state.MONOREPO.casefold())
+    out = {}
+    if applied and not (watcher.live_at and moment - watcher.live_at < LIVE_EVERY):
+        try:
+            checkout = orca.checkout(watcher.name, data)
+            live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+            prod = {env for env in {row["env"] for row in live} if github.PROD_ENV.search((checkout / "infra" / "envs" / f"{env}.yaml").read_text())}
+            running = [row for row in live if row["env"] in prod]
+            out = {wait: shipping for wait in applied if (shipping := view.shipped_by(data, wait, running))}
+        except (state.DriveError, reads.ReadError, github.GithubError) as error:
+            return {}, read_failed(watcher, "release live", error, moment)
+        watcher.live_at = moment
+        watcher.failures.pop("release live", None)
+    marks = {wait: receiver.heard(github.repo_of(key), "release") for wait, key in waits.items() if wait not in applied}
+    for wait in sorted(marks):
         if (wait, marks[wait]) in watcher.release_marks.items():
             continue
         try:
-            shipping = view.shipped_by(data, wait)
+            shipping = view.shipped_by(data, wait, [])
         except github.GithubError as error:
-            return {}, read_failed(watcher, "github releases", error, moment)
+            return out, read_failed(watcher, "github releases", error, moment)
         if shipping:
             out[wait] = shipping
     watcher.release_marks = marks
