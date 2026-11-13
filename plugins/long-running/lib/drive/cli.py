@@ -1353,7 +1353,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report, one opening `DESIGN <question>`, a reader's return, read as the ASK it puts to him. Keeping it posts its ask record, which draws its card, and stores that card's waits id; asked again while its card is not up, it posts that record again under the same waits id. A block asking again what one of the job's questions his answer has not closed asks, or with --redraws asking in new words what the open card it names asks, takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report: each block its `ASK <file> [<file>…]` pointer names, else the report itself, one opening `DESIGN <question>`, a reader's return, read as the ASK it puts to him. Keeping it posts its ask record, which draws its card, and stores that card's waits id; asked again while its card is not up, it posts that record again under the same waits id. A block asking again what one of the job's questions his answer has not closed asks, or with --redraws asking in new words what the open card it names asks, takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
     if args.check:
         with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
             limits.shape(limits.ask_block(named_text(args.check, "ASK block file")), "check", "ask", Path(scratch), args.unsettled)
@@ -1368,12 +1368,14 @@ def job_ask(args: argparse.Namespace) -> int:
         gone = "a later ask of it replaced its question, so only the file is deleted" if replaced else "its question kept there is dropped and the file deleted"
         line = f'{args.id} no longer asks "{render.cut(title or "", 80)}" from {dropped}: {gone}, so nothing counts it open'
         return emit(args, line, {"id": args.id, "dropped": str(dropped), "title": title, "replaced": replaced})
-    job = find(state.load(name)["jobs"], args.id, "job")
-    text = named_text(args.file, "ASK block file") if args.file else job.get("report")
-    if not text:
+    report = find(state.load(name)["jobs"], args.id, "job").get("report")
+    texts = [named_text(args.file, "ASK block file")] if args.file else [named_text(str(file), "ASK block file") for file in state.ask_files(reads.opening(report or ""))] or [report]
+    if not all(texts):
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
-    kept, asked, question, decided = keep_ask(name, args.id, text, args.unsettled, args.redraws, resend=True)
-    return emit(args, decided or str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], "closed": question["closed"], **vars(asked)})
+    for text in texts:
+        kept, asked, question, decided = keep_ask(name, args.id, text, args.unsettled, args.redraws, resend=True)
+        emit(args, decided or str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], "closed": question["closed"], **vars(asked)})
+    return 0
 
 
 def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
