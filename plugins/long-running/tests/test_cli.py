@@ -2035,6 +2035,21 @@ def test_job_card_fills_each_reference_in_its_show_me_table_and_descriptions_as_
     assert "{at:" not in printed
 
 
+def test_job_card_links_each_pr_it_names_once_so_cc_slack_draws_its_github_state_beside_the_options(run: Run, tmp_path: Path) -> None:
+    linked = SHORT_ASK.replace(
+        "Meanwhile nothing is built on either layout.",
+        "Meanwhile <https://github.com/acme/app/pull/12|the uploader fix> waits on this pick, beside https://github.com/acme/app/pull/9.",
+    ).replace("a backfill writes one for each old run.", "a backfill writes one for each old run, after <https://github.com/acme/app/pull/12/files|the same fix> lands.")
+    block = tmp_path / "ask.md"
+    block.write_text(linked)
+    code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
+    assert code == 0
+    assert json.loads(printed)["refs"] == [
+        {"label": "the uploader fix", "url": "https://github.com/acme/app/pull/12"},
+        {"label": "", "url": "https://github.com/acme/app/pull/9"},
+    ]
+
+
 def test_job_card_draws_a_card_no_job_asked_and_gives_no_job_its_waits(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from drive import picture
 from drive.render import clock, cut, when
-from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, root, same_question
+from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, pr_key, pr_url, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -19,6 +19,8 @@ REWORDING_WORDS = 10
 SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
 HEADLINE_CHARS = 90
+CARD_REFS = 10
+REF_LABEL_CHARS = 75
 LEAD_WORDS = SUMMARY_WORDS // 3
 LEAD_LINES = (("headline", "--headline"), ("why", "--because"), ("what", "--does"), ("downstream", "--downstream"))
 LEAD_RULING = 'his words on a PR card "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are"'
@@ -313,6 +315,7 @@ RELEASE_START = (
     re.compile(r"\b(?:start(?:s|ed|ing)?|began|begun|begins?|kicked off|launched)\b", re.IGNORECASE),
 )
 REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|\\]+)(?:\\?\|([^{}]+))?\}")
+PR_LINK = re.compile(rf"<(?P<link>{PR_URL.pattern})[^|<>\s]*(?:\|(?P<words>[^<>]*))?>|{PR_URL.pattern}")
 STAMPED = {
     "started": (
         re.compile(r"\b(?:j\d+|jobs?|builders?|readers?|designers?|handlers?|lanes?|agents?|workers?|codex)\b", re.IGNORECASE),
@@ -453,10 +456,20 @@ class Question:
     replaces: str = ""
 
     def card(self, drive: str, waits: str) -> dict:
-        """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
+        """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, each file name and path in its body and hints in code formatting, and each PR it names as a ref, which cc-slack draws beside its options with the state GitHub reads for it, kept current until the PR ends, so no card's words alone tell him a PR's state."""
         body = coded(card_body(self.summary, self.show_me))
         hinted = {"hints": {option: coded(hint) for option, hint in self.hints.items()}} if self.hints else {}
-        return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, "waits": waits, "drive": drive}
+        refs = pr_refs([self.title, *self.summary, *self.options, *self.hints.values(), *self.show_me])
+        return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, **({"refs": refs} if refs else {}), "waits": waits, "drive": drive}
+
+
+def pr_refs(lines: list[str]) -> list[dict]:
+    """Each PR the lines link, once, in order, under the words of its first link that gives it words: the first 10, all cc-slack draws on one card."""
+    labels: dict[str, str] = {}
+    for found in PR_LINK.finditer("\n".join(lines)):
+        key = pr_key(found["link"] or found[0])
+        labels[key] = labels.get(key) or cut(found["words"] or "", REF_LABEL_CHARS)
+    return [{"label": label, "url": pr_url(key)} for key, label in list(labels.items())[:CARD_REFS]]
 
 
 def words(text: str) -> int:
