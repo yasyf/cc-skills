@@ -52,9 +52,10 @@ CARD_QUESTION = (
     " or none."
 )
 ADVISED = (
-    "drive job ask: Jev reads {part} as breaking {id}, {asked}, \"{said}\", by its rule: {rule} This finding refuses no card,"
-    " by his pick 320b7a7 that drive job ask keeps every well-shaped card and prints Jev's finding to the agent: when it"
-    " holds, ask again recommending the option that removes the root cause."
+    "drive job ask: Jev reads {part} as breaking {id}, {asked}, \"{said}\".{rule} This finding refuses no card, by his pick"
+    " 320b7a7 that drive job ask keeps every well-shaped card and prints Jev's finding to the agent: when it holds, rewrite"
+    " that part and ask the same question again, which redraws its card, or, when the card asks him to lift those words, ask"
+    " it again with `--unsettled \"{id}: <why his words do not reach it>\"`, which holds its PR on an incident until he answers."
 )
 WORKED_QUESTION = (
     'Is this option worked out on the card to what it will look like once built, by his ruling below? The option: "{option}".'
@@ -247,8 +248,8 @@ def matched(text: str, cwd: str) -> list[dict]:
     return [{"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for answer in found if APPROVAL not in answer["tags"]][:CANDIDATES]
 
 
-def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:
-    """Each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and a finding on it is printed on stderr and refuses nothing, by his pick 320b7a7. Jev giving no reading leaves the card to him, said on stderr."""
+def judged(case: str, asked: limits.Question, words: list[dict]) -> None:
+    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Jev giving no reading leaves the card to him, said on stderr."""
     rules = limits.rule_words(case)
     cited = {UNDECIDED: UNBROKEN, **dict.fromkeys(word["id"] for word in [*words, *rules] if word["id"] != limits.ROOT_CAUSE_WORDS["id"])}
     items = {word["id"]: word for word in [*words, *rules, limits.WORKED_WORDS]}
@@ -270,24 +271,12 @@ def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:
         read = jev({"state": {"card": case, "his_words": heard}, "questions": questions})
     except Unheard as failure:
         print(f"drive job ask: Jev gave no reading of this question against his words, so it goes to him: {failure}", file=sys.stderr)
-        return []
-    broken = [{"part": parts[key], **items[found["choice"]]} for key, found in read.items() if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES]
-    for advice in (found for found in broken if found["id"] == limits.ROOT_CAUSE_WORDS["id"]):
-        print(ADVISED.format(**advice), file=sys.stderr)
-    return [found for found in broken if found["id"] != limits.ROOT_CAUSE_WORDS["id"]]
-
-
-def broken_refusal(broken: list[dict], why: str | None, job_id: str, file: Path) -> str | None:
-    """Why a question may not go to him: a part of it goes against his words, and no reason names those words and says why they do not, with the drive job ask that keeps the question kept in this file once one does, the one verb taking --unsettled, which a reader's drive job report then keeps."""
-    if not (named := [found for found in broken if found["id"] not in (why or "")]):
-        return None
-    listed = "\n".join(f'- {found["part"]} breaks {found["id"]}: asked "{cut(found["asked"], 200)}", he said "{cut(found["said"], QUOTED_CHARS)}"' for found in named)
-    reasons = "; ".join(f"{found_id}: <why his words do not reach it>" for found_id in dict.fromkeys(found["id"] for found in named))
-    return (
-        "refused: Jev reads his words as ruling out what this card offers him. Rewrite or drop each part below so the card"
-        f' keeps his words, or keep it with `drive job ask {job_id} {file} --unsettled "{reasons}"`, and for a reader\'s DESIGN'
-        f" run `drive job report {job_id} -` again after it, which keeps that --unsettled.\n" + listed
-    )
+        return
+    for key, found in read.items():
+        if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES:
+            item = items[found["choice"]]
+            rule = f" Its rule: {item['rule']}" if "rule" in item else ""
+            print(ADVISED.format(part=parts[key], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
 
 
 def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:

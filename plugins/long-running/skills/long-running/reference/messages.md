@@ -220,8 +220,8 @@ Its Show me:
   what it will look like once built: its real calls, the rows or bytes it writes, its flow, or the
   reply or screen a caller gets, as a ```compare panel named with the option's words, a markdown
   table, or a diagram or picture captioned with its number, never only the files it touches and its
-  cost. `drive job ask` asks Jev of each option whether the card works it out and refuses one left
-  unworked, naming it, by his words on a card whose options each named files and a cost:
+  cost. `drive job ask` asks Jev of each option whether the card works it out and prints each one left
+  unworked, naming it, refusing no card, by his words on a card whose options each named files and a cost:
   "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; and his ruling 77b577b,
   "flash this out wayu more and od that for everyhtrfing in the future". A post in the card's
   thread explaining an option, an Explain more reply included, shows it the same way, which the say
@@ -304,9 +304,9 @@ Its Show me:
   the count, as "four strategies: spill values, insertion order, hash by key, and equal cut" does.
   A measure such as "30 days", "3 requests" or "2 threads" and a bound such as "at most 3" pass.
 - Give him a tap for each amount he named. Jev reads the card against his order and his messages in
-  its thread, without the lines he quoted from others, and `drive job ask` refuses a card offering no
-  tap for an amount or choice Jev reads them as naming, as "30 day bonding" names 30 days, until a
-  tap offers it or `--unsettled` names those words and why they do not reach this question. His message in a thread two orders share is about the order it started, else the one that
+  its thread, without the lines he quoted from others, and `drive job ask` prints to the agent each
+  amount or choice Jev reads them as naming that the card offers no tap for, as "30 day bonding"
+  names 30 days, and keeps the card, by his pick 320b7a7. His message in a thread two orders share is about the order it started, else the one that
   came into the thread last before he sent it, so another order's amount there is not counted. Offer it
   as its own option, in his words.
 - A visual that still fails to draw leaves the Slack card with its caption and nothing in its place,
