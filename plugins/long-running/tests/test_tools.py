@@ -1221,6 +1221,10 @@ def test_ops_or_their_items_sent_as_json_text_reach_the_tool_as_the_lists_they_s
     ops = [{"set": {"url": "https://github.com/Forge-AI/monorepo/pull/42", "tap": True}}]
     assert tools.parsed_arguments({"ops": json.dumps(ops)}, shapes["pr"]) == {"ops": ops}
     assert tools.parsed_arguments({"ops": [json.dumps(ops[0])], "dry_run": True}, shapes["pr"]) == {"ops": ops, "dry_run": True}
+    flaky = ["TestX", "Forge-AI/monorepo#43"]
+    assert tools.parsed_arguments({"ops": [{"set": {"url": "Forge-AI/monorepo#42", "flaky": json.dumps(flaky)}}]}, shapes["pr"]) == {
+        "ops": [{"set": {"url": "Forge-AI/monorepo#42", "flaky": flaky}}]
+    }
     assert tools.parsed_arguments({"text": "[a line, not a list]"}, shapes["say"]) == {"text": "[a line, not a list]"}
     with pytest.raises(DriveError, match="ops is a list or object"):
         tools.parsed_arguments({"ops": "[{"}, shapes["pr"])
