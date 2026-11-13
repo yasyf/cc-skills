@@ -2330,7 +2330,8 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
 
     def cci(argv: list[str], checkout: Path, env: dict | None = None) -> str:
         if argv[1] == "show":
-            return json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": {"700": "o1", "710": "o2"}[argv[2]]}}})
+            attrs = {"700": {"order": "o1"}, "710": {"order": "o2"}, "720": {"order": "o1", "incident": "true"}}[argv[2]]
+            return json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": attrs}})
         told.append(argv)
         return json.dumps({"seq": 701})
 
@@ -2349,6 +2350,7 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
     ]
     assert {seq: (mark["order"], mark["told"]) for seq, mark in state.load("demo")["held"].items()} == {"700": ("o1", "701")}
     assert say(transcript, text="Users are unblocked.", record="710") is None
+    assert say(transcript, text="The sandsql outage is mitigated.", record="720") is None
     assert list(state.load("demo")["held"]) == ["700"]
 
 
