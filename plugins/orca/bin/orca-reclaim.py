@@ -785,8 +785,7 @@ def save(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
     if done.returncode != 0:
         raise Unsaved(f"the save on {sprite.host} failed: {'; '.join(filter(None, map(str.strip, done.stderr.splitlines()))) or f'exit {done.returncode}'}")
     held = "; ".join([*([uncommitted(readable)] if readable else []), *([f"commits on no remote on {', '.join(refs)}"] if refs else [])])
-    branches = ", ".join(" at ".join(line.split()) for line in done.stdout.splitlines())
-    return "; ".join(filter(None, [f"{held}, now on {checkout.repository} as {branches}", kept]))
+    return "; ".join(filter(None, [f"{held}, saved to {checkout.repository} under saved/{lane}/", kept]))
 
 
 def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], trees: list[str]) -> str:
@@ -801,10 +800,7 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
             f"git -C {tree} -c core.hooksPath=/dev/null commit -q --no-verify -m {shlex.quote(message)}",
             f'git update-ref "refs/heads/{prefix}$(git -C {tree} symbolic-ref --short -q HEAD || git -C {tree} rev-parse --short=10 HEAD)" "$(git -C {tree} rev-parse HEAD)"',
         ]
-    lines += [
-        f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git 'refs/heads/{prefix}*:refs/heads/{prefix}*' >&2",
-        f"git for-each-ref --format='%(refname:lstrip=2) %(objectname:short=10)' refs/heads/{prefix}",
-    ]
+    lines.append(f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git 'refs/heads/{prefix}*:refs/heads/{prefix}*'")
     return "\n".join(lines)
 
 
@@ -1191,7 +1187,7 @@ def main() -> int:
         "head or its default branch, as the local branch saved/LANE/<its name>, a worktree's commit by its own branch or short sha, and pushes "
         "refs/heads/saved/LANE/* to github.com over https on the token gh auth token prints, which it reads from stdin into that one shell's "
         "environment and hands git through a credential helper naming only the variable, so nothing writes it to the Sprite's disk or history. "
-        "It prints what it saved and each saved/LANE branch with its short sha, the push's own output, such as git-lfs's upload progress, going to stderr, or nothing when the Sprite holds nothing, and exits 1 naming "
+        "It prints what it saved and the repository and saved/LANE/ it went under, naming no branch, since GitHub's own refs say which exist, or nothing when the Sprite holds nothing, and exits 1 naming "
         "why when the read or the save fails, which leaves each commit it made on its saved/LANE branch, still read as held. "
         "--destroy WORKSPACE LANE first takes what --held would name to GitHub as --save WORKSPACE LANE does, then destroys the Sprite a cc-remote task records under that workspace name "
         "with cc-remote destroy, which closes its forward and removes its Orca environment, once the same checkout read, made again after the save, finds it holds nothing --held would name. "
@@ -1215,7 +1211,7 @@ def main() -> int:
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
     parser.add_argument("--held", metavar="WORKSPACE", help="print what this cc-remote workspace's Sprite holds on no remote, or nothing, and change nothing")
-    parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name> branches on GitHub, and print them")
+    parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name> branches on GitHub, and print what it saved")
     parser.add_argument("--destroy", nargs=2, metavar=("WORKSPACE", "LANE"), help="save what this cc-remote workspace's Sprite holds on no remote as --save does, then destroy it and its Orca environment, and print both")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
