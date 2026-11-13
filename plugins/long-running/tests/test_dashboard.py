@@ -133,7 +133,7 @@ def test_a_dashboard_no_launch_agent_keeps_is_stopped_and_handed_to_one_that_run
     config = tmp_path / "config"
     newest = tmp_path / "cache" / "long-running" / "9.9.9"
     (newest / "bin").mkdir(parents=True)
-    (newest / "bin" / "drive").write_text('#!/bin/sh\necho "$@"\n')
+    (newest / "bin" / "drive").write_text("import sys\nprint(*sys.argv[1:])\n")
     (newest / "bin" / "drive").chmod(0o755)
     (config / "plugins").mkdir(parents=True)
     installs = [{"installPath": str(tmp_path / "cache" / "long-running" / "9.9.8"), "lastUpdated": "2026-11-11T00:00:00Z"}, {"installPath": str(newest), "lastUpdated": "2026-11-12T00:00:00Z"}]

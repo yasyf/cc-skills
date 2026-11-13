@@ -41,7 +41,7 @@ def test_the_list_follows_the_newest_install_and_the_first_call_after_an_install
     assert json.loads(answered(call).splitlines()[1]) == {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
     assert len(answered(call).splitlines()) == 1
     assert json.loads(answered({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}))["result"]["tools"] == [{"name": "say"}]
-    assert ran[-1] == [newer, "mcp", "--list"]
+    assert ran[-1] == [sys.executable, "-I", newer, "mcp", "--list"]
 
 
 def as_claude_code_dials(server: dict, root: str) -> dict:

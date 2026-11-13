@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -235,7 +236,7 @@ def listed(drive: str) -> list[dict]:
     """The tools the newest installed drive serves, so an install reaches a live session through list_changed with no reconnect."""
     if drive == OWN_DRIVE:
         return tool_list()
-    return json.loads(subprocess.run([drive, "mcp", "--list"], capture_output=True, text=True, check=True, timeout=CALL_SECONDS).stdout)
+    return json.loads(subprocess.run([sys.executable, "-I", drive, "mcp", "--list"], capture_output=True, text=True, check=True, timeout=CALL_SECONDS).stdout)
 
 
 def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
@@ -244,7 +245,7 @@ def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
     with tempfile.TemporaryFile("w+") as given:
         json.dump(arguments, given)
         given.seek(0)
-        with subprocess.Popen([newest_drive(), "tool", tool], stdin=given, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
+        with subprocess.Popen([sys.executable, "-I", newest_drive(), "tool", tool], stdin=given, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
             CALLS[request_id] = child
             try:
                 out, err = child.communicate(timeout=CALL_SECONDS)

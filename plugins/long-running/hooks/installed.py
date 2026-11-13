@@ -22,7 +22,26 @@ def registered(plugin: Path, hook: str) -> bool:
     return any(command["command"].endswith(f" {hook}") for groups in events for group in groups for command in group["hooks"])
 
 
+def interpreter_record() -> Path:
+    """Where hooks/python.sh reads the interpreter it execs: beside the drives' saved state, where the drive's `state.root` puts it."""
+    if explicit := os.environ.get("LONG_RUNNING_STATE"):
+        return Path(explicit) / "interpreter"
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "long-running" / "interpreter"
+
+
+def record_interpreter() -> None:
+    """Record the interpreter running this hook, the one `python3` resolved to, so hooks/python.sh execs it directly from the next hook on, with no version manager's shim resolving it again."""
+    kept = interpreter_record()
+    if kept.is_file() and kept.read_text().strip() == sys.executable:
+        return
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    fresh = kept.with_name(f".interpreter.{os.getpid()}")
+    fresh.write_text(f"{sys.executable}\n")
+    fresh.replace(kept)
+
+
 def main(hook: str) -> None:
+    record_interpreter()
     plugin = root()
     script = plugin / "hooks" / hook
     if not registered(plugin, hook):

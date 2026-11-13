@@ -4432,7 +4432,7 @@ def installed(config: Path, entries: dict[str, list[dict]]) -> None:
 def fake_plugin(path: Path, marker: str) -> str:
     (path / "bin").mkdir(parents=True)
     target = path / "bin" / "drive"
-    target.write_text(f'#!/bin/sh\necho {marker} "$@"\n')
+    target.write_text(f"import sys\nprint({marker!r}, *sys.argv[1:])\n")
     target.chmod(0o755)
     return str(path)
 
