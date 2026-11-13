@@ -3699,7 +3699,7 @@ def page_add(args: argparse.Namespace) -> int:
 
 
 def break_glass(args: argparse.Namespace) -> int:
-    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials, minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. It saves nothing to the drive."""
+    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials and the machine-break-glass role the grant opens to this Mac's machine, each minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. It saves nothing to the drive."""
     name = state.resolve(args.drive)
     data = state.load(name)
     records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
