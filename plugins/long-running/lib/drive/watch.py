@@ -140,7 +140,7 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
         changes.append("checks passed" if fresh["checks"] == "pass" else "checks failed")
     if fresh["review"] != pr["review"] and fresh["review"] in ("approved", "changes"):
         changes.append("approved" if fresh["review"] == "approved" else "changes requested")
-    if fresh.get("conflict") and not pr["conflict"]:
+    if fresh["conflict"] and not pr["conflict"]:
         changes.append("conflicts with its base")
     if fresh["state"] != pr["state"]:
         changes.append(fresh["state"])
@@ -166,7 +166,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     reads, refused = github.fetch(keys)
     unread = set(keys) - set(reads)
-    watcher.owed = (unread if refused else set()) | {key for key, read in reads.items() if read["mergeable"] not in github.CONFLICTS}
+    watcher.owed = (unread if refused else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"}
     watcher.stale = watcher.stale - set(reads) | unread
     lines = read_failed(watcher, "github", refused, moment) if refused else []
     if not refused:
