@@ -18,7 +18,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, SHORT_ASK, Answers, Jev, WatchProcess
-from drive import agents, cli, place, settled, state
+from drive import agents, cli, land, place, settled, state, tools
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -259,7 +259,7 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     assert "`drive job report j1 -`" in output["reason"]
     waiting = "WAITING CI on https://github.com/yasyf/cc-skills/pull/1"
     assert one_line_result.block_reason(agent_stop(waiting)).startswith("Refused on purpose: j1's return is not kept in the drive")
-    assert one_line_result.block_reason(agent_stop("ASK /scratch/ask.md")) is None
+    assert one_line_result.block_reason(agent_stop("ASK /scratch/ask.md")).startswith("Refused on purpose: j1 put his card up and built nothing")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{waiting}\nPR: https://github.com/yasyf/cc-skills/pull/1\n"))
     run("job", "report", "j1", "-")
     assert one_line_result.block_reason(agent_stop(waiting)) is None
@@ -306,14 +306,51 @@ def test_a_drive_jobs_stop_sets_no_state_whatever_line_it_lets_through(
     assert (job["state"], job["said"]) == ("running", None)
 
 
-def test_a_stop_on_an_ask_leaves_its_job_waiting_on_the_question_drive_job_ask_set(
+J2776_QUESTION = "How should the release's tenant smoke remove the cloud agent it creates, when archiveAgent keeps every row createAgent wrote?"
+J2776_PART = "the release's tenant smoke creates one cloud agent and deletes it"
+
+
+def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run_and_ends_built_where_j2776_ended_waiting_with_nothing_built(
+    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("start", "durable-agents", "--role", "coordinator", "--channel", "D123")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", J2776_PART)
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
+    with state.edit("durable-agents") as data:
+        data["jobs"]["j2776"] = data["jobs"].pop("j1")
+        data["orders"]["o1"]["jobs"] = ["j2776"]
+    posted = tools.sent
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: ["#685446"] if [made["kind"] for made in posts] == ["ask"] else posted(name, lane, posts))
+    block = tmp_path / "ask.md"
+    block.write_text(
+        SHORT_ASK.replace(SHORT_ASK.splitlines()[0], f"ASK {J2776_QUESTION}").replace("Holds: none: no option changes code any job builds", f"Holds: {J2776_PART}")
+    )
+    asked = run("job", "ask", "j2776", str(block))[1]
+    job = state.load("durable-agents")["jobs"]["j2776"]
+    assert (job["state"], job["said"], [question["waits"] for question in job["questions"]]) == ("running", J2776_QUESTION, ["durable-agents:j2776-685446"])
+    lane = stepped(tmp_path, "Drive: durable-agents, order o1, job j2776", prompted=EARLIER)
+    refused = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"ASK {asked}", **lane))))
+    assert refused["reason"].startswith("Refused on purpose: j2776 put his card up and built nothing")
+    assert "`ccx vcs ship --no-pr`" in refused["reason"]
+    assert land.ship_held(state.load("durable-agents"), "j2776", {}) == ["durable-agents:j2776-685446"]
+    built = "BUILT j2776-delete-agent, waits on durable-agents:j2776-685446"
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{built}\nCHECK: the recommended deleteAgent mutation, pushed on j2776-delete-agent\n"))
+    run("job", "report", "j2776", "-")
+    job = state.load("durable-agents")["jobs"]["j2776"]
+    assert (job["state"], job["branch"], job["waits"]) == ("built", "j2776-delete-agent", ["durable-agents:j2776-685446"])
+    assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(built, **lane))) == ""
+
+
+def test_a_builder_whose_words_ask_for_options_and_no_build_ends_on_the_ask_drive_job_report_kept(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "bring me options")
+    run("job", "add", "builder", "--order", "o1", "--goal", "bring options", "--agent", "a-9")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     asked = run("job", "ask", "j1", str(block))[1]
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"ASK {asked}\n"))
+    run("job", "report", "j1", "-")
     stop = agent_stop(f"ASK {asked}", **stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER))
     assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
     job = state.load("demo")["jobs"]["j1"]

@@ -56,10 +56,12 @@ def block_reason(payload: dict) -> str | None:
 
 
 def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
-    """Why a job's agent but a codex relay may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return."""
-    if not job_id or line.startswith("ASK "):
+    """Why a job's agent but a codex relay may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return, and an ASK ends any job but a running builder."""
+    if not job_id:
         return None
     job = data["jobs"][job_id]
+    if line.startswith("ASK "):
+        return unbuilt(job_id, job)
     if job["kind"] == "codex" or job["state"] != "running" and state.kept_return(name, job_id, job, line):
         return None
     order = data["orders"][job["order"]]
@@ -70,6 +72,20 @@ def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
         f" would read only this line. Pipe your whole return{block} into `drive job report {job_id} -` from a quoted"
         " heredoc, its first line exactly this one, then end again with this one line; when it refuses, fix what its"
         " refusal names and pipe it again."
+    )
+
+
+def unbuilt(job_id: str, job: dict) -> str | None:
+    """Why a running builder may not end on the ASK `drive job ask` kept: his card's recommended option is built in the same run while he decides, so the builder ends on BUILT, or PUSHED on an open incident, and only an ASK his words ask no build for ends it waiting, once `drive job report` keeps it."""
+    if job["kind"] != "builder" or job["state"] != "running":
+        return None
+    return agents.Unjudged(
+        f"Refused on purpose: {job_id} put his card up and built nothing, and the recommended option is built in this run while he"
+        f" decides. Build it on your branch, push it with `ccx vcs ship --no-pr`, keep `BUILT <branch>, waits on <the card's waits id,"
+        f" which drive status {job_id} shows>` and its lines with `drive job report {job_id} -`, and end on that line; on an open"
+        " incident open its PR, which lands on that option while his card stays open, and end on `PUSHED <its url>`. Only when his"
+        f" words ask for options and no build, or the recommended option is no change you build, keep this ASK with `drive job report"
+        f" {job_id} -` and end on it again."
     )
 
 

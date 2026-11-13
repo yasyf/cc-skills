@@ -63,7 +63,7 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], moment: str) -> dict:
-    """A new answer of his beside the cards asking him and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
+    """A new answer of his beside the cards asking him and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, those its words name, and each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
@@ -80,7 +80,11 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
         "at": moment,
         "said": moment,
         "cards": cards,
-        "jobs": {job_id: None for job_id, job in data["jobs"].items() if job["state"] == "waiting" and touched & {job["order"], *job["carries"]}},
+        "jobs": {
+            job_id: None
+            for job_id, job in data["jobs"].items()
+            if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running"
+        },
     }
 
 

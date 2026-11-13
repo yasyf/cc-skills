@@ -199,8 +199,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
     the same run, and returns its result with an `ASK: <that file>` line. Nothing resumes a codex
     run, so the watch keeps that block as `drive job ask` does in the pass it takes the run, and
     its `JOB <j> <o> …; its ASK is kept` line says its ask record went out, so his card draws.
-  - A builder returns `ASK <path>` the moment the fork shows, and you resume it in that turn with
-    "build the recommended option meanwhile".
+  - A builder keeps its `ASK` with `drive job ask` the moment the fork shows, which leaves it
+    running, builds the recommended option in the same run and opens its PR, which lands on that
+    option while his card stays open; nothing resumes it for that.
 - A question he already answered, asked in the same words, on or under its card or recorded under
   it, draws no card and stops nothing. `drive job ask` keeps it settled by that answer, prints his
   words and that the job builds on them now, and sends the session holding the order one `evidence`
