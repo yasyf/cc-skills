@@ -207,6 +207,19 @@ def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
     ]
 
 
+def stored_waits(drive: dict, waits: list[str], found: dict | None = None) -> list[str]:
+    """The waits as a job or PR stores them: each once, and a card of his named by its Slack link under its waits id, the one the drive's question drawn on that link holds or else the one cc-slack keeps on its open card there, so one card is one wait whichever way it is named; every other wait as given."""
+    listed = [*found["questions"], *found["pr_cards"]] if found else []
+    return list(dict.fromkeys(waits_id(drive, listed, wait) for wait in waits))
+
+
+def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
+    if not wait.startswith("https://"):
+        return wait
+    named = [*(question["waits"] for _, question in drawn_on(drive, wait)), *(card["card"].get("waits") for card in listed if names_card(card, wait))]
+    return next(filter(None, named), wait)
+
+
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
     """The waits of a job or PR that still hold: each of his cards still open, each job not finished, each PR still open, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
@@ -563,7 +576,12 @@ def shown(order: dict, moment: datetime) -> bool:
 
 
 def asked_card(found: dict, wait: str) -> dict | None:
-    return next((card for card in found["questions"] if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None)
+    return next((card for card in found["questions"] if names_card(card, wait)), None)
+
+
+def names_card(card: dict, wait: str) -> bool:
+    """Whether a wait names his card, by its waits id or its Slack link."""
+    return card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)
 
 
 def wait_entry(drive: dict, wait: str, found: dict) -> dict:
@@ -581,15 +599,15 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
 
 
 def waiting_on_him(drive: dict, found: dict) -> list[dict]:
-    """Each open card of his that holds a job built on its recommended option, oldest card first, with the wait that names it, the job, its order and its branch."""
-    held = [
-        {"card": card, "wait": wait, "job": job_id, "order": job["order"], "branch": job["branch"]}
+    """Each open card of his that holds a job built on its recommended option, once per job and card however many of the job's waits name it, oldest card first, with the card's waits id, else its link, as the wait, the job, its order and its branch."""
+    held = {
+        (job_id, card["url"]): {"card": card, "wait": card["card"].get("waits") or card["url"], "job": job_id, "order": job["order"], "branch": job["branch"]}
         for job_id, job in drive["jobs"].items()
         if job["state"] == "built"
         for wait in job["waits"]
         if wait not in drive["jobs"] and (card := asked_card(found, wait))
-    ]
-    return sorted(held, key=lambda entry: state.parse_time(entry["card"]["asked"]))
+    }
+    return sorted(held.values(), key=lambda entry: state.parse_time(entry["card"]["asked"]))
 
 
 def built_entry(drive: dict, job_id: str, found: dict) -> dict:

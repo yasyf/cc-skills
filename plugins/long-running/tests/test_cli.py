@@ -1218,7 +1218,7 @@ def test_a_job_carrying_his_order_leaves_his_open_card_on_its_pr_up_until_rework
     assert withdrawals.asked == [(PR, REWORKING)]
 
 
-def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_he_taps_it(
+def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_as_one_wait_until_he_taps_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     link, merge = "https://acme.slack.com/archives/D123/p1794300000000400", "merge:acme:app:42"
@@ -1229,7 +1229,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     assert run("job", "set", "j1", "--waits", link, "--waits", merge)[0] == 0
     data = state.load("demo")
-    assert data["jobs"]["j1"]["waits"] == [link, merge]
+    assert data["jobs"]["j1"]["waits"] == [merge]
     assert view.holding(data, [link, merge], view.live_cards("demo")) == [link, merge]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards("demo")
