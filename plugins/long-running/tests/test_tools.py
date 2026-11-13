@@ -615,7 +615,10 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
                 data["jobs"][job_id]["questions"].append(state.new_question(None, "Which ring?", state.stamp(), card=url) | {"waits": wait})
     found = {
         "team_url": "",
-        "questions": [{"card": {"waits": wait, "title": "Which ring?"}, "url": url, "question": "Which ring?", "options": ["Ring", "Knock"]} for wait, url in zip(waits, urls, strict=True)],
+        "questions": [
+            {"card": {"waits": wait, "title": "Which ring?", "body": "Ring or knock?", "options": ["Ring", "Knock"], "recommended": "Ring"}, "url": url, "question": "Which ring?", "options": ["Ring", "Knock"]}
+            for wait, url in zip(waits, urls, strict=True)
+        ],
         "closed": [], "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
     }
     monkeypatch.setattr(view, "cards", lambda name: found)
@@ -671,9 +674,10 @@ def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_w
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    run("job", "add", "builder", "--order", "o2", "--goal", "build the cards")
-    with state.edit(demo) as data:
-        data["orders"]["o2"]["owner"] = "meta"
+    with monkeypatch.context() as tooler:
+        tooler.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+        run("start", demo, "--role", "meta")
+        run("job", "add", "builder", "--order", "o2", "--goal", "build the cards")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     feedback = {"kind": "owner", "text": "wat the fuck thats not acceptbale", "url": UNDER_CARD, "about": "drive"}

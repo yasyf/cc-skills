@@ -97,7 +97,10 @@ def test_an_ask_naming_its_jobs_earlier_answered_question_is_refused_until_drive
     reason = refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
     assert f"{earlier['ask']} keeps j1's question \"{LAYOUT}\", which this record does not ask" in reason
     assert "`drive job ask j1` with no file for a remote lane's ASK the watch did not keep, which reads its report" in reason
-    assert f"his answer closed j1's question \"{LAYOUT}\"" in refusal(record_lines.decision(post(kind="ask", text=LAYOUT, attrs=earlier)))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][-1]["closed"] = state.new_close("answered", "One snapshot file", CARD)
+    answered = refusal(record_lines.decision(post(kind="ask", text=LAYOUT, attrs=earlier)))
+    assert f"j1's question \"{LAYOUT}\" kept in {earlier['ask']} ended answered, so its card never draws again" in answered
     assert record_lines.decision(post(kind="ask", text=HANDLE, attrs=kept(demo, "j1", HANDLE))) is None
 
 
