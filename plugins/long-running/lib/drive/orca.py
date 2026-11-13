@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import subprocess
+import uuid
 from pathlib import Path
 from typing import IO, NamedTuple
 
@@ -606,7 +607,8 @@ def reply(drive: str, run: str, message_id: str, body: str) -> None:
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
-    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first, then bind the drive's own Run, read before the command runs. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
+    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first, then bind the drive's own Run, read before the command runs. A worker-start holds the binding only until Orca takes its request, which request-show then reads pending or done, since Orca checks the binding once, as it admits the start, and its wait for the worker to be ready runs on outside the lock; any other command holds it to its end. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
+    argv, request = requested(argv)
     with state.binding(drive):
         try:
             home = drive_run(drive)
@@ -618,12 +620,43 @@ def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.Completed
                     call("run-use", "--id", run)
                 except OrcaError as error:
                     raise Unstarted(str(error), error.code) from None
-                done = subprocess.run(argv, capture_output=True, text=True, check=False)
-                if FENCED not in done.stdout:
+                command = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if request and accepted(command, request):
                     break
+                done = completed(argv, command)
+                if FENCED not in done.stdout:
+                    return done
+            else:
+                return done
         finally:
             call("run-use", "--id", home)
-    return done
+    return completed(argv, command)
+
+
+def requested(argv: list[str]) -> tuple[list[str], str | None]:
+    """A worker-start's argv with the request id Orca keeps its receipt under, the one it names with --retry-request or a fresh one, and that id; any other command as it is, with none."""
+    if "worker-start" not in argv:
+        return argv, None
+    if "--retry-request" in argv:
+        return argv, argv[argv.index("--retry-request") + 1]
+    request = str(uuid.uuid4())
+    return [*argv, "--retry-request", request], request
+
+
+def accepted(command: subprocess.Popen, request: str) -> bool:
+    """Whether Orca took the request while its worker-start still runs, asking request-show until it reads pending or completed; False once the process ends first, as a fenced start does, or once request-show refuses, so the start holds the binding to its end."""
+    while command.poll() is None:
+        try:
+            if call("request-show", "--request", request)["state"] != "absent":
+                return True
+        except OrcaError:
+            return False
+    return False
+
+
+def completed(argv: list[str], command: subprocess.Popen) -> subprocess.CompletedProcess:
+    stdout, stderr = command.communicate()
+    return subprocess.CompletedProcess(argv, command.returncode, stdout, stderr)
 
 
 def answer(drive: str, job: dict, text: str) -> str:
