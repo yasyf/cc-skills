@@ -176,7 +176,7 @@ def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
             "--permission-mode",
             "bypassPermissions",
             "--settings",
-            json.dumps(agents.SESSION_SETTINGS, separators=(",", ":")),
+            json.dumps(agents.session_settings({}), separators=(",", ":")),
             "--channels",
             "plugin:cc-inbox@cc-inbox",
             "--",

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import limits, reads, render, state
+from drive import install, limits, reads, render, state
 from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
@@ -30,6 +30,7 @@ SESSION_SETTINGS = {
     "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"},
     "permissions": {"deny": ["AskUserQuestion"]},
 }
+ORCA = "orca@skills"
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
 READ_WINDOW = timedelta(minutes=10)
 TRANSCRIPT_READ = ("cc-transcript", ".jsonl")
@@ -281,9 +282,22 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the communicator's checkout, whether the communicator or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment."""
     communicator = state.saved(name)["roles"]["communicator"]
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": communicator["session"], state.DRIVE_ENV: name}
-    settings = SESSION_SETTINGS | {"env": SESSION_SETTINGS["env"] | env}
+    settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
-    reads.run(argv, Path(communicator["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"})
+    reads.run(argv, Path(communicator["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
+
+
+def session_settings(env: dict[str, str]) -> dict:
+    """What a session the drive starts runs on: every Orca lane's env, settings and denied tools from the orca plugin's lib/lane.json, the file orca-worker-launch.sh reads, CLAUDE_LANE_SETTINGS merged over those settings as that launcher merges it, then the drive's own SESSION_SETTINGS and env on top."""
+    lane = lane_spec()
+    local = json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}")
+    denied = list(dict.fromkeys([*lane["deniedTools"], *SESSION_SETTINGS["permissions"]["deny"]]))
+    return lane["settings"] | local | SESSION_SETTINGS | {"env": lane["env"] | SESSION_SETTINGS["env"] | env, "permissions": {"deny": denied}}
+
+
+def lane_spec() -> dict:
+    """The newest installed orca plugin's lib/lane.json: the env, settings and denied tools every Orca lane starts with."""
+    return json.loads((Path(install.installed(ORCA)["installPath"]) / "lib" / "lane.json").read_text())
 
 
 def bind_handler(payload: dict, handler: str) -> None:
