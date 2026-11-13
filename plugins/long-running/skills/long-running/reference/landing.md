@@ -352,7 +352,7 @@ naming it, which puts it on his card on yours, with the fix's own card when it w
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
 the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,
-`bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log <job>` instead.
+`bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log '<job URL>'` instead.
 
 An ejection on a flaky test outside your diff needs no push. Fix the test in its own `flake fix` PR, or
 find the one the drive already tracks, then run `drive pr set <url> --flaky <the test> <its fix PR>`.
