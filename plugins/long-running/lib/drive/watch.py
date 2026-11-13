@@ -1343,10 +1343,14 @@ def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [f"WATCH compacted the communicator {why}"]
 
 
+def coordinator(data: dict, project: str | None) -> dict:
+    """The session a watch posts to and speaks to Orca as: a project's sub-coordinator, or the coordinator."""
+    return data["subcoordinators"][project] if project else data["roles"]["coordinator"]
+
+
 def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Tell the communicator, once each time it exits, that the coordinator this watch posts to runs no Claude Code process, so nothing hears the drive's records: the communicator restarts it that minute, resuming its session, and never reports it to him as down."""
-    data = state.load(watcher.name)
-    held = data["subcoordinators"][watcher.project] if watcher.project else data["roles"]["coordinator"]
+    held = coordinator(state.load(watcher.name), watcher.project)
     if orca.live_pid(held["session"]) is not None:
         watcher.down = None
         return []
@@ -2226,6 +2230,7 @@ def watching(watcher: Watcher) -> None:
             if newer := upgraded():
                 handed_over(watcher, newer)
             read_from, moment = watcher.offset, state.now()
+            orca.speak_as(coordinator(state.load(watcher.name), watcher.project)["terminal"])
             said = handed(watcher, watcher.made, moment) if watcher.made else run_pass(watcher, moment)
             for line in sent(watcher, watcher.lane, said, moment):
                 print(line, flush=True)

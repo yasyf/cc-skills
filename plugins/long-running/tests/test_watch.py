@@ -896,6 +896,20 @@ def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.M
     assert not state.pid_path(demo).exists()
 
 
+def test_a_watch_speaks_to_orca_as_the_terminal_of_the_coordinator_it_serves_whatever_pane_started_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    spoke = []
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: spoke.append((os.environ.get("ORCA_TERMINAL_HANDLE"), os.environ.get("ORCA_PANE_KEY"))) or [])
+    monkeypatch.setenv("ORCA_PANE_KEY", "tab:starter")
+    run_watch(demo, monkeypatch)
+    sub_coordinated(demo)
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["terminal"] = "term_coordinator"
+        data["subcoordinators"]["Iris"]["terminal"] = "term_iris"
+    run_watch(demo, monkeypatch)
+    run_watch(demo, monkeypatch, "Iris")
+    assert spoke == [("term_outer", "tab:starter"), ("term_coordinator", None), ("term_iris", None)]
+
+
 def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_the_lines_it_held_once(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

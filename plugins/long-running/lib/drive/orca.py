@@ -124,6 +124,13 @@ def own_terminal() -> str | None:
     return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")
 
 
+def speak_as(terminal: str | None) -> None:
+    """Make each Orca call of this process and the processes it starts speak as the terminal, the coordinator's or sub-coordinator's whose Runs a watch serves, whatever started it: outside an Orca terminal Orca guesses the caller from the pane he focuses, or refuses with no_active_sender_terminal, and a watch another pane started would speak as that pane, its pane key included. None, a session in tmux, records no terminal of its own, so Orca resolves the caller as before."""
+    if terminal and os.environ.get("ORCA_TERMINAL_HANDLE") != terminal:
+        os.environ.pop("ORCA_PANE_KEY", None)
+        os.environ["ORCA_TERMINAL_HANDLE"] = terminal
+
+
 def reload_command(terminal: str) -> str:
     return f"orca terminal send --terminal {terminal} --text {RELOAD} --enter"
 
