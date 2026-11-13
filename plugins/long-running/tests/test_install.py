@@ -1029,6 +1029,37 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
 
 
+def test_a_proof_holds_no_install_lock_past_its_update_and_hands_its_result_to_the_newer_install_that_saved_meanwhile(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    held, handed = [], []
+    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
+    real = subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] == str(script):
+            held.append(dict(state.HELD_INSTALL))
+            monkeypatch.setattr(state, "VERSION", "0.0.1")
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        handed.append(argv[1:])
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(install, "upgraded", lambda: newest)
+    monkeypatch.setattr(install.subprocess, "run", newer)
+    state.hold_install()
+    assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
+    [argv] = handed
+    assert (held, argv[:3], argv[4:], Path(argv[3]).exists()) == ([{}], ["job", "proved", "j1"], ["--drive", "demo", "--json"], False)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
+    assert state.proof_path("demo", "j1").read_text() == "ran on /cache/long-running/1.0.3/bin\n"
+
+
 def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the_proof_file_with_no_install(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {OLD_COMMIT})
     script = proving(config, tmp_path, git, 0)

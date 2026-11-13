@@ -558,7 +558,6 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
         if plugin == LONG_RUNNING:
             try_drives(clone, *named, deadline)
         with update_lock(deadline):
-            state.hold_install()
             run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
             for each in installs(key):
                 run(["claude", "plugin", "update", key, "--scope", each["scope"]], deadline, each.get("projectPath"))
@@ -733,8 +732,8 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry, or a CI run still running or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
-    from drive import brief, dashboard
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry, or a CI run still running or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none, so a newer install's first save never waits on its installs, CI waits or proof file; when that newer install saved the drive first, its `drive job proved` keeps the result, which proof_kept hands it."""
+    from drive import dashboard
 
     deadline = clock() + timeout
     state.let_go_install()
@@ -746,7 +745,6 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
     urls = " ".join(job["prs"])
-    kept = state.proof_path(name, job_id)
     untapped = {key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     try:
         builds = live_builds(untapped, deadline, timeout, name)
@@ -770,22 +768,37 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         tail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "no output")
         line = f"DONE {urls} live: {job['repro']} exits 0 on {versions}" if code == 0 else f"BLOCKED {urls}: {job['repro']} exits {code} on {versions}: {tail[:SAID_CHARS]}"
     state.let_go_install()
-    proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
-    with state.edit(name) as data:
-        job = data["jobs"][job_id]
-        if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
-            return f"{job_id}: another proof took its result first"
-        kept.parent.mkdir(exist_ok=True)
-        kept.write_text(output)
-        seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
-        unseen, closes = finish(name, data, job_id, line, [str(kept), *seen], bool(seen), f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n", "install-proved")
-        change = proven
-        if code:
-            change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}"
-        elif unseen:
-            change = f"its proof passed on {versions}, but he sees this on {unseen}: prove it there with a recording or the live post, then send the close report"
-        elif closes:
-            change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    return proof_kept(name, job_id, {"line": line, "output": output, "versions": versions, "code": code})
+
+
+def proof_kept(name: str, job_id: str, result: dict) -> str:
+    """Keep what a proof came to on its job, its output in reports/<j>.proof.txt, and say it on the job's PRs' lines, nothing after another proof took the job's result first; when a newer install saved the drive while the proof ran, as one the proof installed does, the newest install's `drive job proved` keeps it, so the proof never runs twice."""
+    from drive import brief
+
+    kept = state.proof_path(name, job_id)
+    line, output, versions, code = result["line"], result["output"], result["versions"], result["code"]
+    try:
+        with state.edit(name) as data:
+            job = data["jobs"][job_id]
+            if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
+                return f"{job_id}: another proof took its result first"
+            proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
+            kept.parent.mkdir(exist_ok=True)
+            kept.write_text(output)
+            seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
+            unseen, closes = finish(name, data, job_id, line, [str(kept), *seen], bool(seen), f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n", "install-proved")
+            change = proven
+            if code:
+                change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}"
+            elif unseen:
+                change = f"its proof passed on {versions}, but he sees this on {unseen}: prove it there with a recording or the live post, then send the close report"
+            elif closes:
+                change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    except state.NewerDrive:
+        if not (newer := upgraded()):
+            raise
+        receipt = state.drive_dir(name) / "jobs" / f"{job_id}.proved.{os.getpid()}.json"
+        return json.loads(handed(newer, name, ["job", "proved", job_id], receipt, result, f"{job_id}: its proof", state.DRIVE_LOCK_SECONDS))["line"]
     said_on_prs(name, data, job_id, change)
     return f"{job_id}: {change}"
 
@@ -848,7 +861,7 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac. It holds its install's lock only from an update to its end, never while it waits on a release, Homebrew or another install's turn, so a newer install's first save of a drive waits on no wait of this one. A sha no release will hold prints why and installs nothing."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac. It holds no install's lock, since it saves no drive after its update and reads each drive's bindings alone, so a newer install's first save of a drive waits on none of it. A sha no release will hold prints why and installs nothing."""
     state.let_go_install()
     deadline = clock() + timeout
     try:
