@@ -970,6 +970,7 @@ if [ "$1" = --dispatch ]; then
   fi
   mkdir -p "$run"
   printf '%s\\n' "$@" > "$run/argv"
+  printf '%s %s\\n' "$LONG_RUNNING_OWN_JOB" "$CLAUDE_LONG_RUNNING_DRIVE" > "$run/env"
   cat > "$run/question"
   printf running > "$run/state"
   : > "$run/codex-r-1"
@@ -1019,6 +1020,8 @@ def codex_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CodexAsk:
     (config / "plugins").mkdir(parents=True)
     (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"codex@skills": [{"installPath": str(plugin)}]}}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    (tmp_path / "codex-home").mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
     (tmp_path / "runs").mkdir()
     return CodexAsk(tmp_path / "runs")
 

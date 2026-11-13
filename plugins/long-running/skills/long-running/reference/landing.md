@@ -444,11 +444,12 @@ the patch.
   `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
   release resume`, `approve` and `rollback`, `tools/ci bk rerun release`, and a `tools/ci bk api`
   write to a release build. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
-  nothing. It holds a drive session, its agents and a Sprite lane, which asks the coordinator's Mac
-  with `drive job held --release`.
+  nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
+  with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
+  `drive job launch` keeps in `~/.codex/hooks.json`.
 - A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
-  `--order` of its `Release:` line. A call naming none passes only when Jev reads one of his answers
-  since the hold as approving it. An incident's order passes on its words, never on its label. Ask
+  `--order` of its `Release:` line. A call naming none is refused, with no answer of his read. An
+  incident's order passes on its words, never on its label. Ask
   him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
   again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
   hold of his with `drive answer --label release-hold`.

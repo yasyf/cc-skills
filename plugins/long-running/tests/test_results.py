@@ -1,6 +1,9 @@
 import io
 import json
 import os
+import shlex
+import sys
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -180,6 +183,29 @@ def test_drive_job_launch_starts_a_codex_jobs_codex_ask_run_on_its_brief_with_it
     assert (state.load(demo)["jobs"]["j1"]["state"], watched(demo)["state"]) == ("running", "running")
     assert cli.main(["job", "launch", "j1", str(tmp_path / "j1.brief.md")]) == 2
     assert f"j1: refused, not launched: codex-ask: lane {folder} is busy" in capsys.readouterr().err
+
+
+def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_bash_calls_trusted_in_its_config(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    home = tmp_path / "codex-home"
+    hooks, config = home / "hooks.json", home / "config.toml"
+    theirs = {"matcher": "^Bash$", "hooks": [{"type": "command", "command": "lr codex-guard check", "timeout": 10}]}
+    older = {"matcher": "^Bash$", "hooks": [{"type": "command", "command": "exec python3 -I /old/long-running/hooks/landing_guard.py", "timeout": 60}]}
+    hooks.write_text(json.dumps({"hooks": {"PreToolUse": [theirs, older]}}))
+    config.write_text(f'model = "gpt-6.1-sol"\n\n[hooks.state."{hooks}:pre_tool_use:1:0"]\ntrusted_hash = "sha256:{"0" * 64}"\n')
+    config.chmod(0o600)
+    codex_job(run)
+    folder = launched(demo, run, tmp_path)
+    assert (folder / "env").read_text() == f"j1 {demo}\n"
+    groups = json.loads(hooks.read_text())["hooks"]["PreToolUse"]
+    guard = f'[ -z "$LONG_RUNNING_OWN_JOB" ] || exec {shlex.quote(sys.executable)} -I {shlex.quote(str(codex.GUARD))}'
+    assert groups == [theirs, {"matcher": "^Bash$", "hooks": [{"type": "command", "command": guard, "timeout": codex.GUARD_SECONDS}]}]
+    written = tomllib.loads(config.read_text())
+    trusted = written["hooks"]["state"][f"{hooks}:pre_tool_use:1:0"]["trusted_hash"]
+    assert (written["model"], len(written["hooks"]["state"]), trusted.startswith("sha256:"), len(trusted), trusted != f"sha256:{'0' * 64}") == ("gpt-6.1-sol", 1, True, 71, True)
+    assert config.stat().st_mode & 0o777 == 0o600
+    kept = (hooks.read_text(), config.read_text())
+    codex.guarded()
+    assert (hooks.read_text(), config.read_text()) == kept
 
 
 def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_whose_words_name_it(

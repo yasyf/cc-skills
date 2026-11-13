@@ -449,10 +449,12 @@ def lane_reason(keys: list[str]) -> str | None:
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`."""
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
     if (verb := release_verb(words)) is None:
         return None
-    job = shell.job or bool(os.environ.get(state.REMOTE_LANE_ENV))
+    lane = os.environ.get(state.REMOTE_LANE_ENV)
+    codex = None if lane else os.environ.get(state.OWN_JOB_ENV)
+    job = shell.job or bool(lane or codex)
     if verb == "cancel" and job:
         return RELEASE_CANCEL
     if verb not in RELEASE_CUTS or PLAN_ONLY & set(words):
@@ -469,21 +471,21 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
             )
     if verb in brief.RELEASE_STARTS and (shell.driving or job):
         return RELEASE_BY_HAND.format(command=" ".join(words))
-    if os.environ.get(state.REMOTE_LANE_ENV):
-        return lane_release_reason(release_of(words, shell))
-    if not names:
+    if lane:
+        return lane_release_reason(release_of(words, agents.brief(shell.caller)))
+    if not (drives := [os.environ[state.DRIVE_ENV]] if codex else names):
         return None
-    data = state.load(names[0])
+    data = state.load(drives[0])
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        return hold and brief.hold_refusal(release_of(words, shell), data, hold)
+        return hold and brief.hold_refusal(release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)), data, hold)
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
 
-def release_of(words: list[str], shell: Shell) -> str:
+def release_of(words: list[str], briefed: str) -> str:
     """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the verb's own words."""
-    return next(reversed(brief.RELEASE.findall(agents.brief(shell.caller))), " ".join(words))
+    return next(reversed(brief.RELEASE.findall(briefed)), " ".join(words))
 
 
 def release_verb(words: list[str]) -> str | None:
@@ -745,7 +747,7 @@ def main() -> None:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
         return
     if reason:
-        print(json.dumps(denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)))
+        print(json.dumps(denial(reason) if os.environ.get(state.OWN_JOB_ENV) else denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)))
         return
     agents.hold(payload)
     if context:
