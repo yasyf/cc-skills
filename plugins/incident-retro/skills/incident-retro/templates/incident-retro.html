@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:4add7d6f7eff — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:d0c906a061ff — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -2424,7 +2424,7 @@ function glanceFix(){
 }
 function renderGlance(){
  const host=$("#glanceHost");
- const show=!DECK&&!ongoing();
+ const show=!DECK&&!ongoing()&&!(IMPACT.text||IMPACT.p)&&!(RESOLUTION.text||RESOLUTION.p);
  document.body.classList.toggle("glance",show);
  document.body.classList.toggle("onewin",WINDOWS.length<=1);
  host.hidden=!show;
