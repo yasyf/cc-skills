@@ -117,6 +117,14 @@ def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
     return None
 
 
+def woken(data: dict, job_id: str, moment: datetime) -> str | None:
+    """Why a message may not wake the builder's agent on this Mac: its turn ended, so the message starts it again, and crowded gives it no slot."""
+    job = data["jobs"][job_id]
+    if job["kind"] != "builder" or job.get("where") == "remote" or not job.get("agent") or job_id in local_builders(data, moment):
+        return None
+    return f"its turn ended and {why}" if (why := crowded(data, job_id, moment)) else None
+
+
 def queueable(data: dict, job_id: str) -> bool:
     """Whether a builder job may wait its turn for a slot on this Mac: one that no agent or lane runs, not finished, and that nothing else holds, no wait, card of his or open PR of its, so the line never frees work held on something else."""
     job = data["jobs"][job_id]

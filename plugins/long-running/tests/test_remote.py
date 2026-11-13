@@ -217,6 +217,37 @@ def test_place_counts_only_running_builders_on_this_mac(
     assert run("place")[1] == f"remote: 8 builders already run on this Mac, its cap of 8 ({counted})"
 
 
+def test_a_launch_local_while_eight_builders_hold_this_macs_slots_starts_on_a_sprite_or_waits_its_turn_when_its_brief_runs_on_this_mac(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "sprite", "mac")
+    run("job", "add", "builder", "--order", "o1", "--part", "sprite", "--goal", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--part", "mac", "--goal", "prove it on a Mac")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    (tmp_path / "sprite.md").write_text("Order (his words): ship it\nServes: his order\nDrive: demo, order o1, job j1\n")
+    (tmp_path / "mac.md").write_text("Order (his words): ship it\nServes: his order\nMac: prove it on a Mac box with ci mac-box prove\nDrive: demo, order o1, job j2\n")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    launched: list[str] = []
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, *rest: launched.append(lane) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert cli.main(["job", "launch", "j1", "sprite.md", "--local"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 (j3 on o2, its agent b1 last wrote at ")
+    assert err.endswith("so it starts on a Sprite at once: drive job launch j1, with no --local\n")
+    assert cli.main(["job", "launch", "j2", "mac.md", "--local"]) == 2
+    assert capsys.readouterr().err.endswith("so j2 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch's FREE line names it as a slot opens\n")
+    held = state.load(demo)["jobs"]["j2"]
+    assert (held["state"], held["waits"], held.get("launching")) == ("waiting", [state.SLOT_WAIT], None)
+    run("job", "set", "j3", "--state", "stopped")
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(waits=[], slot=state.stamp())
+    assert run("job", "launch", "j2", "mac.md", "--local") == (0, f"j2 started on this Mac as dispatch {DISPATCH}")
+    assert len(launched) == 1
+
+
 def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1030,6 +1061,25 @@ def test_a_job_whose_stopped_agent_has_a_brief_declaring_a_step_only_this_mac_ru
     assert run("job", "launch", "j1") == (0, f"j1 started on this Mac as dispatch dispatch-2, taking over from its agent a1 on this Mac, which takes no message: {stop}")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["where"], job["route"], job["dispatch"]) == (None, "remote", state.LOCAL_ROUTE, "dispatch-2")
+
+
+def test_a_resume_of_an_agent_here_whose_turn_ended_while_eight_builders_hold_this_macs_slots_hands_the_job_to_a_lane_on_a_sprite(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, ENDED_TURN, timedelta(seconds=30))
+    assert run("job", "resume", "j1", "PR #54870: checks failed")[0] == 2
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    said = "j1: the message went to the job's next worker, started on Sprite workspace-2 as dispatch dispatch-2 in a handoff carrying it"
+    code, out = run("job", "resume", "j1", "PR #54870: checks failed")
+    assert (code, out[: len(said)]) == (0, said)
+    assert out[len(said) :].startswith(
+        ", taking over from its agent a1 on this Mac, which takes no message: its turn ended and 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at "
+    )
+    assert orca.brief_of(launched[0]).endswith("The message it never read, which you act on now:\n\nPR #54870: checks failed")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["where"], job["route"], job["dispatch"]) == (None, "remote", None, "dispatch-2")
 
 
 ANSWERED = {"type": "assistant", "timestamp": "2026-11-12T20:44:30.000Z", "message": {"model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "j1's agent stopped."}]}}
@@ -2371,6 +2421,28 @@ def test_a_launch_of_a_lane_whose_worker_finished_prepares_its_sprite_again_with
     assert "## Taking over from a lane that finished" in brief
     assert "which you act on now" not in brief
     assert state.load(remote)["jobs"]["j1"]["dispatch"] == "dispatch-2"
+
+
+def test_a_launch_local_of_a_job_whose_sprite_worker_finished_moves_nothing_here_while_eight_builders_hold_this_macs_slots(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a move refused at the cap saves nothing"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a move refused at the cap launches nothing"))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    assert cli.main(["job", "launch", "j1", "--local"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.endswith("so it starts on a Sprite at once: drive job launch j1, with no --local\n")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["route"], job.get("deaths", [])) == (DISPATCH, None, [])
 
 
 def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_and_starts_its_next_in_a_fresh_worktree_on_this_mac(

@@ -2390,7 +2390,7 @@ def unstopped(job_id: str, job: dict) -> None:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, as does one on a Sprite whose worker returned its line when --local moves it to this Mac, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, or that a launch finds returned while the job holds texts hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, as does one on a Sprite whose worker returned its line when --local moves it to this Mac, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
     with state.launch_waits(name, args.id) if text is None and args.local else nullcontext(), state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
@@ -2413,7 +2413,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
             if end or (here and job["state"] != "running"):
                 return restart(args, name, dispatch, end or orca.LaneEnd("its worker returned its line and still takes messages there", None, None, live=True), None, here)
             raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
-        died = None if taker or not job.get("agent") else watch.agent_death(job, data) or (returned(job) if text is None else None)
+        died = None if taker or not job.get("agent") else watch.agent_death(job, data) or (returned(job) if text is None else place.woken(data, args.id, state.now()))
         if job.get("agent") and not (taker or died):
             remote_job(data, args.id)
         if text is not None and not died:
@@ -2554,6 +2554,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         or brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
         or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
+        or (crowded_here(name, data, job_id, written) if local else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     with state.edit(name) as data:
@@ -2570,6 +2571,19 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         record_start(name, job_id, None, None)
         raise
     return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)}
+
+
+def crowded_here(name: str, data: dict, job_id: str, written: str) -> str | None:
+    """Why a builder's lane starts in no worktree on this Mac now, by place.crowded, the rule every builder start here goes through: one whose brief declares no step only this Mac runs starts on a Sprite at once, and one that does, that no agent or lane runs and nothing else holds, waits its turn for a slot."""
+    if data["jobs"][job_id]["kind"] != "builder" or not (why := place.crowded(data, job_id, state.now())):
+        return None
+    if not place.mac_step(written):
+        return f"{why}, so it starts on a Sprite at once: drive job launch {job_id}, with no --local"
+    if not place.queueable(data, job_id):
+        return f"{why}, so this one waits: launch it here once a slot opens with no builder waiting its turn"
+    with state.edit(name) as data:
+        place.queue(data["jobs"][job_id], state.now())
+    return f"{why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, and the watch's FREE line names it as a slot opens"
 
 
 def launch_brief(name: str, job_id: str, job: dict) -> Path:
@@ -2675,8 +2689,11 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     data = state.load(name)
     job = data["jobs"][args.id]
     message = "\n\n".join([*(kept["words"] for kept in job["undelivered"]), *filter(None, [text])]) or None
-    declared = None if here or state.on_mac(job) else place.mac_step("\n\n".join(filter(None, [orca.brief_of(Path(job["brief"]).read_text()), job.get("report"), message])))
+    said = None if state.on_mac(job) else "\n\n".join(filter(None, [orca.brief_of(Path(job["brief"]).read_text()), job.get("report"), message]))
+    declared = None if here or said is None else place.mac_step(said)
     here = here or declared is not None
+    if here and said is not None and (crowd := crowded_here(name, data, args.id, said)):
+        raise DriveError(f"{args.id}: refused, no worker started: {crowd}")
     finished = end.worktree and not here
     same = finished and state.on_mac(job)
     unreached = end.unreached and not (here or end.unfit)

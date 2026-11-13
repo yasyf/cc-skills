@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, render, state
+from drive import agents, place, render, state
 
 OWN_TOOLS = {
     *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
@@ -85,6 +85,17 @@ def resumed_builder(payload: dict, data: dict, job_id: str) -> str | None:
     )
 
 
+def woken_builder(payload: dict, data: dict, job_id: str) -> str | None:
+    """Why a SendMessage does not wake a builder on this Mac whose turn ended: the wake takes one of this Mac's builder slots, which place.woken gives by the rule every start here goes through."""
+    if payload["tool_name"] != "SendMessage" or not (why := place.woken(data, job_id, state.now())):
+        return None
+    return agents.Unjudged(
+        f"Refused on purpose: {job_id}'s agent on this Mac takes no message now: {why}, so this message would start it again in a slot it has no turn for."
+        f' `drive job resume {job_id} "<the message>"` hands it to a lane on a Sprite with the message in its handoff, or, when its'
+        f" brief declares a step only this Mac runs on {place.MAC_LINES}, refuses until a slot opens"
+    )
+
+
 def recent_rows(path: Path, since: datetime) -> list[dict]:
     """The transcript's rows written since, read back from its end, since a coordinator's transcript grows past 300 MB."""
     with path.open("rb") as handle:
@@ -149,7 +160,7 @@ def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator and the meta session send no PR event to a builder that returned and tell no running job its state, or ask it, before they read that job's transcript."""
+    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator and the meta session send no PR event to a builder that returned, wake no builder on this Mac whose turn ended while its builder slots are full, and tell no running job its state, or ask it, before they read that job's transcript."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -163,7 +174,7 @@ def deny_reason(payload: dict) -> str | None:
     data = state.load(names[0])
     if (job_id := target(payload, data)) is None:
         return None
-    return resumed_builder(payload, data, job_id) or unread_job(payload, data, job_id)
+    return resumed_builder(payload, data, job_id) or woken_builder(payload, data, job_id) or unread_job(payload, data, job_id)
 
 
 def main() -> None:

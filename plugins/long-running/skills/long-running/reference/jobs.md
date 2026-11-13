@@ -43,6 +43,12 @@ Contents:
   counted and the line: one whose brief declares no such step starts on a Sprite at once with
   `drive job launch <j> <brief>`, and one whose brief declares one, that no agent runs, it holds waiting its
   turn the same way, unless a wait, a card of his or an open PR of its still holds it.
+  Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
+  `agent_brief` hook; `drive job launch --local`, for a first lane or one moving from a Sprite, which
+  starts on a Sprite or waits its turn the same way; and a SendMessage that would wake an agent here
+  whose turn ended, which the `communicator_calls` hook refuses while the slots are full, and after
+  which `drive job resume <j> "<the message>"` hands the job to a lane on a Sprite with the message
+  in its handoff.
 - A Forge-AI/monorepo builder is placed when it starts, from the step its brief declares, by his pick
   "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
   check". `drive job add` never refuses one for load. The brief's writer names the step only this

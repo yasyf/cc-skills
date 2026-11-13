@@ -7,7 +7,7 @@ from pathlib import Path
 
 import communicator_calls
 import pytest
-from drive import state
+from drive import agents, state
 
 Run = Callable[..., tuple[int, str]]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -157,3 +157,28 @@ def test_the_coordinators_message_quoting_when_past_work_happened_goes_out_since
         "Rebase it on dev; return by 11:30 PM",
     ):
         assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=message)) is None, message
+
+
+def test_the_coordinator_wakes_no_builder_here_whose_turn_ended_while_eight_hold_this_macs_builder_slots(
+    demo: str, run: Run, builder: Callable[..., None], tmp_path: Path
+) -> None:
+    builder(agent="a-7", state="waiting")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve"))
+    assert reason.startswith(
+        "Refused on purpose: j1's agent on this Mac takes no message now: its turn ended and 8 builders already run on this Mac, its cap of 8"
+        " (j2 on o2, its agent b1 last wrote at "
+    )
+    assert reason.endswith(
+        'so this message would start it again in a slot it has no turn for. `drive job resume j1 "<the message>"` hands it to a lane on a Sprite'
+        " with the message in its handoff, or, when its brief declares a step only this Mac runs on its Mac: line, which drive job brief --mac"
+        " writes, or its Release: line, refuses until a slot opens"
+    )
+    assert agents.ruled(reason) == {"judged": False}
+    builder(state="running")
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
+    builder(state="waiting")
+    run("job", "set", "j2", "--state", "stopped")
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None

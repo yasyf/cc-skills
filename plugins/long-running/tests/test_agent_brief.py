@@ -115,6 +115,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
         f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 starts on a Sprite at once, since its brief declares no"
         f" step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch j1 <file>"
     )
+    assert agents.ruled(agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o3, job j1"))) == {"judged": False}
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
     for order_id, job_id in (("o1", "j10"), ("o2", "j11"), ("o3", "j1")):
         refused = agent_brief.deny_reason(started("long-running:builder", f"{mac}order {order_id}, job {job_id}"))
@@ -129,6 +130,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
         f"Only a builder whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits here;"
         " start any other on a Sprite at once with drive job launch <j> <brief>"
     )
+    assert agents.ruled(refused) == {"judged": False}
     held = state.load(demo)["jobs"]["j1"]
     assert (held["state"], held["waits"], held["said"], held["where"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", "local")
     run("job", "set", "j2", "--state", "stopped")
@@ -210,6 +212,7 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
         "refused: this Mac is 63% busy, at or over its 50% limit, so j1 starts on a Sprite: drive job launch j1 <brief>. A brief declaring a step"
         f" only this Mac runs, on {place.MAC_LINES}, starts here at any load"
     )
+    assert agents.ruled(start("j1", "Goal: fix the run page")) == {"judged": False}
     for lines in (
         "Goal: land the desktop fix\nHandoff: merged\nMac: tools/ci mac-box up; tools/ci mac-box prove --commit f3163cd03c48; tools/ci mac-box record",
         'Goal: prove the session rows\nHandoff: merged\nMac: tools/ci db-read "select count(*) from sessions where kind = \'personal\'"',
