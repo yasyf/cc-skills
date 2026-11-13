@@ -1765,3 +1765,42 @@ def test_a_release_read_that_fails_is_said_as_it_fails_and_read_again(
     assert capsys.readouterr().err.splitlines() == [
         f"drive install: a read of the cc-notes release failed, reading again within {install.POLL_SECONDS}s: git fetch exited 128: unable to access"
     ]
+
+
+def refuse_first_fetch(git: FakeGit, monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
+    refused = []
+
+    def run(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        if cmd[3:4] == ["fetch"] and not refused:
+            refused.append(cmd)
+            return subprocess.CompletedProcess(cmd, 128, "", f"{refusal}\n")
+        return git.run(cmd, **options)
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+
+
+def test_a_proof_whose_fetch_could_not_reach_github_fetches_again_and_proves(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    refused = "fatal: unable to access 'https://github.com/yasyf/cc-skills/': Failed to connect to github.com port 443 after 18662 ms: Couldn't connect to server"
+    refuse_first_fetch(git, monkeypatch, refused)
+    install.prove("demo", "j1", 900)
+    assert (state.load("demo")["jobs"]["j1"]["said"], git.sleeps) == (f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3", [install.POLL_SECONDS])
+    [said] = [line for line in capsys.readouterr().err.splitlines() if "could not reach" in line]
+    assert said.startswith(f"drive install: git could not reach the remote, running it again within {install.POLL_SECONDS}s: git -C ")
+    assert said.endswith(f"{' '.join(install.FETCH)} {SHA} exited 128: {refused}")
+
+
+def test_a_proof_whose_fetch_github_refused_for_its_commit_takes_blocked_at_once(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    missing = f"fatal: remote error: upload-pack: not our ref {SHA}"
+    refuse_first_fetch(git, monkeypatch, missing)
+    install.prove("demo", "j1", 900)
+    said = state.load("demo")["jobs"]["j1"]["said"]
+    assert said.startswith(f"BLOCKED {URL}: not installed, so {script} did not run: git -C ")
+    assert (said.endswith(f"exited 128: {missing}"), git.sleeps) == (True, [])
