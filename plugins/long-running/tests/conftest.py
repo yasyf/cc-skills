@@ -40,6 +40,8 @@ REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
+REAL_SPRITE_CONFIG = orca.sprite_config
+SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -495,6 +497,12 @@ def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     placed: list[str] = []
     monkeypatch.setattr(orca, "place_tools", placed.append)
     return placed
+
+
+@pytest.fixture(autouse=True)
+def configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every checkout holds the cc-remote config whose SHA-256 is SPRITE_CONFIG, which the drive's checkout in a test holds no file of."""
+    monkeypatch.setattr(orca, "sprite_config", lambda checkout: SPRITE_CONFIG)
 
 
 @pytest.fixture(autouse=True)

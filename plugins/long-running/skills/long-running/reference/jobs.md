@@ -305,8 +305,9 @@ before it sends or starts.
   terminal makes. A finished worker is read before its liveness, which Orca cannot always tell
   once a worker is done; when Orca no longer finds
   that terminal or worktree, or no longer holds that terminal connected, the worker counts as
-  dead, and when its Sprite refuses the tools a worker needs, that Sprite is passed over as a dead
-  one's. A dead worker, or one whose
+  dead, and when its Sprite refuses the tools a worker needs, or was made from a cc-remote config
+  other than the one the default branch holds now, as the SHA-256 its launch recorded on the job
+  shows, that Sprite is passed over as a dead one's. A dead worker, or one whose
   Sprite's Orca environment is gone, as `drive job end` leaves it, is relaunched on a fresh Sprite
   on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
   relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
