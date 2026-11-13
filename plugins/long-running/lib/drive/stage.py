@@ -241,9 +241,9 @@ def kept(pr: dict, now: Stage) -> None:
     pr["stage"].update(owner=now.owner, why=now.why)
 
 
-def shown(data: dict, cards: dict | None) -> None:
-    """Put on each open PR of the drive as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status and drive pr set print what a decision made now reads."""
-    for key in state.open_pr_keys(data):
+def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
+    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status and drive pr set print what a decision made now reads."""
+    for key in keys:
         pr = data["prs"][key]
         now = of(data, key, cards)
         since = pr["stage"]["since"] if pr["stage"] and pr["stage"]["name"] == now.name else None
