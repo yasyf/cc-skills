@@ -644,6 +644,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if (rework := pr.get("rework")) and "answer" in rework:
             pr["rework"] = {"by": rework["answer"], "words": rework["why"], "at": rework["at"]} if rework["head"] == pr["head"] else None
         pr.setdefault("rework", None)
+        if pr.get("fundamental"):
+            pr["tap"] = None
         if tap := pr["tap"]:
             pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap.get("via"), tap["at"])
     data.setdefault("answers", {})
@@ -929,7 +931,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it and on each red PR it answers each PR and release it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's fix, stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and on its fix also recording that fix live as the order's fixed, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges or closes or the release is out, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it and on each red PR it answers each PR and release it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -968,7 +970,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for key in named_prs(data, job["order"], line):
             if rework := data["prs"][key]["rework"]:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
-                data["prs"][key].update(rework=None, fundamental=changed, updated=job["updated"])
+                data["prs"][key].update(rework=None, tap=None, fundamental=changed, updated=job["updated"])
     end_carried_designs(data, job["order"], job["updated"])
 
 
@@ -2313,7 +2315,7 @@ def asks_tap(pr: dict) -> bool:
 
 
 def rework(pr: dict, by: str, words: str) -> None:
-    """Mark a PR reworked to his words, by his order or answer, until its builder's READY says how they are met; his Approve stands, and lands the reworked change once the check against his words passes it."""
+    """Mark a PR reworked to his words, by his order or answer, until its builder's READY says how they are met; his Approve stands until that READY, which drops it so a fresh card asks it for the reworked change."""
     at = stamp()
     pr.update(rework={"by": by, "words": words, "at": at}, updated=at)
 

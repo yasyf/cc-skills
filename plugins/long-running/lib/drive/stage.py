@@ -50,9 +50,9 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 
 
 def own(data: dict, key: str, cards: dict) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads."""
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses."""
     pr = data["prs"][key]
-    if pr["state"] == "open" and carded(pr) and not pr["card"] and not pr["rework"] and (not pr["tap"] or pr["fundamental"]):
+    if not pr["card"] and not pr["rework"] and state.asks_tap(pr):
         return Stage("uncarded", WATCH, "his card on it is not drawn yet")
     return alone(data, key, cards)
 
