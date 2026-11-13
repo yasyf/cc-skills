@@ -607,6 +607,8 @@ def test_a_launch_holds_no_install_lock_while_its_launcher_runs_and_hands_its_re
         ("Goal: read the 500s in Datadog APM", "Datadog"),
         ("Interactions: he opens the Executor OOM Run Crash Count monitor in Datadog and sees it quiet", "Datadog"),
         ("Runs as: drive break-glass j1 --stack sandsql/plat-usw2-prod on this Mac's machine profile", "break-glass"),
+        ("INSTALL: drive install long-running@skills --sha 7765bd2", "drive install"),
+        ("Interactions: he opens the drive's dashboard and walks each part, recording it", "drive's dashboard"),
     ],
 )
 def test_launch_starts_a_brief_naming_a_step_only_this_mac_runs_only_on_this_mac(
@@ -676,11 +678,29 @@ def test_launch_starts_on_a_sprite_a_brief_whose_mac_only_words_sit_only_in_his_
         "Goal: a monorepo check that pipes each PR's request into tools/ci release select --pr and fails on an unknown target\n"
         "Done when: tools/ci release select --pr prints the targets the changed files name\n"
         "Drive: durable-agents, order o900, job j2678\n",
+        "Goal: one launchd agent per bound drive keeps each watch loop running across crashes and installs, and drive install's reopen stops"
+        " restarting watches itself\n"
+        "Drive: durable-agents, order o901, job j2451\n",
     ],
-    ids=["j2729", "j2775 order", "j2678 release select"],
+    ids=["j2729", "j2775 order", "j2678 release select", "j2451 drive install's code"],
 )
 def test_mac_step_reads_only_the_steps_a_brief_runs_never_his_order_words_or_tools_ci_release_select(written: str) -> None:
     assert place.mac_step(written) is None
+
+
+def test_mac_step_names_the_drive_install_and_dashboard_proof_j2860_runs() -> None:
+    j2860 = (
+        "Order (his words): Drive tooling: dashboard improvements: the queue as a priority queue sorted by urgency\n"
+        "Serves: drive tooling\n"
+        "Goal: long-running 1.0.608 is released; install it on this Mac and prove the change live on the dashboard with a recording, then return DONE\n"
+        "Where: this Mac; yasyf/cc-skills main at or after 7765bd2\n"
+        "Handoff: drive install and the dashboard recording run only on the Mac. INSTALL: drive install of long-running 1.0.608 or newer.\n"
+        "Native: the drive dashboard on this Mac\n"
+        "Interactions: open the dashboard and walk each part, recording it\n"
+        "Drive: durable-agents, order o937, job j2860\n"
+    )
+    assert place.mac_step(j2860) == "live on the dashboard"
+    assert place.mac_step(j2860.replace(" live on the dashboard", "")) == "drive install"
 
 
 def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(
@@ -1419,6 +1439,53 @@ def test_a_launch_of_a_lane_whose_worker_finished_starts_its_next_in_its_termina
     assert "## Taking over from a lane that finished" in brief
     assert "which you act on now" not in brief
     assert state.load(remote)["jobs"]["j1"]["dispatch"] == "ctx_lane0002"
+
+
+def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_and_starts_its_next_in_a_fresh_worktree_on_this_mac(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    monkeypatch.setattr(orca, "bound_command", lambda *args: pytest.fail("a move to this Mac never starts its next worker in the Sprite's terminal"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "new_run", lambda objective: FRESH_RUN)
+
+    def unsaved(drive: str, job_id: str, job: dict, root: Path) -> str:
+        raise orca.OrcaError("cc-remote-reclaim exited 1: pool-one unreachable")
+
+    monkeypatch.setattr(orca, "save", unsaved)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("nothing moves to this Mac while its Sprite's work is unsaved"))
+    assert cli.main(["job", "launch", "j1", "--local"]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1: not moved to this Mac, since what its Sprite pool-one holds on no remote could not be saved to GitHub:"
+        " cc-remote-reclaim exited 1: pool-one unreachable\n"
+    )
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], "deaths" in job) == (None, DISPATCH, False)
+    saves, launched = [], {}
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: saves.append(job["workspace"]) or "demo-j1-wip")
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None) -> dict:
+        launched.update(lane=lane, brief=brief.read_text(), route=route, workspace=workspace)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "launch", "j1", "--local") == (
+        0,
+        "j1: the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff carrying its"
+        " brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one had finished (its worker succeeded,"
+        " and Orca sends nothing to a finished worker on a Sprite), and what pool-one held on no remote is saved: demo-j1-wip",
+    )
+    assert (saves, launched["lane"], launched["route"], launched["workspace"]) == (["pool-one"], "demo-j1-2", state.LOCAL_ROUTE, None)
+    brief = orca.brief_of(launched["brief"])
+    assert "## Taking over from a lane that finished\n\nThe lane that held this job finished on Sprite pool-one at " in brief
+    assert "You take the job over in a fresh worktree on this Mac from its pushed branches; what it held on no remote was saved for you: demo-j1-wip." in brief
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], [death["workspace"] for death in job["deaths"]]) == (state.LOCAL_ROUTE, "dispatch-2", ["pool-one"])
 
 
 def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_it_and_sends_that_worker_its_text(

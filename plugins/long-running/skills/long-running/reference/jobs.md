@@ -44,9 +44,12 @@ Contents:
   "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
   check". `drive job add` never refuses one for load. The `agent_brief` hook refuses one started
   with the Agent tool while this Mac's CPU is at or over its load gate's limit, the `remote` that
-  `drive place` prints, unless its brief or handoff names a step only this Mac runs: break-glass, a
-  Mac box (`ci mac-box`) or test Mac, a devbox (`ci devbox`), `ci db-read`, a `tools/ci release`
-  verb other than `release select`, which reads only its stdin and the checkout, or a Datadog read,
+  `drive place` prints, unless its brief or handoff names a step only this Mac runs: break-glass,
+  `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, a devbox
+  (`ci devbox`), `ci db-read`, a `tools/ci release` verb other than `release select`, which reads
+  only its stdin and the checkout, or a Datadog read. A Sprite's drive refuses `drive install` and
+  cannot reach the dashboard; a path such as `lib/drive install`, or a line about `drive install`'s own
+  code, names no step. Each is
   matched by `place.mac_step` over the brief's step fields only, `Goal:`, `Done when:`, `Where:`,
   `Runs as:`, `Release:`, `Handoff:` with its `PROVE:` and `INSTALL:` lines, `Plan:` and
   `Interactions:`, never his `Order` words (an alert he shared from Datadog, or a break-glass job
@@ -259,7 +262,11 @@ resume that arrives while a worker starts reaches that worker as a message. Each
 before it sends or starts.
 
 - A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
-  message; one whose worker takes messages is refused, naming the resume that sends it one.
+  message; one whose worker takes messages is refused, naming the resume that sends it one. With
+  `--local`, a job on a Sprite moves here: what its Sprite holds on no remote is saved to GitHub,
+  its next worker starts in a fresh worktree on this Mac whether the last one finished or died, and
+  the Sprite is destroyed once it holds nothing on no remote. A failed save moves nothing and
+  records nothing.
 - An agent on this Mac that ended with its session, which no role holds any more, or whose last
   response ended on an API error or a refusal, with its transcript quiet two minutes, takes no
   `SendMessage`: either verb hands its job to a lane on a Sprite, or on
