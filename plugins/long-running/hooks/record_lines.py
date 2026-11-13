@@ -40,7 +40,7 @@ def unchecked(record: dict, drives: list[dict]) -> str | None:
         f"{key} at {pr['head'][:7]} (order {pr['order']}, held by the {state.title(data['orders'][pr['order']]['owner'] or 'coordinator')})"
         for data in drives
         for key in state.named_prs(data, "", naming(record))
-        if state.asks_tap(pr := data["prs"][key]) and not state.checked(data, pr)
+        if state.asks_tap(pr := data["prs"][key]) and not state.has_verdict(data, pr)
     ]
     if not found:
         return None

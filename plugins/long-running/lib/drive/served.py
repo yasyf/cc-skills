@@ -86,13 +86,13 @@ def check(name: str, key: str, cited: list[str]) -> None:
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
     if found := judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}):
-        raise Against([key], "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found))
+        raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found))
     with state.edit(name) as data:
         data["prs"][key]["checked"] = {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a pass with no coordinator turn, his Approve lands the head that passed, and a refusal goes to its builder and sends his Approve of that head back to him; then redraw his open card in place, so it drops the check it waited on, or offers no Approve and says why. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, the one place a PR is judged, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a verdict with no coordinator turn, and a refusal goes to the session holding its order and is a line on his card, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
     head, at, named = pr["head"], state.stamp(), ""
@@ -109,7 +109,6 @@ def verdict(name: str, key: str) -> str:
     with state.edit(name) as data:
         pr = data["prs"][key]
         pr["checker"] = {"head": head, "pid": os.getpid(), "at": at, "outcome": outcome, "against": named}
-        state.send_back(pr)
         if not outcome.startswith(FAILED):
             repo, number = key.split("#")
             state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))

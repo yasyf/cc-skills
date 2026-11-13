@@ -19,7 +19,6 @@ SAID_LINES = 4
 QUEUED = "queued for merge"
 BASE_MOVED = "Base branch was modified"
 NOT_MERGING = "not merging it"
-WAITS_CHECK = "waits on its check against his words"
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
 NO_WORKTREE = "not landed: no fresh worktree"
 LANDS_ON = ("approved", "stale")
@@ -130,7 +129,7 @@ def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[s
 
 
 def unready(data: dict, key: str, cards: dict) -> str | None:
-    """Why a lander does not queue the PR now, the first condition it fails, or None when it lands: his Approve or an exempt class clears it, it is green and approved, or approved only on an older head, whose review `drive pr land` asks for, nothing holds it, its change at its head is checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, it is no draft, has no conflict with its base and no card of his open on its work, one it or its job waits on or a question naming a change its job builds, and no lander runs on it. A job still running on it does not hold it, since his Approve lands it at once."""
+    """Why a lander does not queue the PR now, the first condition it fails, or None when it lands: his Approve or an exempt class clears it, it is green and approved, or approved only on an older head, whose review `drive pr land` asks for, nothing holds it, whatever the check of its change against his words says, which his card and its owner read as a line, it is no draft, has no conflict with its base and no card of his open on its work, one it or its job waits on or a question naming a change its job builds, and no lander runs on it. A job still running on it does not hold it, since his Approve lands it at once."""
     pr = data["prs"][key]
     if not state.cleared(pr):
         return "neither his Approve nor an exempt class clears it"
@@ -142,8 +141,6 @@ def unready(data: dict, key: str, cards: dict) -> str | None:
         return "his Hold or its hold label holds it"
     if waiting := view.holding(data, pr["waits"], cards):
         return f"it waits on {', '.join(waiting)}"
-    if not (pr.get("exempt") or state.checked(data, pr)):
-        return "its change at its head is not checked against his words"
     if pr["draft"]:
         return "it is a draft"
     if pr["conflict"]:
@@ -186,14 +183,6 @@ def uncleared_below(data: dict, keys: list[str]) -> list[str]:
     """The open PRs stack-enqueue would queue with keys, below one of them in its native GitHub stack or under one through its base, that neither his Approve nor an exempt class clears."""
     under = dict.fromkeys(key for target in keys for key in github.below(target) if key not in keys)
     return [key for key in under if not (key in data["prs"] and state.cleared(data["prs"][key]))]
-
-
-def unjudged(data: dict, keys: list[str]) -> list[str]:
-    """The PRs his Approve lands among keys whose head on GitHub now, read just before queueing since stack-enqueue queues whatever head each holds, is not the one checked against his words, each with that head."""
-    tapped = [key for key in keys if not data["prs"][key].get("exempt")]
-    if not tapped:
-        return []
-    return [f"{key} at {head[:12]}" for key, head in github.heads(tapped).items() if head != data["prs"][key]["checked"]["head"]]
 
 
 def held_below(keys: list[str], below: list[str]) -> str:
@@ -291,14 +280,12 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. His Approve lands only a change checked against his words at its head, so a PR his Approve clears is refused while its head is unchecked, and not queued while GitHub holds another head, which the watch's check judges; nor is a unit with a PR below it that nothing clears, since stack-enqueue would queue that PR too, nor one with a PR its changes put outside its exempt class. A dry run runs stack-enqueue --check as the landing would, says what it would do, and queues and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, never one someone else opened that no order of his it serves names, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not queued, since stack-enqueue would queue that PR too, nor one with a PR its changes put outside its exempt class. A dry run runs stack-enqueue --check as the landing would, says what it would do, and queues and records nothing."""
     data = state.load(name)
     if refused := [key for key in keys if not (state.merges_untapped(key) or state.queued_by_lander(key) and state.cleared(data["prs"][key]))]:
         raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a Forge-AI/monorepo PR he approved or an exempt class lands, and no other")
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
-    if unchecked := [key for key in keys if state.queued_by_lander(key) and not data["prs"][key].get("exempt") and not state.checked(data, data["prs"][key])]:
-        raise state.DriveError(f"{', '.join(unchecked)}: its change at its head is not checked against his words, and his Approve lands only a change that passed that check; the watch's check judges it")
     below: list[str] = []
     if state.merges_untapped(keys[0]):
         outcome = "would merge it with gh pr merge --squash --admin, then install each plugin it changes" if dry_run else merged(name, keys[0])
@@ -306,14 +293,11 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         try:
             below = uncleared_below(data, keys)
             misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
-            moved = unjudged(data, keys)
         except (github.GithubError, state.DriveError) as error:
             outcome = f"not landed: {cut(str(error), SAID_CHARS)}"
         else:
             if misfiled:
                 outcome = f"not landed: {misfiled}"
-            elif moved:
-                outcome = f"{WAITS_CHECK}: GitHub holds {', '.join(moved)}, a head that check has not passed, so his Approve lands it once the watch's check passes there"
             elif below:
                 outcome = held_below(keys, below)
             else:

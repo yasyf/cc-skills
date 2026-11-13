@@ -282,19 +282,16 @@ reviewer bot, on its head or an older one, and free of conflicts, and the watch 
 one GitHub read, 60 seconds, of the PR getting there. It
 walks each stack his Approve touches bottom first, a native GitHub stack or PRs each on the one
 below's head branch, and lands its ready bottom. That bottom ends below the first PR that cannot
-land now, such as one red, held, unchecked, in conflict or still waiting on his Approve. The PRs
+land now, such as one red, held, in conflict or still waiting on his Approve. The PRs
 above it wait. Each other PR of his card lands in a call of its own, since `stack-enqueue`
 refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. A PR he
 approved that no lander holds for 10 minutes is a `TAP Approve <pr> not landed …` line naming the
 first condition that holds it, said again only when that condition changes.
-His Approve lands only a change checked against his words at its head, whatever head he
-tapped it on: a head that moved under his card keeps Approve showing, the card saying it lands once
-that commit passes the check, the watch's `drive pr check` judges it, and the lander starts once it
-passes and reads GitHub's head again before it queues, saying `PR … waits on its check against his words`
-and waking no one when GitHub holds a head the check has not passed. A `NOT READY` at the PR's head
-sends his Approve back: the tap is cleared, a card of his he has not answered redraws with no Approve
-saying why, and the card that asks his Approve again, which replaces one he answered, says why under
-"Changed since your answer", by his words "Keep Approve showing: keeps Approve on a commit nobody judged; your tap lands after the judge passes, and a failed judge sends it back". Each head gets one try, but a try that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that head did is said once. Its outcome comes back as the PR's line: `PR … queued for merge`
+His Approve lands the PR whatever the check of its change against his words says, whatever head he
+tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
+lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
+card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
+line goes to the session holding its order, which has its builder change it. Each head gets one try, but a try that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its checkout fetched, says nothing of the PR, so the lander tries again at the watch's next pass with no new tap, and a try that comes to what the one before it on that head did is said once. Its outcome comes back as the PR's line: `PR … queued for merge`
 wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
 holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
 His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. A PR of
