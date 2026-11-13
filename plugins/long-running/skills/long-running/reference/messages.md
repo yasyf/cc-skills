@@ -424,7 +424,8 @@ When it is answered, replaced or redone:
   PRs below the lowest reworked one go up on a card of their own, so a PR his answer leaves standing
   asks his tap at once, and his Approve on it never reaches a PR above it. No
   redraw or new head brings the reworked PR back; a fresh card goes up on its own, with a row saying
-  what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met. A
+  what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met, and that
+  `READY` drops any tap he gave before the rework, so the fresh card asks his Approve again. A
   question or any other words of his under it leave it up. His words: "So why isn't this card withdrawn then? And why do I have to keep asking that?"
 - Its words come from each PR's title and body, with record ids and the HTML tags GitHub draws
   dropped, so text such as `agent::of("<id>")` reaches the card whole; fix a bad card in the PR

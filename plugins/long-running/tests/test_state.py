@@ -628,7 +628,7 @@ def test_a_waiting_line_puts_each_card_it_names_on_each_pr_of_its_order_it_names
     assert data["prs"]["yasyf/cc-skills#4289"]["waits"] == []
 
 
-def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_how_they_are_met() -> None:
+def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_how_they_are_met_which_drops_his_approve_so_a_fresh_card_asks_it() -> None:
     data = kept_prs()
     data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
     pr = data["prs"][f"{MONOREPO}#4289"]
@@ -636,8 +636,18 @@ def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_h
     state.rework(pr, "o227", "Topology should be local metadata")
     assert (bool(pr["rework"]), state.asks_tap(pr), pr["tap"]["label"]) == (True, False, "Approve")
     state.take_result(data, "j9", "READY #4289", "READY #4289\nPR: #4289\nCHANGE: topology moves to the session's meta table")
-    assert (stage.carded(pr), pr["rework"]) == (True, None)
+    assert (stage.carded(pr), pr["rework"], pr["tap"], state.asks_tap(pr)) == (True, None, None, True)
     assert pr["fundamental"] == 'Reworked to your words "Topology should be local metadata": topology moves to the session\'s meta table'
+
+
+def test_load_drops_a_tap_standing_beside_a_fundamental_change_so_his_fresh_card_asks_it_and_keeps_every_other_tap(state_root: Path) -> None:
+    data = kept_prs()
+    for number in (4289, 4279):
+        data["prs"][f"{MONOREPO}#{number}"]["tap"] = state.new_tap("Approve", "abc", "slack", at=state.stamp(REFERENCE))
+    data["prs"][f"{MONOREPO}#4289"]["fundamental"] = 'Reworked to your words "Own settings key per value": one indexed row per read'
+    state.create(data)
+    kept = state.load("demo")["prs"]
+    assert (kept[f"{MONOREPO}#4289"]["tap"], kept[f"{MONOREPO}#4279"]["tap"]["label"], state.asks_tap(kept[f"{MONOREPO}#4289"])) == (None, "Approve", True)
 
 
 def test_a_readers_ready_on_a_pr_reworked_to_his_words_leaves_it_reworking() -> None:

@@ -2576,6 +2576,13 @@ def test_a_green_approved_pr_forge_pr_reviewer_approved_nothing_on_reads_red_onl
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == named
 
 
+def test_an_uncarded_pr_carrying_the_hold_label_reads_held_by_him_never_uncarded_so_the_watch_owes_no_draw_his_card_refuses(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "hold_label": True}
+    now = stage.of(state.load(demo), KEY, NO_CARDS)
+    assert (now.name, now.owner, state.asks_tap(state.load(demo)["prs"][KEY])) == ("held", stage.HIM, False)
+
+
 def test_a_builders_line_carries_the_head_github_holds_for_each_open_pr_it_names_with_its_stage_and_each_commit_it_names_that_none_is_at(demo: str) -> None:
     said = f"PUSHED {state.pr_url(KEY)} at bbbbbbb"
     assert stage.heads(state.load(demo), said, "o1", NO_CARDS) == (
