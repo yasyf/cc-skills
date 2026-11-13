@@ -2977,6 +2977,8 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
         ("store_copy_at copies one store, extended by change 1", 'its Exists: entry "store_copy_at copies one store, extended by change 1" does not cite'),
         ("supervisor/copies.rs:40 store_copy_at, extended by change 2", 'its Exists: entry "supervisor/copies.rs:40 store_copy_at, extended by change 2" does not cite'),
         ("supervisor/copies.rs:40 store_copy_at, extended by change 1; lib/drive/state.py:18 the store list, reused by change 1", None),
+        ("lib/sprite/drive:17-41 the Sprite's drive script, extended by change 1; bin/drive:5 the drive wrapper, reused by change 1", None),
+        ("cci:683904 the defect, extended by change 1", 'its Exists: entry "cci:683904 the defect, extended by change 1" does not cite'),
     ],
 )
 def test_a_design_names_what_already_does_what_it_touches_and_the_change_that_owns_it_before_adding_anything(
