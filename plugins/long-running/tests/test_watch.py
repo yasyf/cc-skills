@@ -1570,7 +1570,7 @@ def test_a_part_of_an_order_of_no_kind_only_research_ever_held_is_his_question_i
         if built:
             data["jobs"][jobs[-1]] = job(order="o2", state="done", parts=[other], updated=earlier)
     drawn = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN o2 ")]
-    assert [line.startswith(f'ORPHAN o2 "{part}": {said}') for line in drawn] == ([True] if said else [])
+    assert [line.startswith(f'ORPHAN o2 "{render.cut(part, 80)}": {said}') for line in drawn] == ([True] if said else [])
 
 
 @pytest.mark.parametrize("ended", ["failed", "done"])
