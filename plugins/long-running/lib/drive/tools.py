@@ -137,8 +137,10 @@ RECORD = {
             "description": (
                 "the lane it goes to in place of the default, the coordinator's from the communicator and the communicator's"
                 " from any other session; a defect goes to the meta session, the communicator's owner record about the drive"
-                " to the meta session alone, and its other owner, answer or handoff record to the session holding the order its"
-                " attrs.order names, else the order of the job it answers, else its thread's newest order, whatever lane this names"
+                " to the meta session alone, its answer or handoff record naming no job to the coordinator that wrote the record"
+                " its re answers, and its other owner, answer or handoff record, and any other session's handoff, to the session"
+                " holding the order its attrs.order names, else the order of the job it answers, else its thread's newest order,"
+                " whatever lane this names"
             ),
         },
         "attrs": {
@@ -199,7 +201,8 @@ def verb_tools() -> list[dict]:
                 "Send his words (owner), his answer to a card (answer), a step the session holding an order owes on it"
                 " (handoff) or a tool's refusal (defect) to another session of the drive in one call, as this session's role,"
                 " a handler's included: a defect reaches the meta session, the communicator's handoff naming no job the"
-                " coordinator that wrote the record its re answers, else the session holding the order its attrs.order names,"
+                " coordinator that wrote the record its re answers, else, as any other session's handoff, the session holding the"
+                " order its attrs.order names,"
                 " and an owner record names about, refused without it: the drive's owner record"
                 " about the drive, a ruling on how it works included, reaches the meta session alone holding its order, which"
                 " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
@@ -814,7 +817,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record, and any other session's handoff, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")

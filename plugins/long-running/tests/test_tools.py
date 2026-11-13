@@ -853,6 +853,24 @@ def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_ans
     ]
 
 
+def test_the_meta_sessions_handoff_goes_to_the_session_holding_the_order_it_serves_whatever_lane_it_names(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "which alert fired?")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", demo, "--role", "meta")
+    with state.edit(demo) as data:
+        data["orders"]["o3"]["owner"] = "communicator"
+    records = [{"kind": "handoff", "text": "start its builder", "to": "communicator", "attrs": {"order": order}} for order in ("o1", "o2", "o3", "o4")]
+    said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
+    assert [json.loads(line.split(": ", 1)[1])["to"] for line in said] == [["iris@demo"], ["root@demo"], ["communicator@demo"], ["communicator@demo"]]
+
+
 def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_hearing_its_order_whichever_session_started_its_agent(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

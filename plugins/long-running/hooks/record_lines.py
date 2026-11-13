@@ -67,7 +67,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
-    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote the record it answers, and its other owner, answer, handoff or refused record to the session holding the order it serves."""
+    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote the record it answers, and its other owner, answer, handoff or refused record, and any other session's handoff, to the session holding the order it serves."""
     entries = listed(record.get("to"))
     to = state.routed(drives, session, kind(record), attrs(record), entries, listed(record.get("re")))
     return record if to == entries else record | {"to": to}

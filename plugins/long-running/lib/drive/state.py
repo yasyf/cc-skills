@@ -687,6 +687,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("checker", None)
         if pr["checker"]:
             pr["checker"].setdefault("against", "")
+            pr["checker"].setdefault("objected", None)
         pr.setdefault("ejected", False)
         pr.setdefault("flaky", None)
         pr.setdefault("review_asked", None)
@@ -1922,7 +1923,7 @@ def named_job(data: dict, attrs: dict) -> str | None:
 
 
 def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str], answered: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers."""
+    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers; any other handoff, whatever lane it names, to the session holding the order it serves unless that session wrote it."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
@@ -1937,6 +1938,8 @@ def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict,
             lane = "meta"
         elif communicates and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs, answered)):
             lane = serving
+        elif kind == "handoff" and (order_id := served_order(data, attrs)) and (held := holding_lane(data, data["orders"][order_id])) != session_lane(data, session):
+            lane = held
         made.append(f"{lane}@{name}")
     return list(dict.fromkeys(made))
 

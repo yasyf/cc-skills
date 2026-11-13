@@ -3478,6 +3478,37 @@ def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_run
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], draws.keys) == ("bbbbbbb222", [[KEY]])
 
 
+def test_a_not_ready_a_return_of_its_builder_judges_again_at_the_same_head_wakes_it_once_and_its_card_shows_the_newest_objection(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, draws: Draws, woken: list[tuple[str, str]]
+) -> None:
+    reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
+    serve(monkeypatch, reads)
+    monkeypatch.setattr(state, "now", lambda: T0)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", returned=state.stamp(T0))
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None}
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py stops the watch"}]
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["returned"] = state.stamp(T0 + timedelta(minutes=2))
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=2))
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py ends the watch it should keep"}]
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    watch.run_pass(watching, T0 + timedelta(minutes=3))
+    refused = [text for _, text in woken if f"PR {KEY}: NOT READY: " in text]
+    assert (checkers, len(refused), "watch.py stops the watch" in refused[0]) == ([KEY, KEY], 1, True)
+    assert state.against(state.load(demo)["prs"][KEY]) == 'o1 "ship the watch": watch.py ends the watch it should keep'
+    reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
+    watch.run_pass(watching, T0 + timedelta(minutes=4))
+    assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
+    watch.run_pass(watching, T0 + timedelta(minutes=5))
+    assert (checkers, len([text for _, text in woken if f"PR {KEY}: NOT READY: " in text])) == ([KEY] * 3, 2)
+
+
 def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_with_merged_ones_marked_so_a_part_a_merged_pr_delivers_gets_no_not_ready(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

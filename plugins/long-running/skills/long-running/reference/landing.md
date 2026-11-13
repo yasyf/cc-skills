@@ -333,7 +333,7 @@ only by his Hold, and it lands the PR at its first green head whatever the check
 against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
-line goes to the builder answering for the PR through `drive pr wake` only until he approves it: on a
+line goes to the builder answering for the PR through `drive pr wake`, once a head, only until he approves it: on a
 PR he approved it wakes nobody, so no builder changes what he approved. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
 the PR: one that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its
