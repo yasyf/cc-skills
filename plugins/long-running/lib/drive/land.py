@@ -376,7 +376,7 @@ def merged(name: str, key: str, flags: list[str]) -> str:
         return f"not landed: {' '.join([*MERGE, *flags])} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
     try:
         sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
-        files = github.run(["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
+        files = github.files(key)
     except github.GithubError as error:
         return f"merged, but its merge commit did not read, so nothing was installed: {cut(str(error), SAID_CHARS)}"
     with state.edit(name) as data:

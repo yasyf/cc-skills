@@ -45,6 +45,11 @@ UNLISTED = {"-h", "--help", "--drive", "--json"}
 FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
 PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+FAKE_SELECT = """#!/bin/sh
+[ "$1 $2 $3" = "release select --pr" ] || exit 64
+cat >"{request}"
+cat "{answer}"
+"""
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
 HOLDS = "Holds: none: no option changes code any job builds\n"
@@ -699,6 +704,44 @@ def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: s
     assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")[0] == 0
     assert run("job", "set", "j1", "--waits", wait)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["waits"] == [wait]
+
+
+def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming_the_components_go_ci_finds_they_reach(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")
+    clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
+    for root in (clone, checkout):
+        (root / "tools").mkdir(parents=True)
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"]["cwd"] = str(clone)
+    (clone / "tools" / "ci").write_text("")
+    request, answer = tmp_path / "request.json", tmp_path / "answer.json"
+    (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    (checkout / "tools" / "ci").chmod(0o755)
+    answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"]}))
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
+    monkeypatch.setattr(orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"] if key == "Forge-AI/monorepo#7" else pytest.fail(key))
+    assert cli.main(["job", "set", "j1", "--waits", "release:executor:Forge-AI/monorepo#7"]) == 2
+    reach = "`tools/ci release select --pr` lists the paths Forge-AI/monorepo#7 changes reaching cloudrunner-next, sand-next"
+    assert (
+        f"--waits release:executor:Forge-AI/monorepo#7: executor's release never carries Forge-AI/monorepo#7, since {reach}; wait on the"
+        " release of the one that runs the change"
+    ) in capsys.readouterr().err
+    assert json.loads(request.read_text()) == {"body": "", "paths": ["go/sand/next/cmd/main.go"]}
+    assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/7", "--waits", "release:runner-worker:Forge-AI/monorepo#7"]) == 2
+    said = "release:runner-worker:Forge-AI/monorepo#7: runner-worker is no component go/ci releases, so no release ever carries Forge-AI/monorepo#7"
+    assert f"--waits {said}; {reach}" in capsys.readouterr().err
+    code, err = keep(monkeypatch, capsys, "j1", "WAITING release:executor:Forge-AI/monorepo#7 rides the next executor release\n")
+    assert (code, "j1: refused, nothing kept: release:executor:Forge-AI/monorepo#7: executor's release never carries" in err) == (2, True)
+    assert state.load("demo")["jobs"]["j1"]["waits"] == []
+    assert run("job", "set", "j1", "--waits", "release:cloudrunner-next:Forge-AI/monorepo#7")[0] == 0
+    answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": []}))
+    assert keep(monkeypatch, capsys, "j1", "WAITING release:k8s:Forge-AI/monorepo#7 rides the next k8s release\n") == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["waits"] == ["release:cloudrunner-next:Forge-AI/monorepo#7", "release:k8s:Forge-AI/monorepo#7"]
 
 
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
