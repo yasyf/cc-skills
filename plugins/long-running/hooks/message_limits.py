@@ -264,7 +264,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
         return [f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."]
-    if any(ALERT_LINK.match(finding) for finding in findings) and incident(tool_input, drive, report, order_id):
+    if any(ALERT_LINK.match(finding) for finding in findings) and outage(tool_input, drive, report, order_id):
         findings = [finding for finding in findings if not ALERT_LINK.match(finding)]
     if not findings:
         return []
@@ -660,17 +660,17 @@ def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | N
     return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and where in (state.own_thread(order), state.promise_thread(order))), None)
 
 
-def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) -> bool:
-    """Whether a post reports on an incident, as the record it posts or the order it goes to marks it, never as its words read."""
-    return report.get("incident") == "true" or bool((posted := posted_order(drive, tool_input, order_id)) and drive["orders"][posted]["incident"])
+def outage(tool_input: dict, drive: dict, report: dict, order_id: str | None) -> bool:
+    """Whether a post reports on an outage he hears at once, never as its words read: an incident, as the order it goes to marks it, or a customer team's outage the drive did not cause, as its report's customer_outage mark says."""
+    return report.get("customer_outage") == "true" or bool((posted := posted_order(drive, tool_input, order_id)) and drive["orders"][posted]["incident"])
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident and customer outage lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
-    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
+    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or outage(tool_input, drive, report, order_id):
         return None
     seq = report.get("seq")
     posted = posted_order(drive, tool_input, order_id)

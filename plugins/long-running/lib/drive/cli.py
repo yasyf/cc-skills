@@ -61,7 +61,7 @@ STDIN: list[str] = []
 ANSWER_FIRST = (
     "his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one `report`"
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`, with"
-    ' `"incident": "true"` added when it says a customer team\'s production runs are failing or stopped, so it posts while he is'
+    ' `"customer_outage": "true"` added when it says a customer team\'s production runs are failing or stopped, so it posts while he is'
     " away too; then keep your full report and return as usual"
 )
 PROMISED_TIME = re.compile(

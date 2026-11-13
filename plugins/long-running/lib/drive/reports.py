@@ -26,6 +26,13 @@ UNPOSTED_PART = (
     'refused: {work}; drop "{order}:{part}" from the part attr, adding `--attr progress=true` when the post delivers nothing else,'
     " or close {order} with `--attr close={order}` once its work is done"
 )
+PLAIN_INCIDENT = (
+    "refused: this report is marked incident=true, and {why}; the drive tells an incident's line from routine news only by its"
+    " order's incident flag, so every check, his away hold included, would treat this line as routine. Open the outage with"
+    " `drive incident open`, or mark its order with `drive order set <o> --incident`, and send the report again naming that"
+    " order; a customer team's outage the drive did not cause is no incident and carries `--attr customer_outage=true` instead,"
+    " which posts it while he is away; drop the mark when the line is neither"
+)
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 SECOND_REPORT = (
@@ -96,6 +103,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield dm_url(drive, record)
     yield next((agents.Unjudged(refused) for order_id in state.closed_orders(attrs(record)) if (refused := state.second_close(drive, order_id, attrs(record)))), None)
     yield misnamed_part(drive, record)
+    yield plain_incident(drive, record)
     yield unfinished(drive, record) if posting else None
     yield not_thread(record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
@@ -172,6 +180,17 @@ def unfinished(drive: dict, record: dict) -> str | None:
         if left and set(left) <= {part for each, part in items if each == on}:
             return LAST_PART.format(parts=", ".join(f'"{part}"' for part in left), noun="part" if len(left) == 1 else "parts", order=on)
     return None
+
+
+def plain_incident(drive: dict, record: dict) -> str | None:
+    """Why a report marked incident=true goes nowhere: none of the orders it names is an open incident, and only an order's incident flag makes a line an incident's to the drive's checks."""
+    if attrs(record).get("incident") != "true":
+        return None
+    orders = state.report_orders(drive, attrs(record))
+    if state.open_incidents(drive, orders):
+        return None
+    why = f"{', '.join(orders)} {'is no open incident' if len(orders) == 1 else 'are no open incidents'}" if orders else "it names no order"
+    return agents.Unjudged(PLAIN_INCIDENT.format(why=why))
 
 
 def not_thread(record: dict) -> str | None:

@@ -413,6 +413,22 @@ def test_a_report_on_an_open_incident_goes_however_many_its_thread_already_had_t
     assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, **second)))
 
 
+def test_a_report_marked_incident_goes_only_on_an_open_incident_order_since_every_check_reads_the_orders_flag(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "the follow-up of the SandSQL outage", "--parts", "fix", "first check")
+    outage = {"kind": "report", "text": "POST SandSQL is down again on production", "to": TO}
+    reason = refusal(record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", "incident": "true", **PROGRESS})))
+    assert reason.startswith("refused: this report is marked incident=true, and o1 is no open incident;") and "`drive incident open`" in reason
+    assert "and it names no order;" in refusal(record_lines.decision(coordinator(turn, **outage, attrs={"incident": "true", **PROGRESS})))
+    assert "`--attr customer_outage=true`" in reason
+    assert record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", **PROGRESS})) is None
+    assert record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", "customer_outage": "true", **PROGRESS})) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+    assert record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", "incident": "true", **PROGRESS})) is None
+
+
 def said(count: int) -> str:
     return " ".join(["word"] * count)
 

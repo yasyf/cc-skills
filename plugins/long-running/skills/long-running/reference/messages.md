@@ -544,8 +544,8 @@ restating it.
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
   neither written nor tapped a card for an hour, since each tap on a card records him heard as a
   message does. While he is away only cards, the watch's one reply under a card holding built work,
-  an incident's or a customer outage's line [incidents.md](incidents.md) calls for, marked
-  `incident=true` or on an incident order, and an answer passing `asked` post; a hook
+  an incident's or a customer outage's line [incidents.md](incidents.md) calls for, on an incident order
+  or marked `customer_outage=true`, and an answer passing `asked` post; a hook
   refuses any other handler line. Summaries, due-time lines and job results wait.
   A report whose line the hook holds is marked held on the drive, `drive status` lists it under
   `Held for his catch-up`, and a `refused` record carrying `held=<seq>` tells the coordinator
