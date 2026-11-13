@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, TextIO
 
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
-from drive.render import cut
+from drive.render import cut, when
 
 if TYPE_CHECKING:
     from drive.stage import Stage
 
-FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
+FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
 KEPT_READS = "pr-reads"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
@@ -231,16 +231,10 @@ def tap_label(entry: dict) -> str | None:
     return (entry.get("tap") or {}).get("label")
 
 
-def hold_labeled(pr: dict) -> bool:
-    return github.HOLD_LABEL in [label["name"] for label in pr["labels"]]
-
-
 def tap_refused(pr: dict, entry: dict) -> str | None:
     """Why his card on the PR offers no Approve, by GitHub's read of it now and by state.asks_tap; None when it does."""
     if pr["state"] != "OPEN":
         return f"GitHub reads it {pr['state'].lower()}"
-    if hold_labeled(pr):
-        return "it carries the hold label"
     return state.tap_refused(entry)
 
 
@@ -254,8 +248,8 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Closed without merging"
         case _, "held" if tap_label(entry) == "Hold":
             return "Held by you"
-        case _, "held" if entry["hold_label"]:
-            return "Held by the drive with the hold label on GitHub"
+        case _, "stray":
+            return "Carries GitHub's hold label, which no Hold of yours put on; the agent holding its order takes it off or names what it waits on"
         case _, "red" if entry["checks"] == "fail":
             return "CI failed; the agent is fixing it" + (f", then it lands once {in_turn(list(held))}" if held else "")
         case _, "blocked" if entry["checks"] == "fail" and held:
@@ -341,7 +335,9 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     else:
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
     if not row["lands"]:
-        row["blocks"] = ("Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else "") + waits_on(pr, entry, held)
+        approved = "Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else ""
+        unlabeled = f"Its hold label, which no Hold of yours put on, came off at {when(entry['unlabeled'])}. " if approved and entry["unlabeled"] else ""
+        row["blocks"] = approved + unlabeled + waits_on(pr, entry, held)
     if shown:
         card["pictures"] = list(shown)
     return card
@@ -440,7 +436,6 @@ def watched(entry: dict) -> dict | None:
         "headRefName": "",
         "baseRefName": "",
         "reviewDecision": REVIEW_DECISIONS[entry["review"]],
-        "labels": [{"name": github.HOLD_LABEL}] if entry["hold_label"] else [],
         "url": entry["url"],
         "comments": [],
     }

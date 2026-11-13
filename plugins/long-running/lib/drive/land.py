@@ -288,7 +288,7 @@ def follow(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped. With his cards unread, none."""
+    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped. With his cards unread, none."""
     if cards is None or not held_landers(state.load(name), keys, cards):
         return []
     with state.edit(name) as data:

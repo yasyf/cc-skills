@@ -35,6 +35,9 @@ REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
 MERGE_ENDPOINT = re.compile(r"/?repos/([^/\s]+/[^/\s]+)/pulls/(\d+)/merge(?:-async)?")
+ISSUE_ENDPOINT = re.compile(r"/?repos/[^/\s]+/[^/\s]+/(?:issues|pulls)/\d+(?:/labels)?")
+LABEL_FIELDS = {"labels", "labels[]"}
+WRITES = {"POST", "PUT", "PATCH"}
 INCIDENT_FIX = "incident fix"
 QUEUE_REASON = (
     "Refused on purpose: {key} lands only through the Trunk merge queue, since every other way into Forge-AI/monorepo"
@@ -58,6 +61,12 @@ COORDINATOR_STEP = (
     "Refused on purpose: the {who} does no order's work itself, so its turn never blocks, and `{step}` is such"
     ' work. Start a job with this step (`drive job add <kind> --order <o> --goal "<the step>"`), or hand it to the job'
     " that owns it with `drive job resume <j> -`"
+)
+HOLD_LABEL_REASON = (
+    "Refused on purpose: only his Hold holds a PR, and GitHub's hold label is no Hold of his, so no drive session or lane"
+    " puts it on, and the watch takes it off a PR he approved. To keep a PR from landing until another PR or a release is"
+    " live, name it on your `WAITING` line, or have the session holding its order record it with"
+    " `drive pr set <url> --waits <owner>/<repo>#<n>|release:<service>:<owner>/<repo>#<n>`"
 )
 EXPOSED = "Refused on purpose, before it goes up: {exposed}. Fix the body, then run this again"
 UNWRITTEN = (
@@ -171,6 +180,13 @@ BODY_POSTS = (
         ("ccx", "vcs", "ship"),
         frozenset({"m", "branch", "bookmark", "budget", "only-hunk", "parent", "pr-body-file", "pr-title", "skip-hunk"}),
     ),
+)
+
+LABEL_WRITES = (
+    LANDINGS[1],
+    replace(LANDINGS[1], path=("gh", "issue", "edit")),
+    BODY_POSTS[0],
+    LANDINGS[3],
 )
 
 CCI_POST = Landing(
@@ -304,9 +320,27 @@ def lands(landing: Landing, options: dict[str, list[str]]) -> bool:
     if any(switched_on(options, name) for name in landing.reads):
         return False
     if landing.labels:
-        labels = ",".join(options.get("add-label", [])).split(",")
-        return bool(landing.labels & {label.strip() for label in labels})
+        return bool(landing.labels & added_labels(landing, [], options))
     return True
+
+
+def added_labels(landing: Landing, refs: list[str], options: dict[str, list[str]]) -> set[str]:
+    """Each label a command puts on a PR or issue: gh pr or issue edit's --add-label, gh pr create's --label, or the labels fields of a gh api call writing an issue's or PR's labels or the issue itself."""
+    if landing.endpoint:
+        if not ISSUE_ENDPOINT.fullmatch(next(iter(refs), "")) or options.get("method", ["POST"])[-1].upper() not in WRITES:
+            return set()
+        fields = (field.partition("=") for field in options.get("field", []) + options.get("raw-field", []))
+        values = [value for key, _, value in fields if key in LABEL_FIELDS]
+    else:
+        values = options.get("add-label", []) + options.get("label", [])
+    return {label.strip() for value in values for label in value.split(",")}
+
+
+def hold_reason(words: list[str], shell: Shell) -> str | None:
+    """Why a drive session, an agent it started or a Sprite lane may not run this command, read from its words alone so no drive is read on any machine: it puts GitHub's hold label on a PR, which only his Hold, recorded in the drive, stands for."""
+    if not (shell.driving or os.environ.get(state.REMOTE_LANE_ENV)) or not (found := landing_of(words, LABEL_WRITES)):
+        return None
+    return HOLD_LABEL_REASON if github.HOLD_LABEL in added_labels(*found) else None
 
 
 def selected_repo(landing: Landing, options: dict[str, list[str]], shell: Shell) -> str | None:
@@ -524,7 +558,10 @@ def loop_end(groups: list[list[str]], start: int) -> int:
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in) for _, words, run_in in commands(script, shell))
+    reasons = (
+        hold_reason(words, run_in) or (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in))
+        for _, words, run_in in commands(script, shell)
+    )
     return next(filter(None, reasons), None)
 
 
@@ -677,7 +714,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one other than its brief's Release line names, --order included, or before a plan at its flags outside an incident, or in a drive session's own call starts one on `--order` naming an answer of his that is no incident's and that Jev does not read as his order or pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: in a drive session, an agent it started or a Sprite lane puts GitHub's hold label on a PR, it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one other than its brief's Release line names, --order included, or before a plan at its flags outside an incident, or in a drive session's own call starts one on `--order` naming an answer of his that is no incident's and that Jev does not read as his order or pick to release, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

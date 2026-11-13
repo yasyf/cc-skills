@@ -14,11 +14,15 @@ GRADERS = "Buildkite and forge-pr-reviewer"
 WAITED = "what it waits on"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
+STRAY_LABEL = (
+    "it carries GitHub's hold label, which no Hold of his put on and which stack-enqueue refuses: take it off with"
+    " gh pr edit --remove-label hold, or record what it waits on with drive pr set --waits"
+)
 LIVE = ("running", "waiting")
 WAKES_LOG = "wakes.log"
 NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 ASKS_HIM = ("held", "card")
-OWN_STEP = ("uncarded", "landing", "unlanded", "held", "rework", "merged", "closed")
+OWN_STEP = ("uncarded", "landing", "unlanded", "held", "stray", "rework", "merged", "closed")
 EVERY = {
     "uncarded": timedelta(0),
     "landing": timedelta(minutes=90),
@@ -68,6 +72,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)
+    if pr["hold_label"]:
+        return Stage("stray", ORDER, STRAY_LABEL)
     if pr["rework"]:
         return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
     if failing := red(key, pr):
@@ -139,11 +145,9 @@ def ejection(data: dict, pr: dict) -> str | None:
 
 
 def stopped(pr: dict) -> str:
-    """What stops the PR whatever its checks read: his Hold or the hold label, on which his card offers no Approve, so a red PR under one wakes no builder."""
+    """What stops the PR whatever its checks read: his Hold alone, on which his card offers no Approve, so a red PR under one wakes no builder; GitHub's hold label is no Hold of his and reads stray."""
     if (pr["tap"] or {}).get("label") == "Hold":
         return f"held by his Hold of {pr['tap']['at']}"
-    if pr["hold_label"]:
-        return "held by the hold label on GitHub"
     return ""
 
 
@@ -217,7 +221,7 @@ def grading(pr: dict) -> str:
 
 
 def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None) -> Stage:
-    """The PR's stage now, unless a PR under it, bottom first, holds it: one GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
+    """The PR's stage now, unless a PR under it, bottom first, holds it: one GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold, a stray hold label and a rework to his words."""
     if now.name in OWN_STEP:
         return now
     for member in land.chain(land.unders(data) if under is None else under, key)[:-1]:

@@ -69,6 +69,12 @@ def close(url: str) -> None:
     run(["gh", "pr", "close", url])
 
 
+def unhold(key: str) -> None:
+    """Take GitHub's hold label off a pull request."""
+    owner, name, number = split(key)
+    run(["gh", "api", "-X", "DELETE", f"repos/{owner}/{name}/issues/{number}/labels/{HOLD_LABEL}"])
+
+
 def files(key: str) -> list[str]:
     """The path of each file a PR changes, as GitHub lists them."""
     owner, name, number = split(key)

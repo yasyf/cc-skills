@@ -635,6 +635,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
+        pr.setdefault("unlabeled", None)
         for gone in ("ready_said", "stuck", "unchecked"):
             pr.pop(gone, None)
         pr.setdefault("stage", None)
@@ -2347,7 +2348,7 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Approve, his Hold nor the hold label on it, whatever the check against his words says. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
+    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Approve nor his Hold on it, whatever GitHub's hold label or the check against his words says. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     if exempted(pr):
@@ -2359,8 +2360,6 @@ def tap_refused(pr: dict) -> str | None:
             return "he approved it already"
         case "Hold":
             return "he held it"
-    if pr["hold_label"]:
-        return "it carries the hold label"
     return None
 
 
@@ -2401,6 +2400,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "review": "none",
         "conflict": False,
         "hold_label": False,
+        "unlabeled": None,
         "native": [],
         "reviews_required": 1,
         "base": None,

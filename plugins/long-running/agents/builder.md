@@ -175,7 +175,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    since `drive pr add`, shows the PR's stage whatever its body says, and while it is red the watch
    wakes its builder with the stage line through `drive pr wake` at once and every 30 minutes, a
    fresh builder when your lane has ended, whatever card of his it waits on, since only his Hold
-   or the hold label holds a red PR. A `WAITING` naming another job's PR or a release as your
+   holds a red PR. A `WAITING` naming another job's PR or a release as your
    last line stages it `blocked` instead: his card on the PR names and links each, and the card of
    a fix that waits on his Approve, and you are woken once one of them ends or its red changes; a port gets the coordinator's check against the old PR
    instead. A body is fixed beside

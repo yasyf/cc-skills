@@ -177,12 +177,17 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("github", None)
     if not reads:
         return lines
+    unheld, said = unhold(watcher, data, reads, moment)
+    lines += said
     foreign, redraws = {}, []
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
             was_open = pr["state"] == "open"
             changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
+            if key in unheld:
+                pr["unlabeled"] = state.stamp(moment)
+                changes.append("its hold label taken off, since no Hold of his put it on")
             pr["required"]["read"] = state.stamp(moment)
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
@@ -201,6 +206,23 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if ejected := [key for key in reads if data["prs"][key]["ejected"] and data["prs"][key]["lander"]["outcome"] == land.QUEUED]:
         lines += refused_lines(watcher, ejected, moment)
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def unhold(watcher: Watcher, data: dict, reads: dict[str, dict], moment: datetime) -> tuple[set[str], list[str]]:
+    """Take GitHub's hold label off each PR read that his Approve holds, since only his Hold holds a PR and stack-enqueue refuses a labeled one, and drop it from that PR's read so its row reads it unlabeled; the PRs it came off, and the line saying a run of failed writes."""
+    taken, lines = set(), []
+    for key, read in reads.items():
+        if github.HOLD_LABEL not in read["labels"] or (data["prs"][key]["tap"] or {}).get("label") != "Approve":
+            continue
+        try:
+            github.unhold(key)
+        except github.GithubError as error:
+            lines += failed(watcher, "hold label", f"removal of the hold label from {key}", error, moment)
+            continue
+        watcher.failures.pop("hold label", None)
+        read["labels"] = [label for label in read["labels"] if label != github.HOLD_LABEL]
+        taken.add(key)
+    return taken, lines
 
 
 def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[str]:

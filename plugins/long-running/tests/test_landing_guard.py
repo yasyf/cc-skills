@@ -173,6 +173,37 @@ def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_a
 @pytest.mark.parametrize(
     "command",
     [
+        "gh pr edit 49487 -R Forge-AI/monorepo --add-label hold",
+        "gh pr edit 49487 -R Forge-AI/monorepo --add-label ready,hold",
+        "gh issue edit 49487 -R Forge-AI/monorepo --add-label hold",
+        "gh api -X POST repos/Forge-AI/monorepo/issues/49487/labels -f labels[]=hold",
+        "gh pr create -t x -b y -l hold",
+    ],
+)
+def test_a_drive_session_or_sprite_lane_putting_the_hold_label_on_any_pr_is_refused_naming_waits_and_anyone_else_passes(
+    demo: str, no_calls: None, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    assert landing_guard.deny_reason(bash(command)) == landing_guard.HOLD_LABEL_REASON
+    assert landing_guard.deny_reason(bash(command, session_id="stranger")) is None
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    assert landing_guard.deny_reason(bash(command, session_id="sprite")) == landing_guard.HOLD_LABEL_REASON
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr edit 49487 -R Forge-AI/monorepo --remove-label hold",
+        "gh api -X DELETE repos/Forge-AI/monorepo/issues/49487/labels/hold",
+        "gh api repos/Forge-AI/monorepo/issues/49487/labels",
+    ],
+)
+def test_taking_the_hold_label_off_or_reading_labels_passes(demo: str, no_calls: None, command: str) -> None:
+    assert landing_guard.deny_reason(bash(command)) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "gh pr merge 42 -R Forge-AI/monorepo --squash",
         "gh pr edit 42 -R Forge-AI/monorepo --add-label merge-fast",
         "gh pr edit 42 -R Forge-AI/monorepo --add-label merge",

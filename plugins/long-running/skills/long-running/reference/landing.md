@@ -234,7 +234,8 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
 - the latest `ai-review` run passed. When it holds the PR, fix each blocking finding, or accept a wrong
   one with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "<why>"`. A finding on his
   design is an `ASK`;
-- nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
+- nothing holds it: no Hold tap and no conflict with `dev`. GitHub's `hold` label is no hold of his: no
+  session or lane puts it on, and the watch takes it off a PR he approved;
 - he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
   asking whether to land, is his tap too. The coordinator records it for exactly the PRs his words name
   with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because

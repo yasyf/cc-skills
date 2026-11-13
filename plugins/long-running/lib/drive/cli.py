@@ -2741,7 +2741,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tapped and not args.tap_source:
         raise DriveError(
             f"--tapped {args.tapped} needs --tap-source <the Slack permalink of his message or of the card he tapped>:"
-            " only his own words are his tap, and a PR the drive holds itself carries a hold label or --waits on what it waits for"
+            " only his own words are his tap, and a PR the drive holds itself --waits on what it waits for"
         )
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
@@ -3114,8 +3114,6 @@ def refuse_an_exempt_revert(data: dict, key: str, order_id: str, read: dict, add
 def tap_verdict(pr: dict | None) -> tuple[bool, str]:
     if pr is None:
         return True, "not a drive PR"
-    if pr["hold_label"]:
-        return False, "held by the drive with the hold label"
     if not pr["wants_tap"] and state.merges_untapped(state.pr_key(pr["url"])):
         return True, f"wants no tap: the drive lands a {state.NO_TAP_OWNER}/* PR with none"
     if state.exempted(pr):

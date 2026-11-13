@@ -2621,11 +2621,37 @@ def test_a_green_approved_pr_forge_pr_reviewer_approved_nothing_on_reads_red_onl
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == named
 
 
-def test_an_uncarded_pr_carrying_the_hold_label_reads_held_by_him_never_uncarded_so_the_watch_owes_no_draw_his_card_refuses(demo: str) -> None:
+def test_a_stray_hold_label_leaves_his_card_offering_approve_and_once_carded_reads_stray_owed_by_the_session_holding_its_order(demo: str) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "hold_label": True}
+    assert (stage.of(state.load(demo), KEY, NO_CARDS).name, state.asks_tap(state.load(demo)["prs"][KEY])) == ("uncarded", True)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["card"] = CARD
     now = stage.of(state.load(demo), KEY, NO_CARDS)
-    assert (now.name, now.owner, state.asks_tap(state.load(demo)["prs"][KEY])) == ("held", stage.HIM, False)
+    assert (now.name, now.owner, now.why) == ("stray", stage.ORDER, stage.STRAY_LABEL)
+
+
+def test_the_watch_takes_the_hold_label_off_a_pr_he_approved_and_says_so_on_its_row(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    approve(demo, KEY)
+    serve(monkeypatch, {KEY: read(labels=[github.HOLD_LABEL])})
+    taken: list[str] = []
+    monkeypatch.setattr(github, "unhold", taken.append)
+    lines = watch.run_pass(watcher(demo), T0)
+    pr = state.load(demo)["prs"][KEY]
+    assert (taken, pr["hold_label"], pr["unlabeled"]) == ([KEY], False, state.stamp(T0))
+    assert [line for line in lines if "its hold label taken off, since no Hold of his put it on" in line]
+
+
+def test_a_stray_hold_label_on_a_pr_he_has_not_tapped_stays_and_wakes_the_session_holding_its_order_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "card": CARD}
+    serve(monkeypatch, {KEY: read(labels=[github.HOLD_LABEL])})
+    monkeypatch.setattr(github, "unhold", lambda key: pytest.fail(f"took the hold label off {key}"))
+    watching = watcher(demo)
+    stray = f"STAGE {KEY} stray since {state.stamp(T0)}, owed by the session holding its order: {stage.STRAY_LABEL} [o1 j1]"
+    assert stray in watch.run_pass(watching, T0)
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("STAGE")]
 
 
 def test_a_builders_line_carries_the_head_github_holds_for_each_open_pr_it_names_with_its_stage_and_each_commit_it_names_that_none_is_at(demo: str) -> None:
@@ -4160,7 +4186,7 @@ def test_a_lander_queues_a_stacks_green_approved_bottom_while_a_pr_above_it_is_r
     assert landers == [(KEY,)]
 
 
-def test_his_approve_under_a_pr_the_hold_label_holds_queues_it_with_the_prs_under_it_and_leaves_the_held_pr_open(
+def test_his_approve_under_a_pr_carrying_a_stray_hold_label_queues_it_with_the_prs_under_it_and_leaves_the_labeled_pr_open(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     reads = three_stacked(demo, monkeypatch)

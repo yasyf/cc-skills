@@ -81,6 +81,7 @@ def sample() -> dict:
             "checks": "pass",
             "review": "none",
             "hold_label": False,
+            "unlabeled": None,
             "rework": None,
             "draft": False,
             "merged_sha": None,
