@@ -845,7 +845,7 @@ def reply_read(name: str, job_id: str, job: dict, message_id: str, question: str
     except orca.OrcaError as error:
         if error.code != orca.ANSWERED_ELSEWHERE or fits == said:
             raise
-        sent = orca.send(job, f"The answer to your {question.partition('\n')[0]}", fits)
+        sent = orca.send(name, job, f"The answer to your {question.partition('\n')[0]}", fits)
         return [f"JOB {job_id} {job['order']} READ answered by message, since Orca kept its {len(said.encode()):,}-byte answer as its question's and never relayed it: {sent}"]
     return []
 

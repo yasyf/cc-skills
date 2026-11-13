@@ -2626,7 +2626,7 @@ def pr_wake(args: argparse.Namespace) -> int:
             if job["state"] != "stopped":
                 if end := orca.lane_end(name, job):
                     return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end, text)
-                how = orca.send(job, f"{key}: its next step is yours", text)
+                how = orca.send(name, job, f"{key}: its next step is yours", text)
                 return emit(args, f"{key}: {job_id} {how}", {"key": key, "job": job_id, "how": how})
         job_id = None
     pr = data["prs"][key]

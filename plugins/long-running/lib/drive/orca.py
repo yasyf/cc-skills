@@ -879,11 +879,12 @@ def answer(drive: str, job: dict, text: str, request: str) -> str:
                 raise
         else:
             return f"answered its question {job['ask']}"
-    return send(job, "From the coordinator", text, str(uuid.uuid5(uuid.UUID(request), "send")))
+    return send(drive, job, "From the coordinator", text, str(uuid.uuid5(uuid.UUID(request), "send")))
 
 
-def send(job: dict, subject: str, text: str, request: str | None = None) -> str:
-    """Send the text to the lane's Dispatch as a message, which neither answers nor clears a question it asked."""
+def send(drive: str, job: dict, subject: str, text: str, request: str | None = None) -> str:
+    """Send the text to the lane's Dispatch as a message, as the drive's own terminal, which neither answers nor clears a question it asked."""
+    speak_as_drive(drive)
     call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text, *retried(request))
     return f"sent to dispatch {job['dispatch']}"
 
