@@ -2185,11 +2185,21 @@ def session_lane(data: dict, session: str | None) -> str | None:
 
 
 def agent_lane(data: dict, job: dict) -> str | None:
-    """The cci lane of the coordinator session whose agent runs a job on this Mac while that session hears the job's order, since only its SendMessage reaches the agent and only it hears the job's lines; None for a job no such agent runs, such as a Sprite lane's, one not started yet, one whose agent ended with its session, or one whose order moved to another coordinator session, which drive job resume hands to a fresh agent of that session."""
+    """The cci lane of the coordinator session whose agent runs a job on this Mac while that session hears the job, the top's for a job starting a production cut and else the one hearing its order, since only its SendMessage reaches the agent and only it hears the job's lines; None for a job no such agent runs, such as a Sprite lane's, one not started yet, one whose agent ended with its session, or one whose order moved to another coordinator session, which drive job resume hands to a fresh agent of that session."""
     if job["where"] != "local" or not job["agent"]:
         return None
     lane = session_lane(data, job["session"])
-    return lane if lane == order_lane(data, data["orders"][job["order"]]) else None
+    return lane if lane == ("root" if starts_cut(job) else order_lane(data, data["orders"][job["order"]])) else None
+
+
+def starts_cut(job: dict) -> bool:
+    """Whether a job starts a production cut, its brief carrying a Release line: the top coordinator's job on any order, since the top alone starts, approves and rolls back cuts, by his words "the top starts, approves and rolls back production cuts, one at a time"."""
+    return bool((job.get("brief_flags") or {}).get("release"))
+
+
+def job_lane(data: dict, job: dict) -> str:
+    """The cci lane of the one session that acts on a job and takes its lines: the top coordinator's for a job starting a production cut, whatever order it serves, else the lane holding its order."""
+    return "root" if starts_cut(job) else holding_lane(data, data["orders"][job["order"]])
 
 
 def holder_lane(order: dict) -> str | None:
@@ -2202,12 +2212,18 @@ def title(role: str) -> str:
     return "meta session" if role == "meta" else role
 
 
-def held_elsewhere(data: dict, order_id: str, session: str | None) -> str | None:
-    """Why a session may not act on an order another session of the drive holds, naming the holder, its session and the handoff record that asks it for the step; compared by holding lane rather than session role, as pr_held_elsewhere is, so the top coordinator and a sub-coordinator, both of role coordinator, are told apart; a session the drive does not bind, such as a Sprite lane's, is refused nothing, and an order from before owners is held by the first role to add a job to it."""
+def held_elsewhere(data: dict, order_id: str, session: str | None, cut: bool = False) -> str | None:
+    """Why a session may not act on an order another session of the drive holds, or on a job of it starting a production cut, cut, which the top coordinator holds whatever order it serves, naming the holder, its session and the record that asks it for the step; compared by holding lane rather than session role, as pr_held_elsewhere is, so the top coordinator and a sub-coordinator, both of role coordinator, are told apart; a session the drive does not bind, such as a Sprite lane's, is refused nothing, and an order from before owners is held by the first role to add a job to it."""
     order = data["orders"][order_id]
-    lane = holding_lane(data, order)
-    if session_lane(data, session) in (None, lane) or order["owner"] is None:
+    lane = "root" if cut else holding_lane(data, order)
+    if session_lane(data, session) in (None, lane) or (order["owner"] is None and not cut):
         return None
+    if cut:
+        top = data["roles"].get("coordinator", {}).get("session") or "not started"
+        return (
+            f"a job starting a production cut on {order_id} is the top coordinator's, session {top}, whatever order it serves, since the top"
+            f" alone starts, approves and rolls back cuts: send it a release record at root@{data['name']} naming the merged changes the cut must carry"
+        )
     holder, held = holding_session(data, order)
     return (
         f"{order_id} is {holder}'s order, session {held}: only {holder} adds its jobs, starts its agents,"

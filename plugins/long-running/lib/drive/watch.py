@@ -106,8 +106,8 @@ def hears(watcher: Watcher, data: dict, order_id: str) -> bool:
 
 
 def heard_job(watcher: Watcher, data: dict, job: dict) -> bool:
-    """Whether the watch hears a job: one whose own order it hears, never one only carrying it, so one watch alone makes every line about a job, and a job whose order moves to another coordinator session moves with it, its agent or lane running on."""
-    return hears(watcher, data, job["order"])
+    """Whether the watch hears a job: the top's watch one starting a production cut, whatever order it serves, by his words "the top hears unfiled orders and releases", else one whose own order it hears, never one only carrying it, so one watch alone makes every line about a job, and a job whose order moves to another coordinator session moves with it, its agent or lane running on."""
+    return watcher.project is None if state.starts_cut(job) else hears(watcher, data, job["order"])
 
 
 def heard_orders(watcher: Watcher, data: dict) -> dict[str, dict]:
@@ -597,7 +597,7 @@ def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
     return [
         entry
         for entry in view.waiting_on_him(data, watcher.cards)
-        if hears(watcher, data, entry["order"])
+        if heard_job(watcher, data, data["jobs"][entry["job"]])
         and not any(view.names_card(entry["card"], said) for said in data["jobs"][entry["job"]]["waiting_said"])
         and not ((claimer := data["jobs"][entry["job"]]["waiting_claims"].get(entry["wait"])) and started(claimer["pid"]) == claimer["started"])
     ]
@@ -2160,7 +2160,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     from drive import cli
 
     data = state.load(watcher.name)
-    heard = [job_id for job_id, job in data["jobs"].items() if hears(watcher, data, job["order"])]
+    heard = [job_id for job_id, job in data["jobs"].items() if heard_job(watcher, data, job)]
     if not any(finishes(data, job_id) for job_id in heard):
         return []
     merging = [job_id for job_id in heard if at_merge(data, job_id)]
@@ -2174,7 +2174,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     added = {}
     with state.edit(watcher.name) as data:
         for job_id, job in list(data["jobs"].items()):
-            if not hears(watcher, data, job["order"]):
+            if not heard_job(watcher, data, job):
                 continue
             if job_id in merging and at_merge(data, job_id):
                 added[job_id] = merged_done(watcher.name, data, job_id, reach)

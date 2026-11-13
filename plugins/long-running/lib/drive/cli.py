@@ -1114,7 +1114,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         live = sharing(data, args.order, parts)
         if refused := (
-            state.held_elsewhere(data, args.order, session)
+            state.held_elsewhere(data, args.order, session, bool(args.release))
+            or (args.release and brief.release_refusal(args.release))
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
@@ -1133,7 +1134,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             "worktree": args.worktree,
             "waits": view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found),
             "builds_nothing": args.builds_nothing,
-        }
+        } | ({"brief_flags": {"release": args.release}} if args.release else {})
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
             job["where"] = "remote"
@@ -1721,7 +1722,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
         report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}', "to": [f"communicator@{name}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
         report["id"] = f"card-line:{card['waits']}:{state.ask_hash(json.dumps(report, sort_keys=True))}"
         try:
-            tools.sent(name, state.holding_lane(data, data["orders"][job["order"]]), [report])
+            tools.sent(name, state.job_lane(data, job), [report])
             said.append(f"its line in thread {where[1]} of channel {where[0]} goes out from the communicator once for each change to it")
         except DriveError as error:
             said.append(f"its line in thread {where[1]} of channel {where[0]} did not go out, so post it there with say: {error}")
@@ -1731,7 +1732,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
 def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -> None:
     """Tell the session holding the job's order, in one record that wakes nobody, that his answer to this same question settled the job's question, so it builds on his words with no card."""
     job = data["jobs"][job_id]
-    lane = state.holding_lane(data, data["orders"][job["order"]])
+    lane = state.job_lane(data, job)
     where = answered_at(answer)
     text = f'{job_id} builds on his answer at {where} to the same question, "{render.cut(title, 120)}", asked in the same words, so no card draws for it'
     from drive import tools
@@ -2207,7 +2208,11 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         )
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
-    if flags["release"] and (unnamed := brief.release_refusal(flags["release"]) or brief.approval_refusal(flags["release"], data["roles"]["coordinator"]["cwd"])):
+    if flags["release"] and (
+        unnamed := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), True)
+        or brief.release_refusal(flags["release"])
+        or brief.approval_refusal(flags["release"], data["roles"]["coordinator"]["cwd"])
+    ):
         raise DriveError(f"{job_id}: {unnamed}")
     line, payload = rewrite_brief(name, job_id, flags)
     if kept:
@@ -2336,7 +2341,7 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
         if not (args.brief or job.get("brief")):
             raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
         written = named_text(args.brief or job["brief"], "brief file")
-        if refused := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID")) or brief.brief_refusal(name, data, args.id, written):
+        if refused := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), state.starts_cut(job)) or brief.brief_refusal(name, data, args.id, written):
             raise DriveError(f"{args.id}: refused, not launched: {refused}")
         try:
             folder = codex.ask(name, args.id, written, data["orders"][job["order"]]["incident"])
@@ -2550,7 +2555,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
     local = local or bool(died and place.mac_step(written))
     if refused := (
-        state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"))
+        state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), state.starts_cut(job))
         or brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
         or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
@@ -2669,7 +2674,7 @@ def started_job(data: dict, job_id: str) -> dict:
 def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> int:
     """Hand a job another session's Agent holds to a fresh agent of this session: a handoff brief carrying the job's brief, what that agent left and the text, whose `Read your brief first:` line is the fresh agent's whole prompt, and the job marked handed to this session, so the drive records that agent on it."""
     job = data["jobs"][args.id]
-    if refused := state.held_elsewhere(data, job["order"], session):
+    if refused := state.held_elsewhere(data, job["order"], session, state.starts_cut(job)):
         raise DriveError(f"{args.id}: refused, not handed over: {refused}")
     if not job.get("brief"):
         raise DriveError(f"{args.id} has no brief to hand over: write it with drive job brief {args.id}, then resume it again")
@@ -3042,7 +3047,7 @@ def pr_wake(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][job_id or pr["job"]]
-    lane = state.holding_lane(data, data["orders"][job["order"]])
+    lane = state.job_lane(data, job)
     said = (
         f"STAGE {text}; its builder {job_id} is agent {job.get('agent')} of session {job.get('session')}: send it this line verbatim and alone"
         if job_id
@@ -4575,6 +4580,13 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="PR",
         help="a drive PR he approved, or an exempt class lands, that this builder lands and builds nothing on, so it starts with no research",
+    )
+    verb.add_argument(
+        "--release",
+        help=(
+            "the one `tools/ci release start` or `hotfix` the job runs, kept as its brief's Release line: a job starting a production cut is the"
+            " top coordinator's whatever order it serves, so only the top adds it, on the order the release record names"
+        ),
     )
     verb.add_argument(
         "--waits",

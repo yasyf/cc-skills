@@ -18,7 +18,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, land, limits, place, render, settled, state
+from drive import agents, brief, cli, land, limits, place, render, settled, state, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1145,7 +1145,49 @@ def test_a_jobs_release_is_approved_once_at_its_brief_and_starts_as_its_release_
         assert landing_guard.deny_reason(bash(command) | step) == landing_guard.RELEASE_UNBRIEFED.format(job="j1", named=f"`{J2666_START}`", command=command)
 
 
-RELEASE_PICK = {"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
+def test_the_top_adds_briefs_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "release the clock", "--parts", "clock", "release")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Platform")
+    run("job", "add", "builder", "--order", "o1", "--part", "clock", "--goal", "build the clock")
+    held = (
+        "a job starting a production cut on o1 is the top coordinator's, session session-under-test, whatever order it serves, since the top"
+        " alone starts, approves and rolls back cuts: send it a release record at root@demo naming the merged changes the cut must carry"
+    )
+    cut = ["job", "add", "builder", "--order", "o1", "--part", "release", "--goal", "release the merged clock", "--release", J2666_START]
+    assert cli.main(cut) == 2
+    assert capsys.readouterr().err.strip() == f"drive: refused, no job added: {held}"
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "release", "--goal", "build it"]) == 2
+    assert "only the sub-coordinator for Platform adds its jobs" in capsys.readouterr().err
+    assert run(*cut)[1] == "j2"
+    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    assert cli.main(["job", "brief", "j2", *where]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: j2: {held}"
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    code, out = run("job", "brief", "j2", *where)
+    assert code == 0
+    assert [scratch_folder.deny_reason(drive_agent("long-running:builder", out, session=session)) for session in ("session-under-test", "platform-1")] == [
+        None,
+        f"refused, no agent started: {held}",
+    ]
+    jev.picks("none")
+    step = ran(stepped(tmp_path, out), ("go/ci/.build/ci.dev release plan platform runtime-api-next restate", False))
+    assert landing_guard.deny_reason(bash(J2666_START) | step) is None
+    data = state.load("demo")
+    data["jobs"]["j2"] |= {"agent": "a-9", "session": "session-under-test"}
+    assert [state.job_lane(data, data["jobs"][job_id]) for job_id in ("j1", "j2")] == ["platform", "root"]
+    assert state.agent_lane(data, data["jobs"]["j2"]) == "root"
+    watchers = (watch.Watcher(demo, offset=0), watch.Watcher(demo, offset=0, project="Platform"))
+    assert [[watch.heard_job(watcher, data, data["jobs"][job_id]) for job_id in ("j1", "j2")] for watcher in watchers] == [[False, True], [True, False]]
+
+
+RELEASE_PICK ={"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
 INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
 
