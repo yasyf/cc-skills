@@ -2142,7 +2142,7 @@ def stopped(watcher: Watcher, error: Exception) -> None:
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
-    """Run the drive's watch, or a project's, as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch. On a drive under LONG_RUNNING_STATE, end at once, so a watch an older install started there ends at its next re-exec."""
+    """Run the drive's watch, or a project's, as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended, with the env of this Mac's Claude settings in its environment, so each read it runs carries the API keys a session here carries. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch. On a drive under LONG_RUNNING_STATE, end at once, so a watch an older install started there ends at its next re-exec."""
     if state.scratch():
         print(f"no watch runs for a drive under LONG_RUNNING_STATE={state.root()}", flush=True)
         return 0
@@ -2154,6 +2154,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
     if not claim(name, project):
         return 0
     try:
+        os.environ.update(launchd.session_env())
         while holder(state.monitor_pid_path(name)):
             state.let_go_install()
             time.sleep(POLL_SECONDS)
