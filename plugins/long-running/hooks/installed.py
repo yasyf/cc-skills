@@ -40,6 +40,13 @@ def record_interpreter() -> None:
     fresh.replace(kept)
 
 
+def interpreter() -> str:
+    """The interpreter hooks/python.sh execs: the one record_interpreter kept while it still runs, else `python3` on PATH."""
+    kept = interpreter_record()
+    recorded = kept.read_text().strip() if kept.is_file() else ""
+    return recorded if recorded and os.access(recorded, os.X_OK) else "python3"
+
+
 def main(hook: str) -> None:
     record_interpreter()
     plugin = root()

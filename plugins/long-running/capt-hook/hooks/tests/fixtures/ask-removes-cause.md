@@ -10,4 +10,5 @@ Findings:
 Root cause: each LTX file records its page map's length only in its last 24 bytes, so a reader must guess a range before it can read the map.
 First principles: One snapshot file per finished run, written when it ends, its map at a fixed place
 Interim fix: none: pages open, only slower on a wrong guess
+Holds: none: no job builds the run page's reader or the uploader yet
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.

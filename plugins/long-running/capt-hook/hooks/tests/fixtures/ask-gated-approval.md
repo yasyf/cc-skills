@@ -14,3 +14,4 @@ export SEARCH_REGION=us-west-2
 Findings:
 Root cause: none: a measurement, not a defect; your rule holds every benchmark run for your approval of its exact command, on staging only
 Interim fix: none: search is unchanged, so nobody is hurt
+Holds: none: a benchmark run on staging changes nothing any job builds

@@ -11,7 +11,6 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from functools import cache
 from pathlib import Path
 
 from captain_hook import (
@@ -46,7 +45,8 @@ from captain_hook.tickets.decide import UNPERMITTED, cited
 from captain_hook.transcripts import TranscriptLoadError
 from spawnllm import LabelAnswer
 
-newest_install = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]
+INSTALLED = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))
+newest_install, interpreter = INSTALLED["root"], INSTALLED["interpreter"]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
 SAY = "mcp__plugin_long-running_drive__say"
 POSTS = (*(SLACK + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")), SAY)
@@ -322,12 +322,6 @@ def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
     return tuple(unbound)
 
 
-@cache
-def interpreter() -> str:
-    """The interpreter `python3` resolves to on this process's PATH, asked once per worker, so a check runs the same Python with no version manager's shim resolving it again on every call."""
-    return subprocess.run(["python3", "-I", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, check=True).stdout.strip()
-
-
 @dataclass(slots=True)
 class Batch:
     due: tuple[str, ...]
@@ -400,9 +394,15 @@ def batched(payload: dict, script: str, due: tuple[str, ...]) -> dict:
 
 
 def ran_alone(payload: dict, script: str) -> dict:
-    batch = Batch((script,), {script})
-    run_checks(payload, batch)
-    return result_of(batch, script)
+    """A check no other check shares this call with, run from the newest installed long-running as hooks.json runs a hook: its own process, by the interpreter hooks/python.sh execs, the payload its stdin."""
+    ran = subprocess.run(
+        [interpreter(), "-I", str(newest_install() / "hooks" / script)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        cwd=payload.get("cwd") or None,
+    )
+    return {"code": ran.returncode, "stdout": ran.stdout, "stderr": ran.stderr}
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:

@@ -9,4 +9,5 @@ I recommend starting now; meanwhile nothing ships.
 Findings:
 Root cause: fixed: each LTX file recorded its page map's length only in its last 24 bytes, so a reader guessed a range before it could read the map; removed by https://github.com/acme/app/pull/12, merged 3:40 PM
 Interim fix: none: pages open, only slower on a wrong guess
+Holds: none: the merged fix already removed the guess, so no job builds anything this asks
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.

@@ -1,9 +1,12 @@
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 LAUNCHER = Path(__file__).resolve().parent.parent / "hooks" / "installed.py"
 PROBE = "import os, sys\nprint(os.path.basename(os.environ['CLAUDE_PLUGIN_ROOT']), sys.stdin.read())\n"
@@ -58,3 +61,13 @@ def test_a_checkout_runs_its_own_hooks(tmp_path: Path) -> None:
     cached(config)
     checkout = plugin(tmp_path / "checkout", probe=True)
     assert launch(config, checkout).stdout == 'checkout {"tool_name": "Bash"}\n'
+
+
+def test_the_drive_checks_run_the_interpreter_python_sh_execs_the_recorded_one_while_it_runs_else_python3(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    interpreter = runpy.run_path(str(LAUNCHER))["interpreter"]
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(tmp_path))
+    assert interpreter() == "python3"
+    (tmp_path / "interpreter").write_text(f"{sys.executable}\n")
+    assert interpreter() == sys.executable
+    (tmp_path / "interpreter").write_text(f"{tmp_path / 'gone'}\n")
+    assert interpreter() == "python3"
