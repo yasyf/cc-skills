@@ -4012,7 +4012,7 @@ def manual(args: argparse.Namespace) -> int:
     if not args.row:
         sys.stdout.write(text)
         return 0
-    rows = [line for line in text.splitlines() if line.startswith("| ") and args.row.casefold() in line.split("|")[1].casefold()]
+    rows = [line for line in text.splitlines() if line.startswith("| ") and plain_words(args.row) in plain_words(line.split("|")[1])]
     parts = ["\n".join(rows)] if rows else page_parts(text, args.row)
     if not parts:
         raise DriveError(f"nothing in drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
@@ -4021,8 +4021,8 @@ def manual(args: argparse.Namespace) -> int:
 
 
 def page_parts(text: str, words: str) -> list[str]:
-    """Each part of a page carrying the words, in any case and across a line wrap, in page order: a heading with its whole section, a list item with the lines wrapped under it, a table row, a fenced block or a paragraph, a part inside another printed once."""
-    lines, wanted = text.splitlines(), " ".join(words.split()).casefold()
+    """Each part of a page carrying the words, in any case, across a line wrap and with or without code marks, in page order: a heading with its whole section, a list item with the lines wrapped under it, a table row, a fenced block or a paragraph, a part inside another printed once."""
+    lines, wanted = text.splitlines(), plain_words(words)
     blocks: list[list[int]] = []
     levels: dict[int, int] = {}
     fenced = joins = False
@@ -4041,7 +4041,7 @@ def page_parts(text: str, words: str) -> list[str]:
         fenced, joins = fence, bool(line.strip()) and not (fence or heading or row)
     found: list[list[int]] = []
     for start, end in blocks:
-        if wanted not in " ".join(" ".join(lines[start:end]).split()).casefold():
+        if wanted not in plain_words(" ".join(lines[start:end])):
             continue
         if start in levels:
             end = next((n for n, level in levels.items() if n > start and level <= levels[start]), len(lines))
@@ -4050,6 +4050,10 @@ def page_parts(text: str, words: str) -> list[str]:
         else:
             found.append([start, end])
     return ["\n".join(lines[start:end]).rstrip() for start, end in found]
+
+
+def plain_words(text: str) -> str:
+    return " ".join(text.replace("`", "").split()).casefold()
 
 
 def view_command(args: argparse.Namespace) -> int:
