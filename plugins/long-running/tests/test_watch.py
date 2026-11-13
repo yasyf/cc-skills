@@ -1131,7 +1131,7 @@ def threaded(demo: str) -> None:
         data["orders"]["o1"]["thread"] = ["D123", INCIDENT_THREAD]
 
 
-def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_and_again_five_minutes_on_from_a_handler_that_never_posts(
+def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_and_again_five_minutes_on_from_a_handler_that_never_posts(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     threaded(demo)
@@ -1163,6 +1163,7 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
         data["handlers"].clear()
     assert watch.quiet_lines(watching, posted) == []
     with state.edit(demo) as data:
+        data["prs"][KEY]["ejected"] = True
         stage.stamp(data["prs"][KEY], stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue"), posted)
     assert watch.quiet_lines(watching, posted + timedelta(seconds=5)) == []
     assert watch.quiet_lines(watching, posted + timedelta(minutes=4, seconds=59)) == []
@@ -1170,6 +1171,15 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
     assert watch.quiet_lines(watching, posted + timedelta(minutes=5)) == []
     assert len(calls) == 6
     assert f"Moved since the thread's last line: {KEY}. At work: j1." in calls[-2][1].splitlines()
+    relined = posted + timedelta(minutes=6)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["last_line"] = state.stamp(relined)
+        data["handlers"].clear()
+    assert watch.quiet_lines(watching, relined) == []
+    with state.edit(demo) as data:
+        stage.stamp(data["prs"][KEY], stage.Stage("behind", stage.BUILDER, "a PR below it in its stack is red"), relined)
+    assert watch.quiet_lines(watching, relined + timedelta(minutes=30)) == []
+    assert len(calls) == 6
 
 
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])
