@@ -270,7 +270,8 @@ check's verdict, or from the order when none ran.
   jobs; costs one handler session each". Five minutes after the newest drive post on any order of
   the open incidents in one thread, or after the newest of them opened, the watch's `quiet_lines`
   sends the communicator one `report` carrying `quiet=true` and that thread, naming every incident
-  there with its orders and each job, so two incidents in one thread get one line, not one each. It
+  there with its orders, each job and each PR as the watch last read it from GitHub, never as an
+  order's note says it stands, so two incidents in one thread get one line, not one each. It
   starts one handler on that report, which reads the jobs and posts where each incident stands in
   that thread; a handler already at work in the thread takes the report at its next step.
   - It runs while he is away too, and restarts once a handler has the report, so a handler that
