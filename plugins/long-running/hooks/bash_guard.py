@@ -222,8 +222,9 @@ def held(job_id: str, cards: list[str]) -> str:
         f"refused: {job_id}'s work waits on his answer to {', '.join(cards)}, and this ship would open its PR, which goes"
         " up only once he answers each, since work does not land with a question of his on it unanswered: push the"
         " branch with `ccx vcs ship --no-pr` and return `BUILT <branch>, waits on <cards>`; the watch says FREE when"
-        " the last is answered. A flake fix, which no design card holds, goes up in one call with its registration:"
-        ' `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job> --exempt "flake fix"`'
+        " the last is answered. A flake fix or a fix forward of the default branch's red CI, which no design card holds,"
+        ' goes up in one call with its registration: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)"'
+        ' --job <your job> --exempt "flake fix"`, or `--exempt "main fix"`'
     )
 
 

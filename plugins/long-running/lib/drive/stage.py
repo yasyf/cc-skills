@@ -214,7 +214,7 @@ def stopped(pr: dict) -> str:
 
 
 def held(data: dict, pr: dict) -> str:
-    """What of his holds the PR: what stops it, or a question card of his open on the work of any job carrying it whose `Holds:` line holds it, or that the PR's `DESIGN:` line cites, by land.pr_cards; a red PR one of his cards holds reads red, so its builder keeps it green while he decides."""
+    """What of his holds the PR: what stops it, or a question card of his open on the work of the job its row names whose `Holds:` line holds it, or that the PR's `DESIGN:` line cites, by land.pr_cards; a red PR one of his cards holds reads red, so its builder keeps it green while he decides."""
     if stops := stopped(pr):
         return stops
     if asking := land.pr_cards(data, pr):

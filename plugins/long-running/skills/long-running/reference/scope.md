@@ -213,7 +213,7 @@ building an option, in backticks by its whole name; a reader's or design's also 
 own words, every change of the order its options alter; or it reads `Holds: none: <why>`. His open card
 holds from landing each PR it names, a PR of a branch it names included, and, among the PRs of jobs working a change it names,
 only those its design's builder, a job briefed on its research or a job it names by id carries, while a question kept with no
-`Holds:` line holds every change of those jobs; no card holds a flake fix. No option asks a
+`Holds:` line holds every change of those jobs; no card holds a flake fix or a main fix. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 
