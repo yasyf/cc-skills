@@ -60,7 +60,11 @@ def say(name: str, post: dict) -> str:
 
 
 def recording(name: str, receipt: dict) -> str:
-    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with."""
+    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. Whether this session may record a post on the order is read in the call, while the session is bound: the process runs as no session, and a handler's binding ends with the handler."""
+    try:
+        cli.communicators_order(state.load(name), receipt["order"])
+    except DriveError as error:
+        return unkept(name, receipt, error, "")
     kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(json.dumps(receipt))
@@ -87,11 +91,17 @@ def record_kept(name: str, kept: Path) -> str:
         report = cli.report_attrs(receipt["record"]) if receipt["record"] else {}
         line = cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"])[0]
     except (DriveError, slack.SlackError) as error:
-        line = f"not recorded on {receipt['order']}: {error}"
-        unrecorded(name, f"say posted {receipt['link']} but it was {line}; receipt {kept}")
+        line = unkept(name, receipt, error, f"; receipt {kept}")
     tmp = kept.with_suffix(".tmp")
     tmp.write_text(json.dumps(receipt | {"line": line}))
     os.replace(tmp, kept)
+    return line
+
+
+def unkept(name: str, receipt: dict, error: Exception, where: str) -> str:
+    """The line say ends with for a post its order did not take, sent to the meta session as a defect too, `where` naming the receipt when one was kept."""
+    line = f"not recorded on {receipt['order']}: {error}"
+    unrecorded(name, f"say posted {receipt['link']} but it was {line}{where}")
     return line
 
 
