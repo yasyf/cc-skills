@@ -49,7 +49,7 @@ The meta session is the drive's third session, beside the communicator he talks 
 
 ## Start a reader
 
-- Each tooling order is a build, so its builder starts only on its reader's research: adding the reader records its builder waiting on it, its id printed beside the reader's, started on its `FREE` line. `drive job add` refuses any other builder on a build order until a reader has kept its `Researched:` block, unless `--waits <the reader>` names one still at work.
+- Each tooling order is a build, so its builder starts only on its reader's research: adding the reader records its builder waiting on it, its id printed beside the reader's, started on its `FREE` line. `drive job add` refuses any other builder on a build order until a reader of its part has kept its `Researched:` block, unless `--waits <the reader>` names one still at work.
 - The order's words reach him verbatim, quoted on the line above its PR card and as the title an `{order:}` link shows. So `drive order add` refuses words `cc-slack check-post` finds anything in, such as a job, order or record id or a PR by its bare number: say what the tool does wrong in plain words. `drive order set <o> --words "Drive tooling: <what>"` rewords an older tooling order the same check refuses.
 - Start a `long-running:reader` through the Agent tool with `run_in_background: true`, a short `description`, no `name`, and this prompt:
 

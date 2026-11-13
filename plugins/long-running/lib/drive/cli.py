@@ -1867,7 +1867,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         raise DriveError(f"{job_id}: {unnamed}")
     earlier = [line for other in order["jobs"] if other != job_id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
-    found = brief.research(name, data, job["order"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
+    found = brief.research(name, data, job["order"], job["parts"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
     researched = [closed for question in data["jobs"][found[0]]["questions"] if (closed := question["closed"]) and closed["how"] != "withdrawn"] if found else []
     settles = [closed["ruling"] for closed in researched if closed["ruling"]]
     heard = [f'his answer "{closed["words"]}"' + (f" ({closed['link']})" if closed["link"] else "") for closed in researched if not closed["ruling"] and closed["words"]]
