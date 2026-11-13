@@ -23,7 +23,7 @@ WAIT_MS = 600_000
 
 
 def main(argv: list[str]) -> int:
-    sent: dict = {"files": {word: {"text": Path(word).read_text(), "executable": os.access(word, os.X_OK)} for word in dict.fromkeys(argv) if Path(word).is_file()}}
+    sent: dict = {"files": {word: {"text": Path(word).read_text(), "executable": os.access(word, os.X_OK)} for word in dict.fromkeys(argv) if os.path.isfile(word)}}
     if "-" in argv:
         sent["stdin"] = sys.stdin.read()
     question = f"DRIVE {shlex.join(argv)}\n{json.dumps(sent)}"
