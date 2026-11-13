@@ -367,8 +367,12 @@ def typed(action: argparse.Action) -> dict:
         one: dict = {"type": "integer" if action.type is int else "string"}
         if action.choices:
             one["enum"] = list(action.choices)
-        many = action.nargs in ("+", "*") or isinstance(action, argparse._AppendAction)
-        shape = {"type": "array", "items": one} if many else one
+        if isinstance(action.nargs, int):
+            shape = {"type": "array", "items": one, "minItems": action.nargs, "maxItems": action.nargs}
+        elif action.nargs in ("+", "*") or isinstance(action, argparse._AppendAction):
+            shape = {"type": "array", "items": one}
+        else:
+            shape = one
     if action.help:
         shape["description"] = action.help
     return shape
@@ -388,7 +392,7 @@ def argv(words: tuple[str, ...], given: dict) -> list[str]:
             line.append(action.option_strings[0 if value else 1])
         elif action.nargs == 0:
             line += [action.option_strings[0]] if value else []
-        elif action.nargs in ("+", "*"):
+        elif action.nargs in ("+", "*") or isinstance(action.nargs, int):
             line += [action.option_strings[0], *values]
         else:
             line += [f"{action.option_strings[0]}={item}" for item in values]
