@@ -838,7 +838,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
             raise DriveError(f"{waits} is no question card's waits id, <drive>:<j>-<n>; a PR card's tap needs no record")
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
-        attrs |= {"job": named[2], "waits": waits}
+        attrs |= {"job": state.waits_job(data, waits), "waits": waits}
     for attr in ("thread", "ruling", "thread_card", "about"):
         if item.get(attr):
             attrs[attr] = item[attr]

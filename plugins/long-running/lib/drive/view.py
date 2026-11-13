@@ -478,11 +478,11 @@ def held_up(drive: dict, card: dict) -> list[dict]:
 
 
 def asked_by(drive: dict, found: dict) -> dict[str, str | None]:
-    """The job that asked each of his open question cards, by the card's link: the job whose question drew the card, else the job its waits id names."""
+    """The job that asked each of his open question cards, by the card's link: the job whose question drew the card, else the job whose question holds its waits id, else the job that waits id names."""
     drawn = {message_key(question["card"]): job_id for job_id, job in drive["jobs"].items() for question in job["questions"] if question["card"]}
     asker = {}
     for card in found["questions"]:
-        named = (card["card"].get("waits") or "").partition(":")[2].partition("-")[0]
+        named = state.waits_job(drive, card["card"].get("waits") or "")
         asker[card["url"]] = drawn.get(message_key(card["url"])) or (named if named in drive["jobs"] else None)
     return asker
 

@@ -1508,6 +1508,12 @@ def new_waits(name: str, job_id: str) -> str:
     return f"{name}:{job_id}-{time.time_ns() // 1_000_000}"
 
 
+def waits_job(data: dict, waits: str) -> str:
+    """The job his card under this waits id asks for: the newest whose question holds it, but one a `Replaces:` line folded into another's, since a job that takes a question over with `drive job ask --redraws` takes its card; else the job that minted it, which the waits id names."""
+    held = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == waits and not question["replaced"]]
+    return held[-1] if held else waits.partition(":")[2].partition("-")[0]
+
+
 def new_close(
     how: str, words: str | None, link: str | None, seq: str | None = None, answer: str | None = None, ruling: str | None = None, by: str | None = None, at: str | None = None
 ) -> dict:
@@ -2006,9 +2012,9 @@ def coordinator_writer(data: dict, seqs: list[str]) -> str | None:
 
 
 def named_job(data: dict, attrs: dict) -> str | None:
-    """The job of this drive a record's attr job or waits id names."""
+    """The job of this drive a record's attr job names, else the job whose question holds the card its waits id names, by `waits_job`."""
     named = WAITS_ID.fullmatch(attrs.get("waits") or "")
-    job_id = attrs.get("job") or (named[2] if named and named[1] == data["name"] else None)
+    job_id = attrs.get("job") or (waits_job(data, named[0]) if named and named[1] == data["name"] else None)
     return job_id if job_id in data["jobs"] else None
 
 
