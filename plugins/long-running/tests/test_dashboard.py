@@ -1153,6 +1153,23 @@ done({ hovered, left: { on: document.querySelectorAll('#main .choice.on').length
     assert seen == {"hovered": {"on": "2", "rail": "Choice 2 of 2"}, "left": {"on": 0, "rail": "Recommended"}}
 
 
+def test_the_rail_draws_the_description_of_the_choice_he_hovers_or_focuses(tmp_path: Path) -> None:
+    hints = {"Raise it": "The bucket's per-prefix cap goes to 5,500 writes a second.", "Shard it": "Each team's journal writes under 16 prefixes."}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+const said = () => [...document.querySelectorAll('#main [data-means] p')].map((line) => line.textContent);
+await until(() => said().length);
+const first = said();
+document.querySelectorAll('#main .choice')[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+const hovered = said();
+document.querySelectorAll('#main .choice')[0].focus();
+await wait(50);
+done({ first, hovered, focused: said() });
+""", board(queue=[QUESTION | {"card": QUESTION["card"] | {"hints": hints}}]))
+    assert seen == {"first": [hints["Raise it"]], "hovered": [hints["Shard it"]], "focused": [hints["Raise it"]]}
+
+
 def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
     tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """

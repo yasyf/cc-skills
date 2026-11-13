@@ -435,6 +435,11 @@ function slice(url) {
   return held.read;
 }
 
+function opened(item) {
+  const read = item.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
+  return read?.ok ? { ...item, card: read.card, rail: read.rail } : item;
+}
+
 function notRead(read) {
   return read ? `<p class="refused">${esc(read.error)}</p>` : '<p class="empty small">Reading…</p>';
 }
@@ -791,12 +796,11 @@ function queueScreen(id) {
   const picked = number && item?.answer && cardTs(item.answer) === named ? (item.card?.prs ?? []).findIndex((row) => row.url.endsWith(`/pull/${number}`)) : -1;
   if (picked >= 0) prRows.set(noticeKey(item), picked);
   if (location.hash !== queueHref(filter, item)) history.replaceState(history.state, '', queueHref(filter, item));
-  const read = item?.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
   const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
   const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
-  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](read?.ok ? { ...item, card: read.card, rail: read.rail } : item, at, list.length) : done;
+  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](opened(item), at, list.length) : done;
   return `<div class="page-head">
       <h1 class="h1">${list.length ? `${list.length} ${list.length === 1 ? 'thing waits' : 'things wait'} on you` : 'Your queue'}</h1>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
@@ -1469,7 +1473,7 @@ function preview(choice) {
   picked = { card: choice.dataset.card, index };
   const item = model.queue.find((each) => each.answer === choice.dataset.card);
   const rail = document.querySelector('#main [data-means]');
-  if (item && rail) rail.outerHTML = meaning(item, index);
+  if (item && rail) rail.outerHTML = meaning(opened(item), index);
   for (const each of choice.parentElement.querySelectorAll('.choice')) each.classList.toggle('on', each === choice);
 }
 
