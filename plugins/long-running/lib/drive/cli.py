@@ -1077,7 +1077,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             state.held_elsewhere(data, args.order, role)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits)
+            or brief.job_refusal(data, args.order, args.kind, parts, bool(lands), args.waits)
         ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or role
@@ -1100,7 +1100,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
             job["where"] = "remote"
         order["jobs"].append(job_id)
-        builder_id = waiting_builder(name, data, job_id, created)
+        builder_id = waiting_builder(data, job_id, created)
         order["updated"] = created
         for other_id, other in state.open_orders(data).items():
             if other["joins"] == args.order and not state.hurts_now(data, other):
@@ -1122,14 +1122,12 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*waiting, *beside, *history]
 
 
-def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:
+def waiting_builder(data: dict, reader_id: str, created: str) -> str | None:
     """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, wherever a builder there starts only on research and job_refusal lets it wait on that reader, so its work is never research's alone while it reads."""
     reader = data["jobs"][reader_id]
     if reader["kind"] != "reader" or not (uncarried := [part for part in reader["parts"] if not state.carriers(data, reader["order"], part)]):
         return None
-    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(
-        name, data, reader["order"], "builder", uncarried, False, [reader_id]
-    ):
+    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(data, reader["order"], "builder", uncarried, False, [reader_id]):
         return None
     builder_id = state.next_id(data["jobs"], "j")
     builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", f"build what {reader_id}'s research finds: {reader['goal'].removeprefix('research: ')}", uncarried, created) | {"waits": [reader_id]}
@@ -1139,7 +1137,7 @@ def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str 
 
 
 def unlandable(data: dict, keys: list[str]) -> str | None:
-    """Why a builder may not start on --lands alone: each PR it lands is a drive PR his Approve or an exempt class lets land, since only then does it build nothing his order's research would shape."""
+    """Why a builder may not start on --lands past an order limited to options: each PR it lands is a drive PR his Approve or an exempt class lets land, since only then does it build nothing his pick would shape."""
     for key in keys:
         if key not in data["prs"]:
             return f"--lands {key}: no drive PR; add it with drive pr add {state.pr_url(key)} --job <the job that opened it>"
@@ -2936,29 +2934,36 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
 
 
 def unreached(name: str, data: dict, waits: list[str]) -> str | None:
-    """Why a release wait among waits names a service whose release never carries its PR's change, by go/ci's own map of the components a change's paths reach, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR outside the repository of a coordinator checkout holding tools/ci, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
-    clone = data["roles"]["coordinator"]["cwd"]
+    """Why a release wait among waits names a service whose release never carries its PR's change, by go/ci's own map, as reached reads it: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR reached does not map, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
     releases = [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]
-    if not (releases and (Path(clone) / GO_CI).is_file()):
+    if not releases:
         return None
-    named = ", ".join(found[0] for found in releases)
     try:
-        repo = github.checkout_repo(clone).casefold()
-        if not (ours := [found for found in releases if github.repo_of(found["pr"]).casefold() == repo]):
-            return None
-        checkout = orca.checkout(name, data)
-        for found in ours:
-            key, service = found["pr"], found["service"]
-            request = json.dumps({"body": "", "paths": github.files(key)})
-            answer = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=request))
-            reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
-            if service not in answer["components"]:
-                return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
-            if answer["touched"] and service not in answer["touched"]:
-                return f"{found[0]}: {service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
+        answers = reached(name, data, [found["pr"] for found in releases])
     except github.GithubError as error:
+        named = ", ".join(found[0] for found in releases)
         raise DriveError(f"could not read which components the paths each PR of {named} changes reach, so nothing was taken: {error}; run this again") from None
+    for found in releases:
+        if (answer := answers.get(key := found["pr"])) is None:
+            continue
+        reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
+        if found["service"] not in answer["components"]:
+            return f"{found[0]}: {found['service']} is no component go/ci releases, so no release ever carries {key}; {reach}"
+        if answer["touched"] and found["service"] not in answer["touched"]:
+            return f"{found[0]}: {found['service']}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
     return None
+
+
+def reached(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
+    """go/ci's own map of what each PR's change reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes, its components and the touched ones among them by PR, for each PR in the repository of a coordinator checkout holding tools/ci; GithubError when it could not be read."""
+    clone = data["roles"]["coordinator"]["cwd"]
+    if not (Path(clone) / GO_CI).is_file():
+        return {}
+    repo = github.checkout_repo(clone).casefold()
+    if not (ours := [key for key in keys if github.repo_of(key).casefold() == repo]):
+        return {}
+    checkout = orca.checkout(name, data)
+    return {key: json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": github.files(key)}))) for key in ours}
 
 
 def merged_waits(data: dict, owner: dict, args: argparse.Namespace, found: dict | None) -> list[str]:

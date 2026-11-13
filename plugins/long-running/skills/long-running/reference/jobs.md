@@ -86,7 +86,8 @@ waits its turn ahead of it, sending one whose brief declares no step only this M
 Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
 its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
-writes once its reader's research is kept, unless its job ships the order's `immediate fix` part.
+writes once its reader's research is kept, the one check of that research, unless its job ships the
+order's `immediate fix` part or its `Handoff:` line hands it a PR the drive tracks, such as proving a merged PR live.
 Each refusal names its fix: do it, never route around it. These hooks run in the long-running
 capt-hook pack, which sends each refusal to Jev first: one Jev finds the rule never meant lets the
 call through, and a merge, release or public-body refusal of `landing_guard` blocks outright.
@@ -114,8 +115,8 @@ opening with no result, a `WAITING` naming nothing the watch frees it on, a desi
 whose `Fork:` line names a file keeping no question of the job, and a reader's `DESIGN` that
 `drive job ask` refuses as his card. Each drive PR and `release:<service>:<owner>/<repo>#<n>` a
 `READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
-the PR merges or closes or the release is out; a release wait whose service `tools/ci release select
---pr` finds the PR's changed paths never reach is refused, naming the components they reach:
+the PR merges or closes or the release is out; a release wait whose service go/ci's map finds the
+PR's changed paths never reach is refused, naming the components they reach:
 
 | First line | The job's state |
 |---|---|

@@ -4746,6 +4746,32 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_keeping_no_proof_and
     assert provers == []
 
 
+def test_a_builder_still_running_on_a_refused_pushed_takes_done_at_its_merge_with_the_line_naming_its_prover(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, OTHER, None)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="running", said=f"PUSHED {state.pr_url(OTHER)}")
+    lines = watch.run_pass(watcher(demo), T0)
+    assert [line for line in lines if line.startswith(f"PR {OTHER}: {install.MERGED_DONE}: {OTHER} at ccc333ddd444; no proof kept")]
+    assert (state.load(demo)["jobs"]["j1"]["state"], provers) == ("done", [])
+
+
+def test_a_takeover_builders_ready_on_a_pr_another_job_opened_takes_done_at_its_merge_and_no_free(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j1"].update(state="stopped", said="HANDOFF the landing")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "land it", [], state.stamp(T0))
+        state.take_result(data, "j2", f"READY {state.pr_url(KEY)}")
+        data["jobs"]["j2"]["updated"] = state.stamp(T0 - timedelta(hours=1))
+        data["prs"][KEY].update(state="merged", merged_sha="ccc333ddd444eee")
+    assert state.load(demo)["jobs"]["j2"]["prs"] == [state.pr_url(KEY)]
+    lines = watch.run_pass(watcher(demo), T0)
+    assert [line for line in lines if line.startswith(f"PR {KEY}: {install.MERGED_DONE}: {KEY} at ccc333ddd444; no proof kept")]
+    assert not [line for line in lines if line.startswith("FREE j2 ")]
+    assert state.load(demo)["jobs"]["j2"]["state"] == "done"
+
+
 @pytest.mark.parametrize(("fix", "sha"), [("Forge-AI/monorepo#55420", "485f9f408150"), ("Forge-AI/monorepo#55448", "6ec574a4f779")])
 def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_reporter_is_owed_no_fix_live_note(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]], fix: str, sha: str

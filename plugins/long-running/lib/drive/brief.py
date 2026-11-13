@@ -212,30 +212,27 @@ def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
     return [job_id for job_id in order["jobs"] if (job := data["jobs"][job_id])["kind"] == "reader" and job["order"] == order_id and read & set(job["parts"])]
 
 
-def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
-    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder landing PRs he approved, or as a follow-up's design, each of which starts at once."""
+def waits_on_research(order: dict, kind: str, parts: list[str]) -> bool:
+    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, or as a follow-up's design, each of which starts at once."""
     return (
         order["kind"] == "build"
         and not order["incident"]
         and kind in RESEARCHED_KINDS
-        and not (state.IMMEDIATE_FIX in parts or lands)
+        and state.IMMEDIATE_FIX not in parts
         and not (kind == "design" and state.FOLLOW_UP in parts)
     )
 
 
-def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, a builder or codex job's first PR taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+def job_refusal(data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, and an answer order is one reader's. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, a builder or codex job's first PR taking the wait's place. A build order's research is read once, when the job's agent starts, by brief_refusal, so a builder proving a merged PR live, retrying its proof or rebasing it is added like any other. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past the options-only refusal, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
-    at_once = state.IMMEDIATE_FIX in parts or lands
-    listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
-    immediate = (
-        f'the immediate fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}"'
-        f" part, added with drive order set {order_id} --parts {listed}, and a builder landing PRs he approved with --lands <each PR>"
-    )
-    if order["options_only"] and kind in ("builder", "codex") and not at_once:
+    if order["options_only"] and kind in ("builder", "codex") and not (state.IMMEDIATE_FIX in parts or lands):
+        listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
         return (
             f"{order_id} is limited to options: he picks one before the proper fix is built, so no {kind} starts on it; start a reader or a designer"
-            f" until he picks, drive job add design --order {order_id}, and once he picks, drive order set {order_id} --no-options-only; {immediate}"
+            f" until he picks, drive job add design --order {order_id}, and once he picks, drive order set {order_id} --no-options-only; the immediate"
+            f' fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}" part, added'
+            f" with drive order set {order_id} --parts {listed}, and a builder landing PRs he approved with --lands <each PR>"
         )
     if order["kind"] == "answer" and kind != "reader":
         return (
@@ -247,31 +244,11 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             f'--waits {", ".join(waits)}: a "{state.FOLLOW_UP}" design starts now, beside landing the PR it follows, never once that PR'
             f" lands or a reader returns, by his words {FOLLOW_UP_RULING}: add it with no --waits, and its designer does its own research"
         )
-    if not waits_on_research(order, kind, parts, lands):
-        return None
-    if research(name, data, order_id, parts) is None:
-        reading = [job_id for job_id in readers(data, order_id, parts) if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
-        if set(reading) & set(waits or []):
-            return None
-        meanwhile = (
-            f"; while {reading[0]} reads, add this {kind} now waiting on it with --waits {reading[0]}, so the part is never in no job,"
-            " and start its agent on the watch's FREE line once the reader returns"
-            if reading
-            else ""
-        )
-        named = " ".join(f'--part "{part}"' for part in parts)
-        return (
-            f"{order_id} is a build order, so its {kind} starts only once an Opus reader of its part, a change a design listed counting"
-            f" as that design's part, has kept {BLOCK} in its report: drive job add reader --order {order_id} {named}"
-            ' --goal "research: <what>", then a long-running:reader whose brief'
-            " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
-            f" line what already does part of it, and its open line each question the order implies{meanwhile}; {immediate}"
-        )
     return None
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader of its own part, the one check of that research, unless its Handoff: line hands it a PR the drive tracks, it ships the immediate fix or it designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     if not SERVES_TOOLING.search(brief) and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
         return f"{job_id}'s brief plans a sign-in of his: {asked[0]}"
     job = data["jobs"][job_id]
@@ -294,9 +271,13 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
         return None
     named = RESEARCHED_BY.search(brief)
     if named is None:
+        parts = " ".join(f'--part "{part}"' for part in job["parts"])
         return (
             f"{job_id} builds on {order_id}, a build order: its brief carries the line Researched: <its reader's job>,"
-            " naming the reader whose kept report holds the order's rulings, what exists and its open questions"
+            " naming the reader whose kept report holds the order's rulings, what exists and its open questions, which drive job brief"
+            f' {job_id} writes once one has kept {BLOCK}; with none, add an Opus reader of its part, drive job add reader --order {order_id} {parts}'
+            ' --goal "research: <what>", then a long-running:reader whose brief asks for that block. A builder taking over a PR the'
+            " drive tracks, such as one proving a merged PR live, retrying its proof or rebasing it, starts on a Handoff: brief, which needs no reader"
         )
     if not (named[1] in readers(data, order_id, job["parts"]) and filled(researched(state.report_text(name, named[1])))):
         return f"Researched: {named[1]} names no reader of {job_id}'s part of {order_id} that kept {BLOCK} in its report"

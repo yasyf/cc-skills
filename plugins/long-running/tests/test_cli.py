@@ -776,6 +776,36 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming
     assert state.load("demo")["jobs"]["j1"]["waits"] == ["release:cloudrunner-next:Forge-AI/monorepo#7", "release:k8s:Forge-AI/monorepo#7"]
 
 
+def test_the_watchs_done_at_merge_line_adds_the_builder_proving_it_live_as_written_on_its_part_and_the_releases_go_ci_maps(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy and read", "--kind", "build", "--parts", "the copy", "the reads")
+    run("job", "add", "builder", "--order", "o1", "--part", "the reads", "--goal", "ship")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")
+    clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
+    for root in (clone, checkout):
+        (root / "tools").mkdir(parents=True)
+    (clone / "tools" / "ci").write_text("")
+    (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=tmp_path / "request.json", answer=tmp_path / "answer.json"))
+    (checkout / "tools" / "ci").chmod(0o755)
+    (tmp_path / "answer.json").write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next"], "touched": ["cloudrunner-next", "sand-next"]}))
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"])
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"]["cwd"] = str(clone)
+        data["prs"]["Forge-AI/monorepo#7"] |= {"state": "merged", "merged_sha": "fedcba9876543210"}
+        data["jobs"]["j1"].update(said="READY https://github.com/Forge-AI/monorepo/pull/7", prs=["https://github.com/Forge-AI/monorepo/pull/7"])
+        line = install.merged_done("demo", data, "j1", cli.reached("demo", data, ["Forge-AI/monorepo#7"]))
+    waits = ["release:cloudrunner-next:Forge-AI/monorepo#7", "release:sand-next:Forge-AI/monorepo#7"]
+    command = f"drive job add builder --order o1 --part 'the reads' --goal \"prove Forge-AI/monorepo#7 live\" --waits {waits[0]} --waits {waits[1]}"
+    assert f": {command} adds the builder" in line and "<service>" not in line and "release select" not in line
+    assert run(*shlex.split(command)[1:])[0] == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["waits"]) == (["the reads"], waits)
+    assert brief.brief_refusal("demo", data, "j2", "Handoff: prove Forge-AI/monorepo#7 live on its release\n") is None
+
+
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3064,7 +3094,7 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
     assert keep(monkeypatch, capsys, "j1", ready) == (0, "")
 
 
-def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_readers_research(
+def test_an_answer_order_is_one_readers_and_a_build_orders_builder_is_added_at_once_and_starts_on_its_readers_research(
     run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
@@ -3073,14 +3103,17 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     assert "refused, no job added: o1 is an answer order: one reader researches it and answers him" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o1", "--goal", "answer him")[0] == 0
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
-    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
-    assert "o2 is a build order, so its builder starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j2"
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", "Drive: demo, order o2, job j2").startswith(
+        "j2 builds on o2, a build order: its brief carries the line Researched: <its reader's job>"
+    )
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the copy")
-    keep(monkeypatch, capsys, "j2", "DONE read the copy path\n")
-    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
-    capsys.readouterr()
-    assert keep(monkeypatch, capsys, "j2", RESEARCH) == (0, "")
-    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j4"
+    assert keep(monkeypatch, capsys, "j3", "DONE read the copy path\n")[0] == 2
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", "Researched: j3\nDrive: demo, order o2, job j2") == (
+        "Researched: j3 names no reader of j2's part of o2 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+    )
+    assert keep(monkeypatch, capsys, "j3", RESEARCH) == (0, "")
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", "Researched: j3\nDrive: demo, order o2, job j2") is None
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an order from an older skill")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL copies fail on plat", "--incident", "--parts", "fix", "first check")
     assert state.load("demo")["orders"]["o4"]["kind"] == "build"
@@ -3088,15 +3121,15 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
 
 
-def test_a_build_orders_design_job_waits_on_its_readers_research(
+def test_a_build_orders_design_job_starts_only_on_its_readers_research(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
-    assert cli.main(["job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs"]) == 2
-    assert "o1 is a build order, so its design starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[1].splitlines()[0] == "j1"
+    assert 'drive job add reader --order o1 --part "Drive tooling: copy one store" --goal "research: <what>"' in brief.brief_refusal("demo", state.load("demo"), "j1", "Drive: demo, order o1, job j1")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    keep(monkeypatch, capsys, "j1", RESEARCH)
-    assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
+    keep(monkeypatch, capsys, "j2", RESEARCH)
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", "Researched: j2\nDrive: demo, order o1, job j1") is None
 
 
 def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_still_at_work(
@@ -3107,8 +3140,6 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
         "--parts", "answer", "control freak", "design options",
     )
     run("job", "add", "reader", "--order", "o1", "--part", "answer", "--part", "control freak", "--part", "design options", "--goal", "research: topologies")
-    assert cli.main(["job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards"]) == 2
-    assert "while j1 reads, add this design now waiting on it with --waits j1" in capsys.readouterr().err
     added = run("job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards", "--waits", "j1")
     assert added == (
         0,
@@ -3119,13 +3150,8 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[0] == 0
     jobs = state.load("demo")["jobs"]
     assert [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["agent"]) for job_id in ("j2", "j3", "j4")] == [("waiting", ["j1"], None)] * 3
-    refusals = {
-        "while j1 reads, add this builder now waiting on it with --waits j1": ["builder", "--part", "control freak", "--waits", "j3"],
-        "--waits records a job whose agent starts on the watch's FREE line": ["builder", "--part", "control freak", "--waits", "j1", "--agent", "a"],
-    }
-    for refusal, words in refusals.items():
-        assert cli.main(["job", "add", *words, "--order", "o1", "--goal", "x"]) == 2
-        assert refusal in capsys.readouterr().err
+    assert cli.main(["job", "add", "builder", "--part", "control freak", "--waits", "j1", "--agent", "a", "--order", "o1", "--goal", "x"]) == 2
+    assert "--waits records a job whose agent starts on the watch's FREE line" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o1", "--part", "answer", "--goal", "audit it", "--waits", "j1")[1].splitlines()[0] == "j5"
     keep(monkeypatch, capsys, "j1", RESEARCH)
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j1"]) == 2
@@ -3145,18 +3171,18 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     keep(monkeypatch, capsys, "j1", RESEARCH)
     run("job", "add", "reader", "--order", "o1", "--part", "the proof", "--goal", "prove the breaker live")
     keep(monkeypatch, capsys, "j3", RESEARCH)
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the alert", "--goal", "alert on trips"]) == 2
-    assert 'drive job add reader --order o1 --part "the alert" --goal "research: <what>"' in capsys.readouterr().err
-    assert run("job", "add", "design", "--order", "o1", "--part", "the breaker", "--goal", "cards: the breaker")[1].splitlines()[0] == "j5"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the alert", "--goal", "alert on trips")[1].splitlines()[0] == "j5"
+    assert 'drive job add reader --order o1 --part "the alert" --goal "research: <what>"' in brief.brief_refusal("demo", state.load("demo"), "j5", "Drive: demo, order o1, job j5")
+    assert run("job", "add", "design", "--order", "o1", "--part", "the breaker", "--goal", "cards: the breaker")[1].splitlines()[0] == "j6"
     owned = DESIGNED_IN_CHANGES.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
-    assert keep(monkeypatch, capsys, "j5", owned) == (0, "")
-    assert run("job", "add", "builder", "--order", "o1", "--part", "the reads through it", "--goal", "build the reads")[1].splitlines()[0] == "j6"
-    code, out = run("job", "brief", "j6", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert keep(monkeypatch, capsys, "j6", owned) == (0, "")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the reads through it", "--goal", "build the reads")[1].splitlines()[0] == "j7"
+    code, out = run("job", "brief", "j7", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert (code, "\nResearched: j1\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()) == (0, True)
     data = state.load("demo")
-    assert brief.brief_refusal("demo", data, "j6", "Researched: j1\nDrive: demo, order o1, job j6") is None
-    assert brief.brief_refusal("demo", data, "j6", "Researched: j3\nDrive: demo, order o1, job j6") == (
-        "Researched: j3 names no reader of j6's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+    assert brief.brief_refusal("demo", data, "j7", "Researched: j1\nDrive: demo, order o1, job j7") is None
+    assert brief.brief_refusal("demo", data, "j7", "Researched: j3\nDrive: demo, order o1, job j7") == (
+        "Researched: j3 names no reader of j7's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
 
 
@@ -3268,11 +3294,11 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
         "--parts", "the copy", "immediate fix", "--options-only",
     )
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
-    assert "o1 is limited to options: he picks one before the proper fix is built" in capsys.readouterr().err
+    refused = capsys.readouterr().err
+    assert "o1 is limited to options: he picks one before the proper fix is built" in refused
+    assert 'starts at once on its own "immediate fix" part, added with drive order set o1 --parts "the copy" "immediate fix"' in refused
     assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "stop the harm") == (0, "j1")
     run("order", "set", "o1", "--no-options-only")
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
-    assert 'starts at once on its own "immediate fix" part, added with drive order set o1 --parts "the copy" "immediate fix"' in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH) == (0, "")
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it another way")[0] == 0
@@ -3369,10 +3395,8 @@ def test_a_cause_reports_fix_linking_a_pr_the_drive_does_not_track_is_kept_and_r
     assert ([line[: len(said)] for line in fixes], pr and (pr["job"], pr["order"])) == ([said] if said else [], tracked)
 
 
-def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_builder_lands_only_drive_prs_he_approved(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "set", "o1", "--kind", "build")
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land it"]) == 2
-    assert "o1 is a build order, so its builder starts only once an Opus reader of its part" in capsys.readouterr().err
     assert cli.main(["job", "add", "codex", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
     assert "--lands names the PRs a builder lands" in capsys.readouterr().err
     assert cli.main(["job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2

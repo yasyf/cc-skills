@@ -2,6 +2,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -571,11 +572,11 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
 
 
 def merged_ready(data: dict, job_id: str) -> bool:
-    """Whether the job is a builder still waiting on its taken READY or PUSHED, every PR of which merged."""
+    """Whether the job is a builder on a READY or PUSHED whose PRs all merged, waiting on it once taken, or still running on it after the watch refused it or a resume sent it back to work."""
     job = data["jobs"][job_id]
     return (
         job["kind"] == "builder"
-        and job["state"] == "waiting"
+        and job["state"] in ("waiting", "running")
         and bool(state.REPORTED_LINE.match(job["said"] or ""))
         and bool(job["prs"])
         and all(data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"])
@@ -726,8 +727,8 @@ def said_on_prs(name: str, data: dict, job_id: str, change: str) -> None:
         state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
 
 
-def merged_done(name: str, data: dict, job_id: str) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out; what it says on the job's PRs' lines: the release each merge waits on and the drive job add that starts the builder proving it live there, on the surface the job's brief names when he sees it."""
+def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> str:
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out; what it says on the job's PRs' lines: the release each merge waits on and the drive job add that starts the builder proving it live there, on the job's own parts, waiting on the release of each component go/ci's map in reach finds a merge's paths reach, <service> for a merge reach does not map, and on the surface the job's brief names when he sees it."""
     from drive import brief
 
     job = data["jobs"][job_id]
@@ -740,13 +741,15 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
     held = ", ".join(sha[:12] for sha in merges.values())
-    waits = " ".join(f"--waits release:<service>:{key}" for key in merges)
+    parts = " ".join(f"--part {shlex.quote(part)}" for part in job["parts"])
+    waits = "".join(f" --waits release:{service}:{key}" for key in merges for service in (reach[key]["touched"] if key in reach else ["<service>"]))
     seen = f" on {surface}, where he sees it," if (surface := brief.surface(job)) else ""
+    unmapped = [key for key in merges if key not in reach]
     return (
         f"{MERGED_DONE}: {merged}; no proof kept, since only a release holding {held} puts it live, so {order_id}'s fix-live note waits on that release:"
-        f' drive job add builder --order {order_id} --goal "prove {", ".join(merges)} live" {waits} adds the builder with a merge handoff that proves it there{seen}'
-        f" once the watch's FREE says that release is out, its DONE giving {order_id} its proof; <service> is a component `tools/ci release select --pr` finds its paths reach,"
-        " and paths reaching none take no --waits"
+        f' drive job add builder --order {order_id} {parts} --goal "prove {", ".join(merges)} live"{waits} adds the builder with a merge handoff that proves it there{seen}'
+        f"{" once the watch's FREE says that release is out" if waits else " now"}, its DONE giving {order_id} its proof"
+        + (f"; go/ci's map in the coordinator checkout does not cover {', '.join(unmapped)}, so <service> is the component whose release carries it, and a merge no release carries takes no --waits" if unmapped else "")
     )
 
 

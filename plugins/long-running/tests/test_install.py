@@ -1153,14 +1153,15 @@ def test_a_product_merge_takes_done_at_once_its_merge_commit_its_check_keeping_n
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
-        change = install.merged_done("demo", data, "j1")
+        change = install.merged_done("demo", data, "j1", {})
         install.said_on_prs("demo", data, "j1", change)
     merged = "Forge-AI/monorepo#9 at fedcba987654"
     assert change == (
         f"{install.MERGED_DONE}: {merged}; no proof kept, since only a release holding fedcba987654 puts it live, so o1's fix-live note waits on that release:"
-        ' drive job add builder --order o1 --goal "prove Forge-AI/monorepo#9 live" --waits release:<service>:Forge-AI/monorepo#9 adds the builder with a merge'
-        " handoff that proves it there once the watch's FREE says that release is out, its DONE giving o1 its proof; <service> is a component"
-        " `tools/ci release select --pr` finds its paths reach, and paths reaching none take no --waits"
+        " drive job add builder --order o1 --part 'Drive tooling: prove each install' --goal \"prove Forge-AI/monorepo#9 live\""
+        " --waits release:<service>:Forge-AI/monorepo#9 adds the builder with a merge handoff that proves it there once the watch's FREE says that release"
+        " is out, its DONE giving o1 its proof; go/ci's map in the coordinator checkout does not cover Forge-AI/monorepo#9, so <service> is the component"
+        " whose release carries it, and a merge no release carries takes no --waits"
     )
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
@@ -1184,8 +1185,8 @@ def test_a_product_merge_names_the_surface_its_own_brief_names_for_the_proof_on_
         data["jobs"]["j1"].update(said=f"READY {port}", prs=[port], repro=None, brief_flags={"native": "none"})
         for url, job_id, sha in ((port, "j1", "fedcba9876543210"), (shown, "j2", "0123456789abcdef")):
             data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
-        asked = install.merged_done("demo", data, "j2")
-        merged = install.merged_done("demo", data, "j1")
+        asked = install.merged_done("demo", data, "j2", {})
+        merged = install.merged_done("demo", data, "j1", {})
     assert f"proves it there on {page}, where he sees it, once the watch's FREE says that release is out" in asked
     assert "proves it there once the watch's FREE says that release is out" in merged
     data = state.load("demo")

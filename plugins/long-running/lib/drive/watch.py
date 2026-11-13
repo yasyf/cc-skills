@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, state, superseded, view
-from drive.install import PROVEN, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
+from drive.install import PROVEN, config_dir, merged_done, merged_ready, merges_of, product, proof_gap, said_on_prs, upgraded
 from drive.render import cut, subscribe, when
 
 POLL_SECONDS = 5
@@ -1884,7 +1884,7 @@ def ended_waits(data: dict, job_id: str, job: dict) -> str:
 
 
 def at_merge(data: dict, job_id: str) -> bool:
-    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, unless it is an open incident's fix, which is live only once its release is out."""
+    """Whether the watch takes DONE at its merge on a builder, waiting or still running, on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, unless it is an open incident's fix, which is live only once its release is out."""
     job = data["jobs"][job_id]
     if not merged_ready(data, job_id) or job["waits"] or not product(data, job_id):
         return False
@@ -1909,22 +1909,34 @@ def proving(data: dict, job_id: str) -> bool:
     return proof_due(data, job_id) or any(land.running(data["prs"][state.pr_key(url)]) for url in job["prs"]) or proof["said"] == job["said"] and state.alive(proof["pid"])
 
 
-def finished(watcher: Watcher, moment: datetime) -> None:
-    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, and one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line; each says it on the job's PRs' lines."""
+def finished(watcher: Watcher, moment: datetime) -> list[str]:
+    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, whose line names each component go/ci's map finds the merge reaches, read before the drive's lock and again next pass when it fails, and one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line; each says it on the job's PRs' lines."""
+    from drive import cli
+
     data = state.load(watcher.name)
-    if not any(hears(watcher, data, job["order"]) and (at_merge(data, job_id) or proof_due(data, job_id)) for job_id, job in data["jobs"].items()):
-        return
+    heard = [job_id for job_id, job in data["jobs"].items() if hears(watcher, data, job["order"])]
+    merging = [job_id for job_id in heard if at_merge(data, job_id)]
+    if not merging and not any(proof_due(data, job_id) for job_id in heard):
+        return []
+    lines, reach = [], {}
+    if merging:
+        try:
+            reach = cli.reached(watcher.name, data, [key for job_id in merging for key in merges_of(data, job_id)])
+            watcher.failures.pop("release select", None)
+        except (github.GithubError, state.DriveError) as error:
+            merging, lines = [], read_failed(watcher, "release select", error, moment)
     said = {}
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if not hears(watcher, data, job["order"]):
                 continue
-            if at_merge(data, job_id):
-                said[job_id] = merged_done(watcher.name, data, job_id)
+            if job_id in merging and at_merge(data, job_id):
+                said[job_id] = merged_done(watcher.name, data, job_id, reach)
             elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
     for job_id, change in said.items():
         said_on_prs(watcher.name, data, job_id, change)
+    return lines
 
 
 def prove(name: str, job_id: str) -> int:
@@ -2126,7 +2138,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += settle_lines(watcher, moment)
         lines += follow_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
-        finished(watcher, moment)
+        lines += finished(watcher, moment)
         lines += recovered_lines(watcher, moment)
         lines += close_report_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)
