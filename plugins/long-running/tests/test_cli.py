@@ -3176,7 +3176,11 @@ def test_a_readers_design_report_keeps_its_ask_and_posts_its_ask_record_in_the_s
     job = state.load("demo")["jobs"]["j1"]
     [question] = job["questions"]
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
-    assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, its ask record posted"
+    briefed = state.load("demo")["jobs"]["j2"]["brief"]
+    assert out == (
+        f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, its ask record posted"
+        f"\nj2: Read your brief first: {briefed}\nhis words from o1, rulings: 0, earlier jobs: 0"
+    )
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
     assert ([sent["attr"] for sent in asks_sent], question["waits"]) == ([{"job": "j1", "ask": question["file"]}], "demo:j1-7")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build the recommended option")[0] == 0
@@ -6750,6 +6754,8 @@ def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_
     run: Run, designing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     another_order_asking(run, monkeypatch)
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["agent"] = "agent-3"
     jev.changes = {"j3-9": 0.5}
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])

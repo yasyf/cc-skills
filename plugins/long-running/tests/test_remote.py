@@ -3760,9 +3760,11 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
 
 
 def kept_attempt(drive: str, attempt: str, dispatch: str) -> None:
-    """The attempt the launcher keeps for a brief whose worker started: worker-start exited 0 with a ready receipt."""
-    kept = state.drive_dir(drive) / "jobs" / f"{attempt}.worker"
+    """The brief launch_attempt writes before the launcher runs, and the attempt the launcher keeps beside it once its worker started: worker-start exited 0 with a ready receipt."""
+    brief = state.drive_dir(drive) / "jobs" / f"{attempt}.md"
+    kept = brief.with_suffix(".worker")
     kept.mkdir(parents=True)
+    brief.write_text("ship it\n")
     (kept / "worker-start.status").write_text("0\n")
     (kept / "worker-start.json").write_text(json.dumps({"ok": True, "error": None, "result": {"state": "ready", "runId": RUN, "taskId": "task_sprite", "dispatchId": dispatch}}))
 
