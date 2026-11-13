@@ -330,15 +330,16 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, job: dict, text: str | None, end: LaneEnd, left: str | None) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, and the message it never read, when a resume brought one."""
-    local = state.on_mac(job)
-    if end.worktree:
-        how, where = "finished", f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
+def handoff(brief: str, ended: dict, job: dict, text: str | None, end: LaneEnd, left: str | None, here: bool = False) -> str:
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended."""
+    local = here or state.on_mac(job)
+    how = "finished" if end.worktree else "died"
+    if end.worktree and not here:
+        where = f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
     elif left:
-        how, where = "died", f"You continue the job on the same Sprite, in the checkout it left as it was, since what it holds on no remote could not be saved to GitHub: {left}. Read its git status and log before anything else."
+        where = f"You continue the job on the same Sprite, in the checkout it left as it was, since what it holds on no remote could not be saved to GitHub: {left}. Read its git status and log before anything else."
     else:
-        how, where = "died", (
+        where = (
             f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
             + (f"what it held on no remote was saved for you: {ended['saved']}. Fetch each saved branch and carry its work on. {PUSH_FIRST}" if ended.get("saved") else UNPUSHED)
         )
