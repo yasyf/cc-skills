@@ -169,13 +169,19 @@ summary of one feature is a line of at most 60 words.
   summary: an `{order:<o>}` draws its order's first 100 characters, so give it a few words of its own,
   `{order:<o>|<a few words>}`, when the card runs near 150. When the block has a Show me, a `*Show me*` line
   and the Show me follow as written.
+- His card draws the findings' `Root cause:` line under the summary's first line, as `*Root cause:*`
+  and its words, a cause not found without the job measuring it, and counts it outside the 150 words:
+  `drive job ask` refuses one over 60 words, a named cause with no number measuring it, and one
+  holding a drive job or order id, by his words "this still doesnt tell us why its so slow/how to
+  speed it up". It is the cause of what his order asks about, such as why a step is slow, and a
+  bound, cap, retry or time budget around it goes on the `Interim fix:` line.
 - The card starts from the root cause, the structure that lets the defect happen, and one option is
   always the one that removes it so the defect cannot occur, recommended, every other option saying
   it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Simplest:` line
   naming by its words the option that is the simplest design doing his words, by his words "in geernal keeps implifying all this tuff", or no `Root cause:` line
   with a `First principles:` line naming that option by its words, `Root cause: fixed: <the structure>,
   removed by <the merged PR's link>` on a card asking only whether to release that PR, `Root cause: not
-  found: <the job finding it>` or `Root cause: none: <why>`, as on his approval of an action his rules
+  found: <what measures it>, by <the job measuring it>` or `Root cause: none: <why>`, as on his approval of an action his rules
   hold for him (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
   or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
   shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.

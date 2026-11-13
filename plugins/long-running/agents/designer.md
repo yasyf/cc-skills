@@ -104,7 +104,7 @@ Show me:
   <one plain-text description of what the option is, at most 60 words: what runs and when, where its data lives, and what it requires touching or building, by name, with any cost every user pays, such as SandSQL's write path for every table>
 - <another option, the same way with its description; two to four in all>
 Findings:
-Root cause: <the structure that lets the defect happen, by its proper terms; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <the job finding it>; or none: <why no defect is behind this question>>
+Root cause: <the structure that lets the defect happen, the cause of what his order asks about, by its proper terms, with the number that measures it; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <what measures it>, by <the job measuring it>; or none: <why no defect is behind this question>; at most 60 words, which his card draws under its first line>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Simplest: <the option that is the simplest design doing his words, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
@@ -118,13 +118,19 @@ Replaces: <only on a question built on another open question of his: the path dr
   branch, or nothing built until he picks when his order asks for options only, and the immediate
   fix or rollback already shipping when a bug hurts someone now, which `Interim fix:` links.
 - Draw the options from the job's own evidence. Start from the root cause: the structure that lets the defect happen, not the step where it
-  showed. `Root cause:` names it by its proper terms, and `First principles:` names, by its words
+  showed, and the cause of what his order asks about, such as why a step is slow when he asks why it
+  is slow, never a neighbouring defect beside it; a bound, cap, retry or time budget around it goes on
+  the `Interim fix:` line, never in its place. His card draws the `Root cause:` line under the
+  summary's first line, so it is at most 60 words and names the number that measures the cause, such
+  as a slice's journal read taking 3,214 ms an entry against 86 ms, by his words "this still doesnt
+  tell us why its so slow/how to speed it up"; `drive job ask` refuses one longer, one naming no
+  measured number and one holding a drive job or order id. `Root cause:` names it by its proper terms, and `First principles:` names, by its words
   whole or up to the colon that ends its first part, the option that removes it through one
   abstraction every caller goes through, so the defect cannot occur. That option is always offered
   and recommended unless his own pick or order chooses another, which beats this preference; each other
   option says it keeps the structure and what that costs, and one that keeps it behind a cap, timer,
   retry, exit, flag, pin or sweeper is recommended only when his pick chose it. On every card, his product designs included, one option is the simplest design that does his words, with the fewest tables, columns, rows per fact, messages, processes, checks and steps, such as one row per blob holding its sha and a ref count, and each other option says what it adds over it, by his words "in geernal keeps implifying all this tuff". A simpler design his words or an answer of his your findings quote name is that option even when an older pick set it aside, and when the fork exists only because of an earlier pick of the drive's own recommendation, the option undoing that pick is. `Simplest:` names it by its words, whole or up to the colon that ends its first part, and `drive job ask` refuses a card without it. A cause
-  not found yet reads `Root cause: not found: <the job finding it>`, and the card offers no cap, timer
+  not found yet reads `Root cause: not found: <what measures it>, by <the job measuring it>`, which his card draws without the job, and the card offers no cap, timer
   or exit around the step it has not explained. A card asking only whether to release a merged fix reads
   `Root cause: fixed: <the structure>, removed by <the merged PR's link>` with no `First principles:`
   line, and a PR adding a cap, timer, retry, exit, flag, pin or sweeper removed nothing. A card with no

@@ -1778,7 +1778,7 @@ def test_job_ask_starts_from_the_root_cause_and_leaves_which_option_it_recommend
 ) -> None:
     block = tmp_path / "ask.md"
     picked = "Root cause: none: two landed designs of one button, a pick between them with no defect behind it"
-    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states\nFirst principles: Add our status line beside their always-on button"))
+    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states, which disagreed on 4 of 9 downloads\nFirst principles: Add our status line beside their always-on button"))
     assert run("job", "ask", asking, str(block))[0] == 0
     assert "Option 2: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]
     assert "First principles: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]

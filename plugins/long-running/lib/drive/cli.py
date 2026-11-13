@@ -1435,7 +1435,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
             f" the words that name it, an {{order:<o>}} as the first {view.TITLE_CHARS} characters of his order, and at most"
             f" {limits.QUESTION_WORDS} in all: give a reference a few words of its own, as {{order:<o>|<a few words>}}, or cut the summary"
         )
-    if typed := limits.typed_time("\n".join([asked.title, *asked.summary, *asked.show_me, *asked.options, *asked.hints.values()]), data):
+    if typed := limits.typed_time("\n".join([asked.title, *asked.summary, asked.cause, *asked.show_me, *asked.options, *asked.hints.values()]), data):
         raise DriveError(f"{job_id}: refused, nothing kept: his card draws these words, and {typed}")
     said = "\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
@@ -1681,10 +1681,11 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), pr_cards):
         raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    found = refs.resolved(name, "\n".join([*asked.summary, *show_me, *asked.hints.values()]))
+    found = refs.resolved(name, "\n".join([*asked.summary, asked.cause, *show_me, *asked.hints.values()]))
     card = replace(
         asked,
         summary=[refs.slack(line, found, None) for line in asked.summary],
+        cause=refs.slack(asked.cause, found, None),
         show_me=[refs.slack(line, found, None) for line in show_me],
         hints={option: refs.slack(hint, found, None) for option, hint in asked.hints.items()},
     ).card(name, waits)
@@ -4188,9 +4189,10 @@ def parser() -> argparse.ArgumentParser:
             " options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence, its `Simplest:` line naming the option"
             " that is the simplest design doing his words, its `Root cause:` line naming the"
-            " structure that lets the defect happen and its `First principles:` line the recommended option that removes"
-            " it, or `Root cause: fixed: <that structure>, removed by <the merged PR's link>`, `not found: <the job"
-            " finding it>` or `none: <why>`. Keep it in the drive in a file of"
+            " structure that lets the defect happen with the number that measures it and its `First principles:` line the"
+            " recommended option that removes it, or `Root cause: fixed: <that structure>, removed by <the merged PR's link>`,"
+            " `not found: <what measures it>, by <the job measuring it>` or `none: <why>`, at most 60 words, which his card"
+            " draws under its first line, the job left off. Keep it in the drive in a file of"
             " its own and print its path, add it to the job's open questions, each open until his answer to its own card,"
             " and post its ask record to the communicator, whose handler draws its card, storing that card's waits id."
             " A block asking again, in the same words, what one of the job's questions asks that his answer has not"

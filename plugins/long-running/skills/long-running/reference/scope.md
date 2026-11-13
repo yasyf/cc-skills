@@ -150,9 +150,13 @@ caller goes through, unless his own pick or order chooses another, which beats t
 option keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is the recommended one only
 when his pick chose it. The findings' `Root cause:` line names that structure and `First
 principles:` that option, or `Root cause:` reads `fixed: <that structure>, removed by <the merged
-PR's link>` on a card asking only whether to release that PR, `not found: <the job finding it>`, or
-`none: <why no defect is behind it>`, as on a pick between his designs or his approval of an action
-his rules hold for him, such as a benchmark run; `drive job ask` refuses a block without them. In the
+PR's link>` on a card asking only whether to release that PR, `not found: <what measures it>, by <the
+job measuring it>`, or `none: <why no defect is behind it>`, as on a pick between his designs or his
+approval of an action his rules hold for him, such as a benchmark run; `drive job ask` refuses a block
+without them. The cause is the one his order asks about, such as why a step is slow, and a bound,
+cap, retry or time budget around it goes on the `Interim fix:` line. His card draws the `Root cause:`
+line under the summary's first line, so it is at most 60 words, a named cause with the number that
+measures it, by his words "this still doesnt tell us why its so slow/how to speed it up". In the
 call that reads his words, Jev weighs each option and the card by the part of this rule its `Root cause:`
 form names, his words, and the words each page it links shows once Chrome opens it against what the card
 says that page shows; each option or part Jev is at least 0.8 sure breaks them refuses the card, naming

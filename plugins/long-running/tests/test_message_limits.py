@@ -187,6 +187,7 @@ JOSHS_PR = (
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
 BREAK_GLASS = "Use break glass with machine profile then you don't need sso, I tell you this once a day"
 SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
+STRAY_CAUSE = "Root cause: both builds share one chat folder on his Mac, so the old build's own server wrote 9 of his 23 chats there\n"
 STRAY_CHATS_ASK = explained(f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
 Drive tooling: your pick decides how stray chats stop. Both builds share one chat folder; <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder.
 Show me:
@@ -203,8 +204,7 @@ Both builds use the same folder, and the old one never sees the new app's server
 - New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder.
 - Rowan first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
 Findings:
-Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there
-Holds: none: no option changes code any job builds
+{STRAY_CAUSE}Holds: none: no option changes code any job builds
 First principles: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Simplest: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
@@ -1480,7 +1480,7 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused
 
 
 def test_a_block_starts_from_the_root_cause_and_names_the_option_that_removes_it() -> None:
-    cause = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
+    cause = STRAY_CAUSE
     shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
     with pytest.raises(DriveError, match="no `Root cause:` line under `Findings:`"):
         limits.question(STRAY_CHATS_ASK.replace(cause, ""))
@@ -1490,15 +1490,44 @@ def test_a_block_starts_from_the_root_cause_and_names_the_option_that_removes_it
         limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"))
     refuses = "New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder."
     assert limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", f"First principles: {refuses}")).recommended == shown
-    with pytest.raises(DriveError, match="names no job finding it"):
-        limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: the old build's writes\n"))
-    assert limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: j12 reads his chat files\n")).recommended
+    with pytest.raises(DriveError, match=re.escape("says not what measures the cause and which job: write `Root cause: not found: <what measures it>, by j<n>`")):
+        limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: j12 reads his chat files\n"))
+    unfound = limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: which build writes each of his chat files, by j12\n"))
+    assert unfound.cause == "not found: which build writes each of his chat files"
+    assert "j12" not in unfound.card("demo", "demo:j12-1")["body"]
     assert limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: none: a pick between two designs of his\n")).recommended
     assert limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"), kept=True).recommended
 
 
+def test_a_card_draws_its_root_cause_line_under_its_first_line_and_counts_it_apart_from_its_words() -> None:
+    card = limits.question(STRAY_CHATS_ASK).card("demo", "demo:j585-7")
+    opening, drawn, shown = card["body"].splitlines()[:3]
+    assert opening.startswith("Drive tooling: your pick decides how stray chats stop.")
+    assert drawn == f"*Root cause:* {STRAY_CAUSE.removeprefix('Root cause: ').strip()}"
+    assert shown == "*Show me*"
+    assert limits.card_words(card) == limits.card_words(card | {"body": card["body"].replace(f"{drawn}\n", "")})
+    assert limits.card_refusal(card, "") is None
+
+
+@pytest.mark.parametrize(
+    ("cause", "refusal"),
+    [
+        ("Root cause: both builds share one chat folder on his Mac\n", "names no measured number"),
+        ("Root cause: both builds share one chat folder, read at lib/drive/state.py:12 and in 0c59046\n", "names no measured number"),
+        (f"Root cause: {' '.join(['slow'] * 59)} 3 ms\n", "`Root cause:` is 61 words"),
+        ("Root cause: j2749's reader measured 3,214 ms an entry against 86 ms\n", '`Root cause:` holds "j2749"'),
+        ("Root cause: none: o722 asks for a pick between his designs\n", '`Root cause:` holds "o722"'),
+        ("Root cause: both builds share one chat folder, as #4771 measured on 9 chats\n", '"#4771" is a number he cannot open'),
+    ],
+)
+def test_a_root_cause_line_his_card_draws_is_one_line_long_measured_and_names_nothing_he_cannot_open(cause: str, refusal: str) -> None:
+    with pytest.raises(DriveError, match=re.escape(refusal)):
+        limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause))
+    assert limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause), kept=True).cause == cause.removeprefix("Root cause: ").strip()
+
+
 def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_removed_and_links_that_pr() -> None:
-    cause = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
+    cause = STRAY_CAUSE
     unprincipled = "\n".join(line for line in STRAY_CHATS_ASK.splitlines() if not line.startswith("First principles:")) + "\n"
     removed = "Root cause: fixed: both builds shared one chat folder on his Mac; removed by https://github.com/acme/app/pull/12\n"
     assert limits.question(unprincipled.replace(cause, removed)).recommended
@@ -1512,12 +1541,11 @@ def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_remov
         ("Root cause: none: his approval of the exact benchmark command his rules hold for him\n", "none"),
         ("Root cause: fixed: both builds shared one chat folder on his Mac; removed by https://github.com/acme/app/pull/12\n", "fixed"),
         ("Root cause: not found: j12 reads his chat files\n", "found"),
-        ("Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n", "found"),
+        (STRAY_CAUSE, "found"),
     ],
 )
 def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line(cause: str, form: str) -> None:
-    stray = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
-    assert limits.rule_words(STRAY_CHATS_ASK.replace(stray, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}]
+    assert limits.rule_words(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}]
 
 
 def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1705,7 +1733,7 @@ def test_first_principles_names_an_option_whose_first_part_holds_a_double_colon(
         "Also write the legacy content field as a blob::Blob: old readers keep working, one more write each save",
         "Drop the legacy field: no extra write, and old readers break",
     ]
-    findings = "Root cause: old readers still open the legacy field\nFirst principles: Also write the legacy content field as a blob::Blob\nSimplest: Drop the legacy field\n"
+    findings = "Root cause: old readers, 3 of the 5 builds in use, still open the legacy field\nFirst principles: Also write the legacy content field as a blob::Blob\nSimplest: Drop the legacy field\n"
     assert limits.root_cause_problems(findings, options) == []
     assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
 
@@ -1824,7 +1852,7 @@ def test_a_card_draws_each_file_name_and_path_as_code_so_slack_links_none_of_the
 
 def test_a_cards_body_draws_clone_rs_as_code_beside_the_link_that_names_it() -> None:
     card = limits.question(DESCRIBED_ASK).card("demo", "demo:j1-7")
-    assert card["body"].splitlines()[1] == (
+    assert card["body"].splitlines()[2] == (
         "Sockets only touches `clone.rs`, `clone/child.rs` and `local/process.go`, as <https://github.com/acme/app/blob/main/clone.rs|clone.rs> reads today."
     )
 
