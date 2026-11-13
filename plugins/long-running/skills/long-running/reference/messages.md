@@ -443,8 +443,9 @@ merged and installed, listing each rule now in the skill.
 - The drive owes it to whoever reported a bug the drive fixes, in the thread of the report, the moment
   the fix is live. His words, the day a hand repair went live and the reporter never heard: "Did you
   let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
-  from the share or link in his words, `drive order add --reporter`, and `drive status` says on the
-  order's line whether that thread heard.
+  from the share or link in his words, `drive order add --reporter`, or by itself when he gives the
+  order in that thread, whose lines then go to his DM, and `drive status` says on the order's line
+  whether that thread heard.
 - A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
   there once every part of it is posted to him, with no proof asked, since an answer has no fix to
   go live. His share of the question orders it: the handler writes the answer again for that person

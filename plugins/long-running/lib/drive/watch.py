@@ -417,7 +417,7 @@ def closed(watcher: Watcher, head: str, links: list[str], moment: datetime) -> l
     record = {
         "kind": "report",
         "topic": f"watch-recovered-{head}",
-        "attr": {"close": ",".join(group)} | ({"thread": incident["thread"][1]} if incident["thread"] else {}),
+        "attr": {"close": ",".join(group)} | state.thread_attr(incident),
         "text": f"POST incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live; post the Live line in its thread",
         "body": "\n".join(facts) + "\n",
     }
@@ -1098,7 +1098,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     record = {
         "kind": "report",
         "topic": f"watch-quiet-{head}",
-        "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"thread": order["thread"][1]} if order["thread"] else {}),
+        "attr": {"order": head, "progress": "true", "quiet": "true"} | state.thread_attr(order),
         "text": text,
         "body": "\n".join(facts) + "\n",
     }

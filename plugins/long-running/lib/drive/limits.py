@@ -8,7 +8,7 @@ from pathlib import Path
 
 from drive import picture, slack
 from drive.render import clock, cut, when
-from drive.state import KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, named_prs, now, root, same_question
+from drive.state import KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, now, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -1431,8 +1431,8 @@ def his_words(order: dict) -> str:
 
 
 def from_his_message(order: dict) -> bool:
-    """Whether an order's text is his own Slack message: added from it, with no reporter, and not a "Drive tooling:" order the drive wrote."""
-    return order["from"].startswith("slack:") and not order["reporter"] and not order["text"].startswith(TOOLING)
+    """Whether an order's text is his own Slack message: added from it, with no reporter but one whose thread he gave it in, and not a "Drive tooling:" order the drive wrote."""
+    return order["from"].startswith("slack:") and (not order["reporter"] or in_reporter_thread(order)) and not order["text"].startswith(TOOLING)
 
 
 def kind_words(data: dict, pr: dict) -> str:
