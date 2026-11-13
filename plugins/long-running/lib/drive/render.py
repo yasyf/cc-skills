@@ -148,8 +148,9 @@ COORDINATOR_RULES = (
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each verb and flag its"
-        " row in drive manual verbs: before acting on one, read that one row with drive manual <page> <row>, never a"
-        " whole page, a cached copy or --help, since a rule for one step lives only in its row."
+        " row in drive manual verbs: before acting on one, read that one row with drive manual <page> <row>, and any"
+        " other page's rule with drive manual <page> <its words>, which prints the bullets and sections carrying them,"
+        " never a whole page, a cached copy or --help."
     ),
     (
         "Drive tooling is the meta session's, never yours: a tool defect you or a job hit, a hook refusing wrongly or a"
@@ -195,9 +196,9 @@ META_RULES = (
     ),
     (
         "Every record and job result has its row in drive manual meta: before acting on one, read that row alone with"
-        " drive manual meta <row>, since a rule for one step lives only in its row. Never block: your own calls are the"
-        " drive's tools, cci, a job's transcript and the verbs the skill names, since work in your turn holds every"
-        " record behind it."
+        " drive manual meta <row>, and any other page's rule with drive manual <page> <its words>, which prints the"
+        " bullets and sections carrying them. Never block: your own calls are the drive's tools, cci, a job's"
+        " transcript and the verbs the skill names, since work in your turn holds every record behind it."
     ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES, "meta": META_RULES}

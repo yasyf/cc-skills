@@ -88,7 +88,7 @@ TOLD_LINK = (
 ASKED_AGAIN = "Asked again on a newer card · answer that one"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
-RELEASE_RULE = re.compile(r"^- (Every release a drive job starts.*?)\n(?!  )", re.M | re.S)
+LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "sprite_config")
 MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
@@ -2186,7 +2186,7 @@ def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
 
 def release_rule() -> str:
     """The rule incidents.md states for every release a drive job starts, read from the page so the brief and the page share one text."""
-    return " ".join(RELEASE_RULE.search((PAGES / "incidents.md").read_text())[1].split())
+    return " ".join(page_parts((PAGES / "incidents.md").read_text(), "Every release a drive job starts")[0].split()).removeprefix("- ")
 
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:
@@ -3768,10 +3768,43 @@ def manual(args: argparse.Namespace) -> int:
         sys.stdout.write(text)
         return 0
     rows = [line for line in text.splitlines() if line.startswith("| ") and args.row.casefold() in line.split("|")[1].casefold()]
-    if not rows:
-        raise DriveError(f"no row of drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
-    print("\n".join(rows))
+    parts = ["\n".join(rows)] if rows else page_parts(text, args.row)
+    if not parts:
+        raise DriveError(f"nothing in drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
+    print("\n\n".join(parts))
     return 0
+
+
+def page_parts(text: str, words: str) -> list[str]:
+    """Each part of a page carrying the words, in any case and across a line wrap, in page order: a heading with its whole section, a list item with the lines wrapped under it, a table row, a fenced block or a paragraph, a part inside another printed once."""
+    lines, wanted = text.splitlines(), " ".join(words.split()).casefold()
+    blocks: list[list[int]] = []
+    levels: dict[int, int] = {}
+    fenced = joins = False
+    for n, line in enumerate(lines):
+        fence = line.lstrip().startswith("```")
+        if fenced:
+            blocks[-1][1], fenced = n + 1, not fence
+            continue
+        heading, row = reads.PLAN_HEADING.match(line), line.startswith("|")
+        if heading:
+            levels[n] = len(heading[1])
+        if joins and line.strip() and not (fence or heading or row or LIST_ITEM.match(line)):
+            blocks[-1][1] = n + 1
+        elif line.strip():
+            blocks.append([n, n + 1])
+        fenced, joins = fence, bool(line.strip()) and not (fence or heading or row)
+    found: list[list[int]] = []
+    for start, end in blocks:
+        if wanted not in " ".join(" ".join(lines[start:end]).split()).casefold():
+            continue
+        if start in levels:
+            end = next((n for n, level in levels.items() if n > start and level <= levels[start]), len(lines))
+        if found and start <= found[-1][1]:
+            found[-1][1] = max(end, found[-1][1])
+        else:
+            found.append([start, end])
+    return ["\n".join(lines[start:end]).rstrip() for start, end in found]
 
 
 def view_command(args: argparse.Namespace) -> int:
@@ -4935,7 +4968,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
-    verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY")
+    verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")

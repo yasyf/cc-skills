@@ -214,8 +214,8 @@ def cached_page(text: str) -> str | None:
         return None
     return (
         f"refused: this reads the skill's pages from long-running {cached[2]}'s copy in Claude Code's plugin cache, and"
-        f" {current} is installed now; a cached copy goes stale with each install. Read a page's rows with"
-        " `drive manual <page> <row>`, which prints the installed rows"
+        f" {current} is installed now; a cached copy goes stale with each install. Read a page's rule with"
+        " `drive manual <page> <row>`, which prints the installed page's rows, bullets and sections naming it"
     )
 
 
