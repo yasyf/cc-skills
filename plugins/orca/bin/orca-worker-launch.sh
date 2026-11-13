@@ -11,6 +11,7 @@ run=${WORKER_RUN:?set WORKER_RUN to the Orca Run id}
 ref=${WORKER_REF:-}
 expect=${WORKER_EXPECT_BASE:-}
 continued=${WORKER_WORKSPACE:-}
+session=${WORKER_SESSION:-}
 tier=${WORKER_SERVICE_TIER:-}
 lane_spec=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/lane.json
 lane_env=$(jq -r '.env | to_entries | map("\(.key)=\(.value)") | join(" ")' "$lane_spec")
@@ -106,7 +107,7 @@ if [ "$route" = sprite ]; then
   fi
 else
   [ "$kind" = claude ] || die "the local route starts only claude, and codex runs $model_id; nothing launched"
-  [ -z "$ref$expect$continued" ] || die "WORKER_REF, WORKER_EXPECT_BASE and WORKER_WORKSPACE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched"
+  [ -z "$ref$expect$continued$session" ] || die "WORKER_REF, WORKER_EXPECT_BASE, WORKER_WORKSPACE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH; nothing launched"
   repo=${WORKER_REPO:-$(repo_value repo)} base=${WORKER_BASE_BRANCH:-$(repo_value baseBranch)}
   [ -n "$repo" ] || die "set WORKER_REPO, or repo in .orca.json, to the Orca repository the local route adds its worktree to; nothing launched"
   [ -n "$base" ] || die "set WORKER_BASE_BRANCH, or baseBranch in .orca.json, to the branch a local worktree starts from; nothing launched"
@@ -260,6 +261,7 @@ if [ "$route" = sprite ]; then
   prepare=(orca prepare "${opening[@]}" --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
   [ "$kind" != claude ] || for pair in "${lane_pairs[@]}"; do prepare+=(--env "$pair"); done
   [ -z "$ref" ] || prepare+=(--ref "$ref")
+  [ -z "$session" ] || prepare+=(--resume "$session")
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
   [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done

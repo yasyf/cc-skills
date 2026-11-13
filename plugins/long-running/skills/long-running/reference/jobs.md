@@ -299,6 +299,12 @@ before it sends or starts.
   sent, so `drive answer --sent` on one only confirms that mark.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran.
+- A dead lane whose Sprite answers with the Claude session its worker ran there, found by the
+  dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead:
+  `cc-remote orca prepare --existing --resume <session>` starts that session again in the
+  checkout it left, with a short brief saying why it died, which dispatch it reports on now and
+  the message, and nothing is saved, moved or destroyed. A resume that starts no worker falls back
+  to the relaunch below, its why naming the refusal.
 - Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace
   even when Orca dropped its dispatch or environment. Over ssh it commits each worktree's uncommitted
   changes there and pushes each commit, branch or stash GitHub holds nowhere as

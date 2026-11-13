@@ -37,6 +37,7 @@ DRIVE_TERMINAL = "term_drive"
 REAL_DRIVE_TERMINAL = orca.drive_terminal
 REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
+REAL_SESSION_OF = orca.session_of
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -497,6 +498,14 @@ def kept_logs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     kept: list[tuple[str, str]] = []
     monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)))
     return kept
+
+
+@pytest.fixture(autouse=True)
+def sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """The Claude session each Sprite answers with for a dead lane's dispatch, by workspace, which a resume of that lane resumes there; none unless a test puts one."""
+    held: dict[str, str] = {}
+    monkeypatch.setattr(orca, "session_of", lambda workspace, dispatch: held.get(workspace))
+    return held
 
 
 @pytest.fixture(autouse=True)
