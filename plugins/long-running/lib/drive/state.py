@@ -1071,7 +1071,7 @@ def held_by_parent() -> bool:
 
 
 def older_verbs_done(name: str) -> None:
-    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait."""
+    """Wait until every verb an older install started has ended, before this process first saves a drive an older install saved last, so no verb meets a drive.json saved by an install newer than its own code, however long it runs; taken outside the drive's lock, which those verbs still take, and once a process, since no older verb starts after it. A process that outlives its verb lets go of its lock whenever it waits on something of its own, so only verbs running hold this wait; a wait past SLOW_HOLD_SECONDS is logged to locks.log with the verbs it waited on."""
     path = state_path(name)
     if path in WAITED_OLDER or not path.exists():
         return
@@ -1079,8 +1079,18 @@ def older_verbs_done(name: str) -> None:
         for older in (root() / "installs").glob("*.lock"):
             if version_order(saver) <= version_order(older.stem) < version_order(VERSION):
                 with open(older, "a") as handle:
-                    taken(handle, math.inf)
+                    asked = time.monotonic()
+                    if not taken(handle, SLOW_HOLD_SECONDS):
+                        running = holders(older)
+                        taken(handle, math.inf)
+                        kept_wait(name, older.stem, time.monotonic() - asked, running)
     WAITED_OLDER.add(path)
+
+
+def kept_wait(name: str, older: str, waited: float, running: str) -> None:
+    """Log a first save's wait past SLOW_HOLD_SECONDS for an older install's verbs to locks.log: how long, the verb that waited and the verbs still running when it began, so a verb holding every newer install behind it is named."""
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} waited {waited:.1f}s for long-running {older}'s verbs before its first save: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}; running then: {running}\n")
 
 
 def taken(handle: IO, seconds: float) -> bool:

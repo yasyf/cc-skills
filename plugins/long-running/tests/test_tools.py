@@ -141,7 +141,7 @@ PLAN = {
 }
 
 
-def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_grants_environment_and_exits_as_it_does(
+def test_drive_break_glass_grants_in_the_jobs_name_holding_no_install_lock_then_runs_its_command_in_the_grants_environment_and_exits_as_it_does(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
@@ -151,14 +151,15 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
 
     @contextlib.contextmanager
     def held(stack: str, reason: str, asker: str, checkout: object) -> Iterator[reads.Grant]:
-        granted.append((stack, reason, asker, str(checkout)))
+        granted.append((stack, reason, asker, str(checkout), dict(state.HELD_INSTALL)))
         yield grant
 
     monkeypatch.setattr(reads, "break_glass", held)
     monkeypatch.setattr(reads, "run_granted", lambda command, granted: ran.append((command, granted.env)) or 3)
+    state.hold_install()
     assert run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "sts", "get-caller-identity")[0] == 3
     coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
-    assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator)]
+    assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator, {})]
     assert ran == [(["aws", "sts", "get-caller-identity"], grant.env)]
     assert run("break-glass", "j9", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
 
