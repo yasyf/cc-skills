@@ -2895,7 +2895,7 @@ def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.Capt
     assert timedelta(minutes=9) < state.parse_time(state.load("demo")["jobs"]["j1"]["due"]) - state.now() <= timedelta(minutes=10)
 
 
-def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_card_or_settled_with_no_design_job(
+def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_card_or_settled_whatever_design_job_the_order_has(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
@@ -2930,7 +2930,8 @@ def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_ca
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = []
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
+    assert replays["no question kept"][1] in capsys.readouterr().err
 
 
 def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_question_and_frees_its_builder(
@@ -3110,8 +3111,8 @@ def test_a_design_report_whose_order_thread_cannot_be_read_fails_as_that_read_an
     assert (job["state"], job["questions"], state.replies_path("demo", "j1").exists()) == ("running", [], False)
 
 
-def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing(
-    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_readers_design_report_keeps_its_ask_and_posts_its_ask_record_in_the_same_call_or_keeps_nothing(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], asks_sent: list[dict]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -3127,6 +3128,8 @@ def test_a_readers_design_report_keeps_its_ask_in_the_same_call_or_keeps_nothing
     assert (code, job["state"], question["title"], question["refused"]) == (0, "done", DESIGN_TITLE, None)
     assert out == f"{state.replies_path('demo', 'j1')}\nits ASK is kept in {question['file']}, its ask record posted"
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
+    assert ([sent["attr"] for sent in asks_sent], question["waits"]) == ([{"job": "j1", "ask": question["file"]}], "demo:j1-7")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "build the recommended option")[0] == 0
 
 
 def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and_writes_its_report_posting_no_second_ask_record(
