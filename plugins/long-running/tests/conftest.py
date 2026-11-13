@@ -28,6 +28,7 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
@@ -205,6 +206,12 @@ def judged_pictures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test keeps the verdicts on which fences illustrate something under its own state root, never the real one or another test's."""
     monkeypatch.delenv("LONG_RUNNING_STATE", raising=False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+
+
+@pytest.fixture(autouse=True)
+def lane_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every session the drive starts reads the lane settings this tree's orca plugin ships, never an install of this Mac's."""
+    monkeypatch.setattr(agents, "lane_spec", lambda: json.loads(LANE_SPEC.read_text()))
 
 
 @pytest.fixture(autouse=True)
