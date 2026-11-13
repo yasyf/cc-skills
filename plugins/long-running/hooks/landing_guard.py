@@ -194,7 +194,8 @@ RELEASE_UNPLANNED = (
 )
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
-    " session, and the communicator's other owner, answer, handoff or refused record to the session holding the"
+    " session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote"
+    " the record it answers, and its other owner, answer, handoff or refused record to the session holding the"
     " order it serves; post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
 )
 
@@ -616,7 +617,7 @@ def file_text(cwd: str, named: str | None) -> str:
 def misrouted(posts: list[dict], drives: dict[str, dict], session: str) -> str | None:
     """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect, or a communicator's owner record about the drive, not to the meta session, or another communicator's record not to the session holding the order it serves."""
     for post in posts:
-        if (routed := state.routed(drives, session, post["kind"], post["attrs"], post["to"])) != list(dict.fromkeys(post["to"])):
+        if (routed := state.routed(drives, session, post["kind"], post["attrs"], post["to"], post["re"])) != list(dict.fromkeys(post["to"])):
             return MISROUTED.format(kind=post["kind"], lanes=", ".join(routed), flags=" ".join(f"--to {lane}" for lane in routed))
     return None
 

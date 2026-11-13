@@ -8,7 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
+from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
 from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Heard, Jev, Withdrawals
 from drive.state import DriveError
 
@@ -828,7 +828,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     assert said[6:] == ['3 would end j1\'s question "Which ring?" answered, closing its card']
 
 
-def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr_names(
+def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_answers_else_the_session_holding_the_order_its_order_attr_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -841,12 +841,15 @@ def test_a_handlers_handoff_goes_to_the_session_holding_the_order_its_order_attr
     with state.edit(demo) as data:
         data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
+    monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "root"})
     records = [{"kind": "handoff", "text": "redraw the run page card with both PRs", "attrs": {"order": order}} for order in ("o1", "o2", "o3")]
-    said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
+    answering = {"kind": "handoff", "text": "the permalink of his release card", "re": "686826", "attrs": {"order": "o1"}}
+    said = tools.run("record", demo, {"records": [*records, answering], "dry_run": True}).splitlines()
     assert [(line.split(": ", 1)[0], json.loads(line.split(": ", 1)[1])["to"]) for line in said] == [
         ("1 communicator", ["iris@demo"]),
         ("2 communicator", ["root@demo"]),
         ("3 communicator", ["meta@demo"]),
+        ("4 communicator", ["root@demo"]),
     ]
 
 

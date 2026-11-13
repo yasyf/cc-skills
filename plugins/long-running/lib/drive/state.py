@@ -1859,16 +1859,24 @@ def served_order(data: dict, attrs: dict) -> str | None:
     return named or thread_order(data, attrs.get("thread"))
 
 
-def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
-    """The cci lane of the session a communicator's owner, answer, handoff or refused record serves, the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the meta session's for a drive tooling order but for his words about his work, else the coordinator session hearing that order; None for another kind, or a record naming none."""
+def serving_lane(data: dict, kind: str, attrs: dict, answered: list[str]) -> str | None:
+    """The cci lane of the session a communicator's owner, answer, handoff or refused record reaches, by the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: the meta session's for a drive tooling order but for his words about his work; for an answer, handoff or refused record naming no job, the top coordinator's or sub-coordinator's that wrote the record it answers; else the coordinator session hearing that order; None for another kind, or a record naming none."""
     if kind not in ROUTED_KINDS:
         return None
-    if (order_id := served_order(data, attrs)) is None:
-        return None
-    order = data["orders"][order_id]
-    if order["owner"] == "meta":
+    order = data["orders"].get(served_order(data, attrs) or "")
+    if order and order["owner"] == "meta":
         return None if kind == "owner" else "meta"
-    return order_lane(data, order)
+    if kind != "owner" and not named_job(data, attrs) and (writer := coordinator_writer(data, answered)):
+        return writer
+    return order and order_lane(data, order)
+
+
+def coordinator_writer(data: dict, seqs: list[str]) -> str | None:
+    """The lane of the top coordinator or sub-coordinator that wrote the first of these records one of them wrote, read from cci."""
+    from drive import agents
+
+    coordinators = ("root", *map(project_lane, data["subcoordinators"]))
+    return next((lane for seq in seqs if (lane := agents.shown(seq)["lane"]) in coordinators), None)
 
 
 def named_job(data: dict, attrs: dict) -> str | None:
@@ -1878,8 +1886,8 @@ def named_job(data: dict, attrs: dict) -> str | None:
     return job_id if job_id in data["jobs"] else None
 
 
-def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session holding the order it serves."""
+def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str], answered: list[str]) -> list[str]:
+    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
@@ -1892,7 +1900,7 @@ def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict,
             lane = "meta"
         elif meta_alone(role, kind, attrs):
             lane = "meta"
-        elif communicates and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
+        elif communicates and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs, answered)):
             lane = serving
         made.append(f"{lane}@{name}")
     return list(dict.fromkeys(made))
