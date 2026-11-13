@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -1041,7 +1042,7 @@ def proving_hooks(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], mo
     git.write_installed(installed | {"captain-hook@captain-hook": [hooks]})
     git.versions = {"captain-hook": "12.121.71"}
     git.helper = app
-    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.71\n")
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.71\n" if cmd[1] == "release" else "")
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: "[]")
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(said=f"PUSHED {HOOKS_URL}", prs=[HOOKS_URL])
@@ -1228,6 +1229,67 @@ def test_a_dashboard_still_on_an_older_install_at_the_deadline_takes_blocked_nam
     assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3: {stale}"
     assert state.proof_path("demo", "j1").read_text() == stale
     assert state.load("demo")["orders"]["o1"]["proof"] is None
+
+
+def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None) -> dict:
+    workflow = {"long-running CI": 366540480, "Guides": 310890487}[name]
+    return {"id": run_id, "workflow_id": workflow, "name": name, "created_at": created, "status": status, "conclusion": conclusion, "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}"}
+
+
+def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[dict], polls: list[list[dict]]) -> Path:
+    shown = tmp_path / "runs"
+    answers = chain(polls, repeat(polls[-1]))
+
+    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[-1] == ".default_branch":
+            return "main\n"
+        runs = triggered if f"&head_sha={SHA}" in cmd[3] else next(answers)
+        shown.write_text("".join(f"{run['id']} {run['status']} {run['conclusion']}\n" for run in runs))
+        return "".join(json.dumps(run) + "\n" for run in runs)
+
+    monkeypatch.setattr(github, "read", read)
+    return shown
+
+
+def test_a_proof_reading_main_ci_after_the_merge_runs_once_that_run_completed_and_not_while_it_runs(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    guides = ci(43375546815, "Guides", "2026-11-13T05:59:05Z", "completed", "success")
+    running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
+    shown = on_actions(monkeypatch, tmp_path, [guides, running], [[guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
+    script.write_text(f"#!/bin/sh\ngrep -qx '43375546307 completed success' {shown}\n")
+    install.prove("demo", "j1", 900)
+    assert git.sleeps == [install.POLL_SECONDS]
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+
+
+def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_of_the_push_that_superseded_it(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    cancelled = ci(43370495715, "long-running CI", "2026-11-13T05:12:31Z", "completed", "cancelled")
+    superseding = ci(43370536229, "long-running CI", "2026-11-13T05:12:53Z")
+    shown = on_actions(monkeypatch, tmp_path, [cancelled], [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
+    script.write_text(f"#!/bin/sh\ngrep -qx '43370536229 completed success' {shown}\n")
+    install.prove("demo", "j1", 900)
+    assert git.sleeps == [install.POLL_SECONDS]
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+
+
+def test_a_ci_run_still_running_at_the_deadline_takes_blocked_naming_it_and_runs_no_proof_file(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
+    on_actions(monkeypatch, tmp_path, [running], [[running]])
+    install.prove("demo", "j1", 60)
+    waiting = f"yasyf/cc-skills#7's merge {SHA[:12]} still waits on CI at the deadline: long-running CI https://github.com/{REPO}/actions/runs/43375546307 in_progress"
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3: {waiting}"
+    assert state.proof_path("demo", "j1").read_text() == waiting
 
 
 def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof_file(

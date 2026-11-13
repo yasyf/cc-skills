@@ -609,6 +609,48 @@ def live_builds(merges: dict[str, str], deadline: float, timeout: int, drive: st
     return builds
 
 
+def await_ci(merges: dict[str, str], deadline: float) -> None:
+    """Wait until each workflow that ran on a merge's commit on its repository's default branch has completed its first run from that one on that was not cancelled, the run a proof reading the default branch's CI after the merge reads: a run its concurrency group cancelled for a newer push hands the wait to that push's run. A read that fails is said and read again; refused at the deadline, naming each run still running."""
+    for key, sha in merges.items():
+        repo, triggered, last = key.partition("#")[0], None, ""
+        while True:
+            try:
+                branch = github.default_branch(repo)
+                if triggered is None:
+                    triggered = ci_runs(repo, f"branch={branch}&head_sha={sha}")
+                if not (running := ci_running(repo, branch, triggered)):
+                    break
+                waiting = ", ".join(running)
+            except github.GithubError as error:
+                waiting = f"no run read: {error}"
+            if waiting != last:
+                print(f"drive job prove: waiting for {key}'s CI at {sha[:12]}: {waiting}", file=sys.stderr, flush=True)
+            last = waiting
+            left = deadline - clock()
+            if left <= 0:
+                raise state.DriveError(f"{key}'s merge {sha[:12]} still waits on CI at the deadline: {waiting}")
+            sleep(min(POLL_SECONDS, left))
+
+
+def ci_runs(repo: str, query: str) -> list[dict]:
+    jq = ".workflow_runs[] | {id, workflow_id, name, created_at, status, conclusion, html_url}"
+    return [json.loads(line) for line in github.read(f"{repo}'s workflow runs", ["gh", "api", "--paginate", f"repos/{repo}/actions/runs?per_page=100&{query}", "--jq", jq]).splitlines()]
+
+
+def ci_running(repo: str, branch: str, triggered: list[dict]) -> list[str]:
+    """The name, link and status of each run not completed among the first run not cancelled of each workflow in triggered, counting from its run there."""
+    if not triggered:
+        return []
+    starts: dict[int, int] = {}
+    for run in triggered:
+        starts[run["workflow_id"]] = min(starts.get(run["workflow_id"], run["id"]), run["id"])
+    firsts: dict[int, dict] = {}
+    for run in sorted(ci_runs(repo, f"branch={branch}&created=>={min(run['created_at'] for run in triggered)}"), key=lambda run: run["id"]):
+        if run["workflow_id"] in starts and run["id"] >= starts[run["workflow_id"]] and run["conclusion"] != "cancelled":
+            firsts.setdefault(run["workflow_id"], run)
+    return [f"{run['name']} {run['html_url']} {run['status']}" for run in firsts.values() if run["status"] != "completed"]
+
+
 def merges_of(data: dict, job_id: str) -> dict[str, str]:
     return {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in data["jobs"][job_id]["prs"]}
 
@@ -664,7 +706,7 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran on its default branch completed its first run from the merge on that was not cancelled, which a proof reading that branch's CI reads, and until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry, or a CI run still running or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
     from drive import brief, dashboard
 
     deadline = clock() + timeout
@@ -678,8 +720,9 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     merges = merges_of(data, job_id)
     urls = " ".join(job["prs"])
     kept = state.proof_path(name, job_id)
+    untapped = {key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     try:
-        builds = live_builds({key: sha for key, sha in merges.items() if state.merges_untapped(key)}, deadline, timeout, name)
+        builds = live_builds(untapped, deadline, timeout, name)
     except (InstallError, NoRelease) as error:
         code, output, versions = "unrun", str(error), "no install holding it"
         line = f"BLOCKED {urls}: not installed, so {job['repro']} did not run: {str(error)[:SAID_CHARS]}"
@@ -687,6 +730,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         versions = ", ".join(f"{plugin} {build['version']}" for plugin, build in builds.items()) or "no plugin of this Mac"
         path = os.pathsep.join([*(str(Path(build["installPath"]) / "bin") for build in builds.values()), os.environ.get("PATH", "")])
         try:
+            await_ci(untapped, deadline)
             dashboard.await_newest(name, deadline)
             done = subprocess.run([job["repro"]], check=False, capture_output=True, text=True, timeout=max(deadline - clock(), 0.001), env=os.environ | {"PATH": path})
             code, output = done.returncode, done.stdout + done.stderr
