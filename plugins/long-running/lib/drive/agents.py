@@ -3,6 +3,7 @@ import os
 import re
 import shlex
 import subprocess
+import time
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,8 @@ RE_HOPS = 8
 CORRECTION_BYTES = 1 << 20
 HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
+OUTAGE_WAITS = (1, 2, 4, 8)
+RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
 HIS_WORDS = "Message (his words)"
@@ -468,11 +471,8 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on. A turn an API error ended, which Claude Code hands its StopFailure hook in place of Stop, is no end: the handler starts again."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the communicator as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
-    if payload["hook_event_name"] == "StopFailure":
-        restart_handler(name, payload)
-        return None
     try:
         if reason := refused(payload):
             return reason
@@ -503,8 +503,33 @@ def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     remove_session(payload)
 
 
+def resume(payload: dict) -> str | None:
+    names = state.session_drives(payload["session_id"])
+    if not names and not os.environ.get(state.REMOTE_LANE_ENV):
+        return None
+    transcript = Path(payload["transcript_path"])
+    rows = tail(transcript)
+    calm = max((at for at, row in enumerate(rows) if ended(row) and not died(row)), default=-1)
+    tries = sum(row["type"] == "user" and RESUMED in str(row["message"]["content"]) for row in rows[calm + 1 :])
+    handler = seen(payload)
+    if tries >= len(OUTAGE_WAITS):
+        if "handler_session" in handler:
+            restart_handler(names[0], handler)
+        return None
+    since = datetime.now(UTC)
+    if "handler_session" in handler:
+        with state.edit(names[0]) as data:
+            data["handlers"][handler["agent_id"]]["session"] = None
+    time.sleep(OUTAGE_WAITS[tries] * 60)
+    if "handler_session" in handler:
+        bind_handler(payload, f"{names[0]}/{handler['agent_id']}")
+    if any(state.parse_time(row["timestamp"]) > since for row in tail(transcript) if row["type"] in ("user", "assistant")):
+        return None
+    return RESUMED
+
+
 def restart_handler(name: str, payload: dict) -> None:
-    """Start a handler whose turn an API error ended again at once, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as not started until its new session binds, so no brief meanwhile takes what it holds. A restart the error meets again ends the same way and starts again."""
+    """Start a handler whose turn an API error ended again once its four resumes met the error too, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as not started until its new session binds, so no brief meanwhile takes what it holds. A restart the error meets again resumes and starts again the same way."""
     kept = brief_path(name, payload["agent_id"])
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(opening(Path(payload["agent_transcript_path"])))

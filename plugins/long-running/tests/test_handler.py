@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import agent_brief
@@ -41,9 +42,16 @@ def bind(monkeypatch: pytest.MonkeyPatch, handler: str, session: str, transcript
 
 
 def stop(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], session: str, transcript: Path, line: str, brief: str = HIS_BRIEF, event: str = "Stop"
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    session: str,
+    transcript: Path,
+    line: str,
+    brief: str = HIS_BRIEF,
+    event: str = "Stop",
+    rows: tuple[dict, ...] = (),
 ) -> str:
-    transcript.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": brief}}) + "\n")
+    transcript.write_text("".join(json.dumps(row) + "\n" for row in [{"type": "user", "timestamp": EARLIER, "message": {"role": "user", "content": brief}}, *rows]))
     payload = {
         "session_id": session,
         "agent_type": agents.HANDLER,
@@ -422,6 +430,25 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
 
 
 API_ERROR = "Please run /login · API Error: 403 Attention Required! | Cloudflare"
+EARLIER = "2026-11-13T09:46:00.000Z"
+DIED = {
+    "type": "assistant",
+    "timestamp": EARLIER,
+    "isApiErrorMessage": True,
+    "error": "authentication_failed",
+    "message": {"role": "assistant", "model": agents.SYNTHETIC, "stop_reason": "stop_sequence", "content": [{"type": "text", "text": API_ERROR}]},
+}
+WOKEN = {
+    "type": "user",
+    "timestamp": EARLIER,
+    "origin": {"kind": "task-notification", "producer": "session-task"},
+    "message": {
+        "role": "user",
+        "content": "<task-notification>\n<summary>Stop hook feedback</summary>\n</task-notification>\n<system-reminder>\n"
+        f'Stop hook blocking error from command "StopFailure:authentication_failed": {agents.RESUMED}\n\n</system-reminder>',
+    },
+}
+ANSWERED = {"type": "assistant", "timestamp": EARLIER, "message": {"role": "assistant", "model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": LINE}]}}
 HIS_DM = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC"
 ANSWER_THREAD = "1794565600.000100"
 
@@ -433,6 +460,18 @@ def record_brief(seq: str) -> str:
 def his_brief(words: str, message: str, thread: str | None = None) -> str:
     link = f"{HIS_DM}/p{message.replace('.', '')}" + (f"?thread_ts={thread}&cid=D0C4HQWPLCC" if thread else "")
     return f"Message (his words): {words}\nLink: {link}\nThread: D0C4HQWPLCC {thread or message}\nDrive: demo\nScratch: {{scratch}}"
+
+
+def outage(resumes: int) -> tuple[dict, ...]:
+    return (DIED, *(row for _ in range(resumes) for row in (WOKEN, DIED)))
+
+
+def failed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], session: str, transcript: Path, rows: tuple[dict, ...]) -> tuple[int, str]:
+    try:
+        out = stop(monkeypatch, capsys, session, transcript, API_ERROR, event="StopFailure", rows=rows)
+    except SystemExit as exit:
+        return exit.code, capsys.readouterr().err
+    return 0, out
 
 
 def said(monkeypatch: pytest.MonkeyPatch, session: str, permalink: str) -> str:
@@ -462,7 +501,7 @@ DIED_ON_THE_403 = [
 
 
 @pytest.mark.parametrize(("brief", "posted_first"), DIED_ON_THE_403)
-def test_a_handler_whose_turn_an_api_error_ended_starts_again_at_once_as_itself_on_its_brief_and_posts_one_done_once_a_turn_answers(
+def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_itself_on_its_brief_and_posts_one_done_once_a_turn_answers(
     communicator: str, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], brief: str, posted_first: bool
 ) -> None:
     brief = brief.format(scratch=tmp_path / "h")
@@ -477,7 +516,7 @@ def test_a_handler_whose_turn_an_api_error_ended_starts_again_at_once_as_itself_
         bind(monkeypatch, handler, session, transcript)
         if posted_first and attempt == 1:
             posts.append(said(monkeypatch, session, f"{HIS_DM}/p1794565600000200?thread_ts={ANSWER_THREAD}&cid=D0C4HQWPLCC"))
-        assert stop(monkeypatch, capsys, session, transcript, API_ERROR, brief, "StopFailure") == ""
+        assert stop(monkeypatch, capsys, session, transcript, API_ERROR, brief, "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
         starts = [argv for argv in started if argv[:2] == ["claude", "--bg"]]
         assert [argv[-1] for argv in starts] == [brief] * (attempt + 1)
         assert json.loads(starts[-1][starts[-1].index("--settings") + 1])["env"][state.HANDLER_ENV] == f"demo/{handler}"
@@ -496,7 +535,7 @@ def test_a_handler_whose_turn_an_api_error_ended_starts_again_at_once_as_itself_
     assert handler not in state.load("demo")["handlers"]
 
 
-def test_a_handler_an_api_error_ended_is_handed_again_each_brief_it_took_and_no_copy_takes_what_it_holds_meanwhile(
+def test_a_handler_an_api_error_ended_past_its_four_resumes_is_handed_again_each_brief_it_took_and_no_copy_takes_what_it_holds_meanwhile(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cci_records |= {seq: {"seq": int(seq), "kind": "report", "lane": "root", "fields": {"attrs": {"thread": "1794557485.395319"}}} for seq in ("690458", "690461", "690475")}
@@ -511,11 +550,51 @@ def test_a_handler_an_api_error_ended_is_handed_again_each_brief_it_took_and_no_
     assert tools.run("handler", "demo", {"brief": briefs["690475"]}) == f"handed to {handler}"
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
-    assert stop(monkeypatch, capsys, "h-session", transcript, API_ERROR, briefs["690458"], "StopFailure") == ""
+    assert stop(monkeypatch, capsys, "h-session", transcript, API_ERROR, briefs["690458"], "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
     entry = state.load("demo")["handlers"][handler]
     assert (entry["handed"], entry["took"]) == ([briefs["690461"], briefs["690475"]], [])
     with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 690458"):
         tools.run("handler", "demo", {"brief": briefs["690458"]})
+
+
+def test_a_handler_whose_turn_an_api_error_ended_resumes_in_its_own_session_after_1_2_4_and_8_minutes_holding_its_thread_and_counts_again_after_a_turn_that_ends(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = start(run, tmp_path)
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    capsys.readouterr()
+    removed: list[list[str]] = []
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
+    waits: list[tuple[float, str | None]] = []
+    monkeypatch.setattr(agents.time, "sleep", lambda seconds: waits.append((seconds, state.load("demo")["handlers"][handler]["session"])))
+    for resumes in range(len(agents.OUTAGE_WAITS)):
+        assert failed(monkeypatch, capsys, "h-session", transcript, outage(resumes)) == (2, f"{agents.RESUMED}\n")
+        assert state.load("demo")["handlers"][handler]["session"] == "h-session"
+    assert failed(monkeypatch, capsys, "h-session", transcript, (*outage(3), WOKEN, ANSWERED, DIED)) == (2, f"{agents.RESUMED}\n")
+    assert waits == [(60, None), (120, None), (240, None), (480, None), (60, None)]
+    assert (len([argv for argv in started if argv[:2] == ["claude", "--bg"]]), [argv for argv in started if "done" in argv], removed) == (1, [], [])
+
+
+@pytest.mark.parametrize(("lane", "woken", "resumed"), [(True, False, True), (True, True, False), (False, False, False)], ids=["orca-lane", "orca-lane-woken-meanwhile", "no-drive-session"])
+def test_a_session_no_drive_binds_resumes_after_an_api_error_only_as_an_orca_lane_nothing_woke_while_it_waited(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], lane: bool, woken: bool, resumed: bool
+) -> None:
+    monkeypatch.delenv(state.REMOTE_LANE_ENV, raising=False)
+    if lane:
+        monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    transcript = tmp_path / "lane.jsonl"
+    waits: list[float] = []
+
+    def wait(seconds: float) -> None:
+        waits.append(seconds)
+        if woken:
+            with transcript.open("a") as handle:
+                handle.write(json.dumps({"type": "user", "timestamp": datetime.now(UTC).isoformat(), "message": {"role": "user", "content": "his answer"}}) + "\n")
+
+    monkeypatch.setattr(agents.time, "sleep", wait)
+    assert failed(monkeypatch, capsys, "lane-session", transcript, outage(0)) == ((2, f"{agents.RESUMED}\n") if resumed else (0, ""))
+    assert waits == ([60] if lane else [])
 
 
 def test_a_handler_whose_stop_check_raises_posts_its_done_before_the_error_goes_on(
