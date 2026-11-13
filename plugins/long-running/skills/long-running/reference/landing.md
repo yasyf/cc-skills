@@ -119,13 +119,15 @@ for its repository says, then return `DONE <proof>`.
 ## yasyf/* repositories
 
 No tap and no green gate: by his standing rule a `yasyf/*` PR merges without asking, and by his words
-"can merge past CI on personal repos and fix reds after the fact" it merges without waiting on CI.
+"can merge past CI on personal repos and fix reds after the fact" it merges without waiting on CI,
+unless a check is red on the PR's own change.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
    needs its proof file kept with `drive job set <j> --repro <file>`, starts the drive's lander on it:
-   a process of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
-   whatever its checks show, records the merge sha on the PR, then runs `drive install` from it for
+   a process of its own, outliving your turn, that reads its checks once and merges it with
+   `gh pr merge <n> -R <repo> --squash --admin` past each one still running or failing as the default branch
+   fails it, records the merge sha on the PR, then runs `drive install` from it for
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
    plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
    `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
@@ -139,7 +141,9 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
    `PR … not landed: gh pr merge --squash --admin refused it: <its answer>`, such as a conflict git
-   cannot merge, and the proof's as `PR … proven live by drive job prove …` or
+   cannot merge, or `PR … not landed: <workflow> <check> fails at <head> on its own change, …` when its
+   head already fails a check the default branch's run passed at the commit the PR's run merged its
+   head onto, or at the newest commit below it that ran it, as below a `[skip ci]` autobump commit, and the proof's as `PR … proven live by drive job prove …` or
    `PR … drive job prove failed: …`. The report's output, or `drive pr add` again, prints why
    it started none: a draft, the `hold` label, a lander already running on it, or a base other than
    the default branch, so a stacked PR is registered again once the PR below it merges.
