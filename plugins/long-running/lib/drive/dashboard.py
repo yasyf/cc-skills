@@ -300,6 +300,7 @@ class Board:
         self.database: sqlite3.Connection | None = None
         self.heard: dict[str, list[dict]] = {}
         self.records = 0
+        self.timings: dict[str, float] = {}
         self.pages: tuple[int, list[dict]] = (0, [])
 
     def stamp(self) -> tuple[int, ...]:
@@ -319,13 +320,16 @@ class Board:
                 self.events.append(event)
 
     def rebuild(self) -> None:
+        started = time.thread_time()
         self.read_history()
         found, source = view.stored_cards(self.name)
         folder = state.drive_dir(self.name) / "jobs"
         if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.reports_at:
             self.reports = {path.name.removesuffix(".replies.jsonl") for path in folder.glob("*.replies.jsonl")}
             self.reports_at = listed_at
+        prepared = time.thread_time()
         drive = state.load(self.name)
+        loaded = time.thread_time()
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
         with self.changed:
             heard = dict(self.heard)
@@ -340,7 +344,9 @@ class Board:
             "repo": repo,
             "pages": pages.shown(drive, self.pages[1]),
         }
+        built = time.thread_time()
         self.show(model)
+        self.timings = {"prepare_ms": (prepared - started) * 1000, "load_ms": (loaded - prepared) * 1000, "model_ms": (built - loaded) * 1000, "publish_ms": (time.thread_time() - built) * 1000}
         self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
 
     def hear(self) -> None:
@@ -407,6 +413,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.send_error(403)
             elif self.path == "/api/view":
                 self.reply(board.after(0)[1], "application/json")
+            elif self.path == "/api/rebuild":
+                self.answered(200, board.timings)
             elif self.path == "/api/stream":
                 self.stream()
             elif where.path == "/api/card":
