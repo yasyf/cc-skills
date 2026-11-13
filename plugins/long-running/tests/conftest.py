@@ -555,7 +555,7 @@ class Heard:
 @pytest.fixture(autouse=True)
 def heard(monkeypatch: pytest.MonkeyPatch) -> Heard:
     hearing = Heard()
-    monkeypatch.setattr(settled, "unsaid", lambda words, link, found: hearing.checked.append((words, link)) or hearing.refusal)
+    monkeypatch.setattr(settled, "unsaid", lambda words, link, found, data: hearing.checked.append((words, link)) or hearing.refusal)
     return hearing
 
 

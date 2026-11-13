@@ -5,9 +5,10 @@ import os
 import subprocess
 from collections.abc import Callable, Iterator
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
-from drive import card, cli, limits, mcp, reads, slack, state, tools, view, watch
+from drive import card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
 from conftest import RESEARCH, Answers, Heard, Withdrawals
 from drive.state import DriveError
 
@@ -15,6 +16,8 @@ THREAD = "1794200000.000100"
 CARD = "https://acme.slack.com/archives/D123/p1794200000000700"
 UNDER_CARD = f"{CARD}?thread_ts=1794200000.000700"
 PR_CARD = "https://acme.slack.com/archives/D123/p1794200000000900"
+TYPED = "things liek this should be egtting almost immediate reponses but they are not"
+UNSAID = settled.unsaid
 ANSWER = {
     "id": "73060f0349f75a509980c17434a2ef862397394c",
     "tags": [],
@@ -449,6 +452,58 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     ]
     orders = state.load(demo)["orders"]
     assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Drive tooling: cards say why", "the dashboard drops my cards"])
+
+
+def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_and_words_he_never_typed_there_are_refused(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, recorded: Answers, tmp_path: Path
+) -> None:
+    session = "communicator-session"
+    drafted = "answer each of these within a minute"
+    rows = [
+        {"type": "user", "origin": {"kind": "channel"}, "message": {"role": "user", "content": f'<channel source="cc-inbox">{drafted}</channel>'}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "record", "input": {"kind": "human", "text": drafted}}]}},
+        {"type": "attachment", "attachment": {"type": "queued_command", "prompt": TYPED, "commandMode": "prompt", "origin": {"kind": "human"}}},
+        {"type": "user", "origin": {"kind": "human"}, "isMeta": True, "message": {"role": "user", "content": drafted}},
+    ]
+    writing = {"type": "user", "origin": {"kind": "human"}, "promptSource": "typed", "message": {"role": "user", "content": [{"type": "text", "text": drafted}]}}
+    transcript = tmp_path / "config" / "projects" / "-work-demo" / f"{session}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("".join(f"{json.dumps(row, separators=(',', ':'))}\n" for row in rows) + json.dumps(writing, separators=(",", ":")))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(settled, "unsaid", UNSAID)
+    recorded.shown["07fe4ea"] = {"id": "07fe4ea", "title": "Owner: answers come too slowly", "body": f"{TYPED}\nNotes: cci owner 681263", "tags": []}
+    recorded.shown["d7af7ed"] = {"id": "d7af7ed", "title": "Owner: answer within a minute", "body": drafted, "tags": []}
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append((argv[argv.index("--lane") + 1], records))
+        return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+    run("start", demo, "--role", "communicator")
+    order = {"words": "Drive tooling: answer things like this almost at once", "title": "Answer at once"}
+    ruling = {"kind": "owner", "text": TYPED, "url": "terminal", "ruling": "07fe4ea", "about": "drive", "order": order}
+    for words, answer in ((drafted, "07fe4ea"), (TYPED, "d7af7ed")):
+        with pytest.raises(DriveError, match=f'1: refused, nothing posted: no prompt he typed into a terminal of the drive\'s sessions says "{drafted}"'):
+            tools.run("record", demo, {"records": [ruling | {"text": words, "ruling": answer}]})
+    assert posted == []
+    tools.run("record", demo, {"records": [ruling]})
+    assert [(lane, [(record["to"], record["url"], record["attr"]["ruling"]) for record in records]) for lane, records in posted] == [
+        ("communicator", [(["meta@demo"], "terminal", "07fe4ea")])
+    ]
+
+
+def test_a_card_his_terminal_words_close_links_the_card_itself_and_one_his_slack_words_close_links_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    answered: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: answered.append(argv) or {"answered": True})
+    superseded.answer_card(CARD, TYPED, "terminal", settled=True)
+    superseded.answer_card(CARD, TYPED, UNDER_CARD, settled=False)
+    assert answered == [
+        ("card-answer", "--card", CARD, "--label", TYPED, "--settled", "--other", "--via", CARD),
+        ("card-answer", "--card", CARD, "--label", TYPED, "--withdrawn", "--via", UNDER_CARD),
+    ]
 
 
 def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_drive_tooling_order_its_record_call_adds(

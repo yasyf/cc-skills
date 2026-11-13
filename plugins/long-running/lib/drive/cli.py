@@ -1603,7 +1603,7 @@ def cards_withdraw(args: argparse.Namespace) -> int:
     from drive import superseded, view
 
     name = state.resolve(args.drive)
-    if unsaid := settled.unsaid(args.words, args.via, view.live_cards(name)):
+    if unsaid := settled.unsaid(args.words, args.via, view.live_cards(name), state.load(name)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}")
     with state.edit(name) as data:
         closed = state.new_close("withdrawn", args.words, args.via)
@@ -2724,7 +2724,7 @@ def answer(args: argparse.Namespace) -> int:
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
-        if unsaid := settled.unsaid(args.words, args.link, found):
+        if unsaid := settled.unsaid(args.words, args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         changes = settled.changed(args.title, args.words, asked)
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
@@ -2740,7 +2740,7 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         if cited:
             shown = settled.shown(cited, data["roles"]["coordinator"]["cwd"])
-            if unsaid := settled.unsaid(args.words, args.link, found) or settled.unsaid(settled.his(shown["body"]), args.link, found):
+            if unsaid := settled.unsaid(args.words, args.link, found, data) or settled.unsaid(settled.his(shown["body"]), args.link, found, data):
                 raise DriveError(f"{cited}: refused, nothing recorded: {unsaid}")
             changes = settled.changed(shown["title"], args.words, asked)
         with state.edit(name) as data:
@@ -3998,7 +3998,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--link",
-        help="the permalink of his message or of the card he answered, which a superseded card links; the first call needs it, and checks both --words and a named answer's words above its Notes: against it",
+        help="the permalink of his message or of the card he answered, which a superseded card links, or terminal for words he typed into a drive session's terminal; the first call needs it, and checks both --words and a named answer's words above its Notes: against it",
     )
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card or PR his answer leaves as it is")
     verb.add_argument(
@@ -4147,7 +4147,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("card", help="the card, by its waits id or its permalink")
     verb.add_argument("--words", required=True, help="his words that withdraw or change it, verbatim, which the card shows; refused unless his message at --via holds them")
-    verb.add_argument("--via", required=True, help="the permalink of his message, which the card links")
+    verb.add_argument("--via", required=True, help="the permalink of his message, which the card links, or terminal for words he typed into a drive session's terminal")
     verb.set_defaults(run=cards_withdraw)
     card_help = "cc-slack's card_command: reads one request JSON on stdin and prints one JSON reply"
     verbs.add_parser("card", help=card_help, description=card_help).set_defaults(run=card_command)
