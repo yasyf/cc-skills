@@ -313,7 +313,7 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
 def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option_and_leaves_history_to_its_card_command(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work"))
     card, question = "https://acme.slack.com/archives/D1/p100", "https://acme.slack.com/archives/D1/p200"
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"], question: ["Raise it", "Shard it"]}
@@ -334,7 +334,7 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
 
 
 def test_an_answer_reaches_cc_slack_at_once_and_its_undo_reopens_its_card_through_cc_slack(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work"))
     card = "https://acme.slack.com/archives/D1/p100"
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"]}
@@ -358,7 +358,7 @@ def test_an_answer_reaches_cc_slack_at_once_and_its_undo_reopens_its_card_throug
 
 
 def test_a_tap_on_a_pr_is_kept_at_once_through_the_one_tap_recorder_unless_its_head_moved(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work"))
     key = "yasyf/cc-skills#7"
     board = dashboard.Board("demo", [])
     board.heads = {key: "abc1234"}
@@ -2676,7 +2676,7 @@ def test_an_answer_he_sent_comes_back_from_its_toast_or_its_history_line_while_c
     second = "https://x.slack.com/archives/D1/p1794382453859300"
     answered = {"at": "2026-11-10T23:59:30-08:00", "kind": "answered", "text": "Shard it?", "detail": "Shard it", "url": second, "feature": None, "undo_until": "2099-01-01T08:00:00Z"}
     reopened = []
-    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work"))
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: {"answered": True, "label": label, "undo_until": "2099-01-01T08:00:00Z"})
     monkeypatch.setattr(dashboard, "cc_slack", lambda *args: reopened.append(args[-1]) or {})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)

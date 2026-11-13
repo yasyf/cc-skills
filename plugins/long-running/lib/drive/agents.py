@@ -619,7 +619,7 @@ def remove_session(name: str, payload: dict) -> None:
     """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. The session then stops hearing his DM, so cc-slack hands each reply of his it never took to the session holding his DM at once rather than once the process exits."""
     own, _ = background_job(payload["handler_session"])
     subprocess.Popen(["claude", "rm", own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    slack.cc_slack("unfollow", "--channel", state.stored(name, ("slack",))["slack"]["channel"], "--session", payload["handler_session"], "--cwd", payload["cwd"])
+    slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
 
 
 def ended(row: dict) -> bool:

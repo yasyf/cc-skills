@@ -117,7 +117,7 @@ def job(**overrides: object) -> dict:
 
 @pytest.fixture
 def demo(state_root: Path) -> str:
-    data = state.new_drive("demo", "coordinator", "session-under-test", "/work", "D123")
+    data = state.new_drive("demo", "coordinator", "session-under-test", "/work")
     data["orders"]["o1"] = order()
     data["jobs"]["j1"] = job(prs=[state.pr_url(KEY)])
     data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title", "wants_tap": False, "checked": CHECKED}

@@ -2,7 +2,7 @@ import json
 import re
 from collections.abc import Iterator
 
-from drive import agents, limits, refs, state
+from drive import agents, limits, refs, slack, state
 
 CALL_FIELDS = ("records", "lane", "drive", "id")
 OPENING = re.compile(r"(?:POST|FYI)\b")
@@ -119,7 +119,7 @@ def unprevented(drive: dict, record: dict) -> str | None:
 def dm_url(drive: dict, record: dict) -> str | None:
     """Why a report's url names a message in his DM: a report's url is what it measured, which {record:} links, and the message it answers is its thread attr."""
     found = state.CARD_LINK.search(record.get("url") or "")
-    if not found or found[1] != drive["slack"]["channel"]:
+    if not found or found[1] != slack.dm():
         return None
     return DM_URL.format(url=record["url"], thread=found[4] or f"{found[2]}.{found[3]}")
 

@@ -1262,3 +1262,18 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     data = state.load(demo)
     assert slack.order_threads(data, "o1", data["orders"]["o1"]) == [("D123", question), ("D123", card)]
     assert state.thread_order(data, card) == "o1"
+
+
+def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_thread_in_his_dm_on_a_drive_started_with_no_dm_channel(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], his_dm: str
+) -> None:
+    question = "1794579637.319519"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one communicator for every drive")
+    building(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
+    cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/{his_dm}/p{question.replace('.', '')}")
+    data = state.load(demo)
+    assert ("channel" not in data["slack"], data["orders"]["o1"]["threads"][0][:2]) == (True, [his_dm, question])
+    assert talk.posted(demo, {"text": watch.PAUSED, "thread_ts": question})["permalink"] == POSTED
+    assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--thread", question, "--", watch.PAUSED)]

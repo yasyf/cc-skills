@@ -26,7 +26,7 @@ def test_root_prefers_explicit_then_xdg_then_home(monkeypatch: pytest.MonkeyPatc
 
 
 def make(name: str, session: str | None = None, started: str | None = None) -> None:
-    data = state.new_drive(name, "coordinator", session, "/work", None)
+    data = state.new_drive(name, "coordinator", session, "/work")
     if started:
         data["roles"]["coordinator"]["started"] = started
     state.create(data)
@@ -155,7 +155,7 @@ def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kep
 
 
 def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_word_for_word_once(state_root: Path) -> None:
-    data = state.new_drive("demo", "coordinator", None, "/work", None)
+    data = state.new_drive("demo", "coordinator", None, "/work")
     data["jobs"]["j1"] = state.new_job("o1", "design", "row counts", [], "2026-11-10T21:00:00-08:00")
     data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should row counts be exact?", "2026-11-10T21:00:00-08:00") | {"waits": "demo:j1-7"}]
     state.create(data)
@@ -187,7 +187,7 @@ def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_on
     state.load("demo")
     state.load("demo")
     assert backfilled == ["/work"]
-    state.create(state.new_drive("talk", "communicator", None, "/talk", None))
+    state.create(state.new_drive("talk", "communicator", None, "/talk"))
     state.load("talk")
     assert backfilled == ["/work"]
 
@@ -208,7 +208,7 @@ def test_a_copy_of_a_drive_runs_only_the_once_only_passes_a_load_of_the_drive_wo
 
 
 def test_load_drops_the_readings_of_his_answers_drive_job_ask_once_kept_beside_a_job(state_root: Path) -> None:
-    data = state.new_drive("demo", "coordinator", None, "/work", None)
+    data = state.new_drive("demo", "coordinator", None, "/work")
     by_words = {"title": "Which store holds a run's files?", "answer": {"id": "b2b2b2b", "asked": "Which store holds the blobs?", "said": "The blob store"}}
     data["jobs"]["j1"] = state.new_job("o1", "design", "run files", [], "2026-11-10T21:00:00-08:00") | {"may_settle": by_words}
     data["may_settle_by_subject"] = data["may_settle_per_answer"] = True
@@ -638,7 +638,7 @@ def test_a_new_pr_waits_on_his_tap() -> None:
 
 
 def kept_prs() -> dict:
-    data = state.new_drive("demo", "coordinator", None, "/work", None)
+    data = state.new_drive("demo", "coordinator", None, "/work")
     data["orders"] |= {order_id: state.new_order("fix it", "terminal", None, {}, state.stamp(REFERENCE)) for order_id in ("o226", "o359")}
     for number, order_id in ((4289, "o226"), (4279, "o226"), (4284, "o226"), (4302, "o359")):
         key = f"{MONOREPO}#{number}"

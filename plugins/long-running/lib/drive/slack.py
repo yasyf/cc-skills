@@ -1,3 +1,4 @@
+import functools
 import html
 import json
 import re
@@ -35,6 +36,12 @@ def cc_slack(*args: str) -> dict:
     if result.returncode:
         raise SlackError(" ".join(result.stderr.split()) or f"cc-slack exited {result.returncode}")
     return json.loads(result.stdout)
+
+
+@functools.cache
+def dm() -> str:
+    """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where dm-status draws every card and post to him."""
+    return cc_slack("whoami")["dm_channel_id"]
 
 
 def check_post(text: str, asked: list[str]) -> list[str]:

@@ -698,7 +698,7 @@ def test_installs_run_at_once_take_turns_on_the_plugin_updates(fake: Callable[..
 
 def start_drive(name: str, **terminals: str | None) -> None:
     (first, terminal), *rest = terminals.items()
-    data = state.new_drive(name, first, f"{name}-{first}", "/work", None, terminal)
+    data = state.new_drive(name, first, f"{name}-{first}", "/work", terminal)
     for role, held in rest:
         data["roles"][role] = {**data["roles"][first], "session": f"{name}-{role}", "terminal": held}
     state.create(data)

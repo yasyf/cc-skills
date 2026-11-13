@@ -21,11 +21,11 @@ SECRET = b"the webhook secret"
 
 @pytest.fixture
 def demo(state_root: Path) -> str:
-    data = state.new_drive("demo", "coordinator", "session-under-test", "/work", "D123")
+    data = state.new_drive("demo", "coordinator", "session-under-test", "/work")
     for key, head, shown in ((KEY, "aaa", "open"), (OTHER, "bbb", "open"), (MERGED, "aaa", "merged")):
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "state": shown}
     state.create(data)
-    state.create(state.new_drive("quiet", "coordinator", "session-under-test", "/work", "D124"))
+    state.create(state.new_drive("quiet", "coordinator", "session-under-test", "/work"))
     return "demo"
 
 

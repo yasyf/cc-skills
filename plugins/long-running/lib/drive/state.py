@@ -451,15 +451,13 @@ def pr_url(key: str) -> str:
     return f"https://github.com/{repo}/pull/{number}"
 
 
-def new_drive(
-    name: str, role: str, session: str | None, cwd: str, channel: str | None, terminal: str | None = None
-) -> dict:
+def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str | None = None) -> dict:
     return {
         "name": name,
         "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
         "handlers": {},
-        "slack": {"channel": channel, "page": None, "watch": []},
+        "slack": {"page": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},
         "jobs": {},
@@ -732,6 +730,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         label_approvals(name, data["roles"]["coordinator"]["cwd"])
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
         data.pop(flag, None)
+    data["slack"].pop("channel", None)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
         for question in job["questions"]:
@@ -852,7 +851,9 @@ def pr_bodies(name: str) -> list[str]:
 
 def saved_thread(data: dict, order: dict) -> list[str] | None:
     """The channel and thread the lines of an order an older install saved go in, read as that install read its bare thread ts: in the channel of the message the order came from when the ts is that message or the thread it is in, else in his DM, where the thread its posts in his DM hang from stands in for its own post in a channel neither his DM nor one the drive watches."""
-    dm, thread, from_thread = data["slack"]["channel"], order.get("thread"), order.pop("from_thread", None)
+    from drive import slack
+
+    dm, thread, from_thread = slack.dm(), order.get("thread"), order.pop("from_thread", None)
     posts = [(link[1], f"{link[2]}.{link[3]}", link[4]) for part in order["parts"].values() if (link := CARD_LINK.search(part["posted"] or ""))]
     if any(ts == thread and channel not in {dm, *data["slack"].get("watch", [])} for channel, ts, _ in posts):
         thread = next((parent or ts for channel, ts, parent in posts if channel == dm), None)

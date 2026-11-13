@@ -135,7 +135,7 @@ Interim fix: none: no runner writes format 16 yet, so no reader meets a split jo
 
 
 def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path: Path) -> None:
-    code, out = run("start", "demo", "--role", "communicator", "--channel", "D123")
+    code, out = run("start", "demo", "--role", "communicator")
     assert code == 0
     assert out.startswith("You are the communicator of drive demo: you talk to him. The coordinator: not started.")
     data = state.load("demo")
@@ -147,11 +147,11 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "started": data["roles"]["communicator"]["started"],
         }
     }
-    assert data["slack"] == {"channel": "D123", "page": None, "watch": []}
+    assert data["slack"] == {"page": None, "watch": []}
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("start", "demo", "--role", "communicator", "--channel", "D123")
+    run("start", "demo", "--role", "communicator")
     assert watch_process.ensured == []
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     code, out = run("start", "demo", "--role", "coordinator")
@@ -162,7 +162,7 @@ def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_proce
 def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_binds(
     run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches
 ) -> None:
-    out = run("start", "demo", "--role", "communicator", "--channel", "D123")[1]
+    out = run("start", "demo", "--role", "communicator")[1]
     registered = "demo-communicator registered: cci session run keeps session session-under-test running in tmux"
     assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
     assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
@@ -301,7 +301,6 @@ def test_each_role_binds_its_own_session_and_a_restart_rebinds_one(
     assert code == 0
     assert data["roles"]["communicator"]["session"] == "communicator-session"
     assert data["roles"]["coordinator"]["session"] == "after-restart"
-    assert data["slack"]["channel"] == "D123"
     assert data["orders"]["o1"]["text"] == "keep me"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
     assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "from the communicator") == (0, "o2")
@@ -380,18 +379,14 @@ def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: 
 
 
 def test_start_stores_watched_channels_and_a_later_watch_adds(run: Run) -> None:
-    code, out = run(
-        "start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW"
-    )
+    code, out = run("start", "demo", "--role", "coordinator", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW")
     assert code == 0
     assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW' in out
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
     run("start", "demo", "--role", "coordinator")
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
     run("start", "demo", "--role", "coordinator", "--watch", "C0822AHFY3G", "--watch", "C0B75AL4XEW")
-    data = state.load("demo")
-    assert data["slack"]["channel"] == "D123"
-    assert data["slack"]["watch"] == ["C0B75AL4XEW", "C0822AHFY3G"]
+    assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW", "C0822AHFY3G"]
 
 
 def test_start_adds_watch_to_a_drive_saved_before_watch_existed(run: Run, demo: str) -> None:
@@ -402,7 +397,7 @@ def test_start_adds_watch_to_a_drive_saved_before_watch_existed(run: Run, demo: 
 
 
 def test_status_and_context_print_who_holds_each_channel(run: Run) -> None:
-    run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    run("start", "demo", "--role", "coordinator", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     code, out = run("status")
     assert code == 0
@@ -601,7 +596,7 @@ def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: 
 
     def rival_starts_while_this_one_waits(name: str):
         monkeypatch.setattr(state, "locked", unpatched)
-        rival = state.new_drive(name, "communicator", "rival-session", "/rival", "D999")
+        rival = state.new_drive(name, "communicator", "rival-session", "/rival")
         rival["orders"]["o1"] = {"text": "the rival's order", "state": "open", "due": None, "jobs": []}
         state.create(rival)
         return unpatched(name)
@@ -612,7 +607,6 @@ def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: 
     assert data["orders"]["o1"]["text"] == "the rival's order"
     assert data["roles"]["communicator"]["session"] == "rival-session"
     assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
-    assert data["slack"]["channel"] == "D999"
 
 
 def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:

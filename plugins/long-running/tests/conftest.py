@@ -219,7 +219,7 @@ def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., t
 
 @pytest.fixture
 def demo(run: Callable[..., tuple[int, str]]) -> str:
-    run("start", "demo", "--role", "coordinator", "--channel", "D123")
+    run("start", "demo", "--role", "coordinator")
     return "demo"
 
 
@@ -384,6 +384,13 @@ def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"], "diff": b""})
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judging.asked.append((said, changes)) or list(judging.against))
     return judging
+
+
+@pytest.fixture(autouse=True)
+def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Every drive reads his DM as cc-slack whoami names it, D123, never this Mac's."""
+    monkeypatch.setattr(slack, "dm", lambda: "D123")
+    return "D123"
 
 
 @pytest.fixture(autouse=True)

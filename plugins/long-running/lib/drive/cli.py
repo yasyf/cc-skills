@@ -114,7 +114,7 @@ def start(args: argparse.Namespace) -> int:
     if args.project and args.role != "coordinator":
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel, orca.own_terminal())
+    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
@@ -125,8 +125,6 @@ def start(args: argparse.Namespace) -> int:
             )
         else:
             data["roles"][args.role] = fresh["roles"][args.role]
-        if args.channel:
-            data["slack"]["channel"] = args.channel
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
     held = fresh["roles"][args.role]
@@ -442,7 +440,7 @@ def order_thread(data: dict, source: str, message: tuple[str, str, str | None] |
 
 def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, str, str | None] | None, thread: tuple[str, str] | None) -> dict | None:
     """The reporter of an order he gave in a thread a teammate started outside his DM, that thread, which then hears only its one note while the order's lines go to his DM, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; None when --thread names where its lines go, on an answer, watch or incident order, and in a thread he, the drive or a bot started."""
-    if args.thread or args.watch or args.incident or args.joins or args.kind == "answer" or not (message and thread) or thread[0] == data["slack"]["channel"] or thread[1] == message[1]:
+    if args.thread or args.watch or args.incident or args.joins or args.kind == "answer" or not (message and thread) or thread[0] == slack.dm() or thread[1] == message[1]:
         return None
     try:
         root = slack.root(*thread)
@@ -459,7 +457,7 @@ def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, st
 def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | None) -> tuple[str, str]:
     """The channel and thread --thread names, by permalink, slack:<channel>/<ts>, or a bare ts in the channel of the message the order came from, his DM for one from outside Slack; refused when Slack reads no thread at that ts there, naming the thread a reply is in. The thread of the message the order came from, which --from already names, needs no read."""
     if SLACK_TS.fullmatch(flag):
-        where = (message[0] if message else data["slack"]["channel"], flag)
+        where = (message[0] if message else slack.dm(), flag)
     elif not (where := state.link_thread(flag)):
         raise DriveError(f"--thread {flag}: refused, name the thread by its permalink, as slack:<channel>/<ts>, or by its ts in the channel of the --from message")
     if message and where == (message[0], message[2]):
@@ -580,7 +578,7 @@ def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None)
         raise DriveError(f"{link} is not the drive's post")
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts"))
     gained = where if where[1] and where not in slack.order_threads(data, order_id, data["orders"][order_id]) else None
-    return posted, where[0] == data["slack"]["channel"] or bool(where[1]), gained
+    return posted, where[0] == slack.dm() or bool(where[1]), gained
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -1625,7 +1623,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
     job = data["jobs"][job_id]
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
     where = state.promise_thread(data["orders"][incidents[0] if incidents else job["order"]])
-    inside = where is not None and where[0] == data["slack"]["channel"]
+    inside = where is not None and where[0] == slack.dm()
     link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} if inside else {}))["permalink"]
     with state.edit(name) as data:
         live = state.kept_in(data["jobs"][job_id], file)
@@ -4090,7 +4088,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs his orders and jobs; meta holds drive tooling: its fixes, skill rewrites and installs"
     )
-    verb.add_argument("--channel", help="his DM channel id")
     verb.add_argument(
         "--watch", action="append", default=[], metavar="CHANNEL", help="another channel the coordinator subscribes to, kept across restarts"
     )

@@ -466,7 +466,7 @@ def test_failed_ci_names_the_agent_fixing_it() -> None:
 
 @pytest.fixture
 def drive(state_root: Path) -> str:
-    data = judged_job(state.new_drive("demo", "coordinator", "s1", "/work", "D123"))
+    data = judged_job(state.new_drive("demo", "coordinator", "s1", "/work"))
     data["prs"] = {
         "Forge-AI/monorepo#42": kept_entry(),
         "yasyf/cc-skills#42": {**kept_entry(wants_tap=False), "url": "https://github.com/yasyf/cc-skills/pull/42"},
@@ -680,7 +680,7 @@ def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(
 
 
 def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: str) -> None:
-    copy = judged_job(state.new_drive("copy", "coordinator", "s2", "/work", "D123"))
+    copy = judged_job(state.new_drive("copy", "coordinator", "s2", "/work"))
     copy["prs"] = {"Forge-AI/monorepo#42": {**kept_entry(), "updated": "2026-11-11T00:20:00-08:00"}}
     state.create(copy)
     with state.edit(drive) as data:
@@ -986,7 +986,7 @@ def stack_url(number: int) -> str:
 
 @pytest.fixture
 def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    data = judged_job(state.new_drive("demo", "coordinator", "s1", "/work", "D123"))
+    data = judged_job(state.new_drive("demo", "coordinator", "s1", "/work"))
     data["prs"] = {f"Forge-AI/monorepo#{number}": {**kept_entry(), "url": stack_url(number)} for number in (41, 42, 43, 44)}
     state.create(data)
     asked: list[list[str]] = []

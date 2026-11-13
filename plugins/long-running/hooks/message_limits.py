@@ -378,7 +378,7 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 def his_words(payload: dict) -> list[dict]:
     """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
-    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := drive["slack"]["channel"]):
+    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := slack.dm()):
         return []
     ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
     ruled += [WORKED_WORDS] if in_card_thread(drive, payload["tool_input"]) else []
@@ -400,7 +400,7 @@ def order_words(drive: dict, tool_input: dict, dm: str, order_id: str | None) ->
 
 def in_card_thread(drive: dict, tool_input: dict) -> bool:
     """Whether the post goes in the thread of one of his question cards: say's `about` names the card, as an Explain more reply's does, or an order keeps its thread as a question card's."""
-    where = [tool_input.get("channel_id") or drive["slack"]["channel"], tool_input.get("thread_ts")]
+    where = [tool_input.get("channel_id") or slack.dm(), tool_input.get("thread_ts")]
     return bool(tool_input.get("about")) or any(thread[:2] == where and thread[3] == "question" for order in drive["orders"].values() for thread in order["threads"])
 
 
@@ -474,7 +474,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
     """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
-    dm = drive["slack"]["channel"]
+    dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
         return (
@@ -566,7 +566,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:
     """Why a write goes through say: slack_edit rewords a post in his DM, or one say made outside it, with each {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} reference left as raw text and the dashboard still showing its old words, another tool posting a file in his DM, such as a screen recording, puts it in Slack alone and never on the dashboard, and one posting a reference there sends it raw too."""
-    dm = drive["slack"]["channel"]
+    dm = slack.dm()
     if payload["tool_name"] == EDIT and (posts_to(payload, dm) or said_post(drive["name"], edited(payload))):
         return agents.Ruled(
             "Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…}, {record:…} or {answer:…} reference to him as raw text and"
@@ -627,7 +627,7 @@ def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
 
 def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:
     """The order a post goes to: the one say records it on, else the open order whose thread, in his DM or the channel its channel_id names, it goes in."""
-    where = (tool_input.get("channel_id") or drive["slack"]["channel"], tool_input.get("thread_ts"))
+    where = (tool_input.get("channel_id") or slack.dm(), tool_input.get("thread_ts"))
     return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and state.promise_thread(order) == where), None)
 
 

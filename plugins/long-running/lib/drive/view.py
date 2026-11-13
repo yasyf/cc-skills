@@ -935,7 +935,7 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "review": review(drive, found),
         "incidents": [entry | {"orphaned": orphaned(heard, entry["id"])} for entry in incidents(drive)],
         "bug_reports": [entry | {"orphaned": orphaned(heard, entry["id"])} for entry in bug_reports(drive, moment, served)],
-        "channel": drive["slack"]["channel"],
+        "channel": slack.dm(),
     }
 
 
