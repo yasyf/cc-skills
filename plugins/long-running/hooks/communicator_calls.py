@@ -46,16 +46,17 @@ def own_call(payload: dict) -> bool:
     return name in OWN_TOOLS
 
 
-def communicator_call(payload: dict) -> str:
+def communicator_call(payload: dict) -> agents.Unjudged:
+    """Why the communicator's turn does not run a call that is not its own, decided by the tool's name alone, so Jev never weighs it and the same call meets the same refusal every time."""
     if payload["tool_name"] == PICKUP:
-        return f"Refused on purpose: {render.EYES} Go on with the ack."
+        return agents.Unjudged(f"Refused on purpose: {render.EYES} Go on with the ack.")
     if payload["tool_name"] in POSTS:
         return agents.Unjudged(
             f"Refused on purpose: {payload['tool_name']} holds the post until cc-slack's Slack permission check and Jev"
             " have read it, seconds past the 5 to 10 his ack has. Post the ack with say(thread_ts=<his thread>, text=<the ack>),"
             " which posts at once and has Jev read it afterwards, and reword a post of yours with say(edit=<its permalink>, text=…)."
         )
-    return (
+    return agents.Unjudged(
         f"Refused on purpose: the communicator does not run {payload['tool_name']} itself, since work in its turn holds his"
         f" next message behind it: a read, draft or post of any kind is a handler's. Its own calls are {render.OWN_CALLS}."
         f" Start a handler with the drive's handler tool, briefed with this step in its lines, {', '.join(render.HANDLER_LABELS)};"
