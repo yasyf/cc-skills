@@ -223,7 +223,10 @@ lane reads those through this Mac with a blocking question.
   for a `cci` or `ccn` read the builder agent lists, or `READ <path>` for a file under the drive's
   `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole
   as it carries one a brief names, refusing a path that resolves outside the folder. A `READ`
-  question runs its first line alone.
+  question runs its first line alone. A `LOG <url>` question, which a lane started under the builder
+  rules from before this Mac's log read was deleted still asks, reads nothing: its answer is the
+  builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `tools/ci bk`
+  refuses there.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
   which it starts as a process of its own, runs `cci` or `ccn` in
   the directory the coordinator started the drive from, or reads the drive files, and the watch

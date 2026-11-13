@@ -21,6 +21,9 @@ from drive import picture, procs, state
 from drive.render import clock
 
 READ = re.compile(r"READ\s+(.+)")
+READ_MARK = re.compile(r"^READ\b[\s:,]*")
+LOG = re.compile(r"LOG\s+https?://\S+")
+LOG_RULE = "Read a red check's whole log here"
 DRIVE = re.compile(r"DRIVE\s+(.+)")
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 DRIVE_SECONDS = 540
@@ -103,10 +106,12 @@ class Grant:
 
 
 def request(body: str) -> str | None:
-    """The read a remote lane's question asks for: a `DRIVE` question whole, else its first line, past the lane's job id, when it opens with `READ <command>`; None for a report or a question only the coordinator can answer."""
+    """The read a remote lane's question asks for: a `DRIVE` question whole, else its first line, past the lane's job id, when it opens with `READ <command>`, or its first `LOG <url>` when that line opens with one, past any `READ:`, as a lane started under the builder rules from before the Mac's log read was deleted still asks; None for a report or a question only the coordinator can answer."""
     if DRIVE.match(body.strip()):
         return body.strip()
     line = opening(body)
+    if log := LOG.match(READ_MARK.sub("", line, count=1)):
+        return log[0]
     return line if READ.match(line) else None
 
 
@@ -121,10 +126,24 @@ def opening(body: str) -> str:
 
 
 def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Answer a read question with this Mac's records, never with nothing, a `READ` naming files of the drive's folder reading them and a `DRIVE` question running its verb for the asking lane's job; ReadError says why a `READ` could not."""
+    """Answer a read question with this Mac's records, never with nothing, a `READ` naming files of the drive's folder reading them, a `DRIVE` question running its verb for the asking lane's job and a `LOG` question getting log_rule; ReadError says why a `READ` could not."""
     if question.startswith("DRIVE"):
         return lane_drive(question, checkout, drive, job_id)
+    if LOG.fullmatch(question):
+        return log_rule(question)
     return read_records(READ.fullmatch(question)[1], checkout, drive) or f"{question}: empty, the read printed nothing"
+
+
+def log_rule(question: str) -> str:
+    """What a `LOG <url>` question gets in place of the log this Mac no longer reads: the builder rule that has a lane read it on its own Sprite, as agents/builder.md words it, and `BLOCKED` when its Sprite's `tools/ci bk` refuses."""
+    from drive import orca
+
+    rule = next(bullet for bullet in orca.builder_body().split("\n- ") if bullet.startswith(LOG_RULE))
+    return (
+        f"{question}: this Mac reads no build log for a lane; read it on your Sprite, by the builder rule that replaced the LOG read:\n\n"
+        f"{' '.join(rule.split())}\n\n"
+        "When tools/ci bk refuses on your Sprite for want of its AWS session, return BLOCKED naming the read and its command."
+    )
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
