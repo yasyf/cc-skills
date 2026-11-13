@@ -5235,7 +5235,7 @@ def test_a_merged_ready_tooling_job_keeping_no_proof_file_is_said_orphaned_once_
     watching = watcher(demo)
     why = (
         "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, which the watch runs on the installed plugins,"
-        " or start a fresh builder with a merge handoff that proves it from its INSTALL: and PROVE: lines"
+        " or start a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, that proves it from its INSTALL: and PROVE: lines"
     )
     assert watch.run_pass(watching, T0) == [f'ORPHAN o1 "ship the watch": j1\'s PRs all merged and nothing proves them live: {why}']
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
@@ -5308,7 +5308,7 @@ def test_a_merged_ready_product_job_on_an_open_incidents_fix_waits_for_its_relea
         data["jobs"]["j1"]["parts"] = ["fix"]
     why = (
         f"{OTHER} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
-        " a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out"
+        " a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines once that release is out"
     )
     assert f'ORPHAN o1 "fix": j1\'s PRs all merged and nothing proves them live: {why}' in watch.run_pass(watcher(demo), T0)
     assert (state.load(demo)["jobs"]["j1"]["state"], provers) == ("waiting", [])

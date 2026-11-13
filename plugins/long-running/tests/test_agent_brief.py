@@ -154,6 +154,30 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
     assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(started("long-running:builder", f"{order}order o1, job j9"))
 
 
+def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_starts_here_at_once_past_a_full_cap_and_its_line_and_holds_no_slot(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
+    with state.edit(demo) as data:
+        place.queue(data["jobs"]["j9"], state.now())
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the AgentInbox", "--due", "+1h", "--thread", "1.3")
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "prove the AgentInbox fix live: a Datadog APM read", "--builds-nothing") == (0, "j10")
+    proof = state.load(demo)["jobs"]["j10"]
+    assert (proof["state"], proof["waits"], proof["where"], proof["builds_nothing"]) == ("running", [], "local", True)
+    brief = "Order (his words): fix the AgentInbox\nServes: his order\nGoal: prove it live with a Datadog APM read\nDrive: demo, order o2, job j10"
+    assert agent_brief.deny_reason(started("long-running:builder", brief)) is None
+    run("job", "set", "j10", "--agent", "a10")
+    data = state.load(demo)
+    assert list(place.local_builders(data, state.now())) == [f"j{number}" for number in range(1, 9)]
+    assert place.turns(data, state.now()) == ([], place.LOCAL_BUILDERS)
+    assert place.waiting_builders(data) == ["j9"]
+    assert run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces", "--builds-nothing")[0] == 2
+
+
 def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:

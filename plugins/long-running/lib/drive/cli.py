@@ -1095,6 +1095,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its last wait ends, so it takes no --agent")
     if args.lands and args.kind != "builder":
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
+    if args.builds_nothing and args.kind != "builder":
+        raise DriveError("--builds-nothing marks a builder that holds no slot of this Mac's builder cap; no other kind of job holds one")
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
     with state.edit(name) as data:
@@ -1121,6 +1123,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             "branch": args.branch,
             "worktree": args.worktree,
             "waits": view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found),
+            "builds_nothing": args.builds_nothing,
         }
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not args.agent and not args.waits and place.crowded(data, job_id, state.now()):
@@ -4350,6 +4353,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--branch", help="the branch it works on")
     verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
+    verb.add_argument(
+        "--builds-nothing",
+        action="store_true",
+        help="a builder whose whole work holds no checkout or compiler, such as a merged PR's live proof or a read: it holds no slot of this Mac's builder cap and starts here at once",
+    )
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.add_argument(
         "--lands",
