@@ -324,17 +324,19 @@ check's verdict, or from the order when none ran.
   against, quoted from the record: what fails and, once there is a verdict, the change and its PR.
   The fix's release has that line from its PR-open line. For a rollback or a release of the
   default branch, the `report` saying so goes out before its job is told to start.
-- The cut is named here, never derived mid-incident. An incident fix for sand or sand-next ships
-  alone, never through the normal start, which pulls in the whole platform release and waits on
-  the fix's dev test:
-  - a merged fix, or the default branch's head a first check proved:
-    `tools/ci release start sand --only sand --emergency`;
-  - a fix cherry-picked onto the live commit on a pushed branch, only once a first check found the
-    default branch's newest build fails too:
-    `tools/ci release start --manual sand-next --env core-usw2-auto --commit <sha> --emergency`,
-    since Platy refuses a commit off `dev`.
-
-  Every other form is in the monorepo `release` skill.
+- Every release a drive job starts, an incident's included, starts the regular way at the merged
+  fix or the default branch's head a first check proved, `tools/ci release start <target> --from <sha>`,
+  whose `Release-With` and `Release-Order` footers decide what ships with it, never narrowed with
+  `--only`, `--without` or `--emergency`, which each leave out a partner its footers name, by his
+  pick "Regular release, never cancelled: one start ships the change with every partner its footers
+  name; wider and slower." The job that started it never cancels it, however wide its plan reads,
+  by his words "next time fucking do the right thing and then dont cancel it": a job that would
+  decline it at approve returns with it held for the coordinator, since the `landing_guard` hook
+  refuses a drive job's `tools/ci release cancel`. A fix cherry-picked onto the live commit on a
+  pushed branch, only once a first check found the default branch's newest build fails too, starts
+  `tools/ci release start --manual sand-next --env core-usw2-auto --commit <sha> --emergency`, since
+  Platy refuses a commit off `dev`. `drive job brief` prints this rule on each incident builder's
+  `Incident:` line, so no brief writes a cut of its own.
 - The incident order's words approve starting its own release and its rollback, never the migrations,
   deletes and replaces its approve hold holds. The job that starts the release passes `--order <the
   answer id>` and reads that hold as [landing.md](landing.md#after-merge) says. His own order approves

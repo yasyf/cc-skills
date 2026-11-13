@@ -896,6 +896,17 @@ def test_a_sub_coordinator_lands_a_tapped_pr_of_its_project_and_leaves_starting_
     assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [None, None, None]
 
 
+def test_a_drive_job_cancels_no_release_it_started_and_returns_it_held_for_the_coordinator(demo: str, no_calls: list[list[str]]) -> None:
+    cancel = "tools/ci release cancel electric-racine"
+    job = {"session_id": "session-under-test", "agent_id": "a4da3dca63d05a40d", "agent_type": "long-running:builder"}
+    lane = {"session_id": "a-lane-of-its-own", "agent_type": "long-running:builder"}
+    assert [landing_guard.deny_reason(bash(cancel) | who) for who in (job, lane)] == [landing_guard.RELEASE_CANCEL] * 2
+    assert "return with the release held for the coordinator" in landing_guard.RELEASE_CANCEL
+    reads = ("tools/ci release status electric-racine", "tools/ci release watch electric-racine")
+    assert [landing_guard.deny_reason(bash(command) | job) for command in reads] == [None, None]
+    assert landing_guard.deny_reason(bash(cancel) | {"session_id": "session-under-test"}) is None
+
+
 RELEASE_PICK = {"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
 INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
