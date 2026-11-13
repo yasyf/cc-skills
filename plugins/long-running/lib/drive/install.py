@@ -502,11 +502,23 @@ def newest(entries: list[dict]) -> dict:
 
 
 def installs(key: str) -> list[dict]:
-    """Each install of the plugin a session can load: the user scope's, and each project or local scope's whose folder is still on this Mac. Claude Code loads the one its folder's scope names, and `claude plugin update` moves one scope, so each is updated and checked on its own."""
+    """Each install of the plugin a session can load: the user scope's, and for each git repository the first project or local scope's whose folder is still on this Mac. Claude Code takes a repository's checkout and its worktrees for one project: a session started in any of them loads, and `claude plugin update` run in any of them moves, that repository's first entry in installed_plugins.json, so a later entry, such as the one an Orca workspace of the monorepo records when its first session starts, is never loaded or updated. Each install listed is updated and checked on its own, since `claude plugin update` moves one."""
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    if not (found := [entry for entry in plugins.get(key, []) if "projectPath" not in entry or Path(entry["projectPath"]).is_dir()]):
+    found, projects = [], set()
+    for entry in plugins.get(key, []):
+        if "projectPath" in entry:
+            if not Path(entry["projectPath"]).is_dir() or (project := (entry["scope"], repository(entry["projectPath"]))) in projects:
+                continue
+            projects.add(project)
+        found.append(entry)
+    if not found:
         raise InstallError(f"{key} is not in installed_plugins.json in any scope whose folder is on this Mac")
     return found
+
+
+def repository(folder: str) -> str:
+    common = subprocess.run(["git", "-C", folder, "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True, check=False)
+    return common.stdout.strip() if common.returncode == 0 else folder
 
 
 def installed(key: str) -> dict:

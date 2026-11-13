@@ -180,8 +180,10 @@ change".
      session's hooks, at that release: while it is older, the install holds and prints his Install now card, naming
      its ASK file once a job keeps one, and installs nothing; run it again once `drive answer` records his tap, and it
      runs `capt-hook helper install` first. It updates each scope's install with its own `claude plugin update --scope`, the user
-     scope's and each project or local scope's from its folder, skipping one whose folder is gone, and checks each holds the
-     merge, since a session loads the install its folder's scope names and an update moves one scope. A release holds it when the merge is in the release's commit and
+     scope's and, for each git repository, its first project or local scope's from that folder, skipping one whose folder is
+     gone, and checks each holds the merge. Claude Code takes a repository's checkout and its worktrees for one project: a
+     session started in any of them loads, and an update run in any of them moves, the repository's first entry in
+     `installed_plugins.json`, so the entry an Orca workspace records after it is never loaded and is not checked. A release holds it when the merge is in the release's commit and
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
      binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
      sync merged after a fix its `cci` was built without). While it waits it prints a line naming

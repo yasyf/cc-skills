@@ -102,6 +102,7 @@ class FakeGit:
         self.install_root = Path("/cache")
         self.together = threading.Barrier(1)
         self.projects: list[str] = []
+        self.repos: dict[str, str] = {}
         self.stuck: set[str] = set()
         self.cwds: list[str | None] = []
         self.needs: dict[str, list[dict]] = {}
@@ -135,7 +136,12 @@ class FakeGit:
 
     def update(self, key: str, scope: str, cwd: str | None) -> None:
         plugins = json.loads((self.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
-        moved = next(each for each in plugins[key] if each["scope"] == scope and each.get("projectPath") == (None if scope == "user" else cwd))
+        home = self.repos.get(cwd, cwd)
+        moved = next(
+            each
+            for each in plugins[key]
+            if each["scope"] == scope and (scope == "user" or (Path(each["projectPath"]).is_dir() and self.repos.get(each["projectPath"], each["projectPath"]) == home))
+        )
         if scope not in self.stuck:
             plugin = key.partition("@")[0]
             moved |= {"version": self.versions.get(plugin, "1.0.3"), "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": str(self.install_root / plugin / "1.0.3"), "gitCommitSha": self.installed_sha or self.refs[0]}
@@ -157,6 +163,10 @@ class FakeGit:
             return self.orca(cmd, options["timeout"])
         if cmd[0] in self.proofs:
             return RUN(cmd, **options)
+        if cmd[3:] == ["rev-parse", "--path-format=absolute", "--git-common-dir"]:
+            if cmd[2] in self.repos:
+                return subprocess.CompletedProcess(cmd, 0, f"{self.repos[cmd[2]]}\n", "")
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: not a git repository (or any of the parent directories): .git\n")
         self.calls.append(cmd)
         self.timeouts.append(options["timeout"])
         self.cwds.append(options.get("cwd"))
@@ -303,6 +313,22 @@ def test_each_scope_installed_in_a_folder_still_here_is_updated_in_that_folder(f
     assert install.main("long-running@skills", SHA, None, 900, None) == 0
     updates = [(call[-1], cwd) for call, cwd in zip(git.calls, git.cwds, strict=True) if call[:3] == ["claude", "plugin", "update"]]
     assert updates == [("user", None), ("project", str(tmp_path / "durable-agents"))]
+
+
+def test_only_a_repositorys_first_project_install_is_updated_and_checked_since_no_session_loads_a_later_worktrees(
+    fake: Callable[..., FakeGit], tmp_path: Path
+) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    checkout, workspace = tmp_path / "durable-agents", tmp_path / "durable-agents-j15"
+    checkout.mkdir()
+    workspace.mkdir()
+    git.projects = [str(checkout), str(workspace)]
+    git.repos = {str(checkout): str(tmp_path / "monorepo" / ".git"), str(workspace): str(tmp_path / "monorepo" / ".git")}
+    git.seed()
+    assert install.main("long-running@skills", SHA, None, 900, None) == 0
+    updates = [(call[-1], cwd) for call, cwd in zip(git.calls, git.cwds, strict=True) if call[:3] == ["claude", "plugin", "update"]]
+    assert updates == [("user", None), ("project", str(checkout))]
+    assert [entry.get("projectPath") for entry in install.installs("long-running@skills")] == [None, str(checkout)]
 
 
 def test_a_scope_the_update_left_without_the_sha_is_refused_naming_its_folder(
