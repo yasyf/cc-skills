@@ -143,7 +143,7 @@ Holds: <each change of the order its options alter, in that change's words; or n
   up now, and each option's description its downstream impact. The question is a whole sentence,
   never a cut headline, and nothing on the card is a raw link, path or id. `drive job ask` refuses a
   first line missing either, by his words on a card that opened on its findings: "what is this and
-  what the fuck are you talking about", and a card Jev reads as telling no story. It counts the words his card draws for each
+  what the fuck are you talking about". It counts the words his card draws for each
   reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
   words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description
