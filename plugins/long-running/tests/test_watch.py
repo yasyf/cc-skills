@@ -4237,15 +4237,15 @@ def test_an_incident_whose_fix_jobs_last_release_wait_the_drives_watch_drops_is_
     still = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
         data["orders"]["o1"].update(incident=True, jobs=["j1", "j2"], parts={"fix": state.new_part(), "ship the watch": state.new_part()})
-        data["orders"]["o2"] = order(text="ship the dashboard", jobs=[])
+        data["orders"]["o2"] = order(text="ship the dashboard")
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
-        data["jobs"]["j1"].update(parts=["fix"], state="waiting", carries={"o2": ["ship the dashboard"]}, waits=[f"release:api:{KEY}"], updated=still)
+        data["jobs"]["j1"].update(order="o2", parts=["ship the dashboard"], state="waiting", carries={"o1": ["fix"]}, waits=[f"release:api:{KEY}"], updated=still)
         data["jobs"]["j2"] = job(state="waiting", parts=["ship the watch"], waits=[f"release:worker:{KEY}", f"release:api:{KEY}"], updated=still)
     top, iris = watcher(demo), watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris")
     assert (watch.run_pass(top, T0), watch.run_pass(iris, T0)) == ([], [])
     published.append(release(3, "2026-11-09T16:00:00Z", "api"))
     api = f"release releases/2026-11-09/3 ships {KEY} on api"
-    assert watch.run_pass(top, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: {api}, nothing else holds it"]
+    assert watch.run_pass(top, T0 + timedelta(minutes=1)) == [f"FREE j1 o2: {api}, nothing else holds it"]
     assert (state.load(demo)["orders"]["o1"]["fixed"], ready_records) == (api, [])
     assert watch.run_pass(iris, T0 + timedelta(minutes=1)) == [
         f"FREE j2 o1: {api}, nothing else holds it",

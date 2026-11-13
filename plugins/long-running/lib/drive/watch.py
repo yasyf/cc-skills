@@ -100,8 +100,8 @@ def hears(watcher: Watcher, data: dict, order_id: str) -> bool:
 
 
 def heard_job(watcher: Watcher, data: dict, job: dict) -> bool:
-    """Whether the watch hears a job: one serving or carrying an order it hears."""
-    return any(hears(watcher, data, order_id) for order_id in [job["order"], *job["carries"]])
+    """Whether the watch hears a job: one whose own order it hears, never one only carrying it, so one watch alone makes every line about a job."""
+    return hears(watcher, data, job["order"])
 
 
 def heard_orders(watcher: Watcher, data: dict) -> dict[str, dict]:
@@ -561,8 +561,8 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
     """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit."""
     waits = {
         wait
-        for order_ids, owner in release_owners(data)
-        if any(hears(watcher, data, order_id) for order_id in order_ids)
+        for order_id, owner in release_owners(data)
+        if hears(watcher, data, order_id)
         for wait in owner["waits"]
         if state.RELEASE_WAIT.fullmatch(wait)
     }
@@ -578,11 +578,11 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
     return out, []
 
 
-def release_owners(data: dict) -> list[tuple[list[str], dict]]:
-    """Each live job and open PR with the orders it serves: a job's own and those it carries, a PR's own."""
+def release_owners(data: dict) -> list[tuple[str, dict]]:
+    """Each live job and open PR with its own order."""
     return [
-        *(([job["order"], *job["carries"]], job) for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES),
-        *(([pr["order"]], pr) for pr in state.open_prs(data)),
+        *((job["order"], job) for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES),
+        *((pr["order"], pr) for pr in state.open_prs(data)),
     ]
 
 
@@ -1435,9 +1435,11 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
-    for order in heard_orders(watcher, data).values():
+    for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
+            if job["order"] != order_id:
+                continue
             running = job["state"] == "running"
             remote = job.get("where") == "remote"
             if running and job.get("branch") and (job.get("repo") or remote):
@@ -1936,7 +1938,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
     answers = [
         unreached(job_id, answer)
         for job_id, job in data["jobs"].items()
-        if job["state"] not in state.FINISHED_JOB_STATES and {job["order"], *job["carries"]} & set(owing)
+        if job["state"] not in state.FINISHED_JOB_STATES and job["order"] in owing
         for answer in job["undelivered"]
     ]
     return [", and ".join([f"TICK {' '.join(owing)}", *answers])]
