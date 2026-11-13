@@ -54,7 +54,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "required_checks": [], "required_reviews": 0, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -101,7 +101,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             labels={"nodes": [{"name": "hold"}]},
             author=None,
             lastEditedAt="2026-11-12T23:08:08Z",
-            stack={"entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
+            stack={"baseRefName": "main", "entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
         )
         return json.dumps({"data": {"r0": {"defaultBranchRef": RULED, "p1": node(), "p2": merged}, "r1": {"defaultBranchRef": UNRULED, "p7": None}}})
 
@@ -128,6 +128,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "labels": [],
             "ejected_at": None,
             "native": [],
+            "trunk": None,
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
         },
@@ -148,6 +149,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "labels": ["hold"],
             "ejected_at": None,
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
+            "trunk": "main",
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
         },
@@ -275,7 +277,7 @@ def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
     native = [("a/one#1", "merged"), ("a/one#2", "closed"), ("a/one#3", "open")]
-    read = pr_read([*GREEN, {"context": "buildkite/deploy", "state": "ERROR"}], reviewDecision="CHANGES_REQUESTED", mergeable="CONFLICTING", native=native)
+    read = pr_read([*GREEN, {"context": "buildkite/deploy", "state": "ERROR"}], reviewDecision="CHANGES_REQUESTED", mergeable="CONFLICTING", native=native, trunk="main")
     assert github.live(read, stored()) == {
         "state": "open",
         "checks": "fail",
@@ -288,6 +290,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "author": "yasyf",
         "hold_label": False,
         "native": ["a/one#1", "a/one#3"],
+        "trunk": "main",
         "reviews_required": 0,
         "conflict": True,
         "required": {"checks": "none", "failed": {}},

@@ -163,12 +163,13 @@ def held(data: dict, pr: dict, cards: dict) -> str:
 
 
 def red(key: str, pr: dict) -> str:
-    """What its builder must fix at its head: failing checks, a conflict GitHub reads or refused the lander's merge for, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    """What its builder must fix at its head: failing checks, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     head = pr["head"][:7]
     if pr["checks"] == "fail":
         return f"its checks fail at {head}: {', '.join(pr['failed_checks']) or 'see its checks'}"
     if pr["conflict"] or land.conflicted(pr):
-        return f"it conflicts with its base {pr['base']}"
+        restack = f": restack the whole stack onto {pr['trunk']} with ccx vcs stack rebase" if pr["trunk"] else ""
+        return f"it conflicts with {conflicts_with(pr)}{restack}"
     if pr["draft"]:
         return "it is a draft"
     if pr["review"] == "changes":
@@ -179,6 +180,11 @@ def red(key: str, pr: dict) -> str:
             f" that cites his ruling {ACCEPT_RULING}"
         )
     return ""
+
+
+def conflicts_with(pr: dict) -> str:
+    """What GitHub reads the PR conflicting with: the trunk of its native GitHub stack, onto which GitHub test-merges it with every PR below it rather than onto its base branch, so only a restack of the whole stack onto that trunk clears it; its base branch for a PR in none."""
+    return f"{pr['trunk']}, the trunk of its native stack" if pr["trunk"] else f"its base {pr['base']}"
 
 
 def waited(data: dict, job_id: str, line: str) -> dict:
@@ -225,7 +231,7 @@ def grading(pr: dict) -> str:
 
 
 def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None, stacks: dict[str, tuple[str, ...]] | None = None) -> Stage:
-    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting with its base, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
+    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting, with what conflicts_with() names, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
     if now.name in OWN_STEP:
         return now
     under = land.unders(data) if under is None else under
@@ -236,7 +242,7 @@ def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str |
         if member != key and (conflicts or now.name == "ready") and (other := own(data, member, cards)).name != "ready":
             mates = land.together(data, stacks, member)
             where = "below it in its stack" if member in below else "on his card with it" if key in mates else f"on his card with {mates[0]}"
-            base = f" conflicts with its base {data['prs'][member]['base']}," if conflicts else ","
+            base = f" conflicts with {conflicts_with(data['prs'][member])}," if conflicts else ","
             return Stage("behind", other.owner, f"{member} {where}{base} {other.name}: {other.why}")
     return now
 

@@ -334,7 +334,7 @@ or PRs each on the one below's head branch, with every PR under them and the PRs
 once each of them is ready. A PR stacked above them on a card of its own, such as one red, held, in
 conflict or still waiting on his Approve, holds none of them, and his Approve on one card never passes
 to a PR of another. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
-while one below conflicts with its base, every PR above it reads `behind` it whatever its own row reads,
+while one below conflicts, every PR above it reads `behind` it whatever its own row reads,
 owed by that PR's owner or the card holding it, so no builder above it is woken: none of them lands
 before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`
 refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. What
@@ -363,10 +363,13 @@ puts the PR on his card, or his tap comes after the try started, the PR reads hi
 `landing` while Trunk holds it, and `unlanded`, a lander's try that ended without queueing it, with
 `UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
 every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
-A merge GitHub refused for a conflict with its base, `Pull Request has merge conflicts` or `the merge
+A merge GitHub refused for a conflict, `Pull Request has merge conflicts` or `the merge
 commit cannot be cleanly created`, is never `unlanded`: the PR reads `red`, owed by its builder, "it
-conflicts with its base", whatever the watch last read of its mergeability, so `drive pr wake` sends its
+conflicts with its base <branch>", whatever the watch last read of its mergeability, so `drive pr wake` sends its
 builder the line at once and every 30 minutes, and no session starts one; its rebased head lands on its own.
+A PR in a native GitHub stack reads "it conflicts with <trunk>, the trunk of its native stack: restack the
+whole stack onto <trunk> with ccx vcs stack rebase" instead, since GitHub test-merges each member onto the
+stack's trunk with every PR below it, never onto its base branch, the stacked parent.
 His `TAP Approve` line itself wakes no session: a red PR's stage wakes its builder.
 
 **The same lander lands every other repository the drive tracks**, such as `Forge-AI/litestream`, by

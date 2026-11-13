@@ -32,7 +32,7 @@ TRUNK_CHECK = "Trunk Merge Queue"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
 STACKS_AGE = "60s"
-STACK = "stack { entries(first: 100) { nodes { position pullRequest { number state } } } }"
+STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 
@@ -218,7 +218,7 @@ def rule_reviews(repository: dict) -> int:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -233,6 +233,7 @@ def live(read: dict, stored: dict) -> dict:
         "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
         "native": [member for member, status in read["native"] if status != "closed"],
+        "trunk": read["trunk"],
         "reviews_required": read["required_reviews"],
         "conflict": read["mergeable"] == "CONFLICTING" or read["mergeable"] == "UNKNOWN" and read["headRefOid"] == stored["head"] and stored["conflict"],
     }
@@ -254,7 +255,13 @@ def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     found = repositories(payload, keys)
     return {
-        key: flatten(node) | {"native": entries(repo_of(key), node["stack"]) if node["stack"] else [], "required_checks": rule_checks(found[repo_of(key)]), "required_reviews": rule_reviews(found[repo_of(key)])}
+        key: flatten(node)
+        | {
+            "native": entries(repo_of(key), node["stack"]) if node["stack"] else [],
+            "trunk": node["stack"]["baseRefName"] if node["stack"] else None,
+            "required_checks": rule_checks(found[repo_of(key)]),
+            "required_reviews": rule_reviews(found[repo_of(key)]),
+        }
         for key, node in nodes(payload, keys).items()
     }
 

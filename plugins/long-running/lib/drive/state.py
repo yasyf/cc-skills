@@ -702,6 +702,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("card", None)
         pr.setdefault("added", None)
         pr.setdefault("native", [])
+        pr.setdefault("trunk", None)
         pr.setdefault("reviews_required", 1)
         pr.setdefault("base", None)
         pr.setdefault("branch", None)
@@ -2710,6 +2711,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "conflict": False,
         "hold_label": False,
         "native": [],
+        "trunk": None,
         "reviews_required": 1,
         "base": None,
         "branch": None,

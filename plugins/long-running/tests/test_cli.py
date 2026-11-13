@@ -4316,7 +4316,7 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
 ) -> None:
     build = "https://buildkite.com/forge/monorepo/builds/7"
     read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
-    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "ejected_at": None, "native": [], "required_checks": ["buildkite/test"], "required_reviews": 1}
+    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "ejected_at": None, "native": [], "trunk": None, "required_checks": ["buildkite/test"], "required_reviews": 1}
     test = {"context": "buildkite/test", "targetUrl": build}
     for posted, held in (
         ([], f"{with_pr}'s required checks still run at abc: return"),
