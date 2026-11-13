@@ -2461,6 +2461,44 @@ def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_nam
     assert (job["state"], [question["file"] for question in job["questions"]], kept.read_text()) == ("waiting", [str(kept)], SHORT_ASK)
 
 
+def incident_codex_running(demo: str, folder: Path, part: str) -> None:
+    codex_running(demo, folder)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, parts={part: state.new_part()})
+        data["jobs"]["j1"].update(goal="fix: runs never start", parts=[part], brief="/briefs/j1.md")
+
+
+@pytest.mark.parametrize(
+    ("reply", "ended"),
+    [
+        (codex_reply("HANDOFF", "edits left uncommitted in worktree fix-runs on branch fix-runs; commit, PR, merge and release are left"), "stopped"),
+        (codex_reply("DONE", "fixed runs never starting on branch fix-runs; it needs the caller to commit, merge and release it"), "done"),
+    ],
+)
+def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude_builder_that_ships_it_named_for_the_coordinator_to_start_that_turn(
+    demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk, reply: str, ended: str
+) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    incident_codex_running(demo, codex_ask.run("completed", reply), state.INCIDENT_FIX)
+    lines = staged(watch.agent_lines, watcher(demo), state.now())
+    data = state.load(demo)
+    written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
+    assert lines == [
+        f'JOB j1 o1 {data["jobs"]["j1"]["said"]}; its fix is not live, so j2, an Opus 5.5 long-running:builder the drive added on "fix" to ship it:'
+        f' start its agent now, run_in_background, on the prompt "Read your brief first: {written}"'
+    ]
+    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["jobs"]) == (ended, ["j1", "j2"])
+    assert (data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["brief"]) == ("builder", ["fix"], str(written))
+    assert "Handoff: drive job report j1, the codex fix job whose work this builder ships, on its brief /briefs/j1.md\n" in written.read_text()
+
+
+def test_an_incident_codex_jobs_return_on_a_part_other_than_its_fix_adds_no_builder(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    incident_codex_running(demo, codex_ask.run("completed", codex_reply("HANDOFF", "the first check is left on branch first-check")), "first check")
+    assert staged(watch.agent_lines, watcher(demo), state.now()) == []
+    assert list(state.load(demo)["jobs"]) == ["j1"]
+
+
 def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_under_that_session(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     path = tmp_path / "config" / "projects" / "-iris" / "iris-1" / "subagents" / "agent-a1.jsonl"

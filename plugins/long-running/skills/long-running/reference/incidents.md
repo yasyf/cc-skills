@@ -248,9 +248,10 @@ breaks a service.
 His stop carries the scope his words give it: "leave it alone here" stops the work in that thread
 and nothing else. Nothing stops an open incident's fix, because users stay blocked until it lands.
 `drive job set <j> --state stopped` refuses the last running job on an open incident's `fix` part:
-add the job taking the fix over first, or close the order once its fix is live. A fix job that
-ends on its own, `BLOCKED` with no route left or done with no PR, leaves the fix with nobody, and
-the watch says `ORPHAN o<n> "fix": no fix job` on its next pass, naming the second job to start: a
+add the job taking the fix over first, or close the order once its fix is live. A codex fix job's
+return hands the fix to the builder the drive adds for it (Ship it). Any other fix job that ends
+on its own, `BLOCKED` with no route left or done with no PR, leaves the fix with nobody, and the
+watch says `ORPHAN o<n> "fix": no fix job` on its next pass, naming the second job to start: a
 builder on the last job's brief, which `brief_refusal` already held to never stopping on a choice.
 Only his words saying he writes the fix himself close the incident for that reason.
 
@@ -308,10 +309,12 @@ check's verdict, or from the order when none ran.
 
 ## Ship it
 
-- Codex edits and Claude ships. A fix job that changed code returns `HANDOFF`, which stops it with
-  its report on its own job, and in that turn a `long-running:builder` briefed
-  `Handoff: drive job report <the fix job>` ships it from that worktree, lands it and proves it
-  live.
+- Codex edits and Claude ships. Each time the watch takes a codex fix job's return while the fix
+  is not live, whatever the return says, the drive adds an Opus 5.5 `long-running:builder` on
+  `fix`, briefed `Handoff: drive job report <the fix job>` on that job's brief, and its `JOB` line
+  has the coordinator start that builder's agent in that turn. The builder ships the edits from
+  that worktree, lands them and proves them live. A second-lane builder holding the codex job
+  ships it itself, so none is added.
 - An approved and green incident PR lands in the turn the watch reports it: its `checks passed`
   or `approved` event wakes the coordinator, which resumes its job with "land it and start its
   build now".

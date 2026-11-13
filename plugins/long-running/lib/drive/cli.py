@@ -2151,7 +2151,7 @@ def job_launch(args: argparse.Namespace) -> int:
 
 
 def codex_launch(args: argparse.Namespace, name: str) -> int:
-    """Start a codex job's codex-ask run on this Mac from this session's folder on its brief, with no agent relaying it, refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    """Start a codex job's codex-ask run on this Mac from this session's folder on its brief, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = data["jobs"][args.id]
@@ -2166,8 +2166,11 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
             folder = codex.ask(name, args.id, written, data["orders"][job["order"]]["incident"])
         except codex.CodexError as error:
             raise DriveError(f"{args.id}: refused, not launched: {error}") from None
+        kept = launch_brief(name, args.id)
+        kept.parent.mkdir(exist_ok=True)
+        kept.write_text(written)
         with state.edit(name) as data:
-            data["jobs"][args.id]["codex_run"] = str(folder)
+            data["jobs"][args.id].update(codex_run=str(folder), brief=str(kept))
             state.start(data["jobs"][args.id])
     return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
 
