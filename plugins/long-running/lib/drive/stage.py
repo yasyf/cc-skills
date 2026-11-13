@@ -19,7 +19,6 @@ NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 ASKS_HIM = ("held", "card")
 OWN_STEP = ("uncarded", "landing", "unlanded", "held", "rework", "merged", "closed")
 EVERY = {
-    "uncarded": timedelta(0),
     "landing": timedelta(minutes=90),
     "unlanded": timedelta(minutes=30),
     "held": timedelta(minutes=30),

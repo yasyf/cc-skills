@@ -2207,7 +2207,7 @@ def test_j3997_a_question_asked_again_in_new_words_whose_redraw_fails_stays_on_i
     data = state.load("demo")
     assert [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j1"]["questions"]] == [(str(again), "demo:j1-7", slack_card(1))]
     assert [(job_id, question["file"]) for job_id, question in view.drawn_on(data, slack_card(1))] == [("j1", str(again))]
-    assert refs.card([], data, "demo:j1-7")["url"] == slack_card(1)
+    assert refs.card({"questions": [], "pr_cards": []}, data, "demo:j1-7")["url"] == slack_card(1)
     assert cli.main(["job", "ask", asking, "--drop", str(again)]) == 2
     assert f"is on his card {slack_card(1)}, which only his answer closes" in capsys.readouterr().err
     assert state.kept_in(state.load("demo")["jobs"]["j1"], again) is not None
