@@ -182,6 +182,24 @@ def test_drive_job_launch_starts_a_codex_jobs_codex_ask_run_on_its_brief_with_it
     assert f"j1: refused, not launched: codex-ask: lane {folder} is busy" in capsys.readouterr().err
 
 
+def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_whose_words_name_it(
+    demo: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the handoff from scratch with Fable and Astra")
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "review the fix")
+    assert run("job", "add", "codex", "--order", "o1", "--goal", "design", "--model", "astra")[0] == 0
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text(f"Order (his words): design the handoff from scratch with Fable and Astra\nGoal: design\nDrive: {demo}, order o1, job j1\n")
+    assert run("job", "launch", "j1", str(brief))[0] == 0
+    folder = Path(state.load(demo)["jobs"]["j1"]["codex_run"])
+    assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(folder.parent / codex.SCHEMA_FILE), "-m", "astra", "-"]
+    assert cli.main(["job", "add", "codex", "--order", "o2", "--goal", "review", "--model", "astra"]) == 2
+    assert "refused, no job added: --model astra runs only on an order whose words name astra, which o2's do not" in capsys.readouterr().err
+    assert cli.main(["job", "add", "reader", "--order", "o2", "--goal", "read", "--model", "sol"]) == 2
+    assert "--model names the codex-ask model a codex job runs" in capsys.readouterr().err
+    assert len(state.load(demo)["jobs"]) == 1
+
+
 def test_an_incidents_codex_job_launches_on_codex_asks_fast_tier_once_its_brief_carries_the_incident_rule(
     demo: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
 ) -> None:

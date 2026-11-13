@@ -1544,6 +1544,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "kind": kind,
         "goal": goal,
         "agent": None,
+        "model": None,
         "session": os.environ.get("CLAUDE_CODE_SESSION_ID"),
         "parts": parts,
         "carries": {},
