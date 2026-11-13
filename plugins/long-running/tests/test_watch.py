@@ -3,6 +3,7 @@ import os
 import plistlib
 import re
 import shlex
+import signal
 import subprocess
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -3272,6 +3273,87 @@ def test_a_question_kept_before_holds_lines_holds_nothing_so_the_approved_pr_of_
     assert state.load(demo)["jobs"]["j1"]["questions"][0]["holds"] == ""
     assert land.unready(state.load(demo), KEY, cards) is None
     assert land.start(demo, [KEY], cards) == [(KEY,)]
+
+
+HOLDING_CARD = "demo:j2-5-a"
+BUSY_WAIT = "get rid of this busy 30s wait"
+HELD_WHY = f"his cards {HOLDING_CARD} on its work are open"
+
+
+def holding_job(name: str, *waits: str) -> None:
+    with state.edit(name) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "checked": CHECKED | {"orders": ["o1", "o2"]}}
+        data["orders"]["o2"] = order(text=BUSY_WAIT, jobs=["j2"], parts={BUSY_WAIT: state.new_part()})
+        data["jobs"]["j2"] = job(order="o2", goal="change #42", parts=[BUSY_WAIT], carries={}, prs=[state.pr_url(KEY)], waits=[KEY, *waits])
+
+
+def holding_asks(name: str, holds: str) -> None:
+    with state.edit(name) as data:
+        data["jobs"]["j2"]["questions"].append(state.new_question(None, "Do pause and resume stay in #42?", state.stamp(T0), holds=holds) | {"waits": HOLDING_CARD})
+
+
+def holding_answered(name: str) -> None:
+    with state.edit(name) as data:
+        data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Keep them", None, seq="#9")
+
+
+@pytest.mark.parametrize(
+    ("waits", "holds", "held"),
+    [((HOLDING_CARD,), "", True), ((), f'"land #42 once #43 is in": each option changes what #42 carries when it lands; {BUSY_WAIT}', True), ((), "the dashboard", False)],
+)
+def test_his_open_card_holds_a_pr_from_landing_while_another_job_carrying_it_waits_on_that_card_or_its_holds_line_names_that_jobs_change(
+    demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, waits: tuple[str, ...], holds: str, held: bool
+) -> None:
+    approve(demo, KEY)
+    holding_job(demo, *waits)
+    holding_asks(demo, holds)
+    asking(monkeypatch, demo, HOLDING_CARD)
+    cards = view.live_cards(demo)
+    assert land.unready(state.load(demo), KEY, cards) == (f"held: {HELD_WHY}" if held else None)
+    if held:
+        assert land.run(demo, [KEY]) == f"{land.HELD}: {KEY}: {HELD_WHY}"
+        assert land.start(demo, [KEY], cards) == []
+        holding_answered(demo)
+    assert land.start(demo, [KEY], cards) == [(KEY,)]
+
+
+def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding_its_pr_and_the_pr_lands_once_he_answers(
+    demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    holding_job(demo)
+    asking(monkeypatch, demo)
+    lander = subprocess.Popen(["sleep", "600"], start_new_session=True)
+    with state.edit(demo) as data:
+        land.mark(data, (KEY,), lander.pid)
+    watching = watcher(demo)
+    watching.cards = view.live_cards(demo)
+    watch.landed(watching)
+    assert (lander.poll(), stage.of(state.load(demo), KEY, watching.cards).name) == (None, "landing")
+    holding_asks(demo, BUSY_WAIT)
+    asking(monkeypatch, demo, HOLDING_CARD)
+    watching.cards = view.live_cards(demo)
+    watch.landed(watching)
+    assert lander.wait(timeout=10) == -signal.SIGTERM
+    assert state.load(demo)["prs"][KEY]["lander"]["outcome"] == f"{land.HELD}: {KEY}: {HELD_WHY}"
+    assert (land.unready(state.load(demo), KEY, watching.cards), landers) == (f"held: {HELD_WHY}", [])
+    holding_answered(demo)
+    watch.landed(watching)
+    assert landers == [(KEY,)]
+
+
+def test_a_lander_the_watch_stops_dequeues_each_pr_it_queued_and_removes_its_worktree(demo: str, tmp_path: Path) -> None:
+    approve(demo, KEY)
+    calls = tmp_path / "calls"
+    on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\n[ "$1" = --watch ] && kill -TERM $PPID && sleep 5\nexit 0\n')
+    before = signal.getsignal(signal.SIGTERM)
+    try:
+        with pytest.raises(land.Halted):
+            land.run(demo, [KEY])
+    finally:
+        signal.signal(signal.SIGTERM, before)
+    assert calls.read_text().splitlines() == ["--check 42", "--watch 42", "--dequeue 42"]
+    assert not (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()
 
 
 def test_a_lander_queues_a_stacks_ready_bottom_while_a_pr_above_it_waits_on_an_open_pr_and_that_pr_once_it_merges(demo: str, landers: list[tuple[str, ...]]) -> None:

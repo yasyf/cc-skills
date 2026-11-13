@@ -20,8 +20,11 @@ for its repository says, then return `DONE <proof>`.
 - A PR that changes a format another build reads (a stored file, row, journal, or manifest) lands only
   after the PR teaching its readers is live on every client, and its body links that PR.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
-  land arrived, since its recommended option never stands in for his answer. `drive pr add` and the
-  `landing_guard` hook refuse a PR waiting on his open card: return `WAITING` naming the card, which
+  land arrived, since its recommended option never stands in for his answer. `drive pr add`,
+  `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open that any job
+  carrying it waits on, its own or one holding its landing, or whose `Holds:` line names a change one
+  of them builds; the watch stops a lander already landing it when that card opens, and the lander
+  dequeues what it queued. Return `WAITING` naming the card, which
   the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order.
