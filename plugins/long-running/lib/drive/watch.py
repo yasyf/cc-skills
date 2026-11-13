@@ -606,17 +606,17 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. A report `drive job report` already took, as a lane keeps it before its worker_done ends its turn, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, or any such message from a lane `drive job end` ended, only ends that question, since its line went with that command's answer; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
     job["updated"] = state.stamp(moment)
-    if kind == "escalation":
-        last = first_line(body.split("Last output:")[-1])
-        return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {cut(last, 160)}"
     if taken:
         job.update(report=body, ask=None)
         return None
+    if kind == "escalation":
+        last = first_line(body.split("Last output:")[-1])
+        return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {cut(last, 160)}"
     if not kept:
         job["said"] = message["subject"] if kind == "worker_done" else first_line(body) or message["subject"]
     if kind == "status":
@@ -678,7 +678,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] == "question" and (question := reads.request(message["body"] or "")):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
-                taken = message["type"] == "worker_done" and kept_return(watcher.name, job_id, message["body"] or "")
+                taken = message["type"] in state.TURN_ENDS and (state.lane_ended(data["jobs"][job_id]) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken))
                 if message["type"] in ("worker_done", "question") and not taken:
                     reported.add(job_id)
@@ -699,7 +699,7 @@ def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: lis
 
 
 def kept_return(name: str, job_id: str, body: str) -> bool:
-    """Whether this report is the newest `drive job report` took for the job, as a lane on a Sprite keeps it before its worker_done carries it."""
+    """Whether this report is the newest `drive job report` took for the job."""
     returns = [reply["body"] for reply in state.replies(name, job_id) if reply["id"].startswith(state.REPORT_REPLY)]
     return bool(returns) and returns[-1].strip() == body.strip()
 
@@ -1585,7 +1585,7 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
                 lines.append(f'{died}A message sent to it reaches no one; drive job resume {job_id} "<his answer>" relaunches it {fresh}')
                 continue
             if waiting:
-                job["deaths"][-1]["ended"] = {"pid": end_lane(name, job_id), "at": state.stamp(moment)}
+                end_lane(name, job_id)
                 lines.append(
                     f"{died}The watch ran drive job end {job_id}, which saves to GitHub what its Sprite holds on no remote and destroys it, its output in the drive's {RELAUNCHES_LOG};"
                     f' drive job resume {job_id} "<his answer>" relaunches it {fresh}'
@@ -1606,9 +1606,9 @@ def send_held(name: str, job_id: str) -> int:
     return state.detach(name, ["job", "resume", job_id], RELAUNCHES_LOG)
 
 
-def end_lane(name: str, job_id: str) -> int:
+def end_lane(name: str, job_id: str) -> None:
     """Run `drive job end` on a waiting job whose lane on a Sprite died as its own process, so that idle Sprite, its forward and its Orca environment go once what it holds is saved, and the job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log."""
-    return state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
+    state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
 
 
 def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
