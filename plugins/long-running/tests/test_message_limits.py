@@ -1360,7 +1360,7 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
 
 
-def test_a_block_starts_from_the_root_cause_and_recommends_the_option_that_removes_it() -> None:
+def test_a_block_starts_from_the_root_cause_and_names_the_option_that_removes_it() -> None:
     cause = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
     shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
     with pytest.raises(DriveError, match="no `Root cause:` line under `Findings:`"):
@@ -1370,8 +1370,7 @@ def test_a_block_starts_from_the_root_cause_and_recommends_the_option_that_remov
     with pytest.raises(DriveError, match="`First principles: Wait for the copy` names no option"):
         limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"))
     refuses = "New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder."
-    with pytest.raises(DriveError, match=re.escape(f'"{refuses}" removes the root cause and is not the recommended option')):
-        limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", f"First principles: {refuses}"))
+    assert limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", f"First principles: {refuses}")).recommended == shown
     with pytest.raises(DriveError, match="names no job finding it"):
         limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: the old build's writes\n"))
     assert limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: j12 reads his chat files\n")).recommended
@@ -1587,7 +1586,7 @@ def test_first_principles_names_an_option_whose_first_part_holds_a_double_colon(
         "Drop the legacy field: no extra write, and old readers break",
     ]
     findings = "Root cause: old readers still open the legacy field\nFirst principles: Also write the legacy content field as a blob::Blob\n"
-    assert limits.root_cause_problems(findings, options, options[0]) == []
+    assert limits.root_cause_problems(findings, options) == []
     assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
 
 

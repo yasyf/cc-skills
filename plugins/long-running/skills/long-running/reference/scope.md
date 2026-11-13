@@ -102,7 +102,7 @@ once kept settled with no card on another answer of his draws its card when its 
 An answer he gives later still settles the older cards it decides, through `drive answer`.
 
 It refuses a question that offers no tap for an amount his words on the order, or his messages about
-it in its thread, name, by his words "You didn't give me a tap for 30 day bonding how many times do
+it in its thread, name, read from his Slack message as his own lines only, never one he quoted with `>`, by his words "You didn't give me a tap for 30 day bonding how many times do
 I have to say this". A tap approving a PR settles only that PR's landing. A block a refusal stops
 stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
 `drive job ask` posts no `ask` record for it, and `drive status` lists it refused. The watch says its job waits on a
