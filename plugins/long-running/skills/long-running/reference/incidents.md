@@ -408,7 +408,7 @@ check's verdict, or from the order when none ran.
 Each line is a `report` to the communicator with `--attr progress=true`, or `--attr close=<o>` on the one closing the incident. Every
 part of an incident, its first check, its cause and its `fix`, is work he ordered, which only its builder or codex job returning `DONE` delivers, so
 `record_lines` refuses a report naming one in its `part` attr and `say` marks none on a post; the incident lasts until every merged fix PR of it runs in production, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
-the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. A report on an open incident goes out the moment it is written: the one
+the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too, when the watch also pages his Datadog On-Call user once for each incident opened since he was last heard, and a job seeing a production failure no incident holds yet runs `drive page-owner "<why>" --order <its order>`, by his words "if anything goes wrong while doing things autonomously, the agent should have a tool to use ddog to page its human". A report on an open incident goes out the moment it is written: the one
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
 me". These rules bind the communicator, its handlers and any reader that posts for it.
 

@@ -3870,6 +3870,21 @@ def heard(args: argparse.Namespace) -> int:
     return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
 
 
+def page_owner(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    if args.order:
+        find(data["orders"], args.order, "order")
+    try:
+        paged = watch.page_owner(name, data, args.why, args.why)
+    except reads.ReadError as error:
+        raise DriveError(f"refused, nobody paged: {error}") from None
+    if args.order:
+        with state.edit(name) as data:
+            data["orders"][args.order]["paged"] = state.stamp()
+    return emit(args, paged, {"paged": paged, "order": args.order})
+
+
 def handler(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if extra := agents.beyond_brief(args.brief):
@@ -5300,6 +5315,18 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--part", action="append", default=[], help="the part of the --repeats order his words repeat; default: its only part")
     verb.set_defaults(run=heard)
+    verb = verbs.add_parser(
+        "page-owner",
+        parents=both,
+        help=(
+            "work you left running broke production, or a production failure no incident holds yet is live: page his own Datadog On-Call"
+            " user at high urgency through `tools/ci oncall page me`, never for news or a question; the watch pages once on its own for"
+            " each incident opened while he is away"
+        ),
+    )
+    verb.add_argument("why", help="what broke, for whom, and its link")
+    verb.add_argument("--order", help="the order the page is for, so the watch does not page him for it again")
+    verb.set_defaults(run=page_owner)
     verb = verbs.add_parser(
         "handler",
         parents=both,

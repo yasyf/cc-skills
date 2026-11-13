@@ -654,6 +654,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("closed_on", None)
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
+        order.setdefault("paged", None)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
         order.setdefault("quiet", None)
@@ -1517,6 +1518,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "jobs": [],
         "alerts": [],
         "recovered": None,
+        "paged": None,
         "quiet": None,
         "reporters": [],
         "watch": None,
