@@ -509,13 +509,10 @@ def load(name: str) -> dict:
         rebuild_asks(name, data)
     if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
         label_approvals(name, data["roles"]["coordinator"]["cwd"])
-    if not data.get("may_settle_per_answer"):
-        for job in data["jobs"].values():
-            job["may_settle"] = None
-        for flag in ("may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
-            data.pop(flag, None)
-        data["may_settle_per_answer"] = True
+    for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
+        data.pop(flag, None)
     for job in data["jobs"].values():
+        job.pop("may_settle", None)
         for question in job["questions"]:
             question.setdefault("refused", None)
             if "settled" in question:
@@ -997,7 +994,6 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "undelivered": [],
         "state": "running",
         "said": None,
-        "may_settle": None,
         "due": None,
         "created": created,
         "updated": created,

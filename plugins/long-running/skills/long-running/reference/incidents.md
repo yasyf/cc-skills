@@ -201,10 +201,10 @@ changed and when, its findings the suspects, and its root cause the verdict.
     its `JOB <j> <o> …; its ASK is kept` line wakes you to send the ask record, its path named.
   - A builder returns `ASK <path>` the moment the fork shows, and you resume it in that turn with
     "build the recommended option meanwhile".
-- A question his recorded answer already decides draws no card and stops nothing. `drive job ask`
-  keeps it settled by that answer, prints his words and that the job builds on them now, and sends
-  the session holding the order one `evidence` record naming the job and the answer, which wakes
-  nobody. When the job already ended, such as a codex run, the printed line names the job to start
+- A question he already answered, asked in the same words, on or under its card or recorded under
+  it, draws no card and stops nothing. `drive job ask` keeps it settled by that answer, prints his
+  words and that the job builds on them now, and sends the session holding the order one `evidence`
+  record naming the job and the answer, which wakes nobody. When the job already ended, such as a codex run, the printed line names the job to start
   on its part, its brief naming his answer under `Decisions that bind`: start it in that turn.
 - When a question card of his blocks incident work, such as a design card on the fix, the
   incident's thread hears it at once. The line opens with the card linked, names what it blocks

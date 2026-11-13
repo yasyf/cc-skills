@@ -2,8 +2,6 @@ import html
 import json
 import re
 import subprocess
-import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from drive import limits, slack, state, view
@@ -26,21 +24,11 @@ UNMARKED_INCIDENT = (
     "refused: {job} works on open incident {orders}, so this card blocks it, and the handler says so in the incident's thread"
     " the moment the card is up only when the record says it is an incident's; post it again with {flags}"
 )
-CANDIDATES = 8
 BODY_CHARS = 1500
 QUOTED_CHARS = 400
 UNDECIDED = "none"
 DECIDES = 0.8
 DECIDE = ["uvx", "--from", "spawnllm>=0.17.7", "spawnllm", "decide", "--provider", "jev", "--timeout", "20"]
-DECIDES_QUESTION = (
-    "What does this one answer, in his own words, settle about the question? An answer he gave to another question settles"
-    " this one when its words choose what an option says or order what this question asks about. Pick picks when it chooses"
-    " one of the options; pick orders when it orders the outcome the question asks about, or who does it, so the options it"
-    " rules out are out and the drive builds the rest without asking him; pick none when it settles nothing the question asks."
-    " A bare option number answers the card it was typed on, so it settles nothing here. A question he asked settles nothing,"
-    " whatever premise it states, but one proposing a way, such as \"why not just X?\", orders X."
-)
-SETTLES = {UNDECIDED: "It settles nothing this question asks.", "picks": "Its own words pick one option.", "orders": "Its own words order the outcome or who does it."}
 CHANGES = 0.15
 CHANGES_QUESTION = (
     "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
@@ -53,10 +41,6 @@ SUPERSEDES_QUESTION = (
     "His answer below was given to a newer question of the same job. Which of these older open questions does it decide or make"
     " moot, so that card asks him nothing his answer leaves open? Pick none when each of them still asks something his answer"
     " does not settle."
-)
-ORDERED = (
-    " He ordered what this question asks about, so build the option his words leave that removes the root cause, the recommended"
-    " one, and say in one line that his answer {id} settled it."
 )
 APPROVES_QUESTION = (
     "Does this answer, in his own words, approve the action? Pick the answer when it is his order to ship, release or approve"
@@ -141,13 +125,6 @@ def keeper(names: list[str], ask: str | None) -> str | None:
     return next((name for name in names if ask and Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks")), None)
 
 
-def matched(text: str, cwd: str, *flags: str) -> list[dict]:
-    """His answers sharing rare words with the text, best first, but a tap approving a PR, which settles only whether that PR lands; `--nearest` among the flags ranks every answer sharing one rare word, without ccn's floors."""
-    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json", *flags]
-    found = json.loads(ccn(match, text, cwd, "could not check the question against his recorded answers"))
-    return [answer for answer in found if APPROVAL not in answer["tags"]]
-
-
 def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
     """Record his answer in cc-notes, the question as its title and his words as its body, and return its short id."""
     add = ["ccn", "answer", "add", f"--title={title}", "--body-file", "-", *(f"--label={label}" for label in labels), "--json"]
@@ -217,42 +194,6 @@ def shown(answer_id: str, cwd: str) -> dict:
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
 
 
-def candidates(shown: str, whole: str, drives: list[str], cwd: str, under: list[dict], heard: list[dict], order: str) -> list[dict]:
-    """What may already decide a question, each the question he answered and his words, judged by no rule here: the first CANDIDATES of his recorded answers ccn matches on the words he reads, then the first CANDIDATES of each drive's answers ccn ranks nearest to the ASK's whole block, findings included, which reach a ruling whose subject only its findings name, then his words under a card its job asked on, and his messages in the order's thread, under the order."""
-    worded = matched(read(shown), cwd)[:CANDIDATES]
-    nearest = [answer for name in drives for answer in matched(read(whole), cwd, "--nearest", "--label", f"drive:{name}")[:CANDIDATES]]
-    found = [{"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for answer in {answer["id"]: answer for answer in [*worded, *nearest]}.values()]
-    return [
-        *found,
-        *(answer for answer in under if answer["id"] not in {other["id"] for other in found}),
-        *({"id": f"p{message['key']}", "asked": order, "said": message["text"], "link": message["link"]} for message in heard),
-    ]
-
-
-def refusals(answer: dict | None, under: list[dict], heard: list[dict], offered: str, why: str | None) -> str | None:
-    """Every reason a question may not go to him, in one refusal, so one ask again meets them all: the one answer of his Jev reads as already deciding it, his words under its job's open card that --unsettled names, and an amount the order's own words or his messages about it in its thread name that it offers no tap for."""
-    layers = [decided_refusal(answer, why), open_card_refusal(under, why), unoffered_refusal(heard, offered)]
-    return "\n".join(layer for layer in layers if layer) or None
-
-
-def decided(question: str, options: list[str], found: list[dict]) -> dict | None:
-    """Of his answers, the one Jev, reading each alone in its own call so none splits another's probability, is surest picks an option or orders what the question asks about, with which it does, once at least 0.8 sure; below that for every answer the question goes to him, each answer Jev gave no reading of said on stderr."""
-    with ThreadPoolExecutor(max(len(found), 1)) as pool:
-        readings = list(zip(found, pool.map(lambda answer: reading({"question": question, "options": options}, answer), found), strict=True))
-    judged = [
-        (sum(probability for label, probability in read["probabilities"].items() if label != UNDECIDED), answer, read["choice"])
-        for answer, read in readings
-        if not isinstance(read, Unheard)
-    ]
-    sure, answer, settles = max(judged, key=lambda judged: judged[0], default=(0, None, None))
-    if sure >= DECIDES:
-        return answer | {"settles": settles}
-    for answer, read in readings:
-        if isinstance(read, Unheard):
-            print(f"drive job ask: Jev did not say whether his answer {answer['id']} decides this question, so it goes to him: {read}", file=sys.stderr)
-    return None
-
-
 def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
     """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
     cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
@@ -314,42 +255,20 @@ def jev(request: dict) -> dict:
     return answers
 
 
-def reading(asked: dict, answer: dict) -> dict | Unheard:
-    """Jev's reading of what this one answer of his settles about the question: none, picks or orders; the Unheard when Jev gave none."""
-    label = {"instructions": DECIDES_QUESTION, "options": SETTLES}
-    try:
-        return jev({"state": asked | {"answers": [{key: answer[key] for key in ("id", "asked", "said")}]}, "questions": {"decides": {"label": label}}})["decides"]
-    except Unheard as failure:
-        return failure
-
-
-def decided_refusal(answer: dict | None, why: str | None) -> str | None:
-    """Why a question may not go to him: Jev reads this answer of his as already deciding it, and no reason names it and says why it does not."""
-    if not answer or answer["id"] in (why or ""):
-        return None
-    return f"refused: {decided_line(answer)}"
-
-
-def decided_line(answer: dict) -> str:
-    """What a question his answer already decides tells whoever asked it: his words, and to build on them now."""
-    where = f"his message in this order's thread {answer['link']}" if "link" in answer else f"his recorded answer {answer['id']}"
-    return (
-        f'{where} already decides this question. Asked "{cut(answer["asked"], 200)}", he said "{cut(answer["said"], QUOTED_CHARS)}".'
-        + (ORDERED.format(id=answer["id"]) if answer["settles"] == "orders" else " Go ahead on it.")
-        + f' If his words decide something else, ask again with --unsettled "{answer["id"]}: <why>".'
-    )
-
-
-def open_card_refusal(said: list[dict], why: str | None) -> str | None:
-    """Why --unsettled may not name his words under this job's card while that card still asks him: they answer it, so the card shows them first."""
-    if not (named := [answer for answer in said if answer["id"][:7] in (why or "")]):
-        return None
-    listed = "\n".join(f'- {answer["id"][:7]} under {answer["card"]}: "{cut(answer["words"], 200)}" ({answer["link"]})' for answer in named)
-    commands = ", then ".join(f"`drive answer {answer['id'][:7]}`" for answer in named)
-    return (
-        "refused: --unsettled names his words under this job's own card, and that card still asks him. His words under a card"
-        f" answer it: settle the card with {commands}, which shows his words on it, and the work goes ahead on them."
-        f" Then ask only what they leave open, naming each id below with why it does not settle the new question.\n{listed}"
+def answered(data: dict, title: str) -> dict | None:
+    """His answer to this same question: the newest question of any job asked in these words, whatever their case and spacing, that ended answered by his tap or words on or under its card, or by his words a record kept for it; a question kept answered with no card and no record, as `drive job ask` once kept one on Jev's reading of an answer he gave another question, is none."""
+    return max(
+        (
+            question
+            for job in data["jobs"].values()
+            for question in job["questions"]
+            if (closed := question["closed"])
+            and closed["how"] == "answered"
+            and (question["card"] or question["waits"] or closed["seq"])
+            and state.same_question(question["title"], title)
+        ),
+        key=lambda question: state.parse_time(question["closed"]["at"]),
+        default=None,
     )
 
 

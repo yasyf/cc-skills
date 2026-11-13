@@ -351,9 +351,9 @@ When it is answered, replaced or redone:
   more options or a new constraint, or send its work back to be redone. `drive cards withdraw <its
   waits id> --words "<his words>" --via <his permalink>` settles it in place, showing his words and a
   link to them with no buttons, so a late tap records nothing, and its question, asked again on any
-  job once the work is back, keeps that card's waits id and redraws it. One subject has one card: `drive job ask` refuses a question another job's
-  open card asks in other words, sharing three proper terms, until that card is withdrawn or
-  `--unsettled` names it and why this asks something else, and `drive answer` lists every open card
+  job once the work is back, keeps that card's waits id and redraws it. One question has one card. `drive job ask` refuses a question another job's
+  open card asks in the same words, naming the `drive job set --waits` that frees its job at his
+  answer. `drive answer` lists every open card
   his answer decides, rules options out of or makes moot, whatever job, order or words it shares with
   the one he answered. His words, on three cards about one search
   worker's cache disk: "We're already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"

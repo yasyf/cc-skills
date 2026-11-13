@@ -202,18 +202,14 @@ def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_on
     assert backfilled == ["/work"]
 
 
-def test_load_drops_the_answers_a_refused_ask_kept_before_jev_decided_them(state_root: Path) -> None:
+def test_load_drops_the_readings_of_his_answers_drive_job_ask_once_kept_beside_a_job(state_root: Path) -> None:
     data = state.new_drive("demo", "coordinator", None, "/work", None)
-    by_words = {"title": "Which store holds a run's files?", "answers": [{"id": "a1" * 20, "title": "Proxy listener port differs: 10000 on plat, 3128 on SoFi"}]}
+    by_words = {"title": "Which store holds a run's files?", "answer": {"id": "b2b2b2b", "asked": "Which store holds the blobs?", "said": "The blob store"}}
     data["jobs"]["j1"] = state.new_job("o1", "design", "run files", [], "2026-11-10T21:00:00-08:00") | {"may_settle": by_words}
-    data["may_settle_by_subject"] = True
+    data["may_settle_by_subject"] = data["may_settle_per_answer"] = True
     state.create(data)
-    assert state.load("demo")["jobs"]["j1"]["may_settle"] is None
-    assert "may_settle_by_subject" not in state.load("demo")
-    kept = {"title": "Which store holds a run's files?", "answer": {"id": "b2b2b2b", "asked": "Which store holds the blobs?", "said": "The blob store"}}
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["may_settle"] = kept
-    assert state.load("demo")["jobs"]["j1"]["may_settle"] == kept
+    loaded = state.load("demo")
+    assert ("may_settle" in loaded["jobs"]["j1"], "may_settle_by_subject" in loaded, "may_settle_per_answer" in loaded) == (False, False, False)
 
 
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:

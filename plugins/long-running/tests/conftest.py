@@ -502,11 +502,6 @@ def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 
 @dataclass
 class Answers:
-    found: list[dict] = field(default_factory=list)
-    nearest: list[dict] = field(default_factory=list)
-    asked: list[str] = field(default_factory=list)
-    near: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
-    cwds: list[str] = field(default_factory=list)
     shown: dict[str, dict] = field(default_factory=dict)
 
 
@@ -533,16 +528,6 @@ def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     answers = Answers()
-
-    def matched(text: str, cwd: str, *flags: str) -> list[dict]:
-        answers.cwds.append(cwd)
-        if "--nearest" in flags:
-            answers.near.append((text, flags))
-            return list(answers.nearest)
-        answers.asked.append(text)
-        return list(answers.found)
-
-    monkeypatch.setattr(settled, "matched", matched)
     monkeypatch.setattr(
         settled, "shown", lambda answer_id, cwd: answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": [], "created_at": "2026-11-12T11:33:00Z"})
     )
@@ -553,7 +538,6 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 class Jev:
     asked: list[dict] = field(default_factory=list)
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
-    reads: dict[str, dict[str, float]] = field(default_factory=dict)
     unsaid: set[str] = field(default_factory=set)
     owed: dict[str, float] = field(default_factory=dict)
     changes: dict[str, float] = field(default_factory=dict)
@@ -564,9 +548,6 @@ class Jev:
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
-
-    def settles(self, answer_id: str, how: str = "picks", probability: float = 0.9) -> None:
-        self.reads[answer_id] = {"none": round(1 - probability, 2), how: probability}
 
     def carries(self, question: dict) -> dict:
         part = question["instructions"].split('"')[1]
@@ -600,9 +581,6 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         if "changes" in request["questions"]:
             read = {"none": 0.9} | judged.changes
             return {"changes": label(max(read, key=read.__getitem__), read)}
-        answers = request["state"].get("answers")
-        if answers and (read := judged.reads.get(answers[0]["id"])):
-            return {"decides": label(max(read, key=read.__getitem__), read)}
         return {key: judged.carries(question["binary"]) if "binary" in question else judged.answer for key, question in request["questions"].items()}
 
     monkeypatch.setattr(settled, "jev", answered)
@@ -612,7 +590,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
 @pytest.fixture(autouse=True)
 def settled_notes(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     told: list[tuple[str, str]] = []
-    monkeypatch.setattr(cli, "settled_note", lambda name, data, job_id, title, answer: told.append((job_id, answer["id"])))
+    monkeypatch.setattr(cli, "settled_note", lambda name, data, job_id, title, answer: told.append((job_id, cli.answered_at(answer))))
     return told
 
 

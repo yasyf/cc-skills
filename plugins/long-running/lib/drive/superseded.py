@@ -103,28 +103,6 @@ def under(link: str, card: str) -> bool:
     return (view.card_thread(link) or "").replace(".", "") == view.message_key(card)
 
 
-def said_under(data: dict, job: dict) -> list[dict]:
-    """Each answer of his written under a card this job asked on, with the question that card asked, as `drive job ask` hands Jev one."""
-    return [
-        {"id": answer_id[:7], "asked": question["title"] or "", "said": answer["words"]}
-        for question in job["questions"]
-        if question["card"]
-        for answer_id, answer in data["answers"].items()
-        if under(answer["link"], question["card"])
-    ]
-
-
-def open_under(data: dict, job: dict) -> list[dict]:
-    """Each answer of his written under a card this job asked on while that card's question is open, with the card it answers."""
-    return [
-        {"id": answer_id, "card": question["card"], "words": answer["words"], "link": answer["link"]}
-        for question in view.open_questions(job)
-        if question["card"]
-        for answer_id, answer in data["answers"].items()
-        if under(answer["link"], question["card"])
-    ]
-
-
 def answer_cards(data: dict, answer_id: str, kept: dict) -> list[tuple[str, dict]]:
     """End as answered by his answer each open question whose card his answer is on or under, in the write the caller saves; the questions it ended, for their cards to follow."""
     return [
