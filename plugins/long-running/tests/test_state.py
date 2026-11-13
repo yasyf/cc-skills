@@ -190,8 +190,11 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     assert not kept.exists()
 
 
-def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once(state_root: Path, backfilled: list[str]) -> None:
+def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once_and_never_for_a_drive_state_create_built(state_root: Path, backfilled: list[str]) -> None:
     make("demo")
+    state.load("demo")
+    assert backfilled == []
+    (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()
     state.load("demo")
     state.load("demo")
     assert backfilled == ["/work"]

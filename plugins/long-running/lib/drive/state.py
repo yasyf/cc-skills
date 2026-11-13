@@ -1489,8 +1489,10 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
 
 
 def create(data: dict) -> None:
+    """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through edit_or_create, whose first load labels the older taps of the checkout it starts in."""
     with writing(data["name"]):
         save(data["name"], data)
+        (drive_dir(data["name"]) / APPROVALS_LABELLED).touch()
 
 
 def next_id(records: dict, prefix: str) -> str:
