@@ -2307,12 +2307,12 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     jobs = state.load("demo")["jobs"]
     assert cli.main(["cards", "redraw"]) == 2
     out, err = capsys.readouterr()
-    assert out.splitlines() == [*printed, json.dumps(unasked)]
+    assert out.splitlines() == [json.dumps(json.loads(card) | {"replaces": each["url"]}) for card, each in zip([*printed, json.dumps(unasked)], shown)]
     assert "demo:hier-2: the ASK is out of shape" in err and "0 options; an ASK has" in err
     assert "demo:hier-3: the ASK is out of shape" in err and "is not first: put it first" in err
     assert (state_root / "demo" / "asks" / "hier-1.md").is_file()
     assert state.load("demo")["jobs"] == jobs
-    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed[1])
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, json.dumps(json.loads(printed[1]) | {"replaces": shown[1]["url"]}))
     assert cli.main(["cards", "redraw", "--waits", "demo:j1-9"]) == 2
     assert "demo:j1-9: not one of his open cards" in capsys.readouterr().err
 
@@ -2328,7 +2328,7 @@ def test_cards_redraw_draws_a_card_from_the_ask_a_question_linked_to_it_keeps_wh
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0] |= {"waits": None, "card": shown["url"]}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
-    assert run("cards", "redraw") == (0, printed)
+    assert run("cards", "redraw") == (0, json.dumps(json.loads(printed) | {"replaces": shown["url"]}))
     assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(path, "demo:j1-7")]
 
 
@@ -2345,15 +2345,32 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [data["jobs"]["j1"]["questions"][0] | {"waits": None, "card": shown["url"]}]
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
-    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
+    redrawn = json.dumps(json.loads(printed) | {"replaces": shown["url"]})
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, redrawn)
     rebuilt = state_root / "demo" / "asks" / "j1-8.md"
     assert limits.redrawn(rebuilt.read_text()).title == json.loads(printed)["title"]
     assert rebuilt.read_text().endswith("\nFindings:\n" + SHORT_ASK.split("Findings:\n", 1)[1])
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
         (str(rebuilt), "demo:j1-8", shown["url"])
     ]
-    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, redrawn)
 
+
+def test_cards_redraw_draws_an_open_question_cc_slack_forgot_over_its_card_where_it_sits_and_no_question_that_ended(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    run("job", "ask", asking, "-")
+    redrawn = json.dumps(json.loads(run("job", "card", asking)[1]) | {"replaces": drawn_card(1)})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
+    assert run("cards", "redraw") == (0, redrawn)
+    assert run("cards", "redraw", "--waits", "demo:j1-7") == (0, redrawn)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Ring", None, answer="a1")
+    assert run("cards", "redraw") == (0, "")
+    assert cli.main(["cards", "redraw", "--waits", "demo:j1-7"]) == 2
+    assert "demo:j1-7: not one of his open cards" in capsys.readouterr().err
 
 def test_job_card_redraws_a_kept_ask_edited_by_hand_from_his_card_as_stored_and_refuses_it_while_no_card_is_stored(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -2373,7 +2390,7 @@ def test_job_card_redraws_a_kept_ask_edited_by_hand_from_his_card_as_stored_and_
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [open_card(0, json.loads(printed))], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     assert run("job", "card", asking) == (0, printed)
-    assert run("cards", "redraw") == (0, printed)
+    assert run("cards", "redraw") == (0, json.dumps(json.loads(printed) | {"replaces": "https://acme.slack.com/archives/D123/p1794300000000100"}))
     monkeypatch.setattr("sys.stdin", io.StringIO(trimmed))
     rekept = run("job", "ask", asking, "-")[1].splitlines()[0]
     assert Path(rekept).name == f"j1-{state.ask_hash(trimmed)}.md"

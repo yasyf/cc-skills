@@ -359,7 +359,8 @@ When it is answered, replaced or redone:
   older copy loses its buttons and reads one line linking the card, so one card stays answerable.
   `say` points every job's or PR's wait on an older copy at the card, the copies read from his open
   cards before the post; when his cards cannot be read, nothing is posted. `drive cards redraw`
-  draws the same questions again the same way. Never edit a card with
+  draws every open question of the drive again the same way, over the card where it sits even once cc-slack
+  forgot it. Never edit a card with
   `say(edit=…)` or `slack_edit`: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
   it, naming the redraw.
 - Words of his that supersede a card he has not answered, wherever he writes them, withdraw it the
