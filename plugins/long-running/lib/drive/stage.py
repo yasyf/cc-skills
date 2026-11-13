@@ -71,6 +71,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if pr["rework"]:
         return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
     if failing := red(key, pr):
+        if waits := answered(data, key, failing):
+            return Stage("blocked", WAITED, f"{failing}, and its builder waits on {', '.join(waits)}")
         return Stage("red", BUILDER, failing)
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
@@ -144,6 +146,25 @@ def red(key: str, pr: dict) -> str:
             f" that cites his ruling {ACCEPT_RULING}"
         )
     return ""
+
+
+def waited(data: dict, job_id: str, line: str) -> dict:
+    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's and each release the line names that holds then."""
+    job = data["jobs"][job_id]
+    own = [key for key, pr in data["prs"].items() if pr["url"] in job["prs"]]
+    return {
+        "red": {key: failing for key in own if data["prs"][key]["state"] == "open" and (failing := red(key, data["prs"][key]))},
+        "waits": [wait for wait in state.named_waits(data, job["order"], line) if wait not in own and view.holds(data, wait, None)],
+    }
+
+
+def answered(data: dict, key: str, failing: str) -> list[str]:
+    """What the builder answering for a red PR waits on by its last WAITING, while that line answered this same red and each PR and release it named still holds, so the PR wakes that builder again only once one of them ends or the red changes."""
+    job = data["jobs"][owner_job(data, key)]
+    if job["state"] != "waiting" or not (job["said"] or "").startswith("WAITING") or not job["waited"] or job["waited"]["red"].get(key) != failing:
+        return []
+    waits = job["waited"]["waits"]
+    return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
 
 
 def grading(pr: dict) -> str:
