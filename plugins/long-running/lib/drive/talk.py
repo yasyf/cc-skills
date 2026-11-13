@@ -53,7 +53,7 @@ def say(name: str, post: dict) -> str:
         line += released(name, reply["permalink"], corrected)
     if order:
         try:
-            line += "; " + cli.record_post(name, order, reply["permalink"], report)[0]
+            line += "; " + cli.record_post(name, order, reply["permalink"], report, reply["sent"])[0]
         except (DriveError, slack.SlackError) as error:
             line += f"; not recorded on {order}: {error}"
     return line
@@ -253,6 +253,7 @@ def posted(name: str, post: dict) -> dict:
         prs=stack,
         edited=bool(post.get("edit")),
     )
+    reply |= {"sent": sent}
     if drawn:
         view.refresh_cards(name)
     for place in [place for place in rest if place[0] == dm]:

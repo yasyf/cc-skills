@@ -1,11 +1,17 @@
+import contextlib
+import functools
+import io
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import threading
+import traceback
 from pathlib import Path
 from typing import TextIO
 
-from drive import state, tools
+from drive import cli, reads, state, tools
 from drive.install import config_dir, installed
 
 PLUGIN = "long-running@skills"
@@ -13,7 +19,8 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CALL_SECONDS = 180
 OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
 LISTED: dict[str, str] = {}
-CALLS: dict[int | str, subprocess.Popen] = {}
+CALLS: dict[int | str, subprocess.Popen | threading.Thread] = {}
+INLINE = threading.Lock()
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
@@ -158,12 +165,17 @@ SAY = {
 }
 
 
+@functools.cache
 def tool_list() -> list[dict]:
     return [SAY, *tools.verb_tools()]
 
 
+def tool_named(name: str) -> dict:
+    return next(tool for tool in tool_list() if tool["name"] == name)
+
+
 def serve(stdin: TextIO, stdout: TextIO) -> int:
-    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, holding no install's lock for the session's life, since each call runs as its own verb of the newest installed drive."""
+    """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, holding no install's lock between calls, since each call runs as a verb of the newest installed drive: in this process while it is that drive and no other call runs here, else as its own `drive tool`."""
     state.let_go_install()
     writing = threading.Lock()
     for line in stdin:
@@ -174,7 +186,7 @@ def serve(stdin: TextIO, stdout: TextIO) -> int:
 
 def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
     if "id" not in request:
-        if request["method"] == "notifications/cancelled" and (child := CALLS.pop(request["params"]["requestId"], None)):
+        if request["method"] == "notifications/cancelled" and isinstance(child := CALLS.pop(request["params"]["requestId"], None), subprocess.Popen):
             child.kill()
         return
     reply = {"jsonrpc": "2.0", "id": request["id"]}
@@ -215,7 +227,17 @@ def listed(drive: str) -> list[dict]:
 
 def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
     """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal names every op the check refused, or the op that refused while the call ran.
+    While this server is that drive and runs no other call itself, the call runs here, paying for no process, import or parser; otherwise, as when a newer install landed or a slow call runs here, it runs as its own `drive tool`.
     Its arguments go in a file rather than a pipe the server writes, so a child that fails before reading them cannot hold the call past CALL_SECONDS; a call Claude Code cancels has its child killed and gets no reply."""
+    if newest_drive() == OWN_DRIVE and not os.environ.get(reads.SPRITE_LANE) and INLINE.acquire(blocking=False):
+        CALLS[request_id] = threading.current_thread()
+        try:
+            said, failed = inline(tool, arguments)
+        finally:
+            INLINE.release()
+        if CALLS.pop(request_id, None) is None:
+            return None
+        return {"content": [{"type": "text", "text": said.strip()}], "isError": failed}
     with tempfile.TemporaryFile("w+") as given:
         json.dump(arguments, given)
         given.seek(0)
@@ -230,6 +252,26 @@ def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
         return None
     said = out + err if child.returncode else out
     return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(child.returncode)}
+
+
+def inline(tool: str, arguments: dict) -> tuple[str, bool]:
+    """What `drive tool` would print for the call, run in this process under this install's lock, as its own process holds it, and whether it failed: its lines on success, and with its warnings and the refusal or traceback on failure."""
+    out, err = io.StringIO(), io.StringIO()
+    state.hold_install()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                print(cli.run_tool(tool, arguments))
+                failed = False
+            except cli.VERB_ERRORS as error:
+                print(f"drive: {error}", file=sys.stderr)
+                failed = True
+            except (Exception, SystemExit):
+                traceback.print_exc()
+                failed = True
+    finally:
+        state.let_go_install()
+    return out.getvalue() + err.getvalue() if failed else out.getvalue(), failed
 
 
 def newest_drive() -> str:

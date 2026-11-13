@@ -187,6 +187,16 @@ def message_and_root(link: str) -> tuple[dict, dict | None]:
     return found, next((message for message in messages if message["ts"] == parent), None) or root(match[1], parent)
 
 
+def posted_and_root(link: str, text: str) -> tuple[dict, dict | None]:
+    """The drive's own post at a permalink as message_and_root reads it, from the words it was sent with, and the message its thread hangs from, read only for a reply: a post just made needs no read of itself."""
+    match = state.CARD_LINK.search(link)
+    if not match:
+        raise SlackError(f"not a Slack message link: {link}")
+    ts, parent = f"{match[2]}.{match[3]}", match[4]
+    posted = {"ts": ts, "text": text, "from_claude": True} | ({"thread_ts": parent} if parent else {})
+    return posted, root(match[1], parent) if parent and parent != ts else None
+
+
 def message_at(ts: str, *where: str) -> dict:
     """The message at ts in the thread where names."""
     found = next((message for message in thread(*where, "--limit", str(WHOLE_THREAD)) if message["ts"] == ts), None)

@@ -1,4 +1,5 @@
 import argparse
+import functools
 import json
 import os
 import re
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import textwrap
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -50,6 +52,7 @@ CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
+VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
 ANSWER_FIRST = (
     "his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one `report`"
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`; then keep your"
@@ -515,9 +518,11 @@ def his_words(link: str, deed: str) -> str:
     return link
 
 
-def drive_post_at(link: str, data: dict, order_id: str, named_part: bool, report: dict) -> tuple[dict, bool, tuple[str, str] | None]:
+def drive_post_at(
+    link: str, data: dict, order_id: str, named_part: bool, report: dict, sent: str | None = None
+) -> tuple[dict, bool, tuple[str, str] | None]:
     """The drive's post as Slack holds it, whether it is in one of the order's threads, and the thread of his it joins to them: its own, on an incident each other order's of it, those he asked about it in, its jobs' cards', a card of a PR it holds, or, when its report is about the order, the thread of the message of his the report answers or one his own message started, which it joins, or at his DM root for an order holding no thread but those he asked about it in; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
-    posted, root = slack.message_and_root(link)
+    posted, root = slack.posted_and_root(link, sent) if sent else slack.message_and_root(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     threads = slack.order_threads(data, order_id, data["orders"][order_id])
@@ -962,22 +967,22 @@ def delivering(name: str, order_id: str, report: dict, text: str) -> str:
     return "; ".join(lines)
 
 
-def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
-    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both; an item naming no order is a part of the order the post went out on, on every order it is recorded on."""
+def record_post(name: str, order_id: str, link: str, report: dict, sent: str | None = None) -> tuple[str, dict]:
+    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both; an item naming no order is a part of the order the post went out on, on every order it is recorded on. A post say just made passes the words it sent, so its own post is not read back from Slack."""
     items = state.part_items(report, order_id)
     others = dict.fromkeys(on for on, _ in items if on != order_id)
-    first, *rest = [record_on(name, each, link, report, items) for each in [order_id, *others]]
+    first, *rest = [record_on(name, each, link, report, items, sent) for each in [order_id, *others]]
     return "; ".join(line for line, _ in [first, *rest]), first[1] | ({"also": [fields for _, fields in rest]} if rest else {})
 
 
-def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]]) -> tuple[str, dict]:
+def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None) -> tuple[str, dict]:
     """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last, the order's last line, the parts its report's items deliver there that its words carry, and, when its report is about this order and it is in the thread of the message of his the report answers or in one his own message started, that thread among the order's, with when it joined."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(data, order_id, order, report, items)
-    posted, ours, gained = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), report)
+    posted, ours, gained = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), report, sent)
     delivered, unsaid = carried(order_id, order, delivered, items, posted.get("text") or "")
     at = slack.sent_at(posted)
     line = state.stamp(at)
@@ -2956,7 +2961,9 @@ def status(args: argparse.Namespace) -> int:
         only(data, args.ids)
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
-    seen = {role: with_build(orca_place(held, name_show), held) for role, held in state.bound_sessions(data).items()}
+    bound = state.bound_sessions(data)
+    with ThreadPoolExecutor() as pool:
+        seen = dict(zip(bound, pool.map(lambda held: with_build(orca_place(held, name_show), held), bound.values()), strict=True))
     named = bool(args.ids)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     project = state.session_project(data, session)
@@ -3060,15 +3067,21 @@ def tool_command(args: argparse.Namespace) -> int:
     from drive import mcp, tools
 
     if args.help:
-        print(tools.described(next(tool for tool in mcp.tool_list() if tool["name"] == args.tool)))
+        print(tools.described(mcp.tool_named(args.tool)))
         return 0
-    shapes = next(tool for tool in mcp.tool_list() if tool["name"] == args.tool)["inputSchema"]["properties"]
+    print(run_tool(args.tool, json.load(sys.stdin)))
+    return 0
+
+
+def run_tool(tool: str, given: dict) -> str:
+    """The lines one MCP tool prints for the arguments its call sent, in whatever process runs it: its own `drive tool` or the MCP server's."""
+    from drive import mcp, tools
+
     try:
-        arguments = tools.parsed_arguments(json.load(sys.stdin), shapes)
-        print(tools.run(args.tool, state.resolve(arguments.pop("drive", None)), arguments))
+        arguments = tools.parsed_arguments(given, mcp.tool_named(tool)["inputSchema"]["properties"])
+        return tools.run(tool, state.resolve(arguments.pop("drive", None)), arguments)
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
-    return 0
 
 
 def plan_search(args: argparse.Namespace) -> int:
@@ -3178,6 +3191,7 @@ def job_kind(kind: str) -> str:
     return "design" if kind == "designer" else kind
 
 
+@functools.cache
 def parser() -> argparse.ArgumentParser:
     drive_opt = argparse.ArgumentParser(add_help=False)
     drive_opt.add_argument("--drive", help="the drive to act on")
@@ -4123,6 +4137,6 @@ def main(argv: list[str] | None = None) -> int:
             args.ids = [own]
     try:
         return args.run(args)
-    except (DriveError, state.NewerDrive, slack.SlackError, github.GithubError) as error:
+    except VERB_ERRORS as error:
         print(f"drive: {error}", file=sys.stderr)
         return 2
