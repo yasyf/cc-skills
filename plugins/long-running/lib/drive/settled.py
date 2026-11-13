@@ -147,24 +147,27 @@ def heard(link: str, found: dict | None) -> str | None:
     return message["text"] if message.get("from_user") else None
 
 
-def unsaid(words: str, link: str | None, found: dict | None, data: dict) -> str | None:
-    """Why words kept as his answer are not his: no link names where he said them, what is there is not his, or it lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece is his. At terminal, his words are a prompt he typed into a session the drive binds that holds every piece."""
-    if not plain(ELIDED.sub(" ", words)):
-        return f"no words of his are given; {HIS_ANSWER}"
-    if not link:
-        return f'no permalink names where he said "{cut(words, 200)}"; {HIS_ANSWER}'
-    if link == TERMINAL:
-        if any(lacking(words, said) is None for said in typed(data)):
-            return None
-        return f'no prompt he typed into a terminal of the drive\'s sessions says "{cut(words, 200)}"; {HIS_ANSWER}'
-    try:
-        said = heard(link, found)
-    except slack.SlackError as error:
-        return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
-    if said is None:
-        return f"{link} is neither his own message nor a card he answered; {HIS_ANSWER}"
-    if missing := lacking(words, said):
-        return f'his words at {link} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
+def unsaid(kept: list[str], link: str | None, found: dict | None, data: dict) -> str | None:
+    """Why the first of the words kept as his answer that are not his is not: no link names where he said them, what is there is not his, or it lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece of each is his, what is at the link read once for all of them. At terminal, his words are a prompt he typed into a session the drive binds that holds every piece."""
+    read: list[str | None] = []
+    for words in kept:
+        if not plain(ELIDED.sub(" ", words)):
+            return f"no words of his are given; {HIS_ANSWER}"
+        if not link:
+            return f'no permalink names where he said "{cut(words, 200)}"; {HIS_ANSWER}'
+        if link == TERMINAL:
+            if any(lacking(words, said) is None for said in typed(data)):
+                continue
+            return f'no prompt he typed into a terminal of the drive\'s sessions says "{cut(words, 200)}"; {HIS_ANSWER}'
+        if not read:
+            try:
+                read.append(heard(link, found))
+            except slack.SlackError as error:
+                return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
+        if read[0] is None:
+            return f"{link} is neither his own message nor a card he answered; {HIS_ANSWER}"
+        if missing := lacking(words, read[0]):
+            return f'his words at {link} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
     return None
 
 
