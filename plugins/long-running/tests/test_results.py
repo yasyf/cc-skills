@@ -9,7 +9,7 @@ import one_line_result
 import pytest
 import quiet_turn
 from conftest import RESEARCH, CodexAsk
-from drive import render, state
+from drive import cli, render, state
 
 Run = Callable[..., tuple[int, str]]
 POST = "https://acme.slack.com/archives/D1/p1"
@@ -159,9 +159,18 @@ def codex_job(run: Run) -> None:
 @pytest.mark.parametrize(
     ("ran", "reply", "log", "taken", "said"),
     [
-        ("completed", "UNPROVEN — the column is null on 3 of 40 rows\nThe rest of the answer\n", "", "done", "UNPROVEN — the column is null on 3 of 40 rows"),
+        (
+            "completed",
+            "UNPROVEN — the column is null on 3 of 40 rows\nThe rest of the answer\n",
+            "",
+            "failed",
+            "BLOCKED codex-ask completed, its reply refused: its first line sets no state: it opens DONE, READY, PUSHED,"
+            " `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF",
+        ),
         ("completed", "\nBLOCKED codex edits, Claude ships\n", "", "failed", "BLOCKED codex edits, Claude ships"),
-        ("completed", "ASK Should the fix drop the column?\n", "", "done", "ASK Should the fix drop the column?"),
+        ("completed", "ASK Should the fix drop the column?\n", "", "waiting", None),
+        ("completed", "HANDOFF unfinished: the scope needs his pick\n", "", "stopped", "HANDOFF unfinished: the scope needs his pick"),
+        ("completed", "DONE reviewed: no findings\n", "", "done", "DONE reviewed: no findings"),
         ("died", "", '{"type":"turn.started"}\n{"type":"error","message":"stream disconnected"}\n', "failed", 'BLOCKED codex-ask died: {"type":"error","message":"stream disconnected"}'),
         ("running", "", "", "running", None),
     ],
@@ -181,8 +190,8 @@ def test_a_codex_jobs_state_comes_from_the_codex_ask_run_its_relay_asked_never_t
 @pytest.mark.parametrize(
     ("reply", "taken", "joins"),
     [
-        ("UNPROVEN the handover delays the mint\n", "failed", None),
-        ("UNPROVEN the handover delays the mint\n**FIX:** o2\n", "done", "o1"),
+        ("DONE the handover delays the mint\n", "failed", None),
+        ("DONE the handover delays the mint\n**FIX:** o2\n", "done", "o1"),
     ],
 )
 def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_reads_that_order_live(
@@ -197,6 +206,15 @@ def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_re
     assert (job["state"], data["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, reply.strip())
     if taken == "failed":
         assert job["said"].startswith(f"BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
+
+
+def test_a_codex_relays_reply_file_pointer_sets_no_state_on_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    codex_job(run)
+    monkeypatch.setattr("sys.stdin", io.StringIO("REPLY_FILE: /runs/codex-ask.1/codex-r-1\nCodex answered.\n"))
+    assert cli.main(["job", "report", "j1", "-"]) == 2
+    assert "j1: refused, nothing kept: " in capsys.readouterr().err
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("running", None)
 
 
 def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:

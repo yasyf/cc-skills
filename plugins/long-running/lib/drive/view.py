@@ -223,18 +223,35 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job not finished, each PR still open, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
 def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["jobs"]:
-        return drive["jobs"][wait]["state"] not in state.FINISHED_JOB_STATES
+        return coming(drive, wait)
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] == "open"
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
     return bool(state.RELEASE_WAIT.fullmatch(wait)) or wait == state.SLOT_WAIT or card_open(wait, found)
+
+
+def coming(drive: dict, job_id: str) -> bool:
+    """Whether the work a waited-on job was given is still to come: the job is not finished, or it is a builder or codex job that ended other than done while a part of an open order it carries is not delivered, which its own next run or the job that takes that part on delivers, so a wait on its change never ends on a HANDOFF, a BLOCKED or a stop that handed its work to another job."""
+    job = drive["jobs"][job_id]
+    if job["state"] not in state.FINISHED_JOB_STATES:
+        return True
+    return (
+        job["state"] != "done"
+        and job["kind"] in state.CHANGE_KINDS
+        and any(
+            not state.delivered(drive, order_id, part)
+            for order_id in [job["order"], *job["carries"]]
+            if (order := drive["orders"][order_id])["state"] not in state.CLOSED_ORDER_STATES
+            for part in order["parts"].keys() & set(state.job_parts(job, order_id))
+        )
+    )
 
 
 def shipped_by(drive: dict, wait: str) -> str | None:
