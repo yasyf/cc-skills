@@ -376,10 +376,13 @@ When it is answered, replaced or redone:
   for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
-- The drive's own draw posts the card at his DM root, in no order's thread, under one line per
-  order its PRs carry out, linked to that order's thread: `Carries out your "<his words>"`, or the
-  tooling order's "Drive tooling: …" words, since `cc-slack dm-status` refuses a `--tap-pr` with no
-  text. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
+- The drive's own draw posts the card at his DM root, in no order's thread, under one line written
+  from its PRs' titles with no link, so Slack draws no other card: `Waits on your Approve: <what
+  each PR does>`. While its PRs wait on him and fix a bug hurting someone now, the watch asks again
+  every 30 minutes, once per card, under `Asking again, since it fixes a reported bug: <what each PR
+  does>`, or `an open incident`. A flake fix's line adds that it fixes a flaking test at its cause,
+  quoting his ruling. Before it posts, `cc-slack check-post` reads the line, and Jev judges anything
+  it finds by the plain-words rule in one call. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
   line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A

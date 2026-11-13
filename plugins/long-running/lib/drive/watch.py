@@ -2234,7 +2234,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again on one that waits on him while it fixes a live bug. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug, under a line saying why it asks. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -2259,9 +2259,13 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 stage.kept(pr, now)
     lines: list[str] = []
     uncarded = {}
+    asked = {}
     for key, now, entered, line in acts:
         if now.name == "uncarded":
             uncarded.setdefault(units[key], []).append(key)
+            continue
+        if now.owner == stage.HIM and not entered:
+            asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
     from drive import talk
@@ -2273,6 +2277,11 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             watcher.unsent.setdefault("meta", []).extend(failed(watcher, "card draw", f"draw of his card on {', '.join(keys)}", error, moment))
             continue
         watcher.failures.pop("card draw", None)
+    for keys in asked.values():
+        try:
+            talk.draw(watcher.name, keys, again=True)
+        except (slack.SlackError, state.DriveError) as error:
+            lines += failed(watcher, "card ask", f"ask again of his card on {', '.join(keys)}", error, moment)
     return lines
 
 
@@ -2306,11 +2315,6 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
             said.append(f"STAGE {refused} {ids(pr)}")
     elif now.owner == stage.ORDER or now.name in ("landing", "ready") and not entered:
         said.append(f"STAGE {line}")
-    elif now.owner == stage.HIM and not entered:
-        try:
-            talk.draw(watcher.name, [key])
-        except (slack.SlackError, state.DriveError) as error:
-            said += failed(watcher, "card ask", f"ask again of his card on {key}", error, moment)
     return said
 
 

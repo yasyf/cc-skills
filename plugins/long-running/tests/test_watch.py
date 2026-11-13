@@ -3517,6 +3517,17 @@ def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, m
     assert (draws.keys, state.load(demo)["prs"][OTHER]["head"]) == ([list(STACKED)], "ddddddd444")
 
 
+def test_a_live_bugs_stack_waiting_on_his_card_is_asked_again_every_30_minutes_once_for_its_card(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
+    three_stacked(demo, monkeypatch)
+    with state.edit(demo) as data:
+        for order_id in ("o1", "o2"):
+            data["orders"][order_id]["reporter"] = state.reporter(REPORTED)
+    watching = watcher(demo)
+    for minutes in (0, 10, 39, 40, 69, 70):
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    assert (draws.keys, draws.again) == ([list(STACKED)] * 3, [False, True, True])
+
+
 def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is_checked(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     waiting_job(demo)
     with state.edit(demo) as data:

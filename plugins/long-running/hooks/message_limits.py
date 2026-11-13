@@ -64,12 +64,6 @@ CAUSE_RULE = (
     ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
     ' 9:49 PM carried a false "disk full".'
 )
-PLAIN_WORDS_RULE = (
-    "Write every post for the person reading the thread, in plain words: no internal shorthand such as tracking ids, agent"
-    " lane names, raw commit shas or object ULIDs, and code, files, products and alerts by their proper names. A multi-agent"
-    " term such as desk, walker, parity or fence is shorthand, but never inside a function, file, path, product or"
-    " alert name or in a code span, and one the reader used in the message the post answers passes in the answer."
-)
 LENGTH_RULE = (
     "A line in his thread is at most 60 words and a summary of two or more features at most 120, the coordinator's reading"
     ' of his words "your messages need to be way shorter rewrite this for a human"; an answer to a question or order of his'
@@ -250,7 +244,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
             "refused: an order or job id opens nothing for him, and no message of his this post answers used it: say what that"
             " order or job does instead, or pass his message naming it as asked:\n" + "\n".join(ids)
         )
-    return agents.Ruled("refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings), PLAIN_WORDS_RULE)
+    return agents.Ruled("refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings), agents.PLAIN_WORDS_RULE)
 
 
 def thread_messages(payload: dict, dm: str) -> list[dict]:
