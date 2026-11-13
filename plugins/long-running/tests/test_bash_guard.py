@@ -400,6 +400,7 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
     for command, location in refused.items():
         assert bash_guard.deny_reason(bash(command, **builder)).startswith(f"refused: this reads or writes `{location}` where the job runs"), command
     passed = [
+        "aws s3 cp s3://frg-ci-cache/cache-seeds/ci-go-pointer/dev -",
         "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/latest.json -",
         "aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/stacks/api/",
         "AWS_PROFILE=plat-staging aws s3 presign s3://frg-plat-usw2-staging-microvm-artifacts/pass-box/searchbench/searchbench.gz --expires-in 1800 --region us-west-2",
@@ -418,6 +419,23 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="ordinary")) is None
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="sprite")).startswith("refused: this reads")
+
+
+def test_a_script_setting_its_bucket_from_its_own_json_table_is_judged_by_the_bucket_the_table_names(demo: str, tmp_path: Path) -> None:
+    tools = tmp_path / "checkout" / "tools"
+    tools.mkdir(parents=True)
+    (tools / "artifact.sh").write_text(
+        '#!/bin/bash\nREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\nTABLE="$REPO_ROOT/tools/artifacts.json"\n'
+        "BUCKET=\"$(jq -r '.bucket' \"$TABLE\")\"\naws s3api put-object --bucket \"$BUCKET\" --key \"$2/claim\" --body /dev/null\n"
+    )
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(tools.parent)}
+    hashed = bash("tools/artifact.sh hash sandsql-images-linux-amd64", **builder)
+    (tools / "artifacts.json").write_text(json.dumps({"bucket": "frg-ci-cache"}))
+    assert bash_guard.deny_reason(hashed) is None
+    (tools / "artifacts.json").write_text(json.dumps({"bucket": "artifacts-prod"}))
+    assert bash_guard.deny_reason(hashed).startswith("refused: this reads or writes `artifacts-prod` where the job runs")
+    (tools / "artifacts.json").write_text(json.dumps({"buckets": ["frg-ci-cache"]}))
+    assert bash_guard.deny_reason(hashed).startswith(f"refused: this reads or writes `$(jq -r '.bucket' {tools.resolve()}/artifacts.json)` where the job runs")
 
 
 def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_for_every_other_prefix(demo: str) -> None:
