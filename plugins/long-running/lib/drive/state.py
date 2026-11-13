@@ -3446,6 +3446,11 @@ def thread_attr(order: dict) -> dict:
     return {"thread": where[1]} if (where := promise_thread(order)) else {}
 
 
+def unasked_tooling(order: dict) -> bool:
+    """Whether an order is drive tooling a session opened, from its terminal or one of its records, so no message of his, no thread of his and no teammate's report: a fix nobody asked for, whose close posts no line, its order page on the dashboard showing it live."""
+    return order["text"].startswith(TOOLING) and not order["thread"] and not order["reporters"]
+
+
 def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:
     """The channel and thread a card for these PRs is linked in, in his DM or an incident's channel such as an alert's: the thread the lines of each open order whose words they are checked against go in, the one each serves, its job's own and each its job carries."""
     orders = dict.fromkeys(order_id for key in keys for order_id in served_orders(data, data["prs"][key]))

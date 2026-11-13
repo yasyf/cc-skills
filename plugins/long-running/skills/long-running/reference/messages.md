@@ -73,7 +73,8 @@ his words "your messages need to be way shorter rewrite this for a human".
   fix to the launcher its builders start from, in the thread his words ordering it came in, else at
   his DM root under its own words, its later lines replying under that first one, never in a
   feature's thread it only unblocks, because a tooling line he did not ask for there makes no sense
-  to him.
+  to him. A tooling order a session opened that has posted nothing, with no teammate's report,
+  posts no fix-live line at all: it closes on its proof, and the dashboard shows it live.
 - The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
   posts of 60 words are the same wall as one of 240; `record_lines` refuses a second, or a `POST`
   past 60 words, 120 for a summary. A turn runs from a wake, whether a cci record, a task

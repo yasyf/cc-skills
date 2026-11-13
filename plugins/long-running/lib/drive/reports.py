@@ -34,6 +34,10 @@ PLAIN_INCIDENT = (
     " order; a customer team's outage the drive did not cause is no incident and carries `--attr customer_outage=true` instead,"
     " which posts it while he is away; drop the mark when the line is neither"
 )
+UNASKED_CLOSE = (
+    "refused: {order} is drive tooling a session opened, with no message or thread of his, so its close posts him no line:"
+    " close it with `drive order set {order} --state done --proof <its proof>`, and the dashboard shows it live"
+)
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 NOT_UNTIL = "refused: until {until} is no time with its offset; name the end of the post it goes with in RFC 3339, such as 2026-11-14T13:30:00-08:00"
@@ -110,6 +114,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield None if OPENING.match(text) else UNOPENED
     yield dm_url(drive, record)
     yield next((agents.Unjudged(refused) for order_id in state.closed_orders(attrs(record)) if (refused := state.second_close(drive, order_id, attrs(record)))), None)
+    yield next((agents.Unjudged(UNASKED_CLOSE.format(order=order_id)) for order_id in state.closed_orders(attrs(record)) if (order := drive["orders"].get(order_id)) and state.unasked_tooling(order)), None)
     yield misnamed_part(drive, record)
     yield plain_incident(drive, record)
     yield unfinished(drive, record) if posting else None

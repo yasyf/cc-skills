@@ -262,7 +262,8 @@ and waits ids, record seqs), never a technical name.
      finished with none failing on its own change: the lander merges it with `--admin`, and installs each plugin it changes, and once every PR your job names merged the watch's
      `drive job prove` runs your job's proof file on the installed build, then each command your
      brief's `After install:` line names, takes `DONE` only when each exits 0, else `BLOCKED`, on
-     your job and sends the close report. Keep that
+     your job and sends the close report of an order with a thread of his, closing a tooling order a
+     session opened on its proof with no line to him. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
      with each changed plugin's `bin/` first on `PATH`, its bare `python3` the drive's own interpreter
