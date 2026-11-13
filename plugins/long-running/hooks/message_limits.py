@@ -403,13 +403,13 @@ def order_words(drive: dict, tool_input: dict, dm: str, order_id: str | None) ->
     """His words in each other thread in his DM of the order the post is on, as thread_words keeps them, since a post on an order answers his words in any of its threads, such as his order in its question card's thread answered under its PR card."""
     if not (found := posted_order(drive, tool_input, order_id)):
         return []
-    threads = [ts for channel, ts in slack.order_threads(drive, found, drive["orders"][found]) if channel == dm and ts != tool_input.get("thread_ts")]
+    threads = [ts for channel, ts in slack.order_threads(drive, found, drive["orders"][found]) if channel == dm and ts != talk.place(tool_input)[1]]
     return [word for ts in threads for word in thread_words(slack.thread("--channel", dm, "--thread", ts, "--limit", str(slack.WHOLE_THREAD)), here=False)]
 
 
 def in_card_thread(drive: dict, tool_input: dict) -> bool:
     """Whether the post goes in the thread of one of his question cards: say's `about` names the card, as an Explain more reply's does, or an order keeps its thread as a question card's."""
-    where = [tool_input.get("channel_id") or slack.dm(), tool_input.get("thread_ts")]
+    where = list(talk.place(tool_input))
     return bool(tool_input.get("about")) or any(thread[:2] == where and thread[3] == "question" for order in drive["orders"].values() for thread in order["threads"])
 
 
@@ -462,11 +462,12 @@ def checked(payload: dict) -> tuple[str | None, dict]:
     try:
         found = refs.resolved(drive["name"], said)
         claims = tools.parsed("claims", payload["tool_input"].get("claims") or [], mcp.CLAIMS)
+        channel, thread = talk.place(payload["tool_input"])
     except DriveError as error:
         return agents.Unjudged(str(error)), payload["tool_input"]
     titled = bare(said, found)
     sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": refs.REF.sub(lambda match: titled.get(match[0], match[0]), said)} if found else {}) | ({"claims": [claim | {"claim": claimed(claim["claim"], titled)} for claim in claims]} if claims else {})
-    return found_in(payload | {"tool_input": sent}, drive, said, found), sent
+    return found_in(payload | {"tool_input": sent}, drive, said, found), sent | ({"thread_ts": thread} if thread else {}) | ({"channel_id": channel} if channel != slack.dm() else {})
 
 
 def bare(said: str, found: dict[str, dict]) -> dict[str, str]:
@@ -636,7 +637,7 @@ def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
 
 def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:
     """The order a post goes to: the one say records it on, else the open order whose thread, in his DM or the channel its channel_id names, it goes in."""
-    where = (tool_input.get("channel_id") or slack.dm(), tool_input.get("thread_ts"))
+    where = talk.place(tool_input)
     return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and state.promise_thread(order) == where), None)
 
 
