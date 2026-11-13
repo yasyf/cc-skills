@@ -941,7 +941,7 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                     continue
             else:
                 lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
-            if LANE_REPORT.match(question) and said.startswith(f"{reads.DRIVE_EXIT} 0\n") and not state.PUSHED_LINE.match(job["said"]):
+            if LANE_REPORT.match(question) and said.startswith(f"{reads.DRIVE_EXIT} 0\n") and job["said"] and not state.PUSHED_LINE.match(job["said"]):
                 lines.append(f"JOB {job_id} {job['order']} {job['said']}")
             watcher.failures.pop(source, None)
             with state.edit(watcher.name) as fresh:

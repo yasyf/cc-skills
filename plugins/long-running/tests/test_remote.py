@@ -2135,6 +2135,16 @@ def test_a_lanes_drive_job_report_wakes_the_coordinator_with_its_line_as_its_ans
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
+def test_a_lanes_drive_job_report_that_left_its_job_no_line_wakes_nobody_and_its_answer_goes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", f"DRIVE job report j1 -\n{json.dumps({'stdin': 'x'})}", id="relay_report")])
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: reads.lane_exit(0, str(state.replies_path(drive, job_id))))
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert state.load(remote)["jobs"]["j1"]["said"] is None
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert [args[:3] for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_report")]
+
+
 def test_a_report_drive_job_report_took_is_not_taken_again_when_its_lane_sends_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/8"
     report = f"PUSHED {url}\nPR: {url}\nCHANGE: x\n"
