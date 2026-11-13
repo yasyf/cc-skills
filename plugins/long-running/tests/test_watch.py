@@ -1,5 +1,6 @@
 import json
 import os
+import plistlib
 import re
 import shlex
 import subprocess
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK, CodexAsk, Draws, Judge, Redraws, Thread, WatchProcess, Withdrawals, commit_files, git_in, staged
-from drive import card, cli, github, install, land, place, reads, render, served, slack, stage, state, superseded, talk, view, watch
+from drive import card, cli, github, install, land, launchd, place, reads, render, served, slack, stage, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -335,10 +336,15 @@ def test_a_refused_query_keeps_the_reads_of_the_others_and_a_finished_pr_is_neve
     assert calls == [[KEY, OTHER], [OTHER], [OTHER]]
 
 
+def launched(monkeypatch: pytest.MonkeyPatch, name: str, project: str | None = None) -> None:
+    monkeypatch.setenv(launchd.LAUNCHED_ENV, watch.label(name, project))
+
+
 def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = None) -> None:
     def stop(seconds: float) -> None:
         raise KeyboardInterrupt
 
+    launched(monkeypatch, name, project)
     monkeypatch.setattr(watch.time, "sleep", stop)
     with pytest.raises(KeyboardInterrupt):
         watch.main(name, project)
@@ -423,7 +429,7 @@ def test_the_watch_hands_a_dashboard_no_launch_agent_keeps_to_one_and_tells_the_
             raise state.DriveError("the dashboard did not start; see its log")
         return []
 
-    monkeypatch.setattr(watch.dashboard, "kept", lambda name: next(kept))
+    monkeypatch.setattr(watch.launchd, "kept", lambda label: next(kept))
     monkeypatch.setattr(watch.dashboard, "start", start)
     watching = watcher(demo)
     said = [watch.dashboard_lines(watching) for _ in range(6)]
@@ -877,7 +883,8 @@ def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest
     assert watch.run_pass(watching, T0) == ["EVENT refused question=first line second third fourth " + "x" * 300]
 
 
-def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_second_instance_exits_quietly(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    launched(monkeypatch, demo)
     state.pid_path(demo).write_text(f"{os.getppid()}\n")
     assert watch.main(demo) == 0
     assert capsys.readouterr().out == ""
@@ -904,6 +911,15 @@ def test_a_watch_speaks_to_orca_as_the_terminal_of_the_coordinator_it_serves_wha
     assert spoke == [("term_outer", "tab:starter"), ("term_coordinator", None), ("term_iris", None)]
 
 
+def test_a_watch_no_launch_agent_started_lets_its_pid_file_go_loads_the_agent_and_ends(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state.pid_path(demo).write_text(f"{os.getpid()}\n")
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: pytest.fail("a pass ran outside the watch's launch agent"))
+    assert watch.main(demo) == 0
+    assert (watch_process.ensured, capsys.readouterr().out, state.pid_path(demo).exists()) == ([demo], f"the watch runs for {demo}\n", False)
+
+
 def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_the_lines_it_held_once(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -928,29 +944,20 @@ def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_o
 
     monkeypatch.setattr(watch, "run_pass", crash)
     sent = posts(monkeypatch)
+    launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
         watch.main(demo)
     [(kind, to, text)] = posted(sent)
     assert (kind, to) == ("handoff", f"root@{demo}")
     log = re.escape(str(state.watch_log_path(demo)))
-    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: DriveError at state\.py:\d+ in stored_json: no drive named gone; its traceback is in {log}; drive watch starts it again", text)
+    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: DriveError at state\.py:\d+ in stored_json: no drive named gone; its traceback is in {log}; its launch agent starts it again within 10 seconds", text)
     assert not state.pid_path(demo).exists()
 
 
-class Execed(BaseException):
-    pass
-
-
-def execs_into(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[bool]) -> Path:
+def upgrades(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[bool]) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     found = iter([newer if newest else None for newest in installs])
     monkeypatch.setattr(watch, "upgraded", lambda: next(found))
-
-    def execv(drive: Path, argv: list[str]) -> None:
-        raise Execed(drive, argv)
-
-    monkeypatch.setattr(watch.os, "execv", execv)
-    return newer
 
 
 def saved_by(name: str, saver: str) -> None:
@@ -962,20 +969,19 @@ def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], ob
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
 
 
-def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_that_install_every_line_it_made_which_it_posts_before_its_first_pass(
+def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_holding_every_line_it_made_for_the_one_its_launch_agent_starts_there(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
-    newer = execs_into(monkeypatch, tmp_path, [False, True])
+    upgrades(monkeypatch, tmp_path, [False, True])
     mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9"))
     sent = posts(monkeypatch)
     merged = f"PR {KEY}: merged [o1 j1]"
-    with pytest.raises(Execed) as execed:
-        watch.main(demo)
-    assert execed.value.args == (newer, [str(newer), "watch", "--loop", "--drive", demo])
-    assert (sent, state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text()) == ([], "merged", f"{merged}\n")
+    launched(monkeypatch, demo)
+    assert watch.main(demo) == 0
+    assert (sent, state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == ([], "merged", f"{merged}\n", False)
     saved_by(demo, state.VERSION)
     monkeypatch.setattr(watch, "upgraded", lambda: None)
     passes = []
@@ -984,14 +990,16 @@ def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_hands_that_install
     assert (posted(sent), passes, state.held_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], [], False)
 
 
-def test_a_line_whose_post_failed_goes_to_the_newer_install_the_watch_hands_itself_to_between_passes(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    execs_into(monkeypatch, tmp_path, [False, True])
+def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upgrades(monkeypatch, tmp_path, [False, True])
     tapped = f"TAP Hold {KEY} [o1 j1]"
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [tapped])
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     sent = posts(monkeypatch, [False])
-    with pytest.raises(Execed):
-        watch.main(demo)
+    launched(monkeypatch, demo)
+    assert watch.main(demo) == 0
     assert (sent, state.held_path(demo).read_text()) == ([], f"{tapped}\n")
     monkeypatch.setattr(watch, "upgraded", lambda: None)
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
@@ -999,12 +1007,13 @@ def test_a_line_whose_post_failed_goes_to_the_newer_install_the_watch_hands_itse
     assert posted(sent) == [("handoff", f"root@{demo}", tapped)]
 
 
-def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_drive_watch_starts_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_its_launch_agent_starts_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     mid_pass(monkeypatch, lambda: state.load("gone"))
     sent = posts(monkeypatch)
+    launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
         watch.main(demo)
     merged = f"PR {KEY}: merged [o1 j1]"
@@ -1014,24 +1023,26 @@ def test_a_crashed_watch_keeps_the_lines_its_pass_made_for_the_watch_drive_watch
     assert posted(sent)[1:] == [("evidence", f"root@{demo}", merged)]
 
 
-def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    started = []
-
-    class Started:
-        pid = 4242
-
-        def __init__(self, argv: list[str], **options: object) -> None:
-            started.append((argv, options))
-
-    monkeypatch.setattr(watch.subprocess, "Popen", Started)
-    assert REAL_ENSURE(demo).startswith("started the watch as pid 4242;")
-    [(argv, options)] = started
-    assert argv == [str(watch.DRIVE), "watch", "--loop", "--drive", demo]
-    assert "CLAUDE_CODE_SESSION_ID" not in options["env"] and options["start_new_session"]
-    assert options["env"][state.DRIVE_ENV] == demo
-    state.pid_path(demo).write_text(f"{os.getppid()}\n")
-    assert REAL_ENSURE(demo).startswith(f"the watch runs as pid {os.getppid()} ")
-    assert len(started) == 1
+def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_with_no_session_or_secret_unless_one_is_loaded(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran: list[tuple[str, ...]] = []
+    loaded = iter([False, True])
+    monkeypatch.setenv("OPENAI_API_KEY", "a session secret")
+    monkeypatch.setattr(launchd, "kept", lambda label: next(loaded))
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: ran.append(args))
+    monkeypatch.setattr(launchd, "LAUNCH_AGENTS", tmp_path / "LaunchAgents")
+    assert REAL_ENSURE(demo).startswith(f"started the watch under its launch agent com.yasyf.long-running.watch.{demo}, which starts it again within 10 seconds of any exit")
+    plist = tmp_path / "LaunchAgents" / f"com.yasyf.long-running.watch.{demo}.plist"
+    agent = plistlib.loads(plist.read_bytes())
+    assert ran == [("bootstrap", f"gui/{os.getuid()}", str(plist))]
+    assert (agent["KeepAlive"], agent["RunAtLoad"], agent["ThrottleInterval"]) == (True, True, launchd.RESTART_SECONDS)
+    assert (agent["ProgramArguments"][-4:], agent["WorkingDirectory"]) == (["watch", "--loop", "--drive", demo], str(state.drive_dir(demo)))
+    assert agent["StandardOutPath"] == agent["StandardErrorPath"] == str(state.watch_log_path(demo))
+    env = agent["EnvironmentVariables"]
+    assert (env[state.DRIVE_ENV], env[launchd.LAUNCHED_ENV], "CLAUDE_CODE_SESSION_ID" in env, "OPENAI_API_KEY" in env) == (demo, watch.label(demo), False, False)
+    assert REAL_ENSURE(demo).startswith("the watch runs under its launch agent")
+    assert len(ran) == 1
 
 
 def test_a_drive_under_long_running_state_gets_no_watch_process_or_channel_and_a_watch_started_there_ends(
@@ -1040,7 +1051,7 @@ def test_a_drive_under_long_running_state_gets_no_watch_process_or_channel_and_a
     started = []
     monkeypatch.setenv("LONG_RUNNING_STATE", str(state_root))
     monkeypatch.setattr(watch, "ensure", REAL_ENSURE)
-    monkeypatch.setattr(watch.subprocess, "Popen", lambda argv, **options: started.append(argv))
+    monkeypatch.setattr(launchd, "keep", lambda *args: started.append(args))
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: pytest.fail("a pass ran on a drive under LONG_RUNNING_STATE"))
     assert cli.main(["watch", "--drive", demo]) == 0
     assert "watch.run_pass" in capsys.readouterr().out
@@ -1123,20 +1134,16 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
 ) -> None:
     sub_coordinated(demo)
     started = []
-
-    class Started:
-        pid = 4242
-
-        def __init__(self, argv: list[str], **options: object) -> None:
-            started.append((argv, options))
-
-    monkeypatch.setattr(watch.subprocess, "Popen", Started)
+    monkeypatch.setattr(launchd, "kept", lambda label: False)
+    monkeypatch.setattr(launchd, "keep", lambda label, args, log, env, cwd: started.append((label, args, log)))
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold")
     state.save_watch_cursor(demo, state.events_end(demo))
     drives_cursor = state.watch_cursor(demo)
-    assert REAL_ENSURE(demo, "Iris") == "started the watch for Iris as pid 4242; it posts its lines to the sub-coordinator for Iris over cci, so arm no Monitor for it"
-    [(argv, options)] = started
-    assert (argv, options["stdout"].name) == ([str(watch.DRIVE), "watch", "--loop", "--drive", demo, "--project", "Iris"], str(state.drive_dir(demo) / "watch-iris.log"))
+    assert REAL_ENSURE(demo, "Iris") == (
+        f"started the watch for Iris under its launch agent com.yasyf.long-running.watch.{demo}.iris, which starts it again within 10 seconds of any exit,"
+        " crash included; it posts its lines to the sub-coordinator for Iris over cci, so arm no Monitor for it"
+    )
+    assert started == [(f"com.yasyf.long-running.watch.{demo}.iris", ["watch", "--loop", "--drive", demo, "--project", "Iris"], state.drive_dir(demo) / "watch-iris.log")]
     assert (state.cursor_path(demo, "Iris").exists(), state.watch_cursor(demo, "Iris")) == (False, state.load(demo)["subcoordinators"]["Iris"]["from"])
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold", lane="iris")
     serve(monkeypatch, {})
@@ -1155,7 +1162,7 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
     kind, to, text = posted(sent)[-1]
     assert (kind, to) == ("handoff", f"iris@{demo}")
     log = re.escape(str(state.watch_log_path(demo, "Iris")))
-    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: OSError at watch\.py:\d+ in watching: disk full; its traceback is in {log}; drive watch --project Iris starts it again", text)
+    assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: OSError at watch\.py:\d+ in watching: disk full; its traceback is in {log}; its launch agent starts it again within 10 seconds", text)
 
 
 def test_drive_watch_project_starts_only_from_its_sub_coordinators_session_and_points_that_channel_at_it(

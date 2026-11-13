@@ -3,7 +3,6 @@ import http.client
 import json
 import mimetypes
 import os
-import plistlib
 import re
 import select
 import signal
@@ -28,6 +27,7 @@ from drive import (
     card,
     github,
     install,
+    launchd,
     picture,
     review,
     slack,
@@ -41,10 +41,6 @@ from drive.state import DriveError
 CODE = str(Path(__file__).resolve().parent)
 SITE = Path(__file__).resolve().parent / "site"
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
-MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
-LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
-AGENT_ENV = ("PATH", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_BIN_HOME", "CC_SLACK_CONFIG", "CHROME")
-RESTART_SECONDS = 10
 CHANGE_POLL_SECONDS = 2
 REBUILD_GAP_SECONDS = 3
 FILES = {
@@ -661,43 +657,9 @@ def wait_until(ready: Callable[[], bool], log: Path) -> None:
         time.sleep(0.2)
 
 
-def agent(name: str) -> str:
-    """The launch agent keeping the drive's dashboard, as launchctl names it in this user's login session."""
-    return f"gui/{os.getuid()}/com.yasyf.long-running.dashboard.{name}"
-
-
-def launchctl(*args: str) -> None:
-    done = subprocess.run(["launchctl", *args], capture_output=True, text=True, check=False)
-    if done.returncode:
-        raise DriveError(f"launchctl {' '.join(args)} exited {done.returncode}: {' '.join(done.stderr.split())}")
-
-
-def kept(name: str) -> bool:
-    return subprocess.run(["launchctl", "print", agent(name)], capture_output=True, check=False).returncode == 0
-
-
-def keep(name: str, port: int) -> None:
-    """Load the drive's launch agent, which starts its dashboard now and again RESTART_SECONDS after it exits, however it exits, on the newest long-running installed, found the way the drive's MCP server finds it."""
-    domain, _, label = agent(name).rpartition("/")
-    newest = json.loads(MANIFEST.read_text())["mcpServers"]["drive"]
-    log = str(state.drive_dir(name) / "dashboard.log")
-    path = LAUNCH_AGENTS / f"{label}.plist"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(
-        plistlib.dumps(
-            {
-                "Label": label,
-                "ProgramArguments": ["/usr/bin/env", newest["command"], *newest["args"][:-1], "dashboard", "--drive", name, "--port", str(port), "--serve"],
-                "EnvironmentVariables": {variable: os.environ[variable] for variable in AGENT_ENV if variable in os.environ},
-                "KeepAlive": True,
-                "RunAtLoad": True,
-                "ThrottleInterval": RESTART_SECONDS,
-                "StandardOutPath": log,
-                "StandardErrorPath": log,
-            }
-        )
-    )
-    launchctl("bootstrap", domain, str(path))
+def label(name: str) -> str:
+    """The label of the launch agent keeping the drive's dashboard."""
+    return f"{launchd.LABEL}.dashboard.{name}"
 
 
 def start(name: str, port: int) -> list[str]:
@@ -705,11 +667,11 @@ def start(name: str, port: int) -> list[str]:
     log = state.drive_dir(name) / "dashboard.log"
     drawn = serving(name, port)
     links = links_of(port, tailnet())
-    keeping = not state.scratch() and kept(name)
+    keeping = not state.scratch() and launchd.kept(label(name))
     if drawn and drawn["links"] == links and (keeping or state.scratch() and drawn["code"] == CODE):
         return links
     if keeping:
-        launchctl("kickstart", "-k", agent(name))
+        launchd.launchctl("kickstart", "-k", launchd.service(label(name)))
     else:
         if drawn:
             os.kill(drawn["pid"], signal.SIGTERM)
@@ -724,6 +686,6 @@ def start(name: str, port: int) -> list[str]:
                     start_new_session=True,
                 )
         else:
-            keep(name, port)
+            launchd.keep(label(name), ["dashboard", "--drive", name, "--port", str(port), "--serve"], log, {}, Path("/"))
     wait_until(lambda: serving(name, port) is not None, log)
     return serving(name, port)["links"]

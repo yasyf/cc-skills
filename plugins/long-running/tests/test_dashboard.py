@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Self
 
 import pytest
-from drive import cli, dashboard, picture, state, view
+from drive import cli, dashboard, launchd, picture, state, view
 from conftest import Chrome
 from test_view import drive_of, found, job, order, pr
 
@@ -141,16 +141,16 @@ def test_a_dashboard_no_launch_agent_keeps_is_stopped_and_handed_to_one_that_run
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
     monkeypatch.setenv("OPENAI_API_KEY", "a session secret")
     monkeypatch.setattr(dashboard, "serving", lambda name, port: next(answers))
-    monkeypatch.setattr(dashboard, "kept", lambda name: False)
+    monkeypatch.setattr(launchd, "kept", lambda label: False)
     monkeypatch.setattr(dashboard.os, "kill", lambda pid, signum: killed.append((pid, signum)))
-    monkeypatch.setattr(dashboard, "launchctl", lambda *args: ran.append(args))
-    monkeypatch.setattr(dashboard, "LAUNCH_AGENTS", tmp_path / "LaunchAgents")
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: ran.append(args))
+    monkeypatch.setattr(launchd, "LAUNCH_AGENTS", tmp_path / "LaunchAgents")
     assert dashboard.start(demo, port) == links
     plist = tmp_path / "LaunchAgents" / f"com.yasyf.long-running.dashboard.{demo}.plist"
     agent = plistlib.loads(plist.read_bytes())
     assert killed == [(4242, dashboard.signal.SIGTERM)]
     assert ran == [("bootstrap", f"gui/{os.getuid()}", str(plist))]
-    assert (agent["KeepAlive"], agent["RunAtLoad"], agent["ThrottleInterval"]) == (True, True, dashboard.RESTART_SECONDS)
+    assert (agent["KeepAlive"], agent["RunAtLoad"], agent["ThrottleInterval"]) == (True, True, launchd.RESTART_SECONDS)
     assert agent["StandardOutPath"] == agent["StandardErrorPath"] == str(state.drive_dir(demo) / "dashboard.log")
     assert "OPENAI_API_KEY" not in agent["EnvironmentVariables"]
     started = subprocess.run(agent["ProgramArguments"], env=agent["EnvironmentVariables"], capture_output=True, text=True, check=True)
@@ -161,14 +161,14 @@ def test_a_kept_dashboard_serving_its_links_is_left_alone_and_one_that_is_not_is
     port = dashboard.port_of(demo)
     links = dashboard.links_of(port, None)
     ran: list[tuple[str, ...]] = []
-    monkeypatch.setattr(dashboard, "launchctl", lambda *args: ran.append(args))
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: ran.append(args))
     monkeypatch.setattr(dashboard, "serving", lambda name, port: {"links": links})
     assert dashboard.start(demo, port) == links
     assert ran == []
     answers = iter([None, {"links": links}, {"links": links}])
     monkeypatch.setattr(dashboard, "serving", lambda name, port: next(answers))
     assert dashboard.start(demo, port) == links
-    assert ran == [("kickstart", "-k", dashboard.agent(demo))]
+    assert ran == [("kickstart", "-k", f"gui/{os.getuid()}/com.yasyf.long-running.dashboard.{demo}")]
 
 
 def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_answers_throughout(

@@ -14,6 +14,7 @@ from drive import (
     dashboard,
     github,
     land,
+    launchd,
     limits,
     orca,
     page,
@@ -234,7 +235,7 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     pages: list[str] = []
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
-    monkeypatch.setattr(dashboard, "kept", lambda name: True)
+    monkeypatch.setattr(launchd, "kept", lambda label: True)
     monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or page.Drawn("https://slack.example/docs/T1/F1", False))
     return pages
 
