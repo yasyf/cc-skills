@@ -221,8 +221,12 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
-     with each changed plugin's `bin/` first on `PATH`, printing a line for each check it passed:
-     `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing. It reaches the installed
+     with each changed plugin's `bin/` first on `PATH`, printing a line for each check it passed and
+     `FAIL <check>: <why>` for each that failed, the line the watch quotes:
+     `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing. When only his next word can
+     let it pass, such as a reply of his it reads, it exits nonzero with `WAIT <what he does next>` as
+     its last line and no `FAIL` line, which keeps your job waiting and runs the file again once he is
+     next heard; a check that needs time after his word waits for it inside the run. It reaches the installed
      plugin's code only through `$(drive --root)`, such as `$(drive --root)/hooks`, never a `readlink`
      of a command, which on a reader's shell finds the `~/.local/bin/drive` launcher, nor a pinned
      cache version's path, and reads the drive through that install's `drive.state`, such as

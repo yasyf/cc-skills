@@ -25,6 +25,13 @@ READ_MARK = re.compile(r"^READ\b[\s:,]*")
 LOG = re.compile(r"LOG\s+https?://\S+")
 LOG_RULE = "Read a red check's whole log here"
 DRIVE = re.compile(r"DRIVE\s+(.+)")
+CREDENTIALS = [
+    ("a GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b", re.ASCII)),
+    ("a GitHub fine-grained token", re.compile(r"\bgithub_pat_\w{20,}\b", re.ASCII)),
+    ("an sk- API key", re.compile(r"\bsk-[\w-]{20,}\b", re.ASCII)),
+    ("a Slack token", re.compile(r"\bxox[abprs]-[\w-]{10,}\b", re.ASCII)),
+    ("an AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", re.ASCII)),
+]
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 DRIVE_SECONDS = 540
 DRIVE_EXIT = "drive exited"
@@ -571,3 +578,10 @@ def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, boun
 def posting() -> dict[str, str]:
     """The environment every drive `cci post` runs in: this process's own with `CCI_PARENT_SESSION` set, which cci reads only for whether it is set, as a post made for another session, so it binds the session running the drive to no lane, whatever lane the post names, and never refuses it as the second binder of a lane a live session holds."""
     return os.environ | {"CCI_PARENT_SESSION": "drive"}
+
+
+def withheld(text: str) -> str:
+    """The text with each credential cci refuses to keep named in its place, by the shapes its store.CredentialShape reads, so a post carrying one goes up once rather than being refused unchanged on every pass."""
+    for name, shape in CREDENTIALS:
+        text = shape.sub(f"<{name} withheld>", text)
+    return text

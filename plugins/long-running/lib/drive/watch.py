@@ -2110,21 +2110,31 @@ def at_merge(data: dict, job_id: str) -> bool:
 
 
 def proof_due(data: dict, job_id: str) -> bool:
-    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, or one that ended with no result before a newer long-running's watch read it."""
+    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it."""
     job = data["jobs"][job_id]
     if not merged_ready(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)):
         return False
     proof = job.get("proof")
-    return not proof or proof["said"] != job["said"] or proof["version"] != state.VERSION and not state.alive(proof["pid"])
+    if not proof or proof["said"] != job["said"]:
+        return True
+    if proof.get("waits"):
+        heard = data["owner"]["heard"]
+        return not state.alive(proof["pid"]) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"])
+    return proof["version"] != state.VERSION and not state.alive(proof["pid"])
 
 
 def proving(data: dict, job_id: str) -> bool:
-    """Whether a merged job's proof is to come: a lander still merging or installing one of its PRs, a proof running on its line, or one the watch starts on its next read."""
+    """Whether a merged job's proof is to come: a lander still merging or installing one of its PRs, a proof running on its line or waiting on his next word, or one the watch starts on its next read."""
     job = data["jobs"][job_id]
     if not merged_ready(data, job_id) or proof_gap(data, job_id):
         return False
     proof = job.get("proof")
-    return proof_due(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)) or proof["said"] == job["said"] and state.alive(proof["pid"])
+    return (
+        proof_due(data, job_id)
+        or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id))
+        or proof["said"] == job["said"]
+        and bool(proof.get("waits") or state.alive(proof["pid"]))
+    )
 
 
 def finished(watcher: Watcher, moment: datetime) -> None:
@@ -2589,7 +2599,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body, but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post each line to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body, but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, each credential cci refuses withheld from it, and a line that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
         watcher.unsent[lane] += lines
         return []
@@ -2604,9 +2614,9 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         kind = "defect" if line.startswith(LANDER) else "handoff" if lane in state.HOLDERS or wakes(line, data, watcher.cards) else "evidence"
         topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
         asked = asked_whole(watcher.name, line)
-        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if asked else []), "--text", line]
+        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if asked else []), "--text", reads.withheld(line)]
         try:
-            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=asked)
+            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=asked and reads.withheld(asked))
         except reads.ReadError as error:
             unsent.append(line)
             refusal = error

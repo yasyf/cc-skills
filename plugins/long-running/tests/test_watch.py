@@ -5220,6 +5220,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ("done", f"{install.PROVEN} on long-running@skills 1.0.4: /p.sh exits 0", False),
         ("failed", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
         ("failed", f"{install.PROOF_FAILED}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
+        ("waiting", f"{install.PROOF_WAITS}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 2: WAIT S1 no exchange since the install", False),
         ("waiting", "merged", True),
         ("done", "merged", False),
         ("done", f"{install.MERGED_DONE}: {KEY} at ccc333ddd444; no proof kept", True),
@@ -5445,6 +5446,27 @@ def test_a_proof_that_ended_with_no_result_is_said_with_its_rerun_and_started_ag
     assert lines == ([] if started else [f'ORPHAN o1 "ship the watch": {rerun}'])
 
 
+
+def test_a_proof_waiting_on_his_next_word_holds_its_job_with_no_orphan_and_runs_again_only_once_he_is_heard_after_it_started(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    wait = "WAIT S1 no exchange since the install: reply in a DM thread within 60s of a handler's post there, then run this again"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": "1.0.1", "waits": wait}
+        data["owner"]["heard"] = state.stamp(T0 - timedelta(minutes=5))
+    watching = watcher(demo)
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
+    assert provers == []
+    watch.hear(demo, T0 + timedelta(minutes=63))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=64)) == []
+    assert provers == ["j1"]
+    assert "waits" not in state.load(demo)["jobs"]["j1"]["proof"]
+
+
 def tried(name: str, outcome: str) -> None:
     with state.edit(name) as data:
         lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}
@@ -5614,6 +5636,14 @@ def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_thir
     said = [watch.sent(watching, "root", [line] if second == 0 else [], T0 + timedelta(seconds=second)) for second in (0, 5, 10, 15, 20)]
     assert said == [[], [], ["WATCH post to the coordinator failed 3 times in a row: cci post exited 1: no drive demo"], [], []]
     assert [argv[-1] for argv in sent] == [line]
+
+
+def test_a_line_holding_a_credential_posts_once_with_it_withheld_rather_than_being_refused_on_every_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    line = f"EVENT j1's proof was killed running env ANTHROPIC_API_KEY=sk-ant-{'a1' * 12} probe --live"
+    assert (watch.sent(watching, "root", [line], T0), watch.sent(watching, "root", [], T0 + timedelta(seconds=5))) == ([], [])
+    assert posted(sent) == [("evidence", f"root@{demo}", "EVENT j1's proof was killed running env ANTHROPIC_API_KEY=<an sk- API key withheld> probe --live")]
 
 
 def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
