@@ -153,13 +153,13 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard open PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never read, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it."""
+    """Read from GitHub each heard open PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never read whose last read GitHub did not leave unanswered, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it."""
     data = state.load(watcher.name)
     pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
     keys = [
         key
         for key in state.open_pr_keys(data)
-        if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["required"] is None)
+        if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or (data["prs"][key]["required"] is None and key not in watcher.stale))
     ]
     watcher.owed = set()
     if not keys:
@@ -891,7 +891,8 @@ def event_lines(watcher: Watcher) -> list[str]:
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
-    watcher.owed |= {f"{event['repo']}#{number}" for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]}
+    if watcher.owed is not None:
+        watcher.owed |= {f"{event['repo']}#{number}" for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]}
     prs = state.load(watcher.name)["prs"]
     said = [event_line(event, prs) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY) and event.get("lane", "root") == watcher.lane]
     watcher.offset = events[-1][1]
