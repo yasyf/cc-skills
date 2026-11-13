@@ -736,12 +736,13 @@ restating it.
 - A clock time typed for work already done. Name the job or record and let the drive's stamp give the
   time: `{started:<job>}` for when a job started and `{at:<seq>}` for when a record went out, which `say`
   fills. Only words he reads are checked: `say`, a card `drive job ask` keeps, and a POST report or ready
-  record to the communicator, through the cci `post` tool or a Bash `cci post`, refuse a time such
-  as "started at 4:55 AM", naming the write's stamp and each named job's: on Nov 12 a report posted at
-  4:50 AM said its builder started at 4:55 AM. A SendMessage, a defect, a handoff, any other record
+  record to the communicator, through the cci `post` tool or a Bash `cci post`, refuse a time at or
+  before the write, such as "started at 4:25 AM" in a report posted at 4:50 AM, naming the write's stamp
+  and each named job's. A SendMessage, a defect, a handoff, any other record
   between sessions and `drive job report` quote times as they stand, by his words "i think that time
-  hook its tooa ggessive too". A promise of a time to come, such as "next line by 5:40 AM" or "due 6
-  AM", a time quoted as a tool printed it, in backticks, a time a tool or query measured, such as an outage window, written in
+  hook its tooa ggessive too". A time after the write, such as "next line by 5:40 AM" or "the hold
+  expires at 6:54 PM", read on the day written beside it, as "6:54 AM tomorrow" or "Nov 9 9:28 PM", else
+  on the day nearest the write, a time quoted as a tool printed it, in backticks, a time a tool or query measured, such as an outage window, written in
   Pacific on the line linking the tool or read that measured it, and a linked time pass. His ruling of Nov 3:
   "the agent should never be passing in a time".
 - A job's or record's stamp as another action's time. `{started:<job>}` draws as the job's start,

@@ -448,16 +448,16 @@ FIX_JOBS = (
 def test_a_post_report_typing_when_past_work_happened_is_refused_naming_its_stamp_and_a_promise_or_a_record_between_sessions_passes(
     demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    posted = state.now().replace(hour=4, minute=50, second=56, microsecond=0)
+    posted = state.now().replace(hour=4, minute=56, second=56, microsecond=0)
     monkeypatch.setattr(limits, "now", lambda: posted)
     assert refusal(record_lines.decision(coordinator(turn, kind="report", text=STALL, to=TO, attrs=PROGRESS))).startswith(
         'refused: "3:27 AM", "4:55 AM" are times typed for work already done, and the drive\'s stamps say when it happened:'
-        " this write is stamped 4:50:56 AM. Name the job or record and let its stamp give the time, {started:<job>}"
+        " this write is stamped 4:56:56 AM. Name the job or record and let its stamp give the time, {started:<job>}"
     )
-    monkeypatch.setattr(limits, "now", lambda: posted.replace(minute=47, second=0))
+    monkeypatch.setattr(limits, "now", lambda: posted.replace(minute=52, second=0))
     assert refusal(record_lines.decision(coordinator(turn, kind="report", text=FIX_HALF, body=FIX_JOBS, to=TO, attrs=PROGRESS))).startswith(
         'refused: "4:25 AM", "4:50 AM" are times typed for work already done, and the drive\'s stamps say when it'
-        " happened: this write is stamped 4:47:00 AM."
+        " happened: this write is stamped 4:52:00 AM."
     )
     for promised in ("POST The fix PR is up; next line by 5:40 AM.", "POST The fix lands by 5:40 AM.", "POST A second fix job started at {started:j1}; due 6 AM."):
         assert record_lines.decision(coordinator(turn, kind="report", text=promised, to=TO, attrs=PROGRESS)) is None, promised

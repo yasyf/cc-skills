@@ -17,8 +17,8 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import LEAD, RESEARCH, SHORT_ASK, drawn_card, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, land, place, render, settled, state
+from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, Jev, WatchProcess
+from drive import agents, brief, cli, land, limits, place, render, settled, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1525,8 +1525,11 @@ def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_dri
     assert landing_guard.deny_reason(asked_from_bash(catch_up, "another-session")) is None
 
 
-def test_a_bash_post_report_typing_when_past_work_happened_is_refused_and_a_record_between_sessions_typing_it_passes(demo: str, no_calls: list[list[str]]) -> None:
+def test_a_bash_post_report_typing_when_past_work_happened_is_refused_and_a_record_between_sessions_typing_it_passes(
+    demo: str, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    monkeypatch.setattr(limits, "now", lambda: WRITTEN_AT.replace(hour=22, minute=35))
     typed = (
         "cci post --kind report --lane root --to communicator@demo --attr progress=true"
         " 'POST A fix job with apply authority and a diagnosis job started at 10:33 PM; next line by 10:38 PM.'"

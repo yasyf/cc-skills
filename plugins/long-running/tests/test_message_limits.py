@@ -8,7 +8,7 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import Checked, Thread, explained
+from conftest import WRITTEN_AT, Checked, Thread, explained
 from drive import agents, limits, picture, refs, slack, state, talk, view
 from drive.state import DriveError
 
@@ -53,7 +53,7 @@ LOOK_INTO = "Also look into how it got into this bad state "
 FIGURE_OUT = "Get the release out but also figure out how it got into a bad state "
 HOW_IT_GOT_THERE = (
     "*How it got into this state: the cause is not found, but the chain that kept it hidden is.*\n\n*Observed:* Acme's"
-    " database was backed up to Acme's bucket at `1:23 AM` Nov 9, and its folder there was empty by 3:15 AM Nov 10. Two"
+    " database was backed up to Acme's bucket at `1:23 AM` Nov 9, and its folder there was empty by `3:15 AM` Nov 10. Two"
     " more Acme databases have empty folders. Our own cleanup always keeps the newest backup, so it does not explain an"
     " empty folder.\n\n*Not known:* who removed the files. A rule on Acme's bucket or a direct delete is what is left;"
     " the logs that would tell them apart need Acme's bucket-owner access.\n\n*Why nobody noticed:* a sleeping"
@@ -74,7 +74,7 @@ SWITCH_LINE = (
 )
 NOT_KNOWN_YET = (
     "*How it got into this state.* Acme's LTX files were uploaded to its bucket prefix at `1:23 AM` Nov 9, and the"
-    " prefix was empty by 3:15 AM Nov 10, like two more Acme prefixes. Our epoch cleanup keeps the newest populated"
+    " prefix was empty by `3:15 AM` Nov 10, like two more Acme prefixes. Our epoch cleanup keeps the newest populated"
     " epoch, so it did not remove them.\n\nNot known yet, each with what would show it: who removed them, which"
     " Acme's bucket audit log shows and which needs their bucket-owner access; why only Acme, which their bucket"
     " rules beside Globex's would show; and why the registry's local LTX file 1 is gone, which that pod's disk history"
@@ -646,6 +646,7 @@ def test_rewording_a_posted_line_is_held_to_that_lines_own_length(
 ) -> None:
     slack_thread.messages.append({"ts": ts, "from_claude": True, "from_bot": True, "text": before})
     monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "text": "Restore log, 3:20 AM", "refs": {}}))
+    monkeypatch.setattr(limits, "now", lambda: WRITTEN_AT.replace(hour=3))
     assert say(transcript, edit=link(ts), text=after) is None
 
 
@@ -1439,6 +1440,26 @@ def test_say_refuses_a_line_saying_work_has_no_one_on_it_until_it_names_the_job_
     assert refused.rule == agents.UNOWNED_RULE
     for text in ("No one was working on the partition split, so j1 builds it now.", "No one needs to work on the old export again."):
         assert say(transcript, text=text) is None, text
+
+
+@pytest.mark.parametrize(
+    ("text", "written", "past"),
+    [
+        ("If you do not tap, the hold expires at 6:54 PM Pacific today and the release stops.", datetime(2026, 11, 13, 7, 10, 7), False),
+        ("The release hold was set at 6:54 AM.", datetime(2026, 11, 13, 7, 10, 7), True),
+        ("I relaunch the builder after 6:52 PM.", datetime(2026, 11, 12, 18, 43, 29), False),
+        ("Turns have failed since 10:23 PM.", datetime(2026, 11, 13, 0, 11, 1), True),
+        ("Next line by 12:20 AM.", datetime(2026, 11, 12, 23, 50), False),
+        ("The card went up (Nov 9 9:28 PM) and waits on him.", datetime(2026, 11, 12, 19, 0), True),
+        ("The hold lifts at 6:54 AM tomorrow.", datetime(2026, 11, 12, 17, 0), False),
+        ("The hold lifted at 6:54 AM yesterday.", datetime(2026, 11, 12, 5, 0), True),
+    ],
+)
+def test_a_typed_clock_time_is_past_only_at_or_before_its_write_on_the_day_written_beside_it_else_the_day_nearest_the_write(
+    text: str, written: datetime, past: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(limits, "now", lambda: written.astimezone())
+    assert (limits.typed_time(text, {"jobs": {}}) is not None) == past
 
 
 def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its_stamp_and_a_promise(talker: str, transcript: Path) -> None:

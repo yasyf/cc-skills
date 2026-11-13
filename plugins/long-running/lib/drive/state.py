@@ -12,10 +12,11 @@ import threading
 import time
 import traceback
 import uuid
+from calendar import monthrange
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, closing, contextmanager, suppress
 from contextvars import ContextVar
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import IO
 
@@ -127,6 +128,8 @@ CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([
 SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d+\.\d+)(?:/(\d+\.\d+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?[Mm]\.?)?")
+DAY = r"(?:yesterday|today|tonight|tomorrow|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2})\b"
+DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
@@ -438,6 +441,23 @@ def parse_due(text: str, reference: datetime | None = None) -> datetime:
         return parse_time(text.strip())
     except ValueError:
         raise DriveError(f"cannot read due time {text!r}: use HH:MM, 3:30 AM, +30m, +2h or ISO 8601") from None
+
+
+def nearest(hours: list[int], minute: int, at: datetime, day: str = "") -> datetime:
+    """The moment at one of the hours and the minute nearest `at`, on the day its words name, else on the day before, of or after `at`: at 9:29 PM, 9:45 read on either half of the clock is 9:45 PM, still ahead, and 7:30 is 7:30 PM, past."""
+    moments = (datetime(each.year, each.month, each.day, hour, minute, tzinfo=at.tzinfo) for each in named_days(day, at) for hour in hours)
+    return min(moments, key=lambda moment: abs(moment - at))
+
+
+def named_days(day: str, at: datetime) -> list[date]:
+    """The days a clock time's words can mean: the one yesterday, today, tonight or tomorrow names, a month and day such as "Nov 9" in the year before, of and after `at`'s, else, with no day or one no calendar has such as "Nov 31", the day before, of and after `at`."""
+    if (offset := DAY_OFFSETS.get(day.lower())) is not None:
+        return [at.date() + timedelta(days=offset)]
+    if day:
+        month, number = datetime.strptime(day[:3], "%b").month, int(day.split()[-1])
+        if named := [date(year, month, number) for year in (at.year - 1, at.year, at.year + 1) if 1 <= number <= monthrange(year, month)[1]]:
+            return named
+    return [at.date() + timedelta(days=offset) for offset in (-1, 0, 1)]
 
 
 def pr_key(ref: str) -> str:
