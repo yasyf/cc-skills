@@ -2446,7 +2446,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     known = state.load(name)
     added = find(known["jobs"], job_id, "job")
     author = read["author"]["login"]
-    if why := state.foreign(key, author, [known["orders"][added["order"]]]):
+    if why := state.foreign(key, author, [known["orders"][added["order"]]]) or state.pr_held_elsewhere(known, key, job_id):
         raise DriveError(f"{key}: refused, nothing added: {why}")
     refuse_an_unkinded_title(key, read, port_of)
     refuse_an_undrawn_show_me(name, key, read)
