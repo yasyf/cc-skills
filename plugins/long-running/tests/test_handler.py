@@ -95,13 +95,22 @@ def test_drive_handler_refuses_a_brief_line_its_definition_already_carries(commu
     assert state.load("demo")["handlers"] == {}
 
 
-def test_a_handler_claude_bg_could_not_start_leaves_nothing_behind(communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_handler_claude_bg_could_not_start_leaves_nothing_behind_and_tells_the_communicator(communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[list[str]] = []
+
     def refuse(argv: list[str], checkout: Path, env: dict | None = None) -> str:
-        raise reads.ReadError("claude --bg: workspace not trusted")
+        if argv[:2] == ["claude", "--bg"]:
+            raise reads.ReadError("claude --bg: workspace not trusted")
+        posted.append(argv)
+        return ""
 
     monkeypatch.setattr(reads, "run", refuse)
-    assert run("handler", f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h1'}")[0] == 2
-    assert state.load("demo")["handlers"] == {}
+    code, out = run("handler", f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h1'}")
+    handler = out.removeprefix("started ")
+    assert (code, state.load("demo")["handlers"]) == (0, {})
+    [post] = posted
+    assert post[:2] == ["cci", "post"] and post[post.index("--to") + 1] == "communicator@demo"
+    assert post[-1].startswith(f"BLOCKED handler {handler} did not start: claude --bg: workspace not trusted")
 
 
 def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(

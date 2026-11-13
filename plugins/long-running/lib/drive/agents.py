@@ -269,13 +269,29 @@ def handle(name: str, brief: str) -> tuple[str, bool]:
         raise Busy(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; this copy needs no handler of its own")
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
+    kept = brief_path(name, handler_id)
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(brief)
+    state.detach(name, ["handler-start", handler_id], "handlers.log")
+    return handler_id, False
+
+
+def brief_path(name: str, handler: str) -> Path:
+    return state.drive_dir(name) / "handlers" / f"{handler}.md"
+
+
+def start_kept(name: str, handler: str) -> str:
+    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers and tells the communicator in a done record from lane handler, naming the error and its kept brief."""
+    kept = brief_path(name, handler)
     try:
-        start_handler(name, handler_id, brief)
+        start_handler(name, handler, kept.read_text())
     except reads.ReadError as error:
         with state.edit(name) as data:
-            del data["handlers"][handler_id]
-        raise state.DriveError(f"claude --bg started no handler: {error}") from None
-    return handler_id, False
+            data["handlers"].pop(handler, None)
+        line = f"BLOCKED handler {handler} did not start: claude --bg: {error}; its brief is kept in {kept}: start it again with the handler tool"
+        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd())
+        return line
+    return f"started {handler}"
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
