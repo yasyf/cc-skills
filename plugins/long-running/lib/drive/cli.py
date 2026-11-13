@@ -2469,17 +2469,20 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_a_port_storing_data(key, port_of)
     if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
+    wants_tap = state.guarded(key) or not tooling(known["orders"][added["order"]])
+    flaky = flake_tap(key, wants_tap) if exempt == state.FLAKE_FIX else None
     with state.edit(name) as data:
         job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
-        wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
         pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
         pr.update(job=job_id, order=job["order"], author=author, title=read["title"])
         if port_of:
             pr.update(port_of=port_of, exempt="pure port", wants_tap=False)
         if exempt:
             pr["exempt"] = exempt
+        if flaky is not None:
+            pr["wants_tap"] = flaky
         if no_tap:
             pr["wants_tap"] = False
         if url not in job["prs"]:
@@ -2544,6 +2547,8 @@ def pr_set(args: argparse.Namespace) -> int:
     if why := state.foreign_pr(known, key):
         raise DriveError(f"{key}: refused, nothing set: {why}")
     before = known["prs"][key]
+    if args.exempt == state.FLAKE_FIX and args.tap is None:
+        args.tap = flake_tap(key, state.guarded(key) or not tooling(known["orders"][before["order"]]))
     after = dict(before)
     set_pr(after, args)
     if state.guarded(key) and (before["wants_tap"] or before.get("exempt")) and not (after["wants_tap"] or after.get("exempt")):
@@ -2873,6 +2878,11 @@ def refuse_a_port_storing_data(key: str, port_of: int) -> None:
     )
 
 
+def flake_tap(key: str, wants_tap: bool) -> bool:
+    """Whether a flake fix waits on the tap its PR would wait on: only while it changes a file outside test and fixture code, as GitHub lists its files now, since a flake fix lands with no tap only in test or fixture code."""
+    return wants_tap and any(not served.TESTS.search(path) for path in github.files(key))
+
+
 def refuse_an_exempt_revert(data: dict, key: str, order_id: str, read: dict, adding: str = "") -> None:
     """A PR whose title or body says it reverts a change takes that change out, which no incident order approves: it lands only on his tap, on a card stating the bug in that change."""
     if not land.REVERT.search(f"{read['title']}\n{read['body']}"):
@@ -2890,7 +2900,7 @@ def tap_verdict(pr: dict | None) -> tuple[bool, str]:
         return True, "not a drive PR"
     if pr["hold_label"]:
         return False, "held by the drive with the hold label"
-    if pr.get("exempt"):
+    if state.exempted(pr):
         return True, f"exempt: {pr['exempt']}"
     tap = pr.get("tap")
     if tap and tap["label"] == "Approve":

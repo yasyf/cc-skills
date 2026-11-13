@@ -23,7 +23,9 @@ summary line about it, because work stopped before it starts wastes nothing.
   named to him. Record it with `drive pr set <url> --serves <o> --design none`, or
   `--design asked:<his answer id>` for a settled design; it prints his words back. When an order
   asks for cards or a summary, those cards deliver it, and each fix waits for his pick on its card.
-  A PR serves an order only if the order's words ask for it, not because jobs it unblocks serve it.
+  A PR serves an order only if the order's words ask for it, not because jobs it unblocks serve it,
+  so the fix of a test that flaked on its PR is his order by his ruling 532cd3d, never by the order
+  whose PR it reddened.
   Inside it, what already exists, a value's printed form, a wire, file or API shape, a default, a
   command's output or a behavior, stays as it was unless his words name the new one or the outcome
   they name, the problem they describe included, cannot happen without it; any other change to it
@@ -47,18 +49,22 @@ summary line about it, because work stopped before it starts wastes nothing.
   and `landing_guard` refuse landing it. Another lane's PR or bug report goes back to that lane in a
   `handoff` record. A sweep's finding, a teammate's report, or a job's own
   finding he has not ordered becomes a question card saying what was found, and nothing is built
-  before his pick, because he decides what the drive takes on. When a job's report, an incident's
+  before his pick, because he decides what the drive takes on. A test that flaked is never that
+  finding: his ruling 532cd3d already ordered its fix. When a job's report, an incident's
   included, names a limit, a capacity, or an architecture question, take it to him that turn,
   unasked, as a diagnosis with option cards.
 
 ## What you do without asking
 
-Two kinds of work are the drive's without a new order, and each line about them says which. A defect
+Three kinds of work are the drive's without a new order, and each line about them says which. A defect
 in something the drive shipped or is building belongs to the order that shipped it, and its line
 names that order. A defect in a tool the drive runs on is drive tooling, fixed without asking under
 its own order, its lines at his DM root, never in a feature thread it unblocks. His feedback on a
 post or card is one, in the library, `cc-slack check-post` or drive tool that let it through, every
-time. Nothing else is.
+time. A test that flakes on any PR the drive tracks is fixed at its cause the day it flakes, whatever
+files the cause is in, by his ruling 532cd3d, "and ffs fix these flaky tgests how many times do I have
+to tell yoiu": its PR is a `flake fix` by [landing.md](landing.md), serving that ruling, judged against
+it, and its lines name it. Nothing else is.
 
 Ask him only what is his to decide: architecture and abstractions, scope, and his own workflow.
 Within his orders, do everything else and report the result with a count: ports, closes, restarts,

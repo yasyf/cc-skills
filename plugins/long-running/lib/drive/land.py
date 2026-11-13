@@ -79,7 +79,7 @@ def unexempt(data: dict, key: str) -> str | None:
         case "pure port":
             outside = stored(paths)
             why = f"it changes {', '.join(outside)}, how its data is stored, which a port models anew for the target tree on his card" if outside else ""
-        case "test-only" | "flake fix":
+        case "test-only" | state.FLAKE_FIX:
             outside = [path for path in paths if not served.TESTS.search(path)]
             why = f"it changes {', '.join(outside)}, outside test and fixture code" if outside else ""
         case "ci-only":
@@ -89,6 +89,8 @@ def unexempt(data: dict, key: str) -> str | None:
             why = "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
     if not why:
         return None
+    if pr["exempt"] == state.FLAKE_FIX:
+        return f'{key} is a "{pr["exempt"]}", which lands with no tap only in test or fixture code, and {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --tap puts it on his card'
     return f'{key} is no "{pr["exempt"]}": {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --no-exempt --tap puts it on his card'
 
 

@@ -462,9 +462,11 @@ def draw(name: str, keys: list[str]) -> str:
 
 
 def carried_out(data: dict, keys: list[str]) -> str:
-    """The line above the drive's own draw of his card, one line per order its PRs carry out, each linked to that order's thread: his words quoted, or a drive tooling order's own "Drive tooling: …" words."""
-    orders = dict.fromkeys(state.order_served(data["prs"][key]) for key in keys)
-    return "\n".join(f"{{order:{order_id}}}" if data["orders"][order_id]["text"].startswith(state.TOOLING) else f'Carries out your "{{order:{order_id}}}"' for order_id in orders)
+    """The line above the drive's own draw of his card, one line per order its PRs carry out, each linked to that order's thread: his words quoted, or a drive tooling order's own "Drive tooling: …" words; a flake fix carries out his ruling FLAKE_RULING instead, its words quoted."""
+    flakes = [key for key in keys if data["prs"][key].get("exempt") == state.FLAKE_FIX]
+    orders = dict.fromkeys(state.order_served(data["prs"][key]) for key in keys if key not in flakes)
+    lines = [f"{{order:{order_id}}}" if data["orders"][order_id]["text"].startswith(state.TOOLING) else f'Carries out your "{{order:{order_id}}}"' for order_id in orders]
+    return "\n".join([*lines, *([f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"'] if flakes else [])])
 
 
 def withdraw(name: str, key: str) -> list[str]:

@@ -3293,17 +3293,24 @@ def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding
     assert landers == []
 
 
-@pytest.mark.parametrize(("exempt", "path"), [("ci-only", "api/src/index.ts"), ("flake fix", "go/sand/next/internal/vm_run/vmruntest/vmruntest.go")])
+@pytest.mark.parametrize(
+    ("exempt", "path", "refused", "remedy"),
+    [
+        ("ci-only", "api/src/index.ts", 'is no "ci-only"', ["--no-exempt", "--tap"]),
+        ("flake fix", "go/sand/next/internal/vm_run/vmruntest/vmruntest.go", 'is a "flake fix", which lands with no tap only in test or fixture code', ["--tap"]),
+    ],
+)
 def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_drive_pr_set_puts_it_on_his_card_and_his_approve_lands_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], exempt: str, path: str
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], exempt: str, path: str, refused: str, remedy: list[str]
 ) -> None:
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"exempt": exempt, "checks": "pass", "review": "approved"}
+        data["prs"][KEY] |= {"exempt": exempt, "wants_tap": False, "checks": "pass", "review": "approved"}
     diff = f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
     monkeypatch.setattr(land.served, "change", lambda key: {"title": "Fix: pin the release image digest", "body": "", "head": "aaaaaaa111", "diff": diff.encode()})
-    assert land.run(demo, [KEY]).startswith(f'not landed: {KEY} is no "{exempt}"')
-    assert cli.main(["pr", "set", KEY, "--no-exempt", "--tap", "--drive", demo]) == 0
+    assert land.run(demo, [KEY]).startswith(f"not landed: {KEY} {refused}")
+    assert cli.main(["pr", "set", KEY, *remedy, "--drive", demo]) == 0
+    assert state.load(demo)["prs"][KEY]["exempt"] == (None if "--no-exempt" in remedy else exempt)
     with state.edit(demo) as data:
         data["prs"][KEY]["card"] = CARD
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})

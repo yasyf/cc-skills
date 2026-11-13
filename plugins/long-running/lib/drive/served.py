@@ -71,12 +71,14 @@ class Against(DriveError):
         self.named = named
         super().__init__(
             f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
-            " putting back what exists where they do not need it changed, push, and return READY again; a reading his words leave open goes to him as an ASK"
+            " putting back what exists where they do not need it changed, push, and return READY again; a reading his words leave open goes to him as an ASK."
+            f' A PR fixing one named flaking test at its cause is no overreach to close or empty: drive pr add <its url> --job <its job> --exempt "{state.FLAKE_FIX}"'
+            f' judges it against his ruling {state.FLAKE_RULING}, "{state.FLAKE_WORDS}", in place of the orders it unblocks'
         )
 
 
 def check(name: str, key: str, cited: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, and return the head it checked, or the one its head already holds, for verdict to keep, judging past no install's lock; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep, judging past no install's lock; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
@@ -86,7 +88,8 @@ def check(name: str, key: str, cited: list[str]) -> dict:
     read = change(key)
     lines = digests(read["diff"])
     passed = pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {}
-    answered = answers(data, [*cited, pr.get("design") or ""], view.live_cards(name))
+    flake = [state.FLAKE_RULING] if pr.get("exempt") == state.FLAKE_FIX else []
+    answered = answers(data, [*cited, pr.get("design") or "", *flake], view.live_cards(name))
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
     if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
@@ -107,7 +110,8 @@ def verdict(name: str, key: str) -> str:
     except DriveError as error:
         outcome = f"{FAILED}: {error}"
     else:
-        outcome = f"{CHECKED} against the words of {', '.join(checked['orders'])} at {checked['head'][:10]}, so his Approve lands it once it is green"
+        basis = f"the words of {', '.join(checked['orders'])}" if checked["orders"] else f"his ruling {state.FLAKE_RULING}"
+        outcome = f"{CHECKED} against {basis} at {checked['head'][:10]}, so his Approve lands it once it is green"
     return kept(name, key, {"head": head, "at": at, "outcome": outcome, "against": named, "checked": checked, "pid": os.getpid()})
 
 

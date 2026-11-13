@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title, work
+from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -343,7 +343,7 @@ def agentless_lines(drive: dict, orders: dict[str, dict] | None = None) -> list[
 
 
 def pr_line(key: str, pr: dict, card: str | None) -> str:
-    owed = None if pr.get("exempt") else REWORKING if pr["rework"] else "wants tap" if pr["wants_tap"] else None
+    owed = None if exempted(pr) else REWORKING if pr["rework"] else "wants tap" if pr["wants_tap"] else None
     tap = pr["tap"]["label"] if pr.get("tap") else owed or "no tap needed"
     tap += f", {card or 'his card never drawn'}" if card or not pr.get("tap") and owed == "wants tap" else ""
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""

@@ -96,8 +96,10 @@ for its repository says, then return `DONE <proof>`.
   - `## His words, step by step`: each step his words in your brief name, quoted, beside the `path:line`
     that does it; it stays off his card. Quote only the order this PR carries out, never one whose jobs
     it only unblocks. Drive tooling says none and gets its card from its own order by
-    [Scope](scope.md). A PR that is not a port and that no order of his asks for returns
-    `BLOCKED no order of his names this` instead of `READY`.
+    [Scope](scope.md). A flake fix quotes his ruling 532cd3d, "and ffs fix these flaky tgests how many
+    times do I have to tell yoiu", beside the `path:line` that fixes the flake's cause. Any other PR that
+    is not a port and that no order of his asks for returns `BLOCKED no order of his names this` instead
+    of `READY`.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, which records it waiting on his
   tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
   order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
@@ -231,15 +233,16 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
   with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because
   `landing_guard` refuses landing a drive PR with no recorded tap.
 
-**Exempt classes land with no tap** once green. He never sees a PR card for one: `drive card` draws a
+**Exempt classes land with no tap** once green, but for a `flake fix` changing a file outside test and
+fixture code. He never sees a PR card for one landing with no tap: `drive card` draws a
 fresh card only for a PR that asks his tap, by the same check that gives a card its Approve, so a post
 linking an exempt PR keeps its plain link. It is marked as its class wherever he sees it, and its
 order's thread gets one line naming the class and the PR, such as "port of #N landed." The drive's
 lander lands an exempt PR once it is green, after checking it really is in its
 class from its changed files, title and body at its head, by his ruling that the landing tool checks
 the class before it lands: no file that changes how data is stored for a `pure port`, only test and
-fixture files for `test-only` and `flake fix`, only CI files for `ci-only`, and no revert for an
-`incident fix`. One outside its class comes back as `PR … not landed: <why>`.
+fixture files for `test-only` and for a `flake fix` landing with no tap, only CI files for `ci-only`,
+and no revert for an `incident fix`. One outside its class comes back as `PR … not landed: <why>`.
 
 - `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
   and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. A port that
@@ -250,8 +253,15 @@ fixture files for `test-only` and `flake fix`, only CI files for `ci-only`, and 
 - `ci-only`: only CI configuration and CI tooling: files under `.github/`, `.buildkite/`, `go/ci/` and
   `infra/ci/`, whose Buildkite pipeline definitions are CI configuration, and the `tools/ci` and
   `tools/ci-ts` shims.
-- `flake fix`: the whole change fixes one named flaking test, in test or fixture code, and adds no
-  timeout.
+- `flake fix`: the whole change fixes one named flaking test at its cause, whatever files it touches,
+  and adds no retry, skip, timeout or rerun, by his ruling 532cd3d, "and ffs fix these flaky tgests how
+  many times do I have to tell yoiu". It serves that ruling, never the order whose PR the flake reddened,
+  so the watch's check judges it against 532cd3d read whole in place of any order, and it is never
+  `BLOCKED no order of his names this`, closed, or emptied to answer a `NOT READY`. Register it with
+  `drive pr add <url> --job <j> --exempt "flake fix"`, which reads its files from GitHub: in test or
+  fixture code alone it lands with no tap; with any other file it keeps his tap, and his card quotes the
+  ruling's words, by his words "you cna also merge CI/tst-only tweaks/fixes without me, but onyl if it
+  doesnt touch non-test/CI code at all".
 - `incident fix`: the immediate fix, such as the stop, or the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
   not one and waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it
   reverts a change.
@@ -332,7 +342,8 @@ hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `mer
 incident fix lands as [incidents.md](incidents.md) says.
 
 **Every red on your PR is yours**, whether your change or `dev` caused it. Fix your own; for an
-inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR. On a conflict or
+inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
+a test flaked, whose cause may be in product code. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
 the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,
