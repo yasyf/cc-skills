@@ -1702,7 +1702,7 @@ def keep_waits(job: dict, file: Path, waits: str, card: str | None = None) -> No
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, whose path it prints, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes, as drive job brief does, the brief of each builder waiting on it that no agent or lane started and none briefed, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line. With no stdin, print every return the job took, newest first."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -1736,11 +1736,17 @@ def job_report(args: argparse.Namespace) -> int:
         with state.edit(name) as data:
             state.take_result(data, args.id, line, whole)
             state.add_changes(data, args.id, whole)
+        order = data["orders"][job["order"]]
+        briefed = [
+            f"{builder_id}: {write_brief(name, builder_id, {'serves': 'drive tooling' if tooling(order) else 'his order'}, None)[0]}"
+            for builder_id in (order["jobs"] if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else [])
+            if args.id in (builder := data["jobs"][builder_id])["waits"] and state.unstarted_builder(data, builder) and not builder.get("brief")
+        ]
         kept = str(state.replies_path(name, args.id))
         merging = merge_reported(name, args.id)
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
         shown = f"{where}\n{decided}" if decided else f"{where}\nits ASK is kept in {asked}, its ask record posted" if asked else where
-        shown = "\n".join([shown, *registered, *fixes, *(f"{key}: {said}" for key, said in merging)])
+        shown = "\n".join([shown, *registered, *fixes, *briefed, *(f"{key}: {said}" for key, said in merging)])
         return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "merging": dict(merging), "fixes": fixes})
     text = state.report_text(name, args.id)
     if not text and not job["said"]:
@@ -1824,35 +1830,41 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines the call names, each flag it leaves out kept from the job's earlier brief but a handoff's event."""
     name = state.resolve(args.drive)
+    job = find(state.load(name)["jobs"], args.id, "job")
+    if not job.get("brief_flags") and (missing := [f"--{flag.replace('_', '-')}" for flag in BRIEF_NEEDS if not getattr(args, flag)]):
+        raise DriveError(f"{args.id} has no earlier brief to keep {', '.join(missing)} from: name each")
+    line, payload = write_brief(name, args.id, {flag: getattr(args, flag) for flag in BRIEF_FLAGS}, args.handoff)
+    return emit(args, line, payload)
+
+
+def write_brief(name: str, job_id: str, named: dict, handoff: str | None) -> tuple[str, dict]:
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief but a handoff's event."""
     data = state.load(name)
-    job = find(data["jobs"], args.id, "job")
+    job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
     earlier_flags = job.get("brief_flags") or {}
-    kept = [flag for flag in BRIEF_FLAGS if not getattr(args, flag) and earlier_flags.get(flag)]
-    flags = {flag: getattr(args, flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS}
-    if missing := [f"--{flag.replace('_', '-')}" for flag in BRIEF_NEEDS if not flags[flag]]:
-        raise DriveError(f"{args.id} has no earlier brief to keep {', '.join(missing)} from: name each")
-    if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or args.handoff):
+    kept = [flag for flag in BRIEF_FLAGS if not named.get(flag) and earlier_flags.get(flag)]
+    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS}
+    if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or handoff):
         raise DriveError(
-            f"{args.id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
+            f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
             " with --handoff <the PR, its head and the event line verbatim>"
         )
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
-        raise DriveError(f"{args.id}'s result is something he uses, by --native: {unstoried}")
+        raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
     if flags["release"] and (unnamed := brief.release_refusal(flags["release"]) or brief.approval_refusal(flags["release"], str(checkout_dir))):
-        raise DriveError(f"{args.id}: {unnamed}")
-    earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
+        raise DriveError(f"{job_id}: {unnamed}")
+    earlier = [line for other in order["jobs"] if other != job_id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
     found = brief.research(name, data, job["order"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
     researched = [closed for question in data["jobs"][found[0]]["questions"] if (closed := question["closed"]) and closed["how"] != "withdrawn"] if found else []
     settles = [closed["ruling"] for closed in researched if closed["ruling"]]
     heard = [f'his answer "{closed["words"]}"' + (f" ({closed['link']})" if closed["link"] else "") for closed in researched if not closed["ruling"] and closed["words"]]
     rulings = [*(ruling_words(answer_id, checkout_dir) for answer_id in dict.fromkeys([*(flags["ruling"] or []), *settles])), *dict.fromkeys(heard)]
-    scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / args.id
+    scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     scratch.mkdir(parents=True, exist_ok=True)
     fields = {
         "Order (his words)": order["text"],
@@ -1862,21 +1874,21 @@ def job_brief(args: argparse.Namespace) -> int:
         "Where": flags["where"],
         "Runs as": flags["runs_as"],
         "Release": flags["release"],
-        "Handoff": args.handoff,
+        "Handoff": handoff,
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
         "Researched": found and found[0],
-        "Answer": order["kind"] == "answer" and job["kind"] == "reader" and answer_first(name, order, job["order"], args.id),
+        "Answer": order["kind"] == "answer" and job["kind"] == "reader" and answer_first(name, order, job["order"], job_id),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
         "Plan": flags["plan"],
-        "Incident": incident_line(data, args.id, flags["incident"]),
+        "Incident": incident_line(data, job_id, flags["incident"]),
         "Scratch": str(scratch),
         "Transcripts": earlier,
-        "Drive": f"{name}, order {job['order']}, job {args.id}",
+        "Drive": f"{name}, order {job['order']}, job {job_id}",
     }
-    written = state.drive_dir(name) / "jobs" / f"{args.id}.brief.md"
+    written = state.drive_dir(name) / "jobs" / f"{job_id}.brief.md"
     written.parent.mkdir(exist_ok=True)
     lines = [
         f"{field}:" + ("".join(f"\n- {item}" for item in value) if isinstance(value, list) else f" {value}")
@@ -1886,7 +1898,7 @@ def job_brief(args: argparse.Namespace) -> int:
     text = "\n".join(lines) + "\n"
     written.write_text(text)
     with state.edit(name) as data:
-        data["jobs"][args.id].update(brief=str(written), brief_flags=flags)
+        data["jobs"][job_id].update(brief=str(written), brief_flags=flags)
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
     line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
@@ -1895,10 +1907,10 @@ def job_brief(args: argparse.Namespace) -> int:
     if given:
         line += (
             f"\n{job['order']} is the meta session's order now, since a builder serving drive tooling is its alone: only the meta session"
-            f" starts {args.id} and its agents and posts its reports; from the coordinator, start no agent on it and send"
-            f" meta@{name} a defect record naming {args.id} and its `Read your brief first:` line"
+            f" starts {job_id} and its agents and posts its reports; from the coordinator, start no agent on it and send"
+            f" meta@{name} a defect record naming {job_id} and its `Read your brief first:` line"
         )
-    return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
+    return line, {"id": job_id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept}
 
 
 def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
