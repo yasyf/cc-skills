@@ -1,7 +1,7 @@
 # Messages to the owner
 
 Only the communicator's side writes to him, from his own messages and from the `report`
-records the coordinator sends, and on the question cards `drive job ask` draws. The communicator posts the ack alone in its first message and
+records the coordinator sends, and on the question cards `drive job ask` draws. The communicator posts the ack alone in its first message, with `say`, and
 nothing else. Its handlers write, check and post every other post, one handler at a time per message of his or
 per thread: the coordinator's record carries the facts, the handler writes the words, and a handler
 answers his read-only questions itself. Every post is short, says what changed for him, and carries
