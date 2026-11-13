@@ -465,7 +465,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"')},
+            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds a word of "cloudrunner/inbox.go"')},
             llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
         ): Block(pattern="(?s)Jev checked each claim of this post against the read it names and held it back.*Jev: The cloud reader querying Postgres"),
         Input(
@@ -475,7 +475,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"', "refused: this post is 123 words, and a line in his thread is at most 60 words")},
+            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds a word of "cloudrunner/inbox.go"', "refused: this post is 123 words, and a line in his thread is at most 60 words")},
             llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
         ): Block(pattern="(?s)fix what Jev and each finding below name, passing each read Jev asks for in claims beside its claim, then call say again.*Jev: The cloud reader querying Postgres.*123 words"),
         Input(

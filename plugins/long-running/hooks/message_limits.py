@@ -24,7 +24,7 @@ BETWEEN_QUOTES = re.compile(r"…|\.{3}|\n|\s/\s")
 QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
-SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
+SAVED = re.compile(r"(?:<persisted-output>\s*Output too large \([^)]*\)\. Full output saved to:|Error: result \([^)]*\) exceeds maximum allowed tokens\. Output has been saved to) (/\S+?)\.?(?=\s|$)")
 ALERT_LINK = re.compile(r"^\d+:\d+ bare-url 'https://(?:[\w-]+\.slack\.com/archives/|(?:[\w-]+\.)?sentry\.io/|(?:[\w-]+\.)?datadoghq\.com/)")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 PROMISE = re.compile(r"\b(?:from now on|next you(?:['’]ll| will)? get|I(?:['’]ll| will))\b", re.IGNORECASE)
@@ -123,13 +123,15 @@ READ_WORDS = re.compile(r"[^\s:]+")
 READ_ID = re.compile(r"[\w./-]*\d{3}[\w./-]*")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
 NAMED_SOURCE = (
-    "the read the posting handler names as {read} behind its claims {claims}: each call of its own transcript, its posts"
-    " aside, whose tool name and input hold every word of it or an id it names, a word of three digits or more such as a PR,"
-    " build, record or job number or a line range, case aside, with that call's whole result, all the call read"
-    " however few of its words the handler names it by; a call reading a"
+    "the calls the posting handler finds by the words {read}, its read behind its claims {claims}: each call of its own"
+    " transcript, its posts aside, whose tool name and input hold the most of those words, or an id they name, a word of three"
+    " digits or more such as a PR, build, record or job number or a line range, case aside, with its whole result; the read is each"
+    " such call whole, its input and its result, never those words, which copy only part of a call to find it; a call reading a"
     " doc, report, PR body or brief shows what that source says, never what the code it describes does, whoever wrote it"
 )
 DOC_SOURCE = "; {docs} this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word"
+IMAGE_SHOWN = "[an image, shown to the handler and not to Jev]"
+IMAGE_SOURCE = f"; a call whose result holds {IMAGE_SHOWN} showed the handler that image, which backs a line telling what the image shows, such as an error a screenshot holds, as the handler read it, and no line on anything else"
 CITED_SOURCE = "a record the post cites as {record:} or a claim names as its read, held whole, its first line naming its writer and, after >, the lanes it went to, root being the coordinator's: it backs a line telling what it says or where it went, and any other line only where it measured what that line says"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
 CARRIED_SOURCE = "the report this post carries as say's record, another agent's words, which back a line only as the record that measured it"
@@ -762,22 +764,31 @@ def own_calls(payload: dict) -> dict[str, str]:
             if part.get("type") == "tool_use" and part.get("name") not in DM_POSTS | CHANNEL_POSTS:
                 calls[part["id"]] = f"{part['name']} {json.dumps(part.get('input'), ensure_ascii=False)}"
             elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls:
-                results[calls[part["tool_use_id"]]] = ("error: " if part.get("is_error") else "") + result_text(part)
+                results[calls[part["tool_use_id"]]] = ("error: " if part.get("is_error") else "") + whole_result(part)
     return results
 
 
+def whole_result(part: dict) -> str:
+    """A call's result whole: the file a long one was saved to in place of the preview the call returned, and each image it showed the handler as IMAGE_SHOWN, since Jev is shown text alone."""
+    content = part.get("content")
+    text = content if isinstance(content, str) else " ".join(IMAGE_SHOWN if piece.get("type") == "image" else piece.get("text", "") for piece in content or [])
+    return Path(saved[1]).read_text() if (saved := SAVED.match(text)) else text
+
+
 def called(index: int, read: str, claimed: list[str], calls: dict[str, str]) -> dict:
-    """Jev's item for one read the claims name: each call whose tool name and input hold every word of the read, case aside, a word split at a colon, as a path's from its line numbers, or hold an id the read names, a word of three digits or more standing alone, since a handler names its read as it tells what it found, with its whole result, or none when no call does, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
+    """Jev's item for one read the claims name: each call whose tool name and input hold the most of the read's words, case aside, a word split at a colon, as a path's from its line numbers, and each holding an id the read names, a word of three digits or more standing alone, since a handler names its read as it tells what it found, with its whole result, or none when no call holds a word of it, its source naming the claims beside the read and each doc, such as a report or a brief, a call of it opens."""
     folded = read.casefold()
-    words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(folded)]
+    words = {json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(folded)}
     ids = [re.compile(rf"(?<![a-z0-9]){re.escape(found.strip('./-_'))}(?![a-z0-9])") for found in READ_ID.findall(folded)]
-    held = [call for call in calls if words and all(word in call.casefold() for word in words) or any(named.search(call.casefold()) for named in ids)]
+    holding = {call: (sum(word in call.casefold() for word in words), sum(bool(named.search(call.casefold())) for named in ids)) for call in calls}
+    most = max((sum(held) for held in holding.values()), default=0)
+    held = [call for call, (worded, named) in holding.items() if most and worded + named == most or named]
     docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
     source = NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False), claims=json.dumps(claimed, ensure_ascii=False))
     return {
         "id": f"read:{index}",
-        "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
-        "quote": "\n\n".join(f"{call}\n{calls[call]}" for call in held) or f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}",
+        "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else "") + (IMAGE_SOURCE if any(IMAGE_SHOWN in calls[call] for call in held) else ""),
+        "quote": "\n\n".join(f"{call}\n{calls[call]}" for call in held) or f"none: no call of the handler's own holds a word of {json.dumps(read, ensure_ascii=False)}",
     }
 
 

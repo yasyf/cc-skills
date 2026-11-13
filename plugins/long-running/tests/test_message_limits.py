@@ -782,9 +782,9 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
     ]
     backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
     assert (backed["id"], backed["quote"]) == ("read:1", shown(*SHADOWED))
-    assert '"lower.rs:295-305" behind its claims ["Each table has a `<table>__history` shadow table", "its columns plus the run"]' in backed["source"]
+    assert '"lower.rs:295-305", its read behind its claims ["Each table has a `<table>__history` shadow table", "its columns plus the run"]' in backed["source"]
     assert "is a doc" not in backed["source"]
-    assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
+    assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds a word of "values.go 250-280"')
     assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
     assert doc["source"].endswith('; ["/drive/reports/j1880.md"] this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word')
 
@@ -801,11 +801,35 @@ def test_a_read_told_as_what_it_found_reaches_the_call_whose_input_holds_an_id_i
         tool(lane, *each)
     claims = [
         {"claim": "The hotfix build passed", "read": "Bash: tools/ci bk api printed '15171 passed', message 'Hotfix b036ac2817d7'"},
-        {"claim": "The next build failed", "read": "build 15172 printed failed"},
+        {"claim": "The next build failed", "read": "deploy 15172 went red"},
     ]
     found, unfound = evidence(transcript, monkeypatch, capsys, text="The hotfix build passed, and the next one failed.", thread_ts="1.2", claims=claims)
     assert found["quote"] == shown(*BUILD)
-    assert unfound["quote"] == 'none: no call of the handler\'s own holds "build 15172 printed failed"'
+    assert unfound["quote"] == 'none: no call of the handler\'s own holds a word of "deploy 15172 went red"'
+
+
+def test_jev_gets_a_long_result_from_the_file_it_was_saved_to_and_an_image_read_as_one_the_handler_was_shown(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    lane = lane_of(transcript)
+    saved = tmp_path / "tool-results" / "buoniclwx.txt"
+    saved.parent.mkdir()
+    saved.write_text("- o839 open\n  - j2273 cause: the Cargill load on plat SandSQL")
+    status = ("Bash", {"command": "drive status --drive durable-agents o839"})
+    tool(lane, *status, f"<persisted-output>\nOutput too large (11.4KB). Full output saved to: {saved}\n\nPreview (first 2KB):\n- o839 open")
+    shot = {"file_path": "/Users/me/.local/state/cc-slack/files/F0CHFST5HTN.png"}
+    with lane.open("a") as rows:
+        rows.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "shot", "name": "Read", "input": shot}]}}) + "\n")
+        rows.write(json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "shot", "content": [{"type": "image", "source": {"type": "base64", "data": "aGVsbG8="}}]}]}}) + "\n")
+    claims = [
+        {"claim": "the Cargill load on the plat SandSQL database", "read": "drive status --drive durable-agents o839"},
+        {"claim": "the screenshot shows `database disk image is malformed`", "read": shot["file_path"]},
+    ]
+    load, image = evidence(transcript, monkeypatch, capsys, text="The screenshot shows `database disk image is malformed`.", thread_ts="1.2", claims=claims)
+    assert load["quote"] == shown(*status, saved.read_text())
+    assert message_limits.IMAGE_SOURCE not in load["source"]
+    assert image["quote"] == shown("Read", shot, message_limits.IMAGE_SHOWN)
+    assert image["source"].endswith(message_limits.IMAGE_SOURCE)
 
 
 def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reach_jev_whole_and_a_post_naming_no_claim_says_so(
