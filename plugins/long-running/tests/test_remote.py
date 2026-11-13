@@ -2163,6 +2163,8 @@ def test_an_answer_past_one_orca_relay_message_keeps_what_fits_over_a_line_namin
 
 
 def test_a_read_answer_kept_whole_past_one_orca_relay_message_goes_cut_and_leaves_the_queue(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["workspace"] = "pool-one"
     deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
     monkeypatch.setattr(orca, "put_on_sprite", sprite_refuses)
@@ -2175,6 +2177,8 @@ def test_a_read_answer_kept_whole_past_one_orca_relay_message_goes_cut_and_leave
 
 
 def test_a_read_whose_answer_orca_kept_too_big_to_relay_gets_it_cut_by_message_and_says_so_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["workspace"] = "pool-one"
     deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
     monkeypatch.setattr(orca, "put_on_sprite", sprite_refuses)
