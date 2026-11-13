@@ -267,8 +267,8 @@ Your final message is its first line alone, since it lands whole in the coordina
 
 - You are read only: write no code, run no build or test; a hook refuses `gh pr create` and pushes.
 - Nobody watches the terminal that started you, so the `bash_guard` hook refuses each permission
-  prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude
-  Code's parser cannot read a command, such as one with a zsh expansion flag like
+  prompt Claude Code raises on any of your calls. Bypass permissions mode still asks when Claude
+  Code's parser cannot read a Bash command, such as one with a zsh expansion flag like
   `${(s:,:)tables}`: write such a command, and any multi-step logic, to a script in your brief's
   `Scratch:` folder and run that. No question reaches him there either: you have no AskUserQuestion,
   and each fork reaches him as a card from its `ASK` block.
