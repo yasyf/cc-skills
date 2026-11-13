@@ -943,6 +943,33 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=f"{text} <{link}|Its tap card> is up.")
 
 
+def test_a_sentence_saying_one_pr_shipped_and_another_waits_on_his_approve_is_judged_by_the_tap_card_it_links(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shipped, bump = "https://github.com/yasyf/cc-remote/pull/162", "https://github.com/Forge-AI/monorepo/pull/55639"
+    link = f"https://acme.slack.com/archives/{DM}/p1794558425491189"
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-remote#162"] = state.new_pr(shipped, "j1", "o1") | {"head": "9f1c2ab", "state": "merged"}
+        data["prs"]["Forge-AI/monorepo#55639"] = state.new_pr(bump, "j2", "o1") | {"head": "4d7e0c3"}
+    tap = {"asked": state.stamp(), "url": link, "prs": [bump], "card": {"title": "New: bump the pin?", "prs": [{"url": bump, "head": "4d7e0c3"}]}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
+    view.refresh_cards("demo")
+    text = (
+        "*Fixed: a builder restarted on your card answer now builds your pick, not its old result.* "
+        "<https://github.com/yasyf/cc-skills/pull/4820|The fix> is live in long-running 1.0.684. "
+        f"The Sprite-disk builder it stuck shipped your pick in <{shipped}|cc-remote>; "
+        f"<{bump}|the monorepo bump to it> is green and waits on your Approve on <{link}|its tap card>."
+    )
+    assert say(transcript, text=text) is None
+    uncarded = say(transcript, text=text.replace(f" on <{link}|its tap card>", ""))
+    assert f"Forge-AI/monorepo#55639: the words do not link its open tap card {link}" in uncarded
+    assert "yasyf/cc-remote#162" not in uncarded
+    assert "yasyf/cc-remote#162: merged" in say(transcript, text=f"<{shipped}|The cc-remote fix> waits on your Approve.")
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#55639"]["head"] = "b85e1f0"
+    assert f"Forge-AI/monorepo#55639: its tap card {link}, which the words link, no longer stands: it moved past the head the card shows" in say(transcript, text=text)
+
+
 def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits_on(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
