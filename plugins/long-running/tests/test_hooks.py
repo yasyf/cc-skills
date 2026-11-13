@@ -484,10 +484,10 @@ def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
-    saved = json.loads(state.state_path(demo).read_text())
+    saved = state.stored(demo)
     for field in ("where", "session"):
         del saved["jobs"]["j1"][field]
-    state.state_path(demo).write_text(json.dumps(saved))
+    state.store(demo, saved)
     code, out = run("job", "resume", "j1", "PR checks failed")
     handoff = state.drive_dir(demo) / "jobs" / "j1.handoff.md"
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")

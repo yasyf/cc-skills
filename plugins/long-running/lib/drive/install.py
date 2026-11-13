@@ -2,7 +2,6 @@ import json
 import os
 import plistlib
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -506,8 +505,7 @@ def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
         tree.mkdir()
         git(clone, f"--work-tree={tree}", "checkout", ref, "--", folder, deadline=deadline)
         for name in names:
-            (copies / name).mkdir(parents=True)
-            shutil.copyfile(state.state_path(name), copies / name / "drive.json")
+            state.clone(name, copies)
         for name in names:
             try:
                 run(["env", f"LONG_RUNNING_STATE={copies}", str(tree / folder / "bin" / "drive"), "status", "--drive", name], deadline)

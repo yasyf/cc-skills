@@ -180,17 +180,20 @@ def card_pictures(card: dict) -> set[str]:
 
 
 def changes(name: str) -> Iterator[None]:
-    """Yield at once, then after each write kqueue reports to the drive's state directory, its events log or Claude Code's plugins folder, where each install replaces installed_plugins.json, so an install wakes the dashboard as a change to the drive does."""
+    """Yield at once, then after each write kqueue reports to the drive's state directory, its database, the database's write-ahead log, its events log or Claude Code's plugins folder, where each install replaces installed_plugins.json, so an install wakes the dashboard as a change to the drive does; a file deleted, as the last connection to the database deletes its log, is watched again once it is back."""
     queue = select.kqueue()
     watched: dict[Path, int] = {}
     while True:
-        for path in (state.drive_dir(name), state.events_path(name), install.config_dir() / "plugins"):
+        for path in (state.drive_dir(name), state.database_path(name), state.wal_path(name), state.events_path(name), install.config_dir() / "plugins"):
             if path not in watched and path.exists():
                 watched[path] = os.open(path, os.O_RDONLY)
-                flags = select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND
+                flags = select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND | select.KQ_NOTE_DELETE
                 queue.control([select.kevent(watched[path], select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, flags)], 0)
         yield
-        queue.control(None, 1)
+        for event in queue.control(None, 1):
+            if event.fflags & select.KQ_NOTE_DELETE:
+                os.close(event.ident)
+                watched = {path: fd for path, fd in watched.items() if fd != event.ident}
 
 
 class Certificate:
@@ -282,7 +285,7 @@ class Board:
         self.assistant = review.Assistant(name)
 
     def stamp(self) -> tuple[int, ...]:
-        paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
+        paths = (state.state_path(self.name), state.database_path(self.name), state.wal_path(self.name), state.cards_path(self.name), state.events_path(self.name))
         return tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
 
     def rebuild(self) -> None:
