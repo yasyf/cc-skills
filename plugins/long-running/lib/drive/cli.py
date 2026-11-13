@@ -2346,30 +2346,52 @@ def job_end(args: argparse.Namespace) -> int:
         line = f"{args.id}'s lane was already ended by the drive job end of {state.lane_death(ended)['ended']['at']}, so nothing changed; {args.id} stays {ended['state']}"
         return emit(args, line, {"id": args.id, "state": ended["state"], "already": True})
     saved = None
+    state.let_go_install()
     if job["state"] not in state.FINISHED_JOB_STATES:
         try:
             saved = orca.save(name, args.id, job, root)
         except orca.OrcaError as error:
-            with state.edit(name) as data:
-                unended = data["jobs"][args.id]
-                death = state.lane_death(unended)
-                if fresh:
-                    unended["deaths"].remove(death)
-                else:
-                    del death["ended"]
+            end_kept(name, args.id, {"failed": True, "fresh": fresh, "saved": None})
             raise DriveError(
                 f"{args.id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote could not be saved"
                 f" to GitHub for its next lane: {error}. End it again once that Sprite answers"
             ) from None
     reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
     released = release_sprite(name, args.id, job, root)
-    with state.edit(name) as data:
-        ended = data["jobs"][args.id]
-        if saved:
-            ended["deaths"][-1]["saved"] = saved
-        ended.update(ask=None, updated=state.stamp())
+    ended = end_kept(name, args.id, {"failed": False, "fresh": fresh, "saved": saved})
     line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved: {saved}" if saved else "")
     return emit(args, "\n".join(filter(None, [reclaimed, released, line])), {"id": args.id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved})
+
+
+def end_kept(name: str, job_id: str, result: dict) -> dict:
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released holding no install's lock: the branches saved and its ask cleared, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
+    try:
+        with state.edit(name) as data:
+            ended = data["jobs"][job_id]
+            if result["failed"]:
+                death = state.lane_death(ended)
+                if result["fresh"]:
+                    ended["deaths"].remove(death)
+                else:
+                    del death["ended"]
+            else:
+                if result["saved"]:
+                    ended["deaths"][-1]["saved"] = result["saved"]
+                ended.update(ask=None, updated=state.stamp())
+        return ended
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.ended.{os.getpid()}.json"
+    return json.loads(install.handed(newer, name, ["job", "ended", job_id], receipt, result, f"{job_id}: its lane's end", orca.LAUNCH_SECONDS))
+
+
+def job_ended(args: argparse.Namespace) -> int:
+    """Keep what an older install's `drive job end` came to while this install saved the drive, which end_kept hands here."""
+    name, receipt = state.resolve(args.drive), Path(args.receipt)
+    ended = end_kept(name, args.id, json.loads(receipt.read_text()))
+    receipt.unlink()
+    return emit(args, f"{args.id}'s lane end is kept; {args.id} stays {ended['state']}", ended)
 
 
 def pr_add(args: argparse.Namespace) -> int:
@@ -4107,6 +4129,10 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
+    verb = job.add_parser("ended", parents=both, help="keep what an older install's job end came to, from the receipt it kept; that end runs it")
+    verb.add_argument("id", help="the job")
+    verb.add_argument("receipt", help="the receipt file the end kept under the drive's jobs folder")
+    verb.set_defaults(run=job_ended)
     verb = job.add_parser(
         "prove",
         parents=both,
