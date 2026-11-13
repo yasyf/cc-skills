@@ -1842,9 +1842,9 @@ def job_brief(args: argparse.Namespace) -> int:
         )
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{args.id}'s result is something he uses, by --native: {unstoried}")
-    if flags["release"] and (unnamed := brief.release_refusal(flags["release"])):
-        raise DriveError(f"{args.id}: {unnamed}")
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
+    if flags["release"] and (unnamed := brief.release_refusal(flags["release"]) or brief.approval_refusal(flags["release"], str(checkout_dir))):
+        raise DriveError(f"{args.id}: {unnamed}")
     earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
     found = brief.research(name, data, job["order"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
@@ -4043,7 +4043,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
-    verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, its targets and --env as it runs them; landing_guard refuses any other")
+    verb.add_argument("--release", help="the one `tools/ci release start` or `hotfix` the job may run, as it runs them, refused when Jev does not read the answer its --order names as his approval; landing_guard refuses any other")
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted")

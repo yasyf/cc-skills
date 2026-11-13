@@ -292,7 +292,7 @@ event needs. The first four events then return as step 7 says.
 
 ## Releases
 
-- Start only the release your brief's `Release:` line names, its targets and `--env` as written, and,
+- Start only the release your brief's `Release:` line names, its targets, `--env` and `--order` as written, and,
   outside an incident, only after a `tools/ci release plan` at the same flags passed earlier in your
   job, a hotfix's pull requests given to it as `--hotfix <n>`: the `landing_guard` hook refuses any
   other `tools/ci release start` or `hotfix`. A brief naming no release, or another one, gets a
