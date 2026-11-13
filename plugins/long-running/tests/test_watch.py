@@ -105,7 +105,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "updated": state.stamp(T0)}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0)}
     return {**base, **overrides}
 
 
@@ -3341,6 +3341,72 @@ def test_a_held_red_pr_wakes_no_builder_while_his_hold_stands_and_its_builder_at
         data["prs"][KEY] |= {"tap": None, "card": CARD}
     watch.run_pass(watching, T0 + timedelta(minutes=31))
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], [key for key, _ in woken]) == ("red", [KEY])
+
+
+def release_out(data: dict, release: str) -> None:
+    data["jobs"]["j1180"]["waits"].remove(release)
+
+
+@pytest.mark.parametrize(
+    "end",
+    [
+        lambda reads, data, other, release: reads.update({other: read(state="MERGED", mergeCommit="ccc333", headRefOid="53810aaaaa")}),
+        lambda reads, data, other, release: release_out(data, release),
+    ],
+)
+def test_replayed_j1180_a_red_pr_whose_builder_waits_on_other_prs_and_releases_wakes_it_only_once_one_ends_or_its_red_changes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], end: Callable[[dict, dict, str, str], None]
+) -> None:
+    own, other, shipped = ("Forge-AI/monorepo#54225", "Forge-AI/monorepo#54428"), "Forge-AI/monorepo#53810", "Forge-AI/monorepo#54237"
+    release, failing = f"release:api:{shipped}", [{"name": "buildkite/test", "conclusion": "FAILURE"}]
+    with state.edit(demo) as data:
+        data["orders"] |= {"o448": order(jobs=["j1180"]), "o40": order(jobs=["j586"])}
+        data["jobs"] |= {"j1180": job(order="o448", prs=[state.pr_url(key) for key in own]), "j586": job(order="o40", prs=[state.pr_url(other)])}
+        for key, job_id, head in ((own[0], "j1180", "89c2464aaa"), (own[1], "j1180", "54428aaaaa"), (other, "j586", "53810aaaaa"), (shipped, "j1180", "54237aaaaa")):
+            data["prs"][key] = state.new_pr(state.pr_url(key), job_id, data["jobs"][job_id]["order"]) | {"head": head, "wants_tap": False, "checked": CHECKED | {"head": head}}
+        data["prs"][shipped]["state"] = "merged"
+    reads = {
+        own[0]: read(headRefOid="89c2464aaa", checks=failing),
+        own[1]: read(headRefOid="54428aaaaa", checks=failing),
+        other: read(headRefOid="53810aaaaa", checks=GREEN, reviewDecision="APPROVED"),
+    }
+    serve(monkeypatch, reads)
+    waiting = f"WAITING readers-first on {own[0]} and {own[1]}: each lands once {other} lands and {release} is out"
+    passes = []
+
+    def at(minutes: int) -> None:
+        watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
+        passes.append((minutes, [key for key, _ in woken]))
+        woken.clear()
+
+    at(0)
+    with state.edit(demo) as data:
+        state.take_result(data, "j1180", waiting)
+    for minutes in (30, 60, 90):
+        at(minutes)
+    reads[own[0]] = read(headRefOid="ce6d321aaa", checks=failing)
+    at(91)
+    with state.edit(demo) as data:
+        state.take_result(data, "j1180", waiting)
+    for minutes in (92, 122, 152):
+        at(minutes)
+    kept = state.load(demo)["prs"][own[0]]["stage"]
+    with state.edit(demo) as data:
+        end(reads, data, other, release)
+    at(153)
+    assert passes == [(0, list(own)), (30, []), (60, []), (90, []), (91, [own[0]]), (92, []), (122, []), (152, []), (153, list(own))]
+    assert (kept["name"], kept["owner"], kept["why"]) == ("blocked", stage.WAITED, f"its checks fail at ce6d321: buildkite/test, and its builder waits on {release}, {other}")
+    assert [state.load(demo)["prs"][key]["stage"]["name"] for key in own] == ["red", "red"]
+
+
+def test_a_red_prs_builder_whose_waiting_names_only_its_own_prs_is_woken_every_thirty_minutes(demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> None:
+    serve(monkeypatch, {KEY: read(checks=RED)})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", f"WAITING readers-first on {KEY}")
+    watch.run_pass(watching, T0 + timedelta(minutes=30))
+    assert (state.load(demo)["prs"][KEY]["stage"]["name"], len(woken)) == ("red", 2)
 
 
 def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:
