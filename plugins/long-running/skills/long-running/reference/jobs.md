@@ -160,11 +160,12 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 6. When a remote lane returns its line, run `drive job end <j>` in the background to free its
    Sprite, as the coordinator page's event rows say. The job keeps the state its line set, with its
    waits, PRs and carried parts: a `WAITING` job stays waiting, so nothing waiting on it is freed,
-   and its next event starts its next lane. While the job is not finished, end first saves what its
-   Sprite holds on no remote to GitHub as `saved/<lane>/<branch>`, uncommitted changes included,
-   since the next lane starts on a fresh Sprite, and that lane's handoff names each saved branch.
-   When the Sprite does not answer or the save fails, end refuses, ending nothing and naming why:
-   end it again once the Sprite answers.
+   and its next event starts its next lane. Whatever the job's state, end saves what its Sprite
+   holds on no remote to GitHub as `saved/<lane>/<branch>`, uncommitted changes included, before it
+   destroys the Sprite, and keeps the Sprite, naming why, when the save fails. While the job is not
+   finished, end saves before it ends the lane, since the next lane starts on a fresh Sprite, and
+   that lane's handoff names each saved branch. When the Sprite does not answer or the save fails,
+   end refuses, ending nothing and naming why: end it again once the Sprite answers.
 
 ## Remote lanes
 

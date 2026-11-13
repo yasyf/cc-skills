@@ -1111,32 +1111,72 @@ class SavingCcRemote(FakeCcRemote):
         return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True, env={**os.environ, **github})
 
 
+class GitHubCcRemote(SavingCcRemote):
+    def __init__(self, sprite: orca_gc.Sprite, github: Path):
+        super().__init__(sprite, "read from its checkout on each call", github)
+
+    def checkout(self, sprite: orca_gc.Sprite) -> orca_gc.Checkout:
+        root = Path(sprite.root)
+        return checkout(sprite.root, dirty=bool(git_in(root, "status", "--porcelain")), branch=git_in(root, "branch", "--show-current"), head=git_in(root, "rev-parse", "HEAD"), repository="acme/repo")
+
+    def remote(self, slug: str) -> orca_gc.Remote:
+        return orca_gc.Remote(heads=frozenset(git_in(self.github, "for-each-ref", "--format=%(objectname)").split()), landed=frozenset())
+
+
 class DestroyTest(unittest.TestCase):
     def hosting(self, held: orca_gc.Checkout | str, refusal: str | None = None) -> FakeCcRemote:
         return FakeCcRemote({(SPRITE_WT, "term_sprite"): SPRITE}, {SPRITE.workspace: held}, refusal)
 
     def test_destroy_destroys_a_sprite_that_holds_nothing_by_its_workspace_with_no_orca(self):
         cc_remote = self.hosting(checkout(SPRITE.root))
-        self.assertEqual(orca_gc.destroy("pool-abc", cc_remote), "destroyed pool-abc")
+        self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", cc_remote), "destroyed pool-abc")
         self.assertEqual(cc_remote.destroyed, ["pool-abc"])
 
     def test_destroy_of_a_workspace_no_task_records_destroys_nothing(self):
         cc_remote = self.hosting(checkout(SPRITE.root))
-        self.assertIsNone(orca_gc.destroy("pool-other", cc_remote))
+        self.assertIsNone(orca_gc.destroy("pool-other", "demo-j1", cc_remote))
         self.assertEqual(cc_remote.destroyed, [])
 
-    def test_destroy_keeps_a_sprite_that_holds_work_cannot_be_read_or_cc_remote_refuses(self):
-        for held, refusal, said in (
-            (checkout(SPRITE.root, dirty=True), None, "^uncommitted changes$"),
-            (checkout(SPRITE.root, head="b" * 40), None, "^unpushed commits on v3/lane$"),
-            ("ssh to pool-abc could not read /home/sprite/repo: i/o timeout", None, "^ssh to pool-abc could not read"),
-            (checkout(SPRITE.root), "refused: no workspace label", "^refused: no workspace label$"),
+    def test_destroy_saves_a_finished_lanes_unpushed_branch_to_github_then_frees_its_sprite(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name).resolve()
+        git_in(base, "init", "--quiet", "--bare", "-b", "dev", "github.git")
+        git_in(base, "init", "--quiet", "-b", "dev", "monorepo")
+        root, github = base / "monorepo", base / "github.git"
+        git_in(root, "config", "remote.origin.url", str(github))
+        git_in(root, "commit", "--quiet", "--allow-empty", "-m", "base")
+        git_in(root, "push", "--quiet", "origin", "dev")
+        git_in(root, "switch", "--quiet", "-c", "port-next-direct")
+        git_in(root, "commit", "--quiet", "--allow-empty", "-m", "Port: the unpushed commit")
+        head = git_in(root, "rev-parse", "HEAD")
+        sprite = orca_gc.Sprite("pool-v5enaxpcuapy7bcm", "pool-v5enaxpcuapy7bcm", "/s/ssh/pool-v5enaxpcuapy7bcm.ssh", str(root), "env_v5enaxpcuapy7bcm")
+        cc_remote = GitHubCcRemote(sprite, github)
+        self.assertEqual(orca_gc.held(sprite.workspace, cc_remote), "unpushed commits on port-next-direct")
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+            said = orca_gc.destroy(sprite.workspace, "durable-agents-j2622", cc_remote)
+        self.assertEqual(git_in(github, "rev-parse", "saved/durable-agents-j2622/port-next-direct"), head)
+        self.assertEqual(
+            said,
+            f"commits on no remote on port-next-direct, now on acme/repo as saved/durable-agents-j2622/port-next-direct at {head[:10]};"
+            " destroyed pool-v5enaxpcuapy7bcm",
+        )
+        self.assertEqual(cc_remote.destroyed, ["pool-v5enaxpcuapy7bcm"])
+
+    def test_destroy_keeps_a_sprite_it_cannot_read_or_save_that_still_holds_work_or_that_cc_remote_refuses(self):
+        gone = "/home/sprite/repo/.worktrees/gone"
+        no_git = tempfile.TemporaryDirectory()
+        self.addCleanup(no_git.cleanup)
+        for cc_remote, said in (
+            (self.hosting("ssh to pool-abc could not read /home/sprite/repo: i/o timeout"), "^ssh to pool-abc could not read"),
+            (SavingCcRemote(replace(SPRITE, root=no_git.name), checkout(no_git.name, head="b" * 40), Path("/nonexistent")), "^the save on pool-abc failed: fatal: not a git repository"),
+            (self.hosting(checkout(SPRITE.root, dirty=True, changed=((orca_gc.UNREADABLE, gone),))), f"^uncommitted changes in {gone} \\(git cannot read it\\)$"),
+            (self.hosting(checkout(SPRITE.root), "refused: no workspace label"), "^refused: no workspace label$"),
         ):
             with self.subTest(said=said):
-                cc_remote = self.hosting(held, refusal)
-                with self.assertRaisesRegex(orca_gc.Unsaved, said):
-                    orca_gc.destroy("pool-abc", cc_remote)
-                self.assertEqual(cc_remote.destroyed, [] if refusal is None else ["pool-abc"])
+                with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"), self.assertRaisesRegex(orca_gc.Unsaved, said):
+                    orca_gc.destroy("pool-abc", "demo-j1", cc_remote)
+                self.assertEqual(cc_remote.destroyed, [] if cc_remote.refusal is None else ["pool-abc"])
 
 
 class SaveTest(unittest.TestCase):
@@ -1322,9 +1362,9 @@ class SpriteReadTest(unittest.TestCase):
         _, cc_remote, _ = self.sprite()
         self.assertEqual(cc_remote.checkout(cc_remote.sprite).off_origin, ())
         self.assertIsNone(orca_gc.held("pool-abc", cc_remote))
-        self.assertEqual((orca_gc.destroy("pool-abc", cc_remote), cc_remote.destroyed), ("destroyed pool-abc", ["pool-abc"]))
+        self.assertEqual((orca_gc.destroy("pool-abc", "demo-j1", cc_remote), cc_remote.destroyed), ("destroyed pool-abc", ["pool-abc"]))
 
-    def test_the_lanes_own_branches_and_stash_on_no_remote_still_keep_the_sprite(self):
+    def test_the_lanes_own_branches_and_stash_on_no_remote_are_still_held(self):
         root, cc_remote, answers = self.sprite()
         git_in(root, "switch", "--quiet", "-c", "j2462-plumbing")
         git_in(root, "commit", "--quiet", "--allow-empty", "-m", "plumbing")
@@ -1336,9 +1376,7 @@ class SpriteReadTest(unittest.TestCase):
         git_in(root, "stash", "push", "--quiet", "--include-untracked", "-m", "lane")
         tips = tuple((name, git_in(root, "rev-parse", ref)) for name, ref in (("j2462-images", "j2462-images"), ("j2462-plumbing", "j2462-plumbing"), ("stash", "refs/stash")))
         self.assertEqual(cc_remote.checkout(cc_remote.sprite).off_origin, tips)
-        with self.assertRaisesRegex(orca_gc.Unsaved, "^commits on no remote on j2462-images, j2462-plumbing, stash$"):
-            orca_gc.destroy("pool-abc", cc_remote)
-        self.assertEqual(cc_remote.destroyed, [])
+        self.assertEqual(orca_gc.held("pool-abc", cc_remote), "commits on no remote on j2462-images, j2462-plumbing, stash")
 
 
 class GitCheckoutTest(unittest.TestCase):
