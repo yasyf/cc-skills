@@ -3432,7 +3432,7 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: its answer's components, every one go/ci releases, and touched, those the paths reach. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
+    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which run from a checkout of dev, and releases, those the other paths reach. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
     clone = data["roles"]["coordinator"]["cwd"]
     if not (keys and (Path(clone) / GO_CI).is_file()):
         return {}

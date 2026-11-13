@@ -783,7 +783,7 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
 
 
 def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; that builder's id."""
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out or a checkout of dev holds it, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff naming the changed paths on go/ci's dev list, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' other paths reach, or on none; that builder's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
     order_id, urls = job["order"], " ".join(map(state.pr_url, merges))
@@ -794,10 +794,15 @@ def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> s
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
     builder_id = state.next_id(data["jobs"], "j")
-    handoff = f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
+    dev = "".join(
+        f"; {key} changes {answer['dev'][0]}{f' and {len(answer["dev"]) - 1} more' if answer['dev'][1:] else ''} on go/ci's dev list, which a checkout of dev holding {merges[key][:12]} runs and no release carries"
+        for key, answer in reach.items()
+        if key in merges and answer["dev"]
+    )
+    handoff = f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md{dev}"
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(merges)} live", job["parts"], state.stamp()) | {
         "session": job.get("session"),
-        "waits": [f"release:{component}:{key}" for key, answer in reach.items() if key in merges for component in answer["touched"]],
+        "waits": [f"release:{component}:{key}" for key, answer in reach.items() if key in merges for component in answer["releases"]],
         "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff},
     }
     state.hold_unstarted(builder)

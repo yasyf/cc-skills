@@ -5488,7 +5488,7 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     serve(monkeypatch, {})
     calls, asked = [], []
     monkeypatch.setattr(watch.github, "run", release_reads([], {}, [], calls))
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
