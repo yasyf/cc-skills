@@ -313,6 +313,7 @@ window.fetch = (url, options) => {
   if (url === '/api/undo') return Promise.resolve({ ok: true, json: async () => ({ restored: true }) });
   return fetched(url, options);
 };
+await until(() => model);
 const picks = model.queue.map((q) => ({ card: q.answer, label: 'Raise it' }));
 await answerBatch(picks);
 const group = [...toasts].find(([key]) => key.startsWith('group:'))[0];
@@ -334,6 +335,7 @@ window.fetch = (url, options) => {
   if (url === '/api/undo') return Promise.resolve({ ok: true, json: async () => ({ restored: true }) });
   return fetched(url, options);
 };
+await until(() => model);
 await answerBatch(model.queue.map((q) => ({ card: q.answer, label: 'Raise it' })));
 const group = [...toasts.keys()].find((key) => key.startsWith('group:'));
 await undo(group);
