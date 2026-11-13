@@ -913,6 +913,19 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     assert state.load("demo")["orders"]["o3"]["joins"] is None
 
 
+def test_a_tooling_order_is_read_against_the_open_tooling_orders_sharing_most_words_with_it_however_many_are_open(run: Run, meta: str, jev: Jev) -> None:
+    with state.edit("demo") as data:
+        for number in range(1, 300):
+            data["orders"][f"o{number}"] = state.new_order(f"{state.TOOLING} the footer of card {number} wraps", "terminal", None, {}, state.stamp()) | {"title": f"Footer {number}"}
+        data["orders"]["o300"] = state.new_order(LOCK_STALL, "terminal", None, {}, state.stamp()) | {"title": "Install lock stall"}
+    jev.picks("o300")
+    assert run("order", "add", "--title", "Install lock stall", "--project", "The drive", "--workstream", "Drive tooling", LOCK_STALL_AGAIN)[0] == 0
+    [asked] = [request for request in jev.asked if "repeats" in request["questions"]]
+    options = list(asked["questions"]["repeats"]["label"]["options"])
+    assert (len(options), options[:2]) == (settled.REPEATS_ASKED + 1, ["none", "o300"])
+    assert state.load("demo")["orders"]["o301"]["joins"] == "o300"
+
+
 def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "runs fail for one team", "--parts", "first check")
     assert cli.main(["order", "set", "o1", "--incident"]) == 2
