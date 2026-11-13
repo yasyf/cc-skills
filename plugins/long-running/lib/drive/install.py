@@ -632,10 +632,11 @@ def newest_builds(plugins: list[str]) -> tuple[str, str]:
     return versions, os.pathsep.join([*(str(Path(build["installPath"]) / "bin") for build in builds.values()), os.environ.get("PATH", "")])
 
 
-def await_ci(merges: dict[str, str], deadline: float) -> None:
-    """Wait until each workflow that ran on a merge's commit on its repository's default branch has completed its first run from that one on that was not cancelled, the run drive pr ci judges the merge by: a run its concurrency group cancelled for a newer push hands the wait to that push's run. The runs are read again each time the receiver hears a workflow run complete on that branch, the repository hooked first when no hook of the receiver's sends those, and a read that fails is said and read again within POLL_SECONDS; refused at the deadline, naming each run still running."""
+def await_ci(merges: dict[str, str]) -> bool:
+    """Follow each workflow that ran on a merge's commit on its repository's default branch until it has completed its first run from that one on that was not cancelled, the run drive pr ci judges the merge by: a run its concurrency group cancelled for a newer push hands the wait to that push's run. The runs are read again each time the receiver hears a workflow run complete on that branch, the repository hooked first when no hook of the receiver's sends those, and a read that fails is said and read again within POLL_SECONDS; no deadline cuts the wait, since GitHub ends each run at its jobs' timeouts. Whether a read found any such run still running."""
     from drive import receiver
 
+    waited = False
     for key, sha in merges.items():
         repo, triggered, last = key.partition("#")[0], None, ""
         while True:
@@ -648,19 +649,17 @@ def await_ci(merges: dict[str, str], deadline: float) -> None:
                     triggered = ci_runs(repo, f"branch={branch}&head_sha={sha}")
                 if not (running := [f"{run['name']} {run['html_url']} {run['status']}" for run in ci_firsts(repo, branch, triggered).values() if run["status"] != "completed"]):
                     break
-                waiting = ", ".join(running)
+                waiting, waited = ", ".join(running), True
             except github.GithubError as error:
                 waiting, failed = f"no run read: {error}", True
             if waiting != last:
                 print(f"drive job prove: waiting for {key}'s CI at {sha[:12]}: {waiting}", file=sys.stderr, flush=True)
             last = waiting
-            left = deadline - clock()
-            if left <= 0:
-                raise state.DriveError(f"{key}'s merge {sha[:12]} still waits on CI at the deadline: {waiting}")
             if failed:
-                sleep(min(POLL_SECONDS, left))
+                sleep(POLL_SECONDS)
             else:
-                receiver.hear(repo, "ci", heard, left)
+                receiver.hear(repo, "ci", heard)
+    return waited
 
 
 def ci_runs(repo: str, query: str) -> list[dict]:
@@ -757,7 +756,7 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until each workflow a yasyf/* merge ran on its default branch completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, and until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, and again on the newer ones within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, an install that fails, a merge no release will carry, or a CI run still running or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more within a fresh deadline, and run it again on the newer installs within the deadline when it fails while a newer install of any of them landed, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, an install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
     from drive import brief, dashboard
 
     deadline = clock() + timeout
@@ -778,13 +777,21 @@ def prove(name: str, job_id: str, timeout: int) -> str:
     else:
         versions = newest_builds(plugins)[0]
         try:
-            await_ci(untapped, deadline)
+            followed = False
             while True:
                 dashboard.await_newest(name, deadline)
                 versions, path = newest_builds(plugins)
                 done = subprocess.run([job["repro"]], check=False, capture_output=True, text=True, timeout=max(deadline - clock(), 0.001), env=os.environ | {"PATH": path})
                 code, output = done.returncode, done.stdout + done.stderr
-                if not code or clock() >= deadline or newest_builds(plugins)[0] == versions:
+                if not code:
+                    break
+                if not followed:
+                    followed = True
+                    if await_ci(untapped):
+                        print(f"drive job prove: {job['repro']} exits {code} on {versions} while its merge's CI ran: running it again now that CI completed", file=sys.stderr, flush=True)
+                        deadline = clock() + timeout
+                        continue
+                if clock() >= deadline or newest_builds(plugins)[0] == versions:
                     break
                 print(f"drive job prove: {job['repro']} exits {code} on {versions}, and a newer install landed while it ran: running it again on that", file=sys.stderr, flush=True)
         except state.DriveError as error:
