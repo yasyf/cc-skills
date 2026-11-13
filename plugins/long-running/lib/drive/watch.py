@@ -1709,8 +1709,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines += [line for job_id in taken for line in codex_asks(watcher.name, job_id)]
     lines += [fix_shipped(watcher.name, job_id, builder_id) for job_id, builder_id in shippers.items()]
     watcher.made += lines
-    unlisted, failed = untracked_prs(watcher, data, heads, moment)
-    watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
+    gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
+    unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
+    watcher.agent_gaps = {job_id: stranded(job_id, data, gap, unlisted.get(job_id, {})) if gap else None for job_id, gap in gaps.items()}
     return failed + death_lines(watcher.name, deaths, moment)
 
 
@@ -1819,7 +1820,7 @@ def stall_report(data: dict, subject: str, held: dict, moment: datetime) -> dict
 
 
 def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: datetime) -> tuple[dict[str, dict], list[str]]:
-    """For each running job, the open PRs on its recorded branch or its lane's that the drive does not track, read from GitHub in one batch; a head with no repo is in the repo of the checkout remote lanes clone."""
+    """For each running job with a gap, the open PRs on its recorded branch or its lane's that the drive does not track once GitHub answered, read from GitHub in one batch; a head with no repo is in the repo of the checkout remote lanes clone."""
     if not heads:
         return {}, []
     try:
@@ -1829,23 +1830,22 @@ def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: d
     except github.GithubError as error:
         return {}, read_failed(watcher, "github branches", error, moment)
     watcher.failures.pop("github branches", None)
+    tracked = state.load(watcher.name)["prs"]
     return {
-        job_id: {key: pr for key, pr in found.items() if key not in data["prs"] and (github.repo_of(key), pr["branch"]) in both}
+        job_id: {key: pr for key, pr in found.items() if key not in tracked and (github.repo_of(key), pr["branch"]) in both}
         for job_id, both in resolved.items()
     }, []
 
 
-def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]) -> str | None:
-    """A running job's gap from its agent or lane, or an open PR of its the drive does not track, with the checks and review of every PR it has open."""
-    if not gap and not unlisted:
-        return None
+def stranded(job_id: str, data: dict, gap: str, unlisted: dict[str, dict]) -> str:
+    """A running job's gap from its agent or lane, with the checks and review of every PR it has open, each open PR on its branch the drive does not track among them."""
     tracked = [
         f"its PR {key}: checks {pr['checks']}, review {pr['review']}"
         for key in map(state.pr_key, data["jobs"][job_id]["prs"])
         if (pr := data["prs"].get(key)) and pr["state"] == "open"
     ]
     untracked = [f"{key} on its branch {pr['branch']} is not in the drive: checks {pr['checks']}, review {pr['review']}" for key, pr in unlisted.items()]
-    return "; ".join([gap or f"{job_id} is running", *tracked, *untracked])
+    return "; ".join([gap, *tracked, *untracked])
 
 
 def release_lanes(watcher: Watcher, moment: datetime) -> None:
