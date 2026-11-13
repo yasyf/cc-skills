@@ -29,7 +29,7 @@ DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
 FREED_AGAIN = timedelta(minutes=30)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", MERGED_DONE, PROOF_FAILED)
@@ -70,6 +70,7 @@ COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|RECOVERED|TELL|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
+MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
 
 @dataclass
@@ -927,7 +928,10 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return []
 
 
-def event_line(event: dict, prs: dict) -> str:
+def event_line(event: dict, data: dict) -> str:
+    if event["kind"] == state.ORDERS_MOVED:
+        return moved_line(event, data)
+    prs = data["prs"]
     key = f"{event.get('repo')}#{event.get('number')}"
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
@@ -942,15 +946,27 @@ def event_line(event: dict, prs: dict) -> str:
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
 
+def moved_line(event: dict, data: dict) -> str:
+    """The handoff record a lane's watch sends it once a save moved open orders it held to another session: the orders, the lanes holding them now, their unfinished jobs and the local agents of its own session among them, which only the new holder's drive job resume hands to a fresh agent of its own, and the one handoff record it sends their holder of what it holds on them outside the drive file."""
+    jobs = list(dict.fromkeys(job_id for order_id in event["orders"] for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES))
+    own = [job_id for job_id in jobs if data["jobs"][job_id]["where"] == "local" and data["jobs"][job_id]["agent"] and state.session_lane(data, data["jobs"][job_id]["session"]) == event["lane"]]
+    return (
+        f"MOVED {', '.join(event['orders'])} from {event['lane']} to {', '.join(event['to'])}: unfinished jobs {', '.join(jobs) or 'none'};"
+        f" local agents of your session: {', '.join(own) or 'none'}. Stop acting on them and send their holder, as drive status names it,"
+        " one handoff record of what you hold on them outside the drive file; it takes each local agent with drive job resume <job> <text>"
+    )
+
+
 def event_lines(watcher: Watcher) -> list[str]:
-    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears."""
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, an ORDERS_MOVED one with the lane that lost the orders it names, the drive's own watch saying one the communicator or the meta session lost, which handed sends that session, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears."""
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
     if watcher.owed is not None:
         watcher.owed |= {f"{event['repo']}#{number}" for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]}
-    prs = state.load(watcher.name)["prs"]
-    said = [event_line(event, prs) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY) and event.get("lane", "root") == watcher.lane]
+    data = state.load(watcher.name)
+    heard = (watcher.lane,) if watcher.project else (watcher.lane, *state.HOLDERS)
+    said = [event_line(event, data) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY) and event.get("lane", "root") in heard]
     watcher.offset = events[-1][1]
     return said
 
@@ -1069,7 +1085,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
     incidents = all(data["orders"][head]["incident"] for head in heads)
-    jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
+    jobs = [f"- {render.job_line(data, job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
     asked = (
         f"post where {'the' if one else 'each'} incident stands now in its thread: what moved since its last line, what each job at work is doing, a card of his that blocks it with the option built meanwhile, and what ships next."
         if incidents
@@ -2485,7 +2501,9 @@ def landed(watcher: Watcher) -> None:
 
 
 def holder_line(line: str, data: dict) -> str | None:
-    """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator."""
+    """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator, and for a MOVED line the lane that lost its orders when that is one of them."""
+    if moved := MOVED_LINE.match(line):
+        return moved["lane"] if moved["lane"] in state.HOLDERS else None
     found = ABOUT.search(line)
     order = found and data["orders"].get(found["order"] or found["named"])
     return state.holder_lane(order) if order else None

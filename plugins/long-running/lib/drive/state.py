@@ -101,6 +101,7 @@ FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PR
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
+ORDERS_MOVED = "orders_moved"
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
@@ -1735,7 +1736,7 @@ def writing(name: str) -> Iterator[None]:
 
 @contextmanager
 def edit(name: str) -> Iterator[dict]:
-    """Load the drive under its lock, yield it for changes, and save it atomically on exit; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
+    """Load the drive under its lock, yield it for changes, and save it atomically on exit, telling each session the save took open orders from; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
     if name in BATCHED:
         data = load(name)
         yield data
@@ -1743,20 +1744,26 @@ def edit(name: str) -> Iterator[dict]:
         return
     with writing(name):
         data = load(name)
+        before = holding_lanes(data)
         yield data
         save(name, data)
+        tell_moved(name, data, before)
 
 
 @contextmanager
 def batch(name: str) -> Iterator[list[str]]:
-    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields."""
+    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was, and that save tells each session the call took open orders from; what a write does outside the drive runs after that save, its lines added to the list it yields."""
     after: list[str] = []
     with writing(name):
-        BATCHED[name] = marshal.dumps(load(name))
+        loaded = load(name)
+        before = holding_lanes(loaded)
+        BATCHED[name] = marshal.dumps(loaded)
         AFTER_SAVE[name] = []
         try:
             yield after
-            save(name, marshal.loads(BATCHED[name]))
+            saved = marshal.loads(BATCHED[name])
+            save(name, saved)
+            tell_moved(name, saved, before)
             effects = AFTER_SAVE[name]
         finally:
             del BATCHED[name], AFTER_SAVE[name]
@@ -1777,8 +1784,10 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
     """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
     with writing(name):
         data = load(name) if exists(name) else fresh
+        before = holding_lanes(data)
         yield data
         save(name, data)
+        tell_moved(name, data, before)
 
 
 def create(data: dict) -> None:
@@ -2109,6 +2118,21 @@ def holding_session(data: dict, order: dict) -> tuple[str, str]:
         return f"the sub-coordinator for {order['project']}", data["subcoordinators"][order["project"]]["session"]
     role = holder_lane(order) or "coordinator"
     return f"the {title(role)}", (data["roles"].get(role) or {}).get("session") or "not started"
+
+
+def holding_lanes(data: dict) -> dict[str, str]:
+    """The holding lane of each open order, read as a save loads the drive so tell_moved finds which the save moved."""
+    return {order_id: holding_lane(data, order) for order_id, order in open_orders(data).items()}
+
+
+def tell_moved(name: str, data: dict, before: dict[str, str]) -> None:
+    """After a save, write one ORDERS_MOVED event for each lane that held open orders before it and no longer holds them, naming the orders and the lanes holding them now, which that lane's own watch sends it as a handoff record; every save compares, so a sub-coordinator's binding, a refile, a brief handing an order to the meta session and any later write that changes an order's holder all tell the session losing it."""
+    lost: dict[str, list[str]] = {}
+    for order_id, was in before.items():
+        if (order := data["orders"].get(order_id)) and holding_lane(data, order) != was:
+            lost.setdefault(was, []).append(order_id)
+    for lane, orders in lost.items():
+        append_event(name, ORDERS_MOVED, lane=lane, orders=orders, to=sorted({holding_lane(data, data["orders"][order_id]) for order_id in orders}))
 
 
 def last_started(data: dict) -> str:

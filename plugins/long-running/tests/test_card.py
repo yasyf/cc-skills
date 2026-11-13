@@ -676,7 +676,7 @@ def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
     answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
-    assert [(event["kind"], event["lane"]) for event in events(drive)] == [("refused", "root"), ("tap", "iris")]
+    assert [(event["kind"], event["lane"]) for event in events(drive)] == [("refused", "root"), (state.ORDERS_MOVED, "root"), ("tap", "iris")]
 
 
 def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: str) -> None:

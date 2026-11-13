@@ -413,7 +413,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert objectives == ["drive demo j1: ship it"]
     assert data["jobs"]["j1"]["run"] == RUN
     assert data["jobs"]["j1"]["dispatch"] == DISPATCH
-    assert "remote dispatch ctx_lane0001" in render.job_line("j1", data["jobs"]["j1"])
+    assert "remote dispatch ctx_lane0001" in render.job_line(data, "j1", data["jobs"]["j1"])
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
@@ -1040,9 +1040,10 @@ def test_the_watch_hands_a_job_whose_agent_on_this_mac_stopped_on_an_api_error_t
     ]
     assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
-    job = state.load(demo)["jobs"]["j1"]
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
     assert [(death["agent"], death["dispatch"], death["relaunch"]) for death in job["deaths"]] == [("a1", None, {"pid": os.getpid(), "at": state.stamp(T0)})]
-    assert "lane dead since" in render.job_line("j1", job)
+    assert "lane dead since" in render.job_line(data, "j1", job)
 
 
 @pytest.mark.parametrize("session", [[STOPPED, FORBIDDEN], [EARLIER]], ids=["refused-since", "nothing-since"])
@@ -2982,9 +2983,10 @@ def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str,
     ]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
-    job = state.load(remote)["jobs"]["j1"]
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
     assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0)})
-    assert "lane dead since" in render.job_line("j1", job)
+    assert "lane dead since" in render.job_line(data, "j1", job)
 
 
 def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

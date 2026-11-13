@@ -1291,7 +1291,7 @@ def job_set(args: argparse.Namespace) -> int:
     reworked = [
         line for order_id in args.carries for line in rework_named_prs(name, order_id, args.rework, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>")
     ]
-    return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in reworked), {"id": args.id, **job})
+    return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in reworked), {"id": args.id, **job})
 
 
 def fix_kept(data: dict, job_id: str) -> None:

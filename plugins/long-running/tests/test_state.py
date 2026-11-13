@@ -462,7 +462,7 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
     saved = state.stored("demo")
     del saved["subcoordinators"]
     saved["orders"] = {
-        order_id: {"text": text, "jobs": [], "parts": {}, "promised": None, "project": project}
+        order_id: {"text": text, "jobs": [], "parts": {}, "promised": None, "project": project, "state": "open", "owner": None}
         for order_id, project, text in (("o1", "Iris", "ship the run page"), ("o2", "Platform", "fix the alert"), ("o3", None, "a new order"))
     }
     state.store("demo", saved)
@@ -495,6 +495,32 @@ def test_only_the_coordinator_session_hearing_a_jobs_order_reaches_its_agent_by_
             data["jobs"][job_id] = state.new_job(order_id, "builder", "build it", [], "2026-11-11T03:00:00-08:00") | {"where": where, "session": session, "agent": agent}
     data = state.load("demo")
     assert {job_id: state.agent_lane(data, job) for job_id, job in data["jobs"].items()} == {"moved": None, "iris": "iris", "top": "root", "sprite": None, "ended": None}
+
+
+def test_each_save_tells_each_lane_that_lost_open_orders_once_naming_them_and_their_holders_now(state_root: Path) -> None:
+    make("demo", "top", "2026-11-11T01:00:00-08:00")
+    created = "2026-11-11T01:00:00-08:00"
+    with state.edit("demo") as data:
+        for order_id, project in (("o1", "Iris"), ("o2", "Iris"), ("o3", None), ("o4", "Iris")):
+            data["orders"][order_id] = state.new_order(f"order {order_id}", "terminal", None, {f"order {order_id}": state.new_part()}, created) | {"project": project}
+        data["orders"]["o4"]["state"] = "done"
+    start = state.events_end("demo")
+    with state.edit("demo") as data:
+        data["orders"]["o3"]["text"] = "a changed order"
+    assert list(state.read_events("demo", start)) == []
+    with state.edit("demo") as data:
+        data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": created}
+        data["orders"]["o5"] = state.new_order("order o5", "terminal", None, {"order o5": state.new_part()}, created) | {"project": "Iris"}
+    with state.batch("demo"):
+        with state.edit("demo") as data:
+            data["orders"]["o3"]["owner"] = "meta"
+        with state.edit("demo") as data:
+            data["orders"]["o1"]["project"] = None
+    assert [{field: event[field] for field in ("kind", "lane", "orders", "to")} for event, _ in state.read_events("demo", start)] == [
+        {"kind": state.ORDERS_MOVED, "lane": "root", "orders": ["o1", "o2"], "to": ["iris"]},
+        {"kind": state.ORDERS_MOVED, "lane": "iris", "orders": ["o1"], "to": ["root"]},
+        {"kind": state.ORDERS_MOVED, "lane": "root", "orders": ["o3"], "to": ["meta"]},
+    ]
 
 
 def test_resolve_falls_back_to_the_only_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

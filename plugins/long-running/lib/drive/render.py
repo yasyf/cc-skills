@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, bound_sessions, card_wait, carriers, delivered, exempted, holding_lane, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, session_lane, title, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -391,11 +391,11 @@ def stage_words(pr: dict) -> str:
     return f"; {now['name']}{since}, owed by {now['owner']}: {now['why']}{read}"
 
 
-def job_line(job_id: str, job: dict, limit: int = 100) -> str:
+def job_line(drive: dict, job_id: str, job: dict, limit: int = 100) -> str:
     if job.get("where") == "remote":
         handle = f" remote dispatch {job['dispatch']}" if job.get("dispatch") else " remote, not started"
     else:
-        handle = f" agent {job['agent']}" if job.get("agent") else ""
+        handle = f" agent {job['agent']}{agent_elsewhere(drive, job_id, job)}" if job.get("agent") else ""
     repro = f"; repro {job['repro']}" if job.get("repro") else ""
     carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
     built = f" on {job['branch']}" if job["state"] == "built" else ""
@@ -404,6 +404,15 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
     shown = f"lane dead since {when(dead['at'])} ({dead['why']})" if job["state"] == "running" and (dead := lane_death(job)) else job["state"]
     woken = f"; resumed {when(woke)} by a message after its last line" if (woke := resumed(job)) else ""
     return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}{woken}"
+
+
+def agent_elsewhere(drive: dict, job_id: str, job: dict) -> str:
+    """For an unfinished job whose agent on this Mac a session other than the one holding its order started, as when its order moved to another coordinator session, the session that started it, which alone reaches it by SendMessage, and the resume that hands it to a fresh agent of the holder's; nothing once a resume handed it over."""
+    holder = holding_lane(drive, drive["orders"][job["order"]])
+    if job["state"] in FINISHED_JOB_STATES or job.get("handed_to") or session_lane(drive, job["session"]) == holder:
+        return ""
+    seat = next((f"{seat}'s session" for seat, held in bound_sessions(drive).items() if job["session"] and held["session"] == job["session"]), "an ended session")
+    return f" of {seat} {(job['session'] or 'unknown')[:8]}, which {holder} cannot SendMessage: drive job resume {job_id} <text> hands it to a fresh agent there"
 
 
 def question_line(question: dict) -> str:
@@ -462,7 +471,7 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
         lines.append(f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}")
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
-        lines.append(f"  - {job_line(job_id, job, limit)}")
+        lines.append(f"  - {job_line(drive, job_id, job, limit)}")
         if whole and job["said"]:
             lines.append(f"    said: {cut(job['said'], WHOLE)}")
         lines.extend(f"    - {question_line(question)}" for question in job["questions"])
@@ -492,7 +501,7 @@ def pr_history(drive: dict, key: str, skip: str) -> list[str]:
     for order_id in dict.fromkeys(drive["jobs"][job_id]["order"] for job_id in named):
         lines.append(f"- {order_line(order_id, drive['orders'][order_id], 80)}")
         for job_id in (job_id for job_id in named if drive["jobs"][job_id]["order"] == order_id):
-            lines.append(f"  - {job_line(job_id, drive['jobs'][job_id], 80)}")
+            lines.append(f"  - {job_line(drive, job_id, drive['jobs'][job_id], 80)}")
             lines.extend(f"    - {question_line(question)}" for question in drive["jobs"][job_id]["questions"])
     return lines
 
