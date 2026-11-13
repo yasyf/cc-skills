@@ -2356,6 +2356,39 @@ def test_job_card_redraws_a_kept_ask_edited_by_hand_from_his_card_as_stored_and_
     assert code == 0 and redrawn != printed
 
 
+def posted_question(ts: str, asked: limits.Question) -> dict:
+    picks = [
+        {
+            "type": "section",
+            "block_id": f"card-option-{n}",
+            "text": {"type": "mrkdwn", "text": f"*{n + 1}. {option}*"},
+            "accessory": {"type": "button", **({"style": "primary"} if option == asked.recommended else {}), "value": json.dumps({"id": "demo:j1-7", "label": option, "q": asked.title, "o": asked.options})},
+        }
+        for n, option in enumerate(asked.options)
+    ]
+    return {"ts": ts, "raw": {"blocks": [{"type": "header", "text": {"type": "plain_text", "text": asked.title}}, {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join([*asked.summary, "*Show me*"])}}, *picks]}}
+
+
+def test_job_card_redraws_a_kept_ask_edited_by_hand_whose_card_cc_slack_forgot_while_his_card_in_slack_shows_its_words(
+    run: Run, asking: str, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    kept = Path(run("job", "ask", asking, "-")[1].splitlines()[0])
+    assert run("job", "card", str(kept), "--waits", "demo:j1-7")[0] == 0
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["card"] = "https://acme.slack.com/archives/D123/p1794300000000100"
+    cut = SHORT_ASK.replace(", written when it ends, old runs backfilled", "")
+    kept.write_text(cut)
+    slack_thread.messages = [posted_question("1794300000.000100", limits.redrawn(cut))]
+    code, printed = run("job", "card", asking)
+    assert (code, json.loads(printed)["options"][0], json.loads(printed)["waits"]) == (0, "One snapshot file per finished run: opens in 3 requests", "demo:j1-7")
+    assert ("--url", "https://acme.slack.com/archives/D123/p1794300000000100", "--raw") in slack_thread.reads
+    slack_thread.messages = [posted_question("1794300000.000100", limits.redrawn(SHORT_ASK))]
+    assert cli.main(["job", "card", asking]) == 2
+    assert f"{kept} no longer holds the words drive job ask kept there, so it draws no card" in capsys.readouterr().err
+
+
 def test_job_card_redraws_a_question_it_asked_in_words_kept_before_the_new_ask_shape_and_holds_a_file_no_question_keeps_to_that_shape(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1810,13 +1810,20 @@ def question_card(name: str, path: Path, waits: str) -> dict:
 
 
 def kept_ask(path: Path, question: dict | None, cards: dict) -> limits.Question:
-    """The question an ASK file draws. One the drive already asked, its question holding a waits id, draws again under the rules it was asked under, a file rebuilt from his card included, never the shape a new block meets; once the words `drive job ask` kept in its file changed since, it draws from his card as the drive stored it under that waits id, the words he read. Any other file `drive job ask` kept, named for the hash of its words, draws under the rules it was kept under, and one whose words changed since draws nothing, since only `drive job ask` changes a kept question; a file never kept is held to every rule a new block meets."""
+    """The question an ASK file draws. One the drive already asked, its question holding a waits id, draws again under the rules it was asked under, a file rebuilt from his card included, never the shape a new block meets; once the words `drive job ask` kept in its file changed since, it draws from his card as the drive stored it under that waits id, the words he read, and once cc-slack's store forgot that card, from the file while its question, summary, recommended option and options are the ones his card's message in Slack shows. Any other file `drive job ask` kept, named for the hash of its words, draws under the rules it was kept under, and one whose words changed since draws nothing, since only `drive job ask` changes a kept question; a file never kept is held to every rule a new block meets."""
     text = path.read_text()
     named = state.KEPT_ASK.fullmatch(path.stem)
     asked = question and question["waits"]
     if named and named["hash"] != state.ask_hash(text):
         if shown := asked and next((shown["card"] for shown in cards["questions"] if shown["card"].get("waits") == asked), None):
             return limits.redrawn(limits.rebuilt(shown, path.parent))
+        if asked and question["card"] and slack.posted_question(question["card"]) == (
+            (edited := limits.redrawn(text)).title,
+            limits.coded("\n".join(edited.summary)),
+            edited.recommended,
+            edited.options,
+        ):
+            return edited
         raise DriveError(
             f"{path} no longer holds the words drive job ask kept there, so it draws no card: a kept question changes only through"
             f" drive job ask, which checks the new words against every rule, so keep them with drive job ask {named['job']} <file> and draw the file it prints"

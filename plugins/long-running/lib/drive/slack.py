@@ -1,3 +1,4 @@
+import html
 import json
 import re
 import subprocess
@@ -82,6 +83,17 @@ def draw_refusal(card: dict) -> str | None:
 
 def thread(*where: str) -> list[dict]:
     return cc_slack("thread", *where)["messages"]
+
+
+def posted_question(url: str) -> tuple[str, str, str, list[str]] | None:
+    """The question, summary, recommended option and options his question card at url shows, read from its message in Slack, which keeps the card after cc-slack's store forgets it: the question and options each Pick button carries, the recommended option the primary one picks, and the summary its first section draws above *Show me*; None when that message holds no question card."""
+    link = MESSAGE_LINK.search(url)
+    blocks = next((message["raw"]["blocks"] for message in thread("--url", url, "--raw") if message["ts"] == f"{link[2]}.{link[3]}"), [])
+    picks = [(json.loads(block["accessory"]["value"]), block["accessory"].get("style")) for block in blocks if block.get("block_id", "").startswith("card-option-")]
+    if not picks:
+        return None
+    summary = next((block["text"]["text"] for block in blocks if block["type"] == "section" and "accessory" not in block), "")
+    return picks[0][0]["q"], html.unescape(summary).partition("\n*Show me*")[0], next((pick["label"] for pick, style in picks if style == "primary"), ""), picks[0][0]["o"]
 
 
 def group_dm(person: str) -> str:
