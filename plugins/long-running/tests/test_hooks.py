@@ -16,6 +16,7 @@ import pre_compact
 import pytest
 import quiet_turn
 import record_lines
+import role_rules
 import scratch_folder
 import session_start
 from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, label, Answers, Jev, WatchProcess
@@ -147,6 +148,39 @@ def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch:
     run("start", "demo", "--role", "communicator")
     context = session_start.respond({"session_id": "talker"})["hookSpecificOutput"]["additionalContext"]
     assert "Hold with slack_watch: his DM D123" in context
+
+
+def rules_at_next_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], payload: dict) -> str | None:
+    said = hook_output(role_rules, monkeypatch, capsys, json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}} | payload))
+    return json.loads(said)["hookSpecificOutput"]["additionalContext"] if said else None
+
+
+def test_a_session_gets_its_roles_rules_whole_once_at_its_next_call_after_an_install_changes_them(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+    changed = (*render.RULES["communicator"][:3], "Pass answer alone.", *render.RULES["communicator"][4:])
+    monkeypatch.setitem(render.RULES, "communicator", changed)
+    context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
+    assert context.startswith(f"Your communicator rules changed since this session's block drew them: long-running {state.VERSION}'s replace them whole")
+    assert context.endswith("\n".join(render.rules("communicator")))
+    assert "\n4. Pass answer alone.\n" in context
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+
+
+def test_a_seat_bound_before_its_rules_were_kept_gets_them_once_and_a_drawn_block_holds_them(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
+    with state.edit("demo") as data:
+        del data["roles"]["coordinator"]["rules"]
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": coordinator, "agent_id": "a1", "agent_type": "long-running:builder"}) is None
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "no-drive"}) is None
+    assert "\n1. " in rules_at_next_call(monkeypatch, capsys, {"session_id": coordinator})
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": coordinator}) is None
+    monkeypatch.setitem(render.RULES, "coordinator", (*render.RULES["coordinator"], "One more rule."))
+    assert "One more rule." in session_start.respond({"session_id": coordinator, "source": "compact"})["hookSpecificOutput"]["additionalContext"]
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": coordinator}) is None
 
 
 def test_a_compaction_brings_the_newest_installed_skill_page_as_a_hook_output_of_its_own_beside_the_role_block(demo: str) -> None:

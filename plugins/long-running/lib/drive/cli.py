@@ -123,6 +123,7 @@ def start(args: argparse.Namespace) -> int:
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, str(kept), orca.own_terminal())
+    fresh["roles"][args.role]["rules"] = render.rules_digest(args.role)
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])

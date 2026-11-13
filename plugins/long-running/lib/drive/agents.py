@@ -583,6 +583,24 @@ def handed(briefs: list[str]) -> str:
     )
 
 
+def hold_rules(name: str, session: str) -> str | None:
+    """Keep on the session's seat the digest of its role's rules in this install, returning that role when the seat held other rules or none, so the session is due them whole; None when it held these or the session holds no seat, as a handler's does."""
+    if not due_rules(state.saved(name), session):
+        return None
+    with state.edit(name) as data:
+        if role := due_rules(data, session):
+            state.seat(data, session)["rules"] = render.rules_digest(role)
+    return role
+
+
+def due_rules(data: dict, session: str) -> str | None:
+    """The role whose rules in this install the session's seat does not hold, or None."""
+    held = state.seat(data, session)
+    if held is None or held.get("rules") == render.rules_digest(role := state.session_role(data, session)):
+        return None
+    return role
+
+
 def take_handed(name: str, handler: str) -> list[str]:
     """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
     if not state.saved(name)["handlers"][handler]["handed"]:
