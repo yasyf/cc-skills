@@ -7,7 +7,7 @@
 - Run the `drive order`, `drive job` and `drive pr` verbs that add or set, and `drive status`, as tools of this plugin's `drive` MCP server, never in Bash: `order` (`add`, `set`, `posted`, `told`), `job` (`add`, `set`, `brief`), `pr` (`add`, `set`), `status` and `search_plan`.
 - One call of a tool carries every op the turn needs from it, in order, each op one verb with its flags as fields named as in `drive manual verbs`, dashes as underscores, such as `pr` with ops `[{set: {url: "<url>", serves: "o4", design: "none"}}, {set: {url: "<url 2>", waits: ["<card>"]}}]`.
 - An op after an `add` that names no `id` acts on what that add made, and a `job` `add` whose `order` holds `order add`'s fields adds the order too.
-- A call checks every op before any runs and prints one line per op; an op the check refuses runs none of them, and the call names every refused op with its fix, so fix each and send the whole call again; `dry_run: true` checks the ops, prints the commands and runs nothing.
+- A call checks every op before any runs and prints one line per op; an op the check refuses runs none of them, and the call names every refused op with its fix, so fix each and send the whole call again; `dry_run: true` runs each op through its verb's own checks, refused as the call would be, prints the commands and keeps nothing.
 - The rows below name each verb as its `drive` command. `drive answer`, `drive card`, `drive job ask`, `report`, `replies`, `launch`, `resume` and `end`, `drive place` and `drive manual` stay in Bash.
 - Send an `owner` or `defect` record with the `record` tool, and a `report` or `ask` with the cci `post` tool, since its `record_lines` hook checks them and `cci post` in Bash skips it.
 

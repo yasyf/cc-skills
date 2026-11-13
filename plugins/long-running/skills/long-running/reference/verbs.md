@@ -53,7 +53,9 @@ its user.
   `drive job set j3 --branch lr-watch --said "pushed"` is
   `job(ops=[{set: {id: "j3", branch: "lr-watch", said: "pushed"}}])`. A job add's `order` may hold
   an order add's fields, adding that order first.
-- Every tool takes `dry_run`, which prints each command or record and runs nothing. A tool call
+- Every tool takes `dry_run`, which runs each op through its verb's own checks, refused as the call
+  would be, prints each command or record and keeps nothing; an op that reaches a command doing more
+  than read, such as a Slack post, stops there, its line naming that command. A tool call
   ends at three minutes, so `drive job launch` and `drive job end` run as background Bash calls.
 
 ## The verbs
