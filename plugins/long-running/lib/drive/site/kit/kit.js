@@ -1,4 +1,4 @@
-import { counted, createRenderers, esc, link, refusedVisual, stateFacts } from './renderers.js';
+import { counted, createRenderers, esc, link, prName, refusedVisual, stateFacts } from './renderers.js';
 export { esc } from './renderers.js';
 
 const drawers = new Set();
@@ -45,7 +45,10 @@ window.addEventListener('message', (event) => {
   });
 });
 
+document.addEventListener('auxclick', (event) => event.button === 1 && outward(event));
+
 document.addEventListener('click', (event) => {
+  if (outward(event)) return;
   const route = event.target.closest('a[href^="#/feature/"]');
   if (route) { event.preventDefault(); return open(route.getAttribute('href')); }
   const button = event.target.closest('button[data-card], button[data-kit-answer], button[data-kit-group], [data-kit-open]');
@@ -62,6 +65,14 @@ document.addEventListener('change', (event) => {
   if (!event.target.matches('input[data-kit-pick]')) return;
   selection(event.target.closest('[data-kit-component]'));
 });
+
+function outward(event) {
+  const away = event.target.closest('a[href^="https://"]');
+  if (!away) return false;
+  event.preventDefault();
+  open(away.href);
+  return true;
+}
 
 function selection(group) {
   const count = group.querySelectorAll('input[data-kit-pick]:checked:not(:disabled)').length;
@@ -164,7 +175,7 @@ export function prGroups(prs, by = (pr) => pr.feature_title || 'Changes') {
     const eligible = [...new Map(members.filter((pr) => (!pr.answered || pr.answered.error) && pr.options.includes('Approve') && pr.checks !== 'fail' && pr.stage?.name === 'card').map((pr) => [pr.answer, pr])).values()];
     const decided = [...new Map(members.filter((pr) => pr.answered?.done).map((pr) => [pr.answer, pr])).values()];
     return `<section class="kit-group" data-key="pr:${esc(title)}" data-kit-component="pr-group"><header><div><h3>${esc(title)}</h3><small>${counted(members.length, 'pull request')} · ${counted(eligible.length, 'approval')} available${decided.length ? ` · ${decided.length} answered` : ''}</small></div><button class="kit-btn primary" data-kit-group="approve" data-verb="Approve"${eligible.length ? '' : ' disabled'}>Approve ${eligible.length}</button></header>
-      <div class="kit-selection">${eligible.map((pr) => `<label data-key="${esc(pr.answer)}"><input type="checkbox" data-kit-pick data-card="${esc(pr.answer)}" data-label="Approve" checked><span>${esc(pr.key.split('#').at(-1))} · ${esc(pr.title)}</span></label>`).join('')}${decided.map((pr) => decidedRow(pr, `${pr.key.split('#').at(-1)} · ${pr.title}`)).join('')}</div><details data-key="members"><summary>Review ${counted(members.length, 'change')}</summary>${prLane(members)}</details></section>`;
+      <div class="kit-selection">${eligible.map((pr) => `<label data-key="${esc(pr.answer)}"><input type="checkbox" data-kit-pick data-card="${esc(pr.answer)}" data-label="Approve" checked><span>${esc(prName(pr.key))} · ${esc(pr.title)}</span></label>`).join('')}${decided.map((pr) => decidedRow(pr, `${prName(pr.key)} · ${pr.title}`)).join('')}</div><details data-key="members"><summary>Review ${counted(members.length, 'change')}</summary>${prLane(members)}</details></section>`;
   }).join('');
 }
 
@@ -195,7 +206,7 @@ function decisionCard(item, { body, facts, picks }) {
   return `<div class="queue-layout" data-key="${esc(item.answer)}" data-kit-component="decision">
     <article class="focus-card" aria-labelledby="${esc(id)}" tabindex="-1">
       <div class="card-content">
-        <div class="card-top"><span class="type-label">Decision</span></div>
+        <div class="card-top"><span class="type-label">Decision</span>${item.answered?.done ? '' : `<button class="linkish" data-kit-open="${esc(item.href)}">Answer it in your queue ›</button>`}</div>
         <h2 class="card-title" id="${esc(id)}">${renders.inline(item.card.title || item.title)}</h2>
         ${body ? `<div class="card-summary">${body}</div>` : ''}
         ${facts ? `<div class="facts">${facts}</div>` : ''}

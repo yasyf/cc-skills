@@ -898,7 +898,7 @@ function pageSlice(page) {
     at: model.at,
     features: all.filter((entry) => orders.has(entry.id)),
     prs: model.review.filter((entry) => orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
-    questions: model.queue.filter((item) => item.kind === 'question' && item.tasks.some((id) => orders.has(id))).map((item) => actable(item, item.answer, item.card.options)),
+    questions: model.queue.filter((item) => item.kind === 'question' && item.tasks.some((id) => orders.has(id))).map((item) => ({ ...actable(item, item.answer, item.card.options), href: queueHref('all', item) })),
     story: slice(`/api/story?${new URLSearchParams({ ids: [...orders].join(',') })}`)?.moments ?? [],
     asked: sent.get(`page:${page.slug}`) ?? null,
   };
@@ -918,6 +918,7 @@ function heardPage(event) {
   const { type, answer: card, label, text } = event.data;
   if (type === 'drive:complete') return completePage(frame, page, event.data);
   if (!navigator.userActivation.isActive) return;
+  if (type === 'drive:open' && /^https:\/\//.test(event.data.route)) return void window.open(event.data.route, '_blank', 'noopener');
   if (type === 'drive:open' && shownPageRoute(event.data.route, pageSlice(page))) return go(event.data.route);
   const shown = pageSlice(page);
   if (type === 'drive:answers' && Array.isArray(event.data.picks) && event.data.picks.length && event.data.picks.every((pick) => [...shown.prs, ...shown.questions].some((item) => (!item.answered || item.answered.error) && item.answer === pick.card && item.options.includes(pick.label)))) return answerBatch(event.data.picks);
@@ -926,7 +927,7 @@ function heardPage(event) {
 }
 
 function shownPageRoute(route, shown) {
-  return shown.features.some((entry) => route === `#/feature/${entry.id}`) || shown.questions.some((entry) => route === `#/queue/all?at=${encodeURIComponent(entry.answer)}`);
+  return shown.features.some((entry) => route === `#/feature/${entry.id}`) || shown.questions.some((entry) => route === entry.href);
 }
 
 async function completePage(frame, page, request) {

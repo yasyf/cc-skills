@@ -489,10 +489,10 @@ def test_every_address_in_a_line_shows_as_what_it_names_and_never_as_raw_text(tm
     line = "READY on https://github.com/acme/app/pull/41, its card https://acme.slack.com/archives/D1/p100?thread_ts=1.2 and build https://buildkite.com/acme/test/builds/128084). See https://app.datadoghq.com/monitors/3 or https://example.com/x."
     shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify([inline({json.dumps(line)}), named({json.dumps(line)})])")
     assert shown == [
-        'READY on <a href="https://github.com/acme/app/pull/41" target="_blank" rel="noopener">#41</a>, its card Slack message and build '
+        'READY on <a href="https://github.com/acme/app/pull/41" target="_blank" rel="noopener">app#41</a>, its card Slack message and build '
         '<a href="https://buildkite.com/acme/test/builds/128084" target="_blank" rel="noopener">test build 128084</a>). '
         'See <a href="https://app.datadoghq.com/monitors/3" target="_blank" rel="noopener">Datadog monitor</a> or <a href="https://example.com/x" target="_blank" rel="noopener">example.com</a>.',
-        "READY on #41, its card Slack message and build test build 128084). See Datadog monitor or example.com.",
+        "READY on app#41, its card Slack message and build test build 128084). See Datadog monitor or example.com.",
     ]
 
 
@@ -1322,12 +1322,12 @@ done({
         "title": "Refund page shows the fee",
         "words": words,
         "head": ["Blocked", "red checks on #418", "demo-org/shop#418"],
-        "where": ["Done", "Done since it last said PR up: #401 shows the fee and links the policy", [["#401", "https://github.com/demo-org/shop/pull/401"]]],
+        "where": ["Done", "Done since it last said PR up: shop#401 shows the fee and links the policy", [["shop#401", "https://github.com/demo-org/shop/pull/401"]]],
         "ships": [
             "1 of 3 delivered",
             [["fee line", "delivered · Nov 10 10:00 PM"], ["say why", "builder j4 running · Nov 10 11:50 PM"], ["receipt copy", "no job carries it yet"]],
         ],
-        "wrong": [["builder j3", "Blocked", "Blocked buildkite/test is red on #418 since the total rounds down", [["#418", "https://github.com/demo-org/shop/pull/418"]]]],
+        "wrong": [["builder j3", "Blocked", "Blocked buildkite/test is red on shop#418 since the total rounds down", [["shop#418", "https://github.com/demo-org/shop/pull/418"]]]],
         "next": [["builder j4", None, "rounding fixed; adding its test next", []]],
         "prs": ["2", "1 merged"],
         "eyebrows": [["Pull request #418", "demo-org/shop#418", True], ["Pull request #401", "demo-org/shop#401", True]],
@@ -2139,7 +2139,7 @@ const sheet = async (id) => {
 };
 done({ sent: await sheet('j1'), silent: await sheet('j2') });
 """, shown)
-    assert (seen["sent"]["said"], seen["sent"]["links"]) == ("PUSHED #7", ["https://github.com/a/b/pull/7"])
+    assert (seen["sent"]["said"], seen["sent"]["links"]) == ("PUSHED b#7", ["https://github.com/a/b/pull/7"])
     assert any(note.startswith("The line it last sent, ") for note in seen["sent"]["notes"])
     assert seen["sent"]["files"] == ["Brief", "Report"]
     assert seen["silent"]["said"] is None
