@@ -2945,46 +2945,35 @@ def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.Capt
     assert timedelta(minutes=9) < state.parse_time(state.load("demo")["jobs"]["j1"]["due"]) - state.now() <= timedelta(minutes=10)
 
 
-def test_a_readers_design_holds_its_builder_until_its_kept_question_is_on_his_card_or_settled_whatever_design_job_the_order_has(
+def test_a_proof_builder_starts_with_no_lands_after_a_readers_design_whatever_question_the_reader_kept(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
-    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    one_option = DESIGN_RESEARCH.replace(SECOND_OPTION, "")
-    for refused in (one_option, DESIGN_RESEARCH.replace("(recommended)", "")):
-        code, err = keep(monkeypatch, capsys, "j1", refused)
-        assert (code, "j1: refused, nothing kept: a reader's DESIGN return is a choice for him" in err) == (2, True)
-    assert run("job", "report", "j1")[0] == 2
+    design, built, proof = "design: where the copy runs, his calls on its shape", "build: copy each store", "prove the copy live"
+    run(
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build",
+        "--parts", design, built, proof,
+    )
+    run("job", "add", "reader", "--order", "o1", "--part", design, "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
-    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
+    assert run("job", "add", "design", "--order", "o1", "--part", design, "--part", built, "--goal", "cards: where the copy runs")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", built, "--goal", "copy each store")[0] == 0
     asked = str(state.drive_dir("demo") / "asks" / "j1-1377896a.md")
-    kept = state.new_question(asked, "Where does the copy run?", state.stamp())
-    answered = state.new_question(asked, "Where does the copy run?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794480049653959")
-    jevs = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: his recorded answer 32164d3 already decides this question.")
-    others = state.new_question(asked, "Where does the copy run?", state.stamp(), refused="refused: Jev reads his words as ruling out what this card offers him.")
+    kept = state.new_question(asked, DESIGN_TITLE, state.stamp())
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["questions"] = [kept | {"card": "https://acme.slack.com/archives/D123/p1794480049653959", "closed": state.new_close("answered", None, None, seq="671985")}]
+        data["jobs"]["j4"]["state"] = "done"
     replays = {
-        "no question kept": ([], "j1 returned DESIGN, a choice for him its research found, and keeps it as no question of his: drive job ask j1"),
-        "j1656 before his ruling": ([kept], f'j1 returned DESIGN, and its question "Where does the copy run?" kept in {asked} has no waits id, so its ask record never went out'),
-        "refused by an amount": ([others], "j1 returned DESIGN, and drive job ask refused its question \"Where does the copy run?\" kept in"),
-        "j1654, his card up": ([kept | {"waits": "demo:j1-671973", "card": answered["card"]}], None),
-        "j1651, his card answered": ([answered], None),
-        "j1656, settled by his ruling": ([kept | {"closed": state.new_close("answered", None, None, seq="671985", ruling="32164d3")}], None),
-        "decided by his answer": ([jevs | {"closed": state.new_close("answered", None, None, answer="32164d3")}], None),
+        "o319's j819, kept before drive job report sent asks, or its question dropped": [],
+        "kept with no waits id": [kept],
+        "refused by drive job ask": [kept | {"refused": "refused: Jev reads his words as ruling out what this card offers him."}],
     }
-    for case, (questions, refusal) in replays.items():
+    for case, questions in replays.items():
         with state.edit("demo") as data:
             data["jobs"]["j1"]["questions"] = questions
-        code = cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"])
-        assert (case, code, refusal and refusal in capsys.readouterr().err) == (case, 2 if refusal else 0, refusal and True), case
-    assert not [job for job in state.load("demo")["jobs"].values() if job["kind"] == "design"]
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"] = []
-    assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
-    assert replays["no question kept"][1] in capsys.readouterr().err
+        assert (case, cli.main(["job", "add", "builder", "--order", "o1", "--part", proof, "--goal", "prove the copy live"])) == (case, 0)
 
 
-def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_question_and_frees_its_builder(
+def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_question(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
@@ -2993,8 +2982,6 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
     asked = str(state.drive_dir("demo") / "asks" / "j1-1377896a.md")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Where does the copy run?", state.stamp())]
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
-    assert "has no waits id, so its ask record never went out" in capsys.readouterr().err
     posted: list[dict] = []
     real = subprocess.run
 
@@ -3021,7 +3008,6 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
     assert (len(posted), posted[0]["re"], posted[0]["resolves"], posted[0]["attr"]) == (1, ["671975"], ["671975"], {"job": "j1", "ruling": "32164d3"})
     job = state.load("demo")["jobs"]["j1"]
     assert (view.open_questions(job), job["questions"][0]["closed"]["ruling"]) == ([], "32164d3")
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
 
 
 def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_options_only(
@@ -3410,6 +3396,10 @@ def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    for refused in (DESIGN_RESEARCH.replace(SECOND_OPTION, ""), DESIGN_RESEARCH.replace("(recommended)", "")):
+        code, err = keep(monkeypatch, capsys, "j1", refused)
+        assert (code, "j1: refused, nothing kept: a reader's DESIGN return is a choice for him" in err) == (2, True)
+    assert run("job", "report", "j1")[0] == 2
     code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(ROOT_CAUSE, ""))
     assert code == 2
     assert "j1: refused, nothing kept: a reader's DESIGN starts from the root cause and names the option that removes it: no `Root cause:` line" in err
