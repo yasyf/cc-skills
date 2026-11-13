@@ -528,6 +528,7 @@ def load(name: str) -> dict:
         order.pop("shipped", None)
         order.setdefault("fixed", None)
         order.setdefault("close_report", None)
+        order.setdefault("closed_on", None)
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
         order.setdefault("quiet", None)
@@ -1102,6 +1103,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "title": None,
         "proof": None,
         "close_report": None,
+        "closed_on": None,
         "note": None,
         "joins": None,
         "created": created,

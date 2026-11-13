@@ -31,7 +31,7 @@ def say(name: str, post: dict) -> str:
     report = {"close": post["order"], "writer": "communicator", "written": state.stamp()} if close else cli.report_attrs(post["record"]) if post.get("record") else {}
     known = state.load(name)
     order = post.get("order")
-    if refused := (order and cli.report_refusal(known, order, report)) or correction_refusal(known, post.get("record"), report):
+    if refused := (order and cli.report_refusal(known, order, report)) or held_refusal(known, post.get("record"), report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -41,7 +41,14 @@ def say(name: str, post: dict) -> str:
         return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
     held = list(known["held"]) if report.get("catch_up") else []
     corrected = agents.corrections(name, [post["record"], *held]) if post.get("record") else {}
-    reply = posted(name, post)
+    if close:
+        report["seq"] = close_report(name, order, post.get("text") or "")
+    claimed = cli.claim_close(name, report)
+    try:
+        reply = posted(name, post)
+    except (DriveError, slack.SlackError):
+        cli.unclaim_close(name, claimed)
+        raise
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
@@ -57,7 +64,7 @@ def say(name: str, post: dict) -> str:
     if order:
         line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": post.get("record"), "sent": reply.get("sent")}, report if close else None)
     if close:
-        line += closed(name, order, reply["permalink"], post.get("text") or "")
+        line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
     return line
 
 
@@ -114,13 +121,17 @@ def unkept(name: str, receipt: dict, error: Exception, where: str) -> str:
     return line
 
 
-def closed(name: str, order_id: str, link: str, text: str) -> str:
-    """Close the order a post answered on the report its words are, written from the communicator's lane, and keep the post as the return of the reader job the posting handler holds on it, the line that handler ends on; a step that fails is named, since the post is already out."""
+def close_report(name: str, order_id: str, text: str) -> str:
+    """Write the report closing the order a post answers, its words the post's, from the communicator's lane, before the post goes out, so say claims the order's close for it; its seq."""
     argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "report", "--attr", f"close={order_id}", "--json", "--text", text]
     try:
-        seq = str(json.loads(reads.run(argv, Path.cwd()))["seq"])
+        return str(json.loads(reads.run(argv, Path.cwd()))["seq"])
     except reads.ReadError as error:
-        return f"; {order_id} not closed, its report could not be written: {error}"
+        raise DriveError(f"nothing posted: {order_id}'s closing report could not be written: {error}") from None
+
+
+def closed(name: str, order_id: str, seq: str, link: str, text: str) -> str:
+    """Close the order a post answered on its report seq, and keep the post as the return of the reader job the posting handler holds on it, the line that handler ends on; a step that fails is named, since the post is already out."""
     with contextlib.redirect_stdout(io.StringIO()):
         try:
             cli.order_set(cli.parser().parse_args(["order", "set", order_id, "--state", "done", "--record", seq, "--drive", name]))
@@ -172,8 +183,10 @@ def released(name: str, post: str, corrected: dict[str, list[str]]) -> str:
     return line + (f"; cci holds corrections {', '.join(fixes)} of them: unless this post carries each, reword it with say(edit={post}, text=…)" if fixes else "")
 
 
-def correction_refusal(data: dict, seq: str | None, report: dict) -> str | None:
-    """Why a correction's post goes nowhere: the report it corrects is held for his catch-up, which carries the correction with it, or went out in his catch-up, whose post the correction rewords."""
+def held_refusal(data: dict, seq: str | None, report: dict) -> str | None:
+    """Why a report's or a correction's post goes nowhere: the report is held for his catch-up, as the away check marks it whatever Jev then reads, or the report a correction corrects is, since the catch-up carries the correction with it, or went out in his catch-up, whose post the correction rewords."""
+    if seq in data["held"]:
+        return f"report {seq} is held for his catch-up, which carries it: return NOTHING held for his catch-up"
     corrected = report.get("corrects")
     if corrected in data["held"]:
         return f"record {seq} corrects report {corrected}, held for his catch-up, which carries this correction with it: return NOTHING held for his catch-up"

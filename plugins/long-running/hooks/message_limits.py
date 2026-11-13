@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, limits, mcp, picture, refs, render, slack, state, talk, tools, view
+from drive import agents, cli, limits, mcp, picture, refs, render, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -269,6 +269,14 @@ def answered_words(asked: str | list[str] | None, linked: dict[str, dict]) -> li
     return [linked[entry]["quote"] if entry in linked else entry for entry in slack.messages(asked or "")]
 
 
+def heard_him(drive: dict, messages: list[dict], linked: dict[str, dict]) -> None:
+    """Record him heard at the newest message of his a post answers, in its thread since the bot's last post there or linked by its asked, when the drive last heard him before it: his message in a handler's thread reaches that handler alone, never the communicator, whose handler start records the rest, so this keeps him present while he writes."""
+    said = [slack.sent_at(message) for message in unanswered(messages)] + [datetime.fromisoformat(word["said_at"]) for word in linked.values()]
+    last = (drive.get("owner") or {}).get("heard")
+    if said and (last is None or max(said) > state.parse_time(last)):
+        watch.hear(drive["name"], max(said))
+
+
 def unanswered(messages: list[dict]) -> list[dict]:
     """His messages since the bot's last post in the thread, which a post there answers."""
     return list(itertools.takewhile(lambda message: not message.get("from_bot"), reversed(messages)))[::-1]
@@ -436,11 +444,12 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         linked = linked_words(tool_input.get("asked"), dm)
     except slack.SlackError as error:
         return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
+    heard_him(drive, messages, linked)
     if (long := over_length(payload, dm, messages, linked)) and found:
         long += TITLED.format(limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found, talk.shown_in(drive["name"], tool_input))))
     return every(
         [
-            long and agents.Ruled(long, LENGTH_RULE),
+            long and agents.Ruled(long, LENGTH_RULE, long),
             long_ack(payload),
             unlinked(payload, drive),
             untapped(payload),
@@ -582,12 +591,12 @@ def held_while_away(payload: dict, drive: dict) -> str | None:
         if seq
         else ""
     )
-    return agents.Ruled(
+    away = (
         "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
         " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"
-        f" when he is back.{held}",
-        AWAY_RULE,
+        f" when he is back.{held}"
     )
+    return agents.Ruled(away, AWAY_RULE, away)
 
 
 def long_ack(payload: dict) -> str | None:
@@ -636,7 +645,7 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all, its rules numbered as its findings are so Jev judges each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
+    """One refusal holding each check's, so a single rewrite fixes them all, its rules and its counted findings numbered as its findings are so Jev judges each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
     found = [refusal for refusal in refusals if refusal]
     refused = [refusal for refusal in found if not isinstance(refusal, Warned)]
     if unjudged := next((refusal for refusal in refused if isinstance(refusal, agents.Unjudged)), None):
@@ -645,7 +654,8 @@ def every(refusals: list[str | None]) -> str | None:
         return next(iter(refused or found), None)
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
     rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
-    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules)
+    counted = "\n".join(f"{index}. {refusal.counted.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled) and refusal.counted)
+    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, counted)
 
 
 def untapped(payload: dict) -> str | None:

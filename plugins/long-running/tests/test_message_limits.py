@@ -2043,6 +2043,33 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
     assert posted(transcript, text=line, thread_ts="1.2").splitlines()[1:] == checked.findings[2:]
 
 
+
+def test_a_107_word_line_judged_a_summary_by_its_handler_still_refuses_when_jev_cannot_finish(talker: str, transcript: Path) -> None:
+    reason = say(transcript, text=f"Fixed the journal reader and the release. {said(100)}", thread_ts="1.2")
+    assert "this post is 107 words, and a line in his thread is at most 60 words" in reason.counted
+    assert agents.ruled(reason) == {"rule": message_limits.LENGTH_RULE, "counted": reason.counted}
+
+
+def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_back_so_he_reads_away_an_hour_after_the_last(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": "2026-11-12T18:26:35-08:00", "away": False}
+    merge, status = datetime.fromisoformat("2026-11-12T18:40:27-08:00"), datetime.fromisoformat("2026-11-12T18:47:37-08:00")
+    asked = "Anything approved already get merger asap and list the rest for me here"
+    slack_thread.messages.append({"ts": f"{merge.timestamp():.6f}", "user": "U1", "text": asked})
+    say(transcript, text="Two approved PRs are queued.", thread_ts="1.2", asked=asked)
+    assert state.parse_time(state.load("demo")["owner"]["heard"]) == merge
+    slack_thread.messages += [{"ts": f"{merge.timestamp() + 144:.6f}", "from_bot": True, "text": "Two approved PRs are queued."}, {"ts": f"{status.timestamp():.6f}", "user": "U1", "text": "Status?"}]
+    say(transcript, text="Both are in the merge queue.", thread_ts="1.2", asked="Status?")
+    data = state.load("demo")
+    assert state.parse_time(data["owner"]["heard"]) == status
+    assert not state.owner_away(data, datetime.fromisoformat("2026-11-12T19:31:01-08:00"))
+    assert state.owner_away(data, datetime.fromisoformat("2026-11-12T19:47:37-08:00"))
+    later = datetime.fromisoformat("2026-11-12T19:10:00-08:00")
+    with state.edit("demo") as data:
+        data["owner"]["heard"] = state.stamp(later)
+    say(transcript, text="Both are in the merge queue.", thread_ts="1.2", asked="Status?")
+    assert state.parse_time(state.load("demo")["owner"]["heard"]) == later
+
 def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_once(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2062,6 +2089,7 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
     monkeypatch.setattr(message_limits.cli.reads, "run", cci)
     reason = say(transcript, text="The fix merged.", record="700")
     assert reason.startswith("Refused on purpose: he is away")
+    assert agents.ruled(reason) == {"rule": message_limits.AWAY_RULE, "counted": reason}
     assert reason.endswith(
         "Report 700 is marked held: `drive status` lists it until the catch-up posts, and record 701 told its writer so."
         " Return NOTHING held for his catch-up."

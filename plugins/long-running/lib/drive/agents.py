@@ -54,13 +54,15 @@ TYPED_TIME_RULE = (
 
 
 class Ruled(str):
-    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix."""
+    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix; counted holds its findings a count or a mark decides, such as a post's word count or his reading as away, which refuse when Jev cannot finish."""
 
     rule: str
+    counted: str
 
-    def __new__(cls, reason: str, rule: str) -> Self:
+    def __new__(cls, reason: str, rule: str, counted: str = "") -> Self:
         made = super().__new__(cls, reason)
         made.rule = rule
+        made.counted = counted
         return made
 
 
@@ -69,10 +71,12 @@ class Unjudged(str):
 
 
 def ruled(reason: str) -> dict:
-    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by, or that no Jev judges it."""
+    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by and the findings that refuse when Jev cannot finish, or that no Jev judges it."""
     if isinstance(reason, Unjudged):
         return {"judged": False}
-    return {"rule": reason.rule} if isinstance(reason, Ruled) else {}
+    if not isinstance(reason, Ruled):
+        return {}
+    return {"rule": reason.rule} | ({"counted": reason.counted} if reason.counted else {})
 
 
 def transcript(payload: dict) -> Path:
