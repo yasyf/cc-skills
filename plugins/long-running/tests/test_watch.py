@@ -32,6 +32,7 @@ REAL_PASS = watch.run_pass
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
+TEAMMATE_THREAD = "1794500000.000300"
 NO_BUILDER = "no builder carries this work, only "
 ANSWERED = f"answered by the post {REPORTED}, but it counts as work he ordered, which no post delivers, held by "
 READ = ("reader", "done")
@@ -905,6 +906,55 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
         data["orders"]["o1"]["fixed"] = "j3 proved it live: turns run again"
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
     assert len(calls) == 1
+
+
+def teammate(moment: datetime, **fields: object) -> dict:
+    return {"ts": f"{moment.timestamp():.6f}", "thread_ts": TEAMMATE_THREAD, "user_name": "Dana", **fields}
+
+
+def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_message_once_and_none_once_the_order_closes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(state="open", watch=state.new_watch(f"slack:C0TEAM0001/{TEAMMATE_THREAD}", T0))
+    slack_thread.messages += [
+        teammate(T0 - timedelta(minutes=1), text="answered before the watch began"),
+        teammate(T0 + timedelta(seconds=20), text="can we run it again tonight?"),
+        teammate(T0 + timedelta(seconds=30), from_user=True, text="looking"),
+        teammate(T0 + timedelta(seconds=40), from_claude=True, text="on it"),
+    ]
+    watching = watcher(demo)
+    assert watch.watched_lines(watching, T0 + timedelta(minutes=1)) == []
+    [(report, body), (start, _)] = calls
+    assert (report["text"], report["topic"], report["to"]) == ("POST 1 new in the thread o1 watches: answer it there", "watch-o1", [f"communicator@{demo}"])
+    assert report["attr"] == {"order": "o1", "progress": "true", "watch": "true", "thread": TEAMMATE_THREAD}
+    assert body.splitlines()[-2:] == ["New there from anyone but him, the drive and a bot: 1", f"- {slack_thread.messages[1]['ts']} Dana: can we run it again tonight?"]
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'watch-901'}"
+    assert slack_thread.reads == [("--channel", "C0TEAM0001", "--thread", TEAMMATE_THREAD, "--since-ts", f"{T0.timestamp():.6f}", "--limit", "1000")]
+    assert (state.load(demo)["orders"]["o1"]["watch"]["seen"], state.load(demo)["orders"]["o1"]["watch"]["record"]) == (slack_thread.messages[3]["ts"], None)
+    assert not [key for key in watch.part_gaps(watching, state.load(demo), T0 + timedelta(hours=1)) if key[0] == "o1"]
+    assert watch.watched_lines(watching, T0 + timedelta(minutes=2)) == []
+    assert len(calls) == 2
+    slack_thread.messages.append(teammate(T0 + timedelta(minutes=2, seconds=10), text="and tomorrow?"))
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+    assert watch.watched_lines(watching, T0 + timedelta(minutes=3)) == []
+    assert (len(calls), len(slack_thread.reads)) == (2, 2)
+
+
+def test_a_watched_thread_that_cannot_be_read_keeps_its_cursor_and_is_said_from_its_third_failure_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(state="open", watch=state.new_watch(f"slack:C0TEAM0001/{TEAMMATE_THREAD}", T0))
+
+    def unreadable(*where: str) -> list[dict]:
+        raise slack.SlackError("channel_not_found")
+
+    monkeypatch.setattr(slack, "thread", unreadable)
+    watching = watcher(demo)
+    said = [watch.watched_lines(watching, T0 + timedelta(minutes=minute)) for minute in (1, 2, 3)]
+    assert said == [[], [], [f"WATCH answer of o1's watched thread C0TEAM0001/{TEAMMATE_THREAD} failed 3 times in a row: channel_not_found"]]
+    assert state.load(demo)["orders"]["o1"]["watch"]["seen"] == f"{T0.timestamp():.6f}"
 
 
 def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refreshed_never_the_note_typed_before_the_merge(

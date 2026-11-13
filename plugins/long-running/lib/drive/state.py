@@ -574,6 +574,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if order["quiet"]:
             order["quiet"] = {"heard": None, "facts": {}} | order["quiet"]
         order.setdefault("reporter", None)
+        order.setdefault("watch", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
             order["thread"] = saved_thread(data, order)
@@ -1215,6 +1216,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "recovered": None,
         "quiet": None,
         "reporter": None,
+        "watch": None,
         "parts": parts,
         "incident": False,
         "kind": "build",
@@ -1246,6 +1248,14 @@ def reporter(link: str) -> dict:
     if not (linked := link_thread(link)):
         raise DriveError(f"--reporter {link}: refused, name the message by its Slack permalink or as slack:<channel>/<its thread's ts>")
     return {"link": link, "channel": linked[0], "thread": linked[1], "told": None, "tell_said": None}
+
+
+def new_watch(link: str, moment: datetime) -> dict:
+    """A teammate's Slack thread he ordered watched, from its permalink or slack:<channel>/<thread ts>, with no Slack call: the watch reads it each READ_EVERY and has a handler answer every message newer than seen there, until the order closes."""
+    if not (linked := link_thread(link)):
+        raise DriveError(f"--watch {link}: refused, name the thread by its Slack permalink or as slack:<channel>/<its thread's ts>")
+    since = f"{moment.timestamp():.6f}"
+    return {"channel": linked[0], "thread": linked[1], "since": since, "seen": since, "record": None}
 
 
 def reported_bug(order: dict) -> bool:

@@ -1054,6 +1054,55 @@ def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime
     return seq
 
 
+def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Answer each teammate thread an open order the watch hears watches, by his pick "Keep it on the order: the drive's always-running watch answers each reply within about a minute, for one Slack read a minute per thread": the messages there newer than its watch has seen, from anyone but him, the drive and a bot, go in one report, and the watch starts the handler that answers them in that thread, or hands the report to the live handler at work there. A failed read, write or start is said as a failed read is and tried again next read, a start with the same report."""
+    lines = []
+    for order_id, order in heard_orders(watcher, state.load(watcher.name)).items():
+        if not (watch := order["watch"]):
+            continue
+        source = f"watch {order_id}"
+        try:
+            if seq := watch["record"] or watched_report(watcher, order_id, order):
+                with contextlib.suppress(agents.Busy):
+                    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
+        except (slack.SlackError, reads.ReadError, state.DriveError) as error:
+            lines += failed(watcher, source, f"answer of {order_id}'s watched thread {watch['channel']}/{watch['thread']}", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+        if seq:
+            with state.edit(watcher.name) as data:
+                data["orders"][order_id]["watch"]["record"] = None
+    return lines
+
+
+def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
+    """Write the report naming each message newer than an order's watch has seen in its thread from anyone but him, the drive and a bot, for the handler that answers them there, and move the watch past every message read, keeping the report until a handler has it; its seq, None when no such message came."""
+    watch = order["watch"]
+    read = slack.thread("--channel", watch["channel"], "--thread", watch["thread"], "--since-ts", watch["seen"], "--limit", str(slack.WHOLE_THREAD))
+    if not (messages := [message for message in read if float(message["ts"]) > float(watch["seen"])]):
+        return None
+    theirs = [message for message in messages if not (message.get("from_user") or message.get("from_claude") or message.get("from_bot"))]
+    seq = None
+    if theirs:
+        facts = [
+            f"His order {order_id}, from {order['from']}: {order['text']}",
+            f"Thread: {watch['channel']}/{watch['thread']}",
+            f"New there from anyone but him, the drive and a bot: {len(theirs)}",
+            *(f"- {message['ts']} {message.get('user_name') or message.get('user')}: {message.get('text') or ''}" for message in theirs),
+        ]
+        record = {
+            "kind": "report",
+            "topic": f"watch-{order_id}",
+            "attr": {"order": order_id, "progress": "true", "watch": "true", "thread": watch["thread"]},
+            "text": f"POST {len(theirs)} new in the thread {order_id} watches: answer {'it' if len(theirs) == 1 else 'them'} there",
+            "body": "\n".join(facts) + "\n",
+        }
+        [seq] = reported(watcher, [record])
+    with state.edit(watcher.name) as data:
+        data["orders"][order_id]["watch"].update(seen=max((message["ts"] for message in messages), key=float), record=seq)
+    return seq
+
+
 def incident_pr_lines(name: str, group: list[str]) -> list[str]:
     """Each PR of an incident's orders, on their jobs or named in their words, from its row as the watch last read it from GitHub with his card on it, never from what an order's words or note say of it, which only someone typed."""
     from drive import cli
@@ -1882,6 +1931,7 @@ def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str,
     return {
         (order_id, part): part_gap(watcher, data, order_id, part, moment)
         for order_id, order in heard_orders(watcher, data).items()
+        if not order["watch"]
         for part in order["parts"]
     }
 
@@ -2022,7 +2072,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited and the receiver every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
+    """One loop of the watch: the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here. Each stage's lines join the watcher's made lines as it returns, or as it saves when it keeps working after its save, so a pass that ends early, in a crash or on a drive a newer install saved, leaves them to the watch process after it."""
     lines = watcher.made
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -2057,6 +2107,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += down_lines(watcher, moment)
         lines += dashboard_lines(watcher)
         lines += receiver_lines(watcher, moment)
+        lines += watched_lines(watcher, moment)
     lines += event_lines(watcher)
     if "github" not in watcher.failures:
         lines += github_lines(watcher, moment)
