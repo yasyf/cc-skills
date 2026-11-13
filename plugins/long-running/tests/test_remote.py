@@ -25,6 +25,7 @@ from conftest import (
     REAL_SPRITE_CONFIG,
     RESEARCH,
     SPRITE_CONFIG,
+    Answers,
     Drawing,
     Jev,
     cloned,
@@ -701,6 +702,24 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_laun
     assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
     assert run("job", "brief", "j2", "--plan", "the run page section")[0] == 0
     assert ("Serves: his order\n" in (rewritten := Path(jobs["j2"]["brief"]).read_text()), "Plan: the run page section\n" in rewritten) == (True, True)
+
+
+def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_ruling_the_readers_brief_binds_and_another_orders_builder_with_none(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
+) -> None:
+    title = "Approve the design as a whole: your words carried whole into every brief and handoff?"
+    recorded.shown["73060f0"] = {"id": "73060f0349f75a509980c17434a2ef862397394c", "tags": [], "title": title, "body": "Owner verdict: approved.\nNotes: board r4"}
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the run page")
+    run("job", "brief", "j1", "--ruling", "73060f0")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's log", "--kind", "build")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the run's log")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    code, out = run("job", "report", "j1", "-")
+    jobs = state.load(demo)["jobs"]
+    assert (code, out.splitlines()[2], jobs["j2"]["brief_flags"]["ruling"]) == (0, "his words from o1, rulings: 1, earlier jobs: 0", ["73060f0"])
+    assert f"\nDecisions that bind:\n- {title} (73060f0)\n  Owner verdict: approved.\n" in Path(jobs["j2"]["brief"]).read_text()
+    assert run("job", "brief", "j4")[1].splitlines()[1] == "his words from o2, rulings: 0, earlier jobs: 0"
 
 
 def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(

@@ -2031,13 +2031,14 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief and each ruling named added to its earlier rulings, its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words above the drive's notes, the earlier jobs' transcripts, and the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
     earlier_flags = job.get("brief_flags") or {}
     kept = [flag for flag in BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
-    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*(earlier_flags.get("ruling") or []), *(named.get("ruling") or [])])]}
+    bound = [answer_id for other in order["jobs"] for answer_id in (data["jobs"][other].get("brief_flags") or {}).get("ruling") or []]
+    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *(named.get("ruling") or [])])]}
     flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
@@ -4420,11 +4421,11 @@ def parser() -> argparse.ArgumentParser:
         help="write a job's brief from his order's words, each ruling's words and the earlier jobs' transcripts, and print where",
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
-            " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer and each one that"
+            " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer, each one the brief of any job on its order binds, and each one that"
             " settled a question of the reader its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
-            " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to its earlier rulings, and the output names each kept;"
+            " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept;"
             " a brief naming no --serves serves drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
             " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
@@ -4450,7 +4451,7 @@ def parser() -> argparse.ArgumentParser:
         help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox, ci db-read, a Datadog read or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
     )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
-    verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the earlier brief's; its words go in whole")
+    verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted")
     verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     verb.add_argument("--scratch", help="its scratch folder; default one in the drive")
