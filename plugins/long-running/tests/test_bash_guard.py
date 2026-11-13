@@ -55,7 +55,7 @@ def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run:
         data["jobs"]["j1"]["agent"] = "a-1"
     cards = ["demo:j2-1-a"]
     monkeypatch.setattr(view, "live_cards", lambda name: {})
-    monkeypatch.setattr(land, "open_cards", lambda data, job_id, waits, live: cards if job_id == "j1" else [])
+    monkeypatch.setattr(land, "open_cards", lambda data, job_id, pr, live, exempt=None: cards if job_id == "j1" and exempt != state.FLAKE_FIX else [])
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     opening = "cd /work && ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
     reason = bash_guard.deny_reason(bash(opening, **builder))
@@ -63,6 +63,10 @@ def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run:
     assert "`ccx vcs ship --no-pr`" in reason
     assert bash_guard.deny_reason(bash("ccx vcs ship --no-pr", **builder)) is None
     assert bash_guard.deny_reason(bash(f"{opening} --dry-run", **builder)) is None
+    registered = f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j1 --exempt'
+    assert '--exempt "flake fix"`' in reason
+    assert bash_guard.deny_reason(bash(f'{registered} "flake fix"', **builder)) is None
+    assert bash_guard.deny_reason(bash(f"{registered} test-only", **builder)).startswith("refused: j1's work waits on his answer to demo:j2-1-a")
     assert bash_guard.deny_reason(bash(opening, **(builder | {"agent_id": "a-2"}))) is None
     url = "https://github.com/yasyf/cc-skills/pull/9"
     with state.edit(demo) as data:
@@ -97,7 +101,8 @@ def test_a_sprite_lanes_ship_asks_the_coordinators_mac_whether_his_open_cards_ho
         "refused: `drive job held` could not say whether his open cards hold this lane's PR: drive: orca orchestration ask exited 1: no run; ship again once it answers"
     )
     answer.update(code=0, out=json.dumps({"id": "j7", "cards": []}))
-    assert bash_guard.deny_reason(bash(opening, session="sprite")) is None
+    assert bash_guard.deny_reason(bash(f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j7 --exempt "flake fix"', session="sprite")) is None
+    assert asked[-1] == ["drive", "job", "held", "--json", "--exempt=flake fix"]
 
 def test_a_designer_opens_no_pr_and_pushes_nothing(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     designer = {"agent_id": "a-1", "agent_type": "long-running:designer"}

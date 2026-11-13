@@ -131,7 +131,7 @@ moves the wait to that job's newest open PR, else to that job until its work is 
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
-| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his a job on its parts asked |
+| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his holding its work as the lander reads it, none whose `Holds:` line reads none |
 
 ### Codex jobs
 

@@ -748,7 +748,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -766,7 +766,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
                 settled = question.pop("settled")
                 question["closed"] = settled and new_close("answered", None, None, seq=settled.get("seq"), answer=settled.get("answer"), ruling=settled.get("ruling"), at=settled["at"])
             question.setdefault("closed", None)
-            question.setdefault("holds", "")
+            question.setdefault("holds", None)
             question.setdefault("replaced", None)
             question.setdefault("recorded", [])
             question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
@@ -779,6 +779,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         one_question_per_file(data)
     if not data.get("designs_cited"):
         cite_returned_designs(name, data)
+    if not data.get("research_linked"):
+        link_research(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -816,6 +818,19 @@ def cite_returned_designs(name: str, data: dict) -> None:
         named = (cited for reply in returns(name, pr["job"]) if REPORTED_LINE.match(said := opening(reply["body"])) and key in named_prs(data, pr["order"], said) and (cited := design_lines(reply["body"])))
         pr["design"] = next(named, None)
     data["designs_cited"] = True
+
+
+def link_research(data: dict) -> None:
+    """Keep on each job the readers its brief's `Researched:` line names, and mark each question whose kept ASK file carries no `Holds:` line as holding every change, as drive job brief and drive job ask keep them now, read once from the briefs and ASK files on this Mac; marked so this runs once."""
+    from drive import brief, limits
+
+    for job in data["jobs"].values():
+        if job["kind"] in brief.RESEARCHED_KINDS and job.get("brief") and Path(job["brief"]).exists():
+            job["researched"] = brief.research_links(job, Path(job["brief"]).read_text())
+        for question in job["questions"]:
+            if question["holds"] == "" and question["file"] and Path(question["file"]).exists() and not limits.HOLDS.search(Path(question["file"]).read_text()):
+                question["holds"] = None
+    data["research_linked"] = True
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -1069,7 +1084,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his a job on its parts asked, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his it names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his it names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1109,12 +1124,29 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     end_carried_designs(data, job["order"], job["updated"])
 
 
-def part_cards(data: dict, job_id: str) -> list[str]:
-    """Each open card of his that a job on any part this job delivers asked, by its link or else its waits id, as view.open_cards reads it: a builder built beside its reader's card waits on that card from the drive's records, never from how its line words it."""
+def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
+    """Each open card of his holding a job's work, its PR when given, by holds_work, by its link or else its waits id: the one rule the lander, the `bash_guard` hook and a BUILT line's waits read, so a builder built beside its reader's card waits on that card from the drive's records, never from how its line words it, and on none whose `Holds:` line reads none."""
     from drive import view
 
     job = data["jobs"][job_id]
-    return [card for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) for _, other in part_jobs(data, order_id, part) for card in view.open_cards(other)]
+    return [
+        drawn
+        for order_id in [job["order"], *job["carries"]]
+        for asker in data["orders"][order_id]["jobs"]
+        for question in view.open_questions(data["jobs"][asker])
+        if (drawn := question["card"] or question["waits"]) and holds_work(data, asker, question, job_id, order_id, pr)
+    ]
+
+
+def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id: str, pr: dict | None) -> bool:
+    """Whether an open question of his holds a job's work on an order, its PR when given, by his pick "Each question names the changes it holds, kept with it": its `Holds:` line names a change the work carries, the parts `drive pr set --part` gave the PR or else those the job works on there, the design it builds included, or the question was kept with no `Holds:` line, which holds every change; and it is the job's own, a design job's whose design the job builds, a reader's the job's brief names on its `Researched:` line, or its `Holds:` line names the job by id or the PR by link or #N. `Holds: none` holds nothing."""
+    holds = question["holds"]
+    carried = set(pr["parts"]) if pr is not None and pr["parts"] else worked(data, job_id, order_id)
+    if holds == "" or holds is not None and not names_part(holds, carried):
+        return False
+    if holds is not None and (names_job(holds, job_id) or pr is not None and names_pr(holds, pr_key(pr["url"]))):
+        return True
+    return asker_id == job_id or asker_id in data["jobs"][job_id]["researched"] or design_builder(data, asker_id) == job_id
 
 
 def required_verdict(prs: dict[str, dict]) -> tuple[str, list[tuple[str, str]]]:
@@ -1468,6 +1500,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "parts": parts,
         "carries": {},
         "questions": [],
+        "researched": [],
         "where": "local",
         "route": None,
         "repo": None,
@@ -1493,7 +1526,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 
 
 def new_question(
-    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str = ""
+    file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str | None = ""
 ) -> dict:
     return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None, "recorded": []}
 

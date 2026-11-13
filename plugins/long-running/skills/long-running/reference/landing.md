@@ -288,7 +288,9 @@ and no revert for an `incident fix`. One outside its class comes back as `PR …
   many times do I have to tell yoiu". It serves that ruling, never the order whose PR the flake reddened,
   so the watch's check judges it against 532cd3d read whole in place of any order, and it is never
   `BLOCKED no order of his names this`, closed, or emptied to answer a `NOT READY`. Register it with
-  `drive pr add <url> --job <j> --exempt "flake fix"`, which reads its files from GitHub: in test or
+  `drive pr add <url> --job <j> --exempt "flake fix"` in the Bash call whose `ccx vcs ship` opens it,
+  since no design card holds a flake fix and the `bash_guard` hook reads that registration, which reads
+  its files from GitHub: in test or
   fixture code alone it lands with no tap; with any other file it keeps his tap, and his card quotes the
   ruling's words, by his words "you cna also merge CI/tst-only tweaks/fixes without me, but onyl if it
   doesnt touch non-test/CI code at all".

@@ -232,6 +232,11 @@ def research(name: str, data: dict, order_id: str, parts: list[str]) -> tuple[st
     return next(researches(name, data, order_id, parts), None)
 
 
+def research_links(job: dict, text: str) -> list[str]:
+    """The readers a job was built on: each its briefs so far named on their `Researched:` line, and the one this brief names, whose open questions hold its work by state.holds_work."""
+    return list(dict.fromkeys([*job["researched"], *RESEARCHED_BY.findall(text)]))
+
+
 def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
     """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each answer of his the rulings: line of every reader of its parts of its order and of each order it carries names by id, since a newer reader on another question of the same part holds none of an older one's, read as served.named reads a citation whatever words and punctuation surround it, each id cc-notes keeps no answer under, such as a commit or a session, left out, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
     from drive import refs, served

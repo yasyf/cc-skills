@@ -166,12 +166,18 @@ def opens_pr(found: list[list[str]]) -> bool:
     return any(tuple(verb(words)[:3]) == SHIP and not PUSH_ONLY & set(words) for words in found)
 
 
+def exempted(found: list[list[str]]) -> str | None:
+    """The exempt class a `drive pr add` in the same call registers the shipped PR under."""
+    return next((option(words, "--exempt") for words in found if verb(words)[:3] == ["drive", "pr", "add"]), None)
+
+
 def held(job_id: str, cards: list[str]) -> str:
     return (
         f"refused: {job_id}'s work waits on his answer to {', '.join(cards)}, and this ship would open its PR, which goes"
         " up only once he answers each, since work does not land with a question of his on it unanswered: push the"
         " branch with `ccx vcs ship --no-pr` and return `BUILT <branch>, waits on <cards>`; the watch says FREE when"
-        " the last is answered"
+        " the last is answered. A flake fix, which no design card holds, goes up in one call with its registration:"
+        ' `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job> --exempt "flake fix"`'
     )
 
 
@@ -181,7 +187,7 @@ def held_pr(found: list[list[str]], agent: str, drives: list[str]) -> str | None
         return None
     for name in drives:
         data = state.load(name)
-        if (job_id := state.agent_job(data, agent)) and (cards := land.ship_held(data, job_id, view.live_cards(name))):
+        if (job_id := state.agent_job(data, agent)) and (cards := land.ship_held(data, job_id, view.live_cards(name), exempted(found))):
             return held(job_id, cards)
     return None
 
@@ -191,7 +197,7 @@ def lane_held(found: list[list[str]]) -> str | None:
     if not opens_pr(found):
         return None
     try:
-        answer = land.lane_held()
+        answer = land.lane_held(*(f"--exempt={exempt}" for exempt in [exempted(found)] if exempt))
     except state.DriveError as error:
         return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {error}; ship again once it answers"
     return held(answer["id"], answer["cards"]) if answer["cards"] else None
