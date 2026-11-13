@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -55,6 +56,7 @@ UNSTARTED = 75
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
+SPRITE_BRIEFS = ".local/state/long-running/briefs"
 CHECKOUT_LOCK = ".checkout.lock"
 CHECKOUT_SECONDS = 600
 
@@ -70,7 +72,7 @@ class Unstarted(OrcaError):
 
 
 class Unfit(Unstarted):
-    """A Sprite that refused the tools a worker needs, so the job's next worker starts on another."""
+    """A Sprite that refused the tools or the brief a worker needs, so the job's next worker starts on another."""
 
 
 class LaneEnd(NamedTuple):
@@ -543,9 +545,16 @@ def lane_end(job: dict) -> LaneEnd | None:
 
 
 def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> dict:
-    """Start the job's next worker in the terminal and worktree of the one that finished, on its Run, on its Sprite or on this Mac, with the brief as its Task spec: the start Orca names for a finished worker, with `--on` its paired server for a Sprite, whose `~/.local/bin` first takes the tools a launch gives it, this plugin's `drive` among them, since the Sprite may have been launched before they changed."""
-    if not state.on_mac(job):
+    """Start the job's next worker in the terminal and worktree of the one that finished, on its Run, on its Sprite or on this Mac, with a Task spec that names the brief where the worker reads it: the start Orca names for a finished worker, with `--on` its paired server for a Sprite, whose `~/.local/bin` first takes the tools a launch gives it, this plugin's `drive` among them, since the Sprite may have been launched before they changed. Orca keeps every Task spec until its database is pruned, and a brief runs to hundreds of kilobytes, so the spec carries only where the brief is, as the launcher's does."""
+    if state.on_mac(job):
+        spec = f"Lane '{lane}'. Your full brief is the file {brief}: read it in full with the Read tool before anything else and execute it exactly."
+    else:
         place_tools(job["workspace"])
+        text = brief.read_bytes()
+        spec = (
+            f"Lane {lane}: read the whole brief at {place_brief(job['workspace'], lane, text)}, verify its SHA-256 is "
+            f"{hashlib.sha256(text).hexdigest()} and its size is {len(text)} bytes, then follow it exactly."
+        )
     argv = [
         "orca",
         "orchestration",
@@ -559,8 +568,8 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, end: LaneEnd) -> 
         end.terminal,
         "--task-title",
         lane,
-        "--spec-file",
-        str(brief),
+        "--spec",
+        spec,
         "--timeout-ms",
         START_TIMEOUT_MS,
         "--full",
@@ -593,6 +602,34 @@ def place_tools(workspace: str) -> None:
     if done.returncode:
         said = done.stderr.strip().splitlines()
         raise Unfit(f"{TOOLS} exited {done.returncode} on {workspace}, so no worker started: {said[-1] if said else 'no output'}")
+
+
+def place_brief(workspace: str, lane: str, text: bytes) -> str:
+    """Write the brief onto the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since a handoff outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes."""
+    forward = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["forward"]
+    target = f'"$HOME/{SPRITE_BRIEFS}/{lane}.md"'
+    done = subprocess.run(
+        [
+            "ssh",
+            "-F",
+            forward["config"],
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=30",
+            forward["host"],
+            f'mkdir -p "$HOME/{SPRITE_BRIEFS}" && cat >{target} && sha256sum {target}',
+        ],
+        input=text,
+        capture_output=True,
+        timeout=LAUNCH_SECONDS,
+        check=False,
+    )
+    said = done.stdout.decode().split()
+    if done.returncode or len(said) != 2 or said[0] != hashlib.sha256(text).hexdigest():
+        why = done.stderr.decode().strip().splitlines()
+        raise Unfit(f"writing the brief onto {workspace} exited {done.returncode}, so no worker started: {why[-1] if why else ' '.join(said) or 'no output'}")
+    return said[1]
 
 
 def reply(drive: str, run: str, message_id: str, body: str) -> None:
