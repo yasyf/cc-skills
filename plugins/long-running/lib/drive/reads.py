@@ -544,13 +544,14 @@ def failures(output: str) -> tuple[list[str], list[str]]:
     return found, ["\n".join(lines[first : last + 1]) for first, last in joined]
 
 
-def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
+def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True, stdin: str | None = None) -> str:
     named = " ".join([Path(argv[0]).name, *argv[1:3]])
     try:
         done = subprocess.run(
             argv,
             cwd=checkout,
             env=env,
+            input=stdin,
             capture_output=True,
             text=True,
             errors="replace",

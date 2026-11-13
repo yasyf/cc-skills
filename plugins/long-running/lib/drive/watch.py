@@ -50,6 +50,7 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
+JOB_LINE = re.compile(r"JOB (?P<job>j\d+) o\d+ ")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which posts its ask record, since no card draws for it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
@@ -2082,7 +2083,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line, after any that failed to post before, to the lane over cci: a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post each line, after any that failed to post before, to the lane over cci, a remote lane's question its line names by its first line carrying the question whole as the record's body: a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
     owed = watcher.unsent[lane] = watcher.unsent.get(lane, []) + lines
     if not owed:
         return []
@@ -2091,9 +2092,10 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     for line in owed:
         kind = "handoff" if lane in state.HOLDERS or wakes(line, data) else "evidence"
         topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
-        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, "--text", line]
+        asked = asked_whole(watcher.name, line)
+        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if asked else []), "--text", line]
         try:
-            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]))
+            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), stdin=asked)
         except reads.ReadError as error:
             unsent.append(line)
             refusal = error
@@ -2103,6 +2105,19 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         watcher.failures.pop(what, None)
         return []
     return failed(watcher, what, what, refusal, moment)
+
+
+def asked_whole(name: str, line: str) -> str | None:
+    """The whole of the newest question its job's history keeps that a JOB line names by its first line, a result sent as a question aside; None for any other line or a question of one line."""
+    if not (found := JOB_LINE.match(line)):
+        return None
+    said = line.removeprefix(found[0])
+    for reply in reversed(state.replies(name, found["job"])):
+        body = reply["body"] or ""
+        opening = state.opening(body)
+        if reply["type"] == "question" and body.strip() != opening and not state.reported(opening) and (said == opening or said.startswith(f"{opening}; ")):
+            return body
+    return None
 
 
 def holder(path: Path) -> int | None:

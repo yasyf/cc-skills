@@ -440,7 +440,7 @@ def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the wat
 def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -> list[list[str]]:
     sent, queue = [], list(outcomes or [])
 
-    def post(argv: list[str], checkout: Path) -> str:
+    def post(argv: list[str], checkout: Path, stdin: str | None = None) -> str:
         if queue and not queue.pop(0):
             raise reads.ReadError("cci post exited 1: no drive demo")
         sent.append(argv)
@@ -872,7 +872,7 @@ def catching_up(monkeypatch: pytest.MonkeyPatch, demo: str) -> list[tuple[list[s
         data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
     calls: list[tuple[list[str] | dict, str | None]] = []
 
-    def run(argv: list[str], checkout: Path, env: dict | None = None) -> str:
+    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
         calls.append((argv, None))
         return ""
 
@@ -941,7 +941,7 @@ def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_re
     calls = catching_up(monkeypatch, demo)
     answered = reads.run
 
-    def run(argv: list[str], checkout: Path, env: dict | None = None) -> str:
+    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
         if argv[0] == "claude" and len(calls) == 1:
             calls.append((argv, None))
             raise reads.ReadError("claude exited 1")
@@ -3955,7 +3955,7 @@ MONITOR = "https://app.datadoghq.com/monitors/315028134"
 def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> list[list[str]]:
     calls = []
 
-    def run(argv: list[str], checkout: Path) -> str:
+    def run(argv: list[str], checkout: Path, stdin: str | None = None) -> str:
         calls.append(argv)
         return json.dumps([{"id": int(monitor), "status": status} for monitor, status in statuses.items()]) if argv[0] == "pup" else ""
 
