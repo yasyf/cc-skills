@@ -233,6 +233,28 @@ def test_a_flake_fix_at_a_product_code_cause_is_judged_against_his_ruling_alone_
     assert (pr["wants_tap"], stage.carded(pr), state.cleared(pr), state.exempted(pr)) == (False, False, True, "flake fix")
 
 
+def test_a_not_ready_line_carries_each_answer_his_design_line_cites_whole_for_its_builder_and_his_card_shows_the_objection_alone(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "time each handoff")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    monkeypatch.setattr(github, "files", lambda key: ["api/run.ts"])
+    assert run("pr", "add", URL, "--job", "j1")[0] == 0
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head1"
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: time each handoff", "body": "", "head": "head1", "diff": SMALL})
+    monkeypatch.setattr(state, "report_text", lambda name, job_id: "READY\nDESIGN: the handoff metric stays, by {answer:11f8cf2}\n")
+    recorded.shown["11f8cf2"] = {"id": "11f8cf2aa", "title": "Keep the handoff metric?", "body": "Land both", "tags": [], "created_at": "2026-11-13T11:07:37Z"}
+    judge.against = [{"order": "o1", "words": "time each handoff", "file": "api/run.ts", "change": "api/run.ts drops the handoff metric"}]
+    named = 'o1 "time each handoff": api/run.ts drops the handoff metric'
+    outcome = served.verdict(demo, KEY)
+    assert outcome.startswith(
+        f'{served.NOT_READY}: {KEY} go against his words, judged from each PR\'s title and diff: {named}. His answers the check read, each whole:'
+        f' 11f8cf2, {at("2026-11-13T11:07:37Z")}, asked "Keep the handoff metric?": "Land both". Reconcile each objection with his answers and your own read of the code'
+    ), outcome
+    assert state.against(state.load(demo)["prs"][KEY]) == named
+
+
 FLAKE_RULING = (
     '532cd3d, 2026-11-03T22:04:01-08:00, asked "Flaky tests in CI: retry, skip, or fix?": "Owner, Nov 3 2026 10:02 PM, verbatim: "and ffs fix these flaky tgests'
     ' how many times do I have to tell yoiu: https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793772091923669?thread_ts=1793772079.138749&cid=C0B75AL4XEW".'

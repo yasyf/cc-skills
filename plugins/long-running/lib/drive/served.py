@@ -70,13 +70,15 @@ An empty `against` says the change meets his words."""
 
 
 class Against(DriveError):
-    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after."""
+    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries each answer of his the check read whole, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line."""
 
-    def __init__(self, keys: list[str], named: str):
+    def __init__(self, keys: list[str], named: str, answered: list[str]):
         self.named = named
+        read = f" His answers the check read, each whole: {'; '.join(answered)}." if answered else ""
         super().__init__(
-            f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
-            " putting back what exists where they do not need it changed, push, and return READY again; a reading his words leave open goes to him as an ASK."
+            f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}.{read} Reconcile each objection with his answers and your own"
+            " read of the code, then change the PRs to his words, putting back what exists where they do not need it changed, push, and return READY again;"
+            " a reading his words leave open goes to him as an ASK."
             f' A PR fixing one named flaking test at its cause is no overreach to close or empty: drive pr add <its url> --job <its job> --exempt "{state.FLAKE_FIX}"'
             f' judges it against his ruling {state.FLAKE_RULING}, "{state.FLAKE_WORDS}", in place of the orders it unblocks'
         )
@@ -97,7 +99,7 @@ def check(name: str, key: str, cited: list[str]) -> dict:
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
     if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
-        raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found))
+        raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found), answered)
     return {"head": read["head"], "read": read["head"], "orders": orders, "lines": lines}
 
 
