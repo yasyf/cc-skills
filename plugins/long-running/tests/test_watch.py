@@ -5220,6 +5220,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ("done", f"{install.PROVEN} on long-running@skills 1.0.4: /p.sh exits 0", False),
         ("failed", "merged at ccc333ddd444; long-running@skills 1.0.4 installed", False),
         ("failed", f"{install.PROOF_FAILED}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 1", True),
+        ("waiting", f"{install.PROOF_WAITS}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 2: WAIT S1 no exchange since the install", False),
         ("waiting", "merged", True),
         ("done", "merged", False),
         ("done", f"{install.MERGED_DONE}: {KEY} at ccc333ddd444; no proof kept", True),
@@ -5443,6 +5444,27 @@ def test_a_proof_that_ended_with_no_result_is_said_with_its_rerun_and_started_ag
     assert provers == started
     rerun = f"j1's proof, drive job prove pid {ended.pid}, ended with no result, its output in the drive's {watch.PROOFS_LOG}: drive job prove j1 runs it again"
     assert lines == ([] if started else [f'ORPHAN o1 "ship the watch": {rerun}'])
+
+
+
+def test_a_proof_waiting_on_his_next_word_holds_its_job_with_no_orphan_and_runs_again_only_once_he_is_heard_after_it_started(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    wait = "WAIT S1 no exchange since the install: reply in a DM thread within 60s of a handler's post there, then run this again"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": "1.0.1", "waits": wait}
+        data["owner"]["heard"] = state.stamp(T0 - timedelta(minutes=5))
+    watching = watcher(demo)
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
+    assert provers == []
+    watch.hear(demo, T0 + timedelta(minutes=63))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=64)) == []
+    assert provers == ["j1"]
+    assert "waits" not in state.load(demo)["jobs"]["j1"]["proof"]
 
 
 def tried(name: str, outcome: str) -> None:

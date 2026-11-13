@@ -1273,12 +1273,50 @@ def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, 
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 1)
     install.prove("demo", "j1", 900)
-    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3: ran on /cache/long-running/1.0.3/bin"
+    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: ran on /cache/long-running/1.0.3/bin"
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("failed", blocked)
     assert state.load("demo")["orders"]["o1"]["proof"] is None
     assert not [call for call in git.other_calls() if call[0] == "cci"]
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
+
+
+@pytest.mark.parametrize(
+    "printed",
+    [
+        "drive pr ci exits 1\\nFAIL long-running CI https://github.com/yasyf/cc-skills/actions/runs/1 completed failure\\ncodex release tag https://github.com/yasyf/cc-skills/actions/runs/2 completed success",
+        "FAIL: the live dashboard runs 1.0.2\\n[agent-browser] launched browser",
+        "FAIL: the live dashboard runs 1.0.2\\nWAIT S1 no exchange since the install: reply in a DM thread, then run this again",
+    ],
+)
+def test_a_failed_proof_is_said_by_its_last_fail_line_whatever_it_printed_after_it(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], printed: str) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 1)
+    script.write_text(f"#!/bin/sh\nprintf '{printed}\\n'\nexit 1\n")
+    install.prove("demo", "j1", 900)
+    fail = next(line for line in reversed(printed.split("\\n")) if line.startswith("FAIL"))
+    blocked = f"BLOCKED {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: {fail}"
+    assert state.load("demo")["jobs"]["j1"]["said"] == blocked
+    assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
+
+
+def test_a_proof_ending_on_wait_with_no_fail_line_takes_no_result_and_marks_its_proof_waiting_on_his_next_word(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 2)
+    wait = "WAIT S1 no exchange since the install: reply in a DM thread within 60s of a handler's post there, then run this again"
+    script.write_text(f"#!/bin/sh\necho 'ok A1 cc-slack dm-status takes --drive'\necho \"{wait}\"\nexit 2\n")
+    marker = {"pid": 4242, "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION}
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["proof"] = marker
+    kept = state.proof_path("demo", "j1")
+    waits = f"{install.PROOF_WAITS}: {URL}: {script} exits 2 on long-running@skills 1.0.3, its output {kept}: {wait}"
+    assert install.prove("demo", "j1", 900) == f"j1: {waits}"
+    data = state.load("demo")
+    job = data["jobs"]["j1"]
+    assert (job["state"], job["said"], job["proof"], job["report"]) == ("waiting", f"PUSHED {URL}", marker | {"waits": wait}, None)
+    assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
+    assert kept.read_text() == f"ok A1 cc-slack dm-status takes --drive\n{wait}\n"
+    assert proof_events() == [("yasyf/cc-skills#7", waits)]
 
 
 @pytest.mark.parametrize(("printed", "taken"), [("ran on the queue", "failed"), ("/tmp/press-j.png /tmp/hover-a-card.png", "done")])
@@ -1294,7 +1332,7 @@ def test_a_proof_of_something_he_sees_takes_done_only_once_its_output_pictures_e
     assert job["state"] == taken
     if taken == "failed":
         assert job["said"].startswith(
-            f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3: its brief names 2 user stories"
+            f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: its brief names 2 user stories"
             " and its proof shows 0 of them"
         )
 
@@ -1351,7 +1389,7 @@ def test_a_dashboard_still_on_an_older_install_at_the_deadline_takes_blocked_nam
     monkeypatch.setattr(dashboard, "serving", lambda name, port: {"code": "/cache/1.0.2/lib/drive"})
     install.prove("demo", "j1", 60)
     stale = f"the dashboard on port {dashboard.port_of('demo')} still runs /cache/1.0.2, not the newest long-running installed, /cache/long-running/1.0.3"
-    assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3: {stale}"
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: {stale}"
     assert state.proof_path("demo", "j1").read_text() == stale
     assert state.load("demo")["orders"]["o1"]["proof"] is None
 
@@ -1492,9 +1530,9 @@ def test_drive_pr_ci_judges_a_merge_by_the_run_that_superseded_its_cancelled_own
     on_actions(monkeypatch, tmp_path, [cancelled, guides], [[earlier, cancelled, guides, superseding]])
     assert cli.main(["pr", "ci", URL]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        f"yasyf/cc-skills#7 merged at {SHA[:12]}: passed",
         f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed success",
         f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 completed success",
+        f"yasyf/cc-skills#7 merged at {SHA[:12]}: passed",
     ]
 
 
@@ -1505,11 +1543,8 @@ def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_failed_or_has_no_run_
     cancelled = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "cancelled")
     on_actions(monkeypatch, tmp_path, [failed, cancelled], [[failed, cancelled]])
     assert cli.main(["pr", "ci", URL]) == 1
-    assert capsys.readouterr().out.splitlines() == [
-        f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed",
-        f"long-running CI https://github.com/{REPO}/actions/runs/43384583289 completed failure",
-        f"Guides: no run since {SHA[:12]} that was not cancelled",
-    ]
+    failure, unrun = f"long-running CI https://github.com/{REPO}/actions/runs/43384583289 completed failure", f"Guides: no run since {SHA[:12]} that was not cancelled"
+    assert capsys.readouterr().out.splitlines() == [failure, unrun, f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed: {failure}; {unrun}"]
 
 
 def test_a_proof_file_passing_while_its_merges_ci_still_runs_takes_done_right_after_the_install_without_waiting_on_that_ci(
@@ -1546,7 +1581,7 @@ def test_a_proof_file_exiting_0_that_prints_nothing_takes_blocked_and_keeps_no_c
     script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     script.write_text("#!/bin/sh\nexit 0\n")
     install.prove("demo", "j1", 900)
-    blocked = f"BLOCKED {URL}: {script} exits 0 but prints nothing on long-running@skills 1.0.3: a proof file prints a line for each check it passed, so one printing nothing proves nothing"
+    blocked = f"BLOCKED {URL}: {script} exits 0 but prints nothing on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: a proof file prints a line for each check it passed, so one printing nothing proves nothing"
     data = state.load("demo")
     assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (blocked, None, None)
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]

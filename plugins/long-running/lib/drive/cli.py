@@ -3410,9 +3410,11 @@ def pr_ci(args: argparse.Namespace) -> int:
     sha = github.read(f"{key}'s merge commit", ["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", '.mergeCommit.oid // ""']).strip()
     if not sha:
         raise DriveError(f"{key} is not merged, so no CI run on its default branch judges it")
-    passed, lines = install.ci_verdict(repo, sha)
-    emit(args, "\n".join([f"{key} merged at {sha[:12]}: {'passed' if passed else 'not passed'}", *lines]), {"pr": key, "sha": sha, "passed": passed, "runs": lines})
-    return 0 if passed else 1
+    runs = install.ci_verdict(repo, sha)
+    lines, unpassed = [line for line, _ in runs], [line for line, passed in runs if not passed]
+    verdict = f"not passed: {'; '.join(unpassed)}" if unpassed else "passed"
+    emit(args, "\n".join([*lines, f"{key} merged at {sha[:12]}: {verdict}"]), {"pr": key, "sha": sha, "passed": not unpassed, "runs": lines})
+    return 1 if unpassed else 0
 
 
 def pr_check(args: argparse.Namespace) -> int:
@@ -4757,9 +4759,10 @@ def parser() -> argparse.ArgumentParser:
             " wait until the drive's dashboard runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH with no wait for CI,"
             " and when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled,"
             " the run drive pr ci judges the merge by, follow that run to its end with no deadline and run the file once more, keep its output"
-            " beside the job's report, take DONE on exit 0 and BLOCKED otherwise or when an install fails, no release will carry a merge,"
+            " beside the job's report, take DONE on exit 0 and BLOCKED quoting its last FAIL line otherwise or when an install fails, no release will carry a merge,"
             " or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
-            " watch to post; refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file"
+            " watch to post, but a nonzero exit ending on a WAIT line with no FAIL line takes no result and runs again at his next word;"
+            " refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file"
         ),
     )
     verb.add_argument("id")
@@ -4866,7 +4869,8 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "judge a merged PR's CI as drive job prove follows it: the first run not cancelled of each workflow that ran on its merge commit,"
             " from that commit's run on by run id, never a run of a push merged before it; exits 0 once each completed and passed, 1 while one runs,"
-            " failed or has no run, naming each run, so a proof file of a fix to red CI reads its verdict here rather than picking a run itself"
+            " failed or has no run, naming each run and then its verdict, which names each run that did not pass, so a proof file of a fix to red CI reads its verdict here"
+            " rather than picking a run itself"
         ),
     )
     verb.add_argument("url", help="the PR's URL")

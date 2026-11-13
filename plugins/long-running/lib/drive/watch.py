@@ -2110,21 +2110,31 @@ def at_merge(data: dict, job_id: str) -> bool:
 
 
 def proof_due(data: dict, job_id: str) -> bool:
-    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, or one that ended with no result before a newer long-running's watch read it."""
+    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it."""
     job = data["jobs"][job_id]
     if not merged_ready(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)):
         return False
     proof = job.get("proof")
-    return not proof or proof["said"] != job["said"] or proof["version"] != state.VERSION and not state.alive(proof["pid"])
+    if not proof or proof["said"] != job["said"]:
+        return True
+    if proof.get("waits"):
+        heard = data["owner"]["heard"]
+        return not state.alive(proof["pid"]) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"])
+    return proof["version"] != state.VERSION and not state.alive(proof["pid"])
 
 
 def proving(data: dict, job_id: str) -> bool:
-    """Whether a merged job's proof is to come: a lander still merging or installing one of its PRs, a proof running on its line, or one the watch starts on its next read."""
+    """Whether a merged job's proof is to come: a lander still merging or installing one of its PRs, a proof running on its line or waiting on his next word, or one the watch starts on its next read."""
     job = data["jobs"][job_id]
     if not merged_ready(data, job_id) or proof_gap(data, job_id):
         return False
     proof = job.get("proof")
-    return proof_due(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)) or proof["said"] == job["said"] and state.alive(proof["pid"])
+    return (
+        proof_due(data, job_id)
+        or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id))
+        or proof["said"] == job["said"]
+        and bool(proof.get("waits") or state.alive(proof["pid"]))
+    )
 
 
 def finished(watcher: Watcher, moment: datetime) -> None:
