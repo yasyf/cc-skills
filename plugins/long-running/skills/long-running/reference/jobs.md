@@ -294,9 +294,10 @@ before it sends or starts.
   a worker needs, a full disk or a toolchain directory it cannot write: the launcher then destroys
   it and exits 76, and the relaunch prepares one fresh Sprite, failing with his answer unsent when
   that one refuses them too, his answer still held.
-- A delivered message, sent to a live worker or carried in a started worker's handoff, marks the
-  job sent each answer of his whose words it holds verbatim; nothing else marks a remote lane
-  sent, so `drive answer --sent` on one only confirms that mark.
+- A delivered message, sent to a live worker or carried in the brief or handoff a worker started
+  on, marks the job sent each answer of his whose words it holds verbatim, and a job with no
+  worker yet has heard them once its brief holds them; `drive answer --sent` records only a
+  `SendMessage` to an agent a coordinator session on this Mac runs, and is refused on any other job.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran.
 - Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace

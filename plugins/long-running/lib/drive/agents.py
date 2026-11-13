@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import install, limits, procs, reads, render, state
+from drive import install, limits, procs, reads, render, state, superseded
 from drive.brief import BRIEF_JOB, carried, heavier
 
 RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
@@ -543,7 +543,8 @@ def hold(payload: dict) -> None:
     if not names:
         return
     known = state.load(names[0])
-    match = BRIEF_JOB.search(brief(payload))
+    prompt = brief(payload)
+    match = BRIEF_JOB.search(prompt)
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
     if not job_id or not free(known, job_id, payload["session_id"], payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
         return
@@ -557,3 +558,4 @@ def hold(payload: dict) -> None:
             if returned:
                 job["resumed"] = state.stamp(resumed.astimezone())
             state.start(job)
+            superseded.hear(data, job_id, prompt)
