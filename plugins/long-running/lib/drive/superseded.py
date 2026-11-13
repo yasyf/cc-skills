@@ -152,14 +152,15 @@ def close_card(card: str, closed: dict) -> dict:
 
 
 def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str, dict]]:
-    """End a job's open question as closed records, with each other open question of the job asking it in the same words superseded by it, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
+    """End a job's open question as closed records, with each other open question of the job asking it in the same words superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
     job = data["jobs"][job_id]
     twins = [other for other in view.open_questions(job) if other is not question and state.same_question(other["title"], question["title"])]
     question["closed"] = closed
     for twin in twins:
         twin["closed"] = superseded_by(closed, question)
     job["updated"] = closed["at"]
-    return [(job_id, question), *((job_id, twin) for twin in twins)]
+    replaced = [(asker, other) for asker, each in data["jobs"].items() for other in view.open_questions(each) if question["file"] and other["replaced"] == question["file"]]
+    return [(job_id, question), *((job_id, twin) for twin in twins), *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
 
 
 def superseded_by(closed: dict, question: dict) -> dict:

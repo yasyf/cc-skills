@@ -109,6 +109,7 @@ SIMPLEST = re.compile(r"^[ \t]*Simplest:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NONE_WHY = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 HOLDS = re.compile(r"^[ \t]*Holds:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+REPLACES = re.compile(r"^[ \t]*Replaces:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 HOLDS_RULING = 'his pick "Each question names the changes it holds, kept with it"'
 HOLDS_SHAPE = (
     "`Holds: <each change of the order its options alter, in that change's words, as the order's parts or your `Change:`"
@@ -394,6 +395,7 @@ class Question:
     recommended: str
     hints: dict[str, str]
     holds: str
+    replaces: str = ""
 
     def card(self, drive: str, waits: str) -> dict:
         """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
@@ -559,7 +561,7 @@ def ask_block(text: str) -> str:
 
 
 def question(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why."""
+    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -653,7 +655,8 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
-    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), hints, "" if held is None or NONE_WHY.match(held[1]) else held[1])
+    replaces = REPLACES.search(findings[0])
+    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), hints, "" if held is None or NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else "")
 
 
 def shape(text: str, drive: str, job_id: str, pictures: Path, unsettled: str | None = None, hurting: bool = False) -> Question:
