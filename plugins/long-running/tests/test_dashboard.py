@@ -47,10 +47,10 @@ def test_rebuild_lists_reports_only_when_jobs_directory_membership_changes(demo:
     listings: list[str] = []
     glob = Path.glob
 
-    def listed(path: Path, pattern: str) -> Iterator[Path]:
+    def listed(path: Path, pattern: str, *, case_sensitive: bool | None = None, recurse_symlinks: bool = False) -> Iterator[Path]:
         if path == folder:
             listings.append(pattern)
-        return glob(path, pattern)
+        return glob(path, pattern, case_sensitive=case_sensitive, recurse_symlinks=recurse_symlinks)
 
     monkeypatch.setattr(Path, "glob", listed)
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
