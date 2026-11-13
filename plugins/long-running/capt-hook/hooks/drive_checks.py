@@ -30,8 +30,11 @@ from captain_hook import (
     T,
     Tool,
     Warn,
+    WorkflowState,
     on,
+    workflow_state,
 )
+from captain_hook.dispatch import SYNC_DEADLINE_MARGIN_SECONDS, collect_budget
 from captain_hook.prompt import Prompt
 from captain_hook.snapshots.client import EvidenceIncomplete
 from captain_hook.tickets import (
@@ -83,7 +86,9 @@ QUOTING = re.compile(r"[\"'\\]")
 EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|stack-enqueue)(?![\w.-])")
 HELPER_WORDS = re.compile(r"(?<![\w.-])(?:helper|brew)(?![\w.-])")
+SENT = re.compile(r"\b(?:POSTED|EDITED) (https://[^\s'\"\\]+)")
 BATCHES_KEPT = 64
+SAYS_KEPT = 64
 RUNNER = """
 import contextlib, io, json, runpy, sys, traceback
 payload, scripts = sys.stdin.read(), sys.argv[1:]
@@ -108,6 +113,11 @@ HANDLER_TURN = TURN.with_name("handler.jsonl")
 HANDLER_SESSION = "handler-fixture"
 RELAYED_ORDER = "Post it in o598's thread if it has one, else at his DM root"
 THREAD = "1794378983.440769"
+SAID_LINK = "https://acme.slack.com/archives/D123/p1794288799976279"
+SAID_CALL = "toolu_said"
+RESUMED = "drive job resume now works from a session that did not start the job's agent."
+OWN_ACT = "I took the refusal as working as designed because it queues the brief, so I sent no defect."
+AWAY = "Refused on purpose: he is away, since he said so or has written nothing for an hour."
 ASKED = (
     "POST Yes: the old attributes are deleted, dreaming is cleaned up, and the 1024 memory indexes are gone."
     " Each landed in its own PR, merged by 3:40 AM, and the watch shows no write to the old tables since."
@@ -164,7 +174,10 @@ POST_RULES = """
     Reads, by his ruling "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
     evakuate them". A handler's post lists in claims each line of it saying where code lives, what it does or why, or a
     number or state, beside the read behind it: calls of its own, which <evidence> holds under that read's words with
-    their whole results, or a record, held whole; a claim standing on several reads is listed once beside each. Check
+    their whole results, or a record, held whole; a claim standing on several reads is listed once beside each. The
+    post's written field holds its words as the handler wrote them, where a bare {pr:<n>} or {card:<id>} is a link say
+    draws under that PR's title or that card's question: those drawn words name the PR or card and are no line of the
+    post, so they need no read and never hold it back, while words the handler wrote after a | are its own. Check
     each claim against the reads listed beside it, together, by the kind of read its line needs:
     - A line about code, where it lives, what it does or why, stands only on a read of that code: its file's lines, a
       grep of it, or the diff of a PR changing it. A doc, a job's report, the project's loaded instructions, the brief,
@@ -211,10 +224,28 @@ GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
 
 
+@workflow_state("drive-say")
+class SentPosts(WorkflowState):
+    """What the drive's checks found in each say post of this session, under the call that posts it, kept from its PreToolUse check until `sent_post` hands it Jev once Slack has the post."""
+
+    found: dict[str, dict] = {}
+
+
 def handler_reads(read: str) -> str:
     """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results."""
     named = {"id": "read:1", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS}})
+
+
+def refused_post(text: str, reason: str, counted: str = "") -> dict:
+    """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for, and the finding again as counted when a count or a mark decides it."""
+    denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
+    return {"hookSpecificOutput": denied, "rule": f"1. {reason}", "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
+
+
+def sent_found(output: dict) -> list[WorkflowState]:
+    """The session state a say call's PreToolUse check leaves for `sent_post`: what message_limits.py found in the post, under its call."""
+    return [SentPosts(found={SAID_CALL: output})]
 
 
 def state_root() -> Path:
@@ -396,7 +427,7 @@ def ran_alone(payload: dict, script: str) -> dict:
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the read each of its claims names, which the check hands with it, whatever it found; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the read each of its claims names, which the check hands with it, whatever it found: a say post goes out at once and Jev judges it once Slack has it, unless a finding a count or a mark decides is in it or it is a dry run, which Jev judges before say runs; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
     due = checks_due(evt, script)
     if script not in due:
@@ -409,8 +440,10 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     output = json.loads(said)
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
-    if (words := output.get("his_words")) is not None:
-        return judged(evt, reason, output.get("rule") or "", [Evidence.model_validate(item) for item in [*words, *output.get("reads", [])]], output["post"], found.get("additionalContext") or "", output.get("counted") or "")
+    if "his_words" in output and payload["tool_name"] == SAY and not output.get("counted") and not payload["tool_input"].get("dry_run"):
+        return sent_first(evt, output)
+    if "his_words" in output:
+        return judged(evt, output)
     if reason:
         return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
     if made := found.get("updatedInput"):
@@ -420,40 +453,64 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     return None
 
 
-def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence], post: dict, heard: str = "", counted: str = "") -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the read each of its claims names and each record it cites or carries, whole. It goes out when no finding's rule holds against the line it names, or his words lift it, and every claim of a handler's stands on the read it names, and stays back with Jev's reason otherwise, never for saying more than his message asked. When Jev cannot finish, because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or a mark decides, such as the post's word count or his reading as away, still refuses, since no judgment lifts it, and every other finding only warns: the post goes out as written with every finding beside it for the session that posts it, by his pick "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". On a handler's post the checks found nothing in, the post stays back only for a claim the read it names does not back, a read that matched none of its calls, or a line needing a read its claims leave out, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims", and goes out with any warning the checks heard beside it otherwise. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+def sent_first(evt: BaseHookEvent, output: dict) -> None:
+    """Keep what the drive's checks found in a say post under the call that posts it, for `sent_post` to hand Jev once Slack has the post, so say posts at once and Jev checks afterwards, by his pick "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until its handler edits it"; the session keeps its newest SAYS_KEPT such calls."""
+    with SentPosts.mutate(evt) as sent:
+        sent.found[evt.tool_use_id] = output
+        while len(sent.found) > SAYS_KEPT:
+            del sent.found[next(iter(sent.found))]
+
+
+def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | None:
+    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post, before the post goes out, or with sent naming the say post Slack already has: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the read each of its claims names and each record it cites or carries, whole. It passes when no finding's rule holds against the line it names, or his words lift it, and every claim of a handler's stands on the read it names, and is held with Jev's reason otherwise, never for saying more than his message asked: a post not yet sent stays back, and a sent one stands in his DM while its session hears to reword it in place, Jev taking all the time capt-hook's request leaves the hook. When Jev cannot finish, because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or a mark decides, such as the post's word count or his reading as away, still refuses, since no judgment lifts it, and every other finding only warns: the post goes out as written with every finding beside it for the session that posts it, by his pick "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". On a handler's post the checks found nothing in, the post is held only for a claim the read it names does not back, a read that matched none of its calls, or a line needing a read its claims leave out, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims", and passes with any warning the checks heard beside it otherwise. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+    found = output.get("hookSpecificOutput") or {}
+    reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
+    heard = found.get("additionalContext") or ""
+    post = output["post"]
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
         where = f"in the group DM of {post['channel_id']}, him and the bot"
     ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason or "none"}, f"post this line {where}"))
     judge = HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE
-    rules = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if rule else []
+    if sent and (budget := collect_budget(2 * SYNC_DEADLINE_MARGIN_SECONDS)) is not None:
+        judge = replace(judge, deadline=budget)
+    words = [Evidence.model_validate(item) for item in [*output["his_words"], *output.get("reads", [])]]
+    rules = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if (rule := output.get("rule")) else []
     shown = f"\n```\n{reason}\n```" if reason else ""
+    held = evt.context if sent else evt.block
+    holds = "holds it" if sent else "held it back"
+    again = (
+        f"; reword the sent post in place with say(edit={sent}, text=…) until Jev passes it"
+        if sent
+        else ", then call say again"
+    )
+    stands = "stays as say sent it" if sent else "goes out as written"
     try:
         if not (items := [*judge.items(ctx), *words, *rules]):
-            return evt.block(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.{shown}")
+            return held(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below{again}.{shown}")
         verdict = judge.verdict(ctx, items)
     except (Undecided, EvidenceIncomplete, TranscriptLoadError) as exc:
         cause = exc.cause if isinstance(exc, Undecided) else f"{type(exc).__name__}: {exc}"
-        if counted:
+        if counted := output.get("counted"):
             return evt.block(f"message_limits: Jev gave no verdict ({cause}), and a finding a count or a mark decides refuses without one: fix it, then call say again.\n```\n{counted}\n```")
+        inplace = f" with say(edit={sent}, text=…)" if sent else ""
         unjudged = (
-            f"message_limits: Jev gave no verdict ({cause}), so each finding below only warns and the post goes out as written: if one holds, reword the post in place.{shown}"
+            f"message_limits: Jev gave no verdict ({cause}), so each finding below only warns and the post {stands}: if one holds, reword the post in place{inplace}.{shown}"
             if reason
-            else f"message_limits: Jev gave no verdict ({cause}) on whether each claim of this post stands on the read it names, so the post goes out as written."
+            else f"message_limits: Jev gave no verdict ({cause}) on whether each claim of this post stands on the read it names, so the post {stands}."
         )
         return evt.context("\n\n".join(filter(None, [heard, unjudged])))
     if not reason and verdict.allow:
         return evt.context(heard) if heard else None
     if not reason:
-        return evt.block(
-            "Jev checked each claim of this post against the read it names and held it back: make the read Jev names and pass it"
-            f" in claims beside the claim, or cut the line to what your reads show, then call say again.\n```\nJev: {verdict.explained}\n```"
+        return held(
+            f"Jev checked each claim against the read it names and {holds}: make the read Jev names and pass it"
+            f" in claims, or cut the line to what your reads show{again}.\n```\nJev: {verdict.explained}\n```"
         )
     if verdict.allow and cited(items, verdict.relied_on):
-        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
-    return evt.block(f"Jev weighed this post by the drive's rules and held it back: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
+        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it {stands}.\n```\nJev: {verdict.reason}\n```")
+    return held(f"Jev weighed this post by the drive's rules and {holds}: fix what Jev and each finding below name{again}.\n```\nJev: {verdict.explained}\n{reason}\n```")
 
 
 @on(
@@ -620,15 +677,6 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
         ): Warn(pattern="Jev: he asked to hear when it waits on his tap"),
         Input(
             tool=SAY,
-            tool_input={"text": "drive job resume now works from a session that did not start the job's agent."},
-            session_id=HANDLER_SESSION,
-            agent_type=HANDLER,
-            transcript=HANDLER_TURN,
-            decide=JEV_UNSURE,
-            llm={"reason": "the user said to post it at his DM root", "allow": True, "relied_on": [RELAYED_ORDER]},
-        ): Block(pattern="Jev weighed this post by the drive's rules and held it back"),
-        Input(
-            tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
             session_id=COMMUNICATOR,
             agent_id="a1",
@@ -636,39 +684,121 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"')},
             llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
-        ): Block(pattern="(?s)Jev checked each claim of this post against the read it names and held it back.*Jev: The cloud reader querying Postgres"),
+        ): Allow(),
         Input(
             tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS, "dry_run": True},
             session_id=COMMUNICATOR,
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads(CLOUD_READ)},
+            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"')},
+            llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
+        ): Block(pattern="(?s)Jev checked each claim against the read it names and held it back.*Jev: The cloud reader querying Postgres"),
+        Input(
+            tool=SAY,
+            tool_input={"text": "The fix merged."},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY))},
+            decide=JEV_UNSURE,
+            llm={"error": TimeoutError("codex timed out after 19s")},
+        ): Block(pattern=r"(?s)Jev gave no verdict \(TimeoutError: codex timed out after 19s\), and a finding a count or a mark decides refuses without one.*he is away"),
+    },
+)
+def message_limits(evt: BaseHookEvent) -> HookResult | None:
+    return checked(evt, "message_limits.py")
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Tool(SAY)],
+    tests={
+        Input(tool=SAY, tool_input={"text": GUESSED}, output=f"POSTED {SAID_LINK}", tool_use_id=SAID_CALL, session_id=NO_DRIVE): Allow(),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            output="nothing posted: report 1 is a catch-up, and the drive owes him none",
+            tool_use_id=SAID_CALL,
+            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+        ): Allow(),
+        Input(
+            tool=SAY,
+            tool_input={"text": RESUMED},
+            output=f"POSTED {SAID_LINK}",
+            tool_use_id=SAID_CALL,
+            state=sent_found(refused_post(RESUMED, "refused: a line telling him the drive failed names no {order:} or {pr:} carrying how that is prevented")),
+            session_id=HANDLER_SESSION,
+            agent_type=HANDLER,
+            transcript=HANDLER_TURN,
+            decide=JEV_UNSURE,
+            llm={"reason": "the user said to post it at his DM root", "allow": True, "relied_on": [RELAYED_ORDER]},
+        ): Warn(pattern=f"(?s)Jev weighed this post by the drive's rules and holds it.*say\\(edit={SAID_LINK}"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            output=f"POSTED {SAID_LINK} CARD https://acme.slack.com/archives/D123/p1794288799976280",
+            tool_use_id=SAID_CALL,
+            state=sent_found(json.loads(handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"'))),
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
+        ): Warn(pattern=f"(?s)Jev checked each claim against the read it names and holds it.*say\\(edit={SAID_LINK}, text=…\\).*Jev: The cloud reader querying Postgres"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            output=f"POSTED {SAID_LINK}",
+            tool_use_id=SAID_CALL,
+            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
             llm={"reason": "read 1 holds the cloud's reader querying Postgres", "allow": True, "relied_on": ["read:1"]},
         ): Allow(),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            output=f"EDITED {SAID_LINK}",
+            tool_use_id=SAID_CALL,
+            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
             session_id=COMMUNICATOR,
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads(CLOUD_READ)},
             llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Warn(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\) on whether each claim.*goes out as written"),
+        ): Warn(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\) on whether each claim.*stays as say sent it"),
         Input(
             tool=SAY,
-            tool_input={"text": "I took the refusal as working as designed because it queues the brief, so I sent no defect."},
+            tool_input={"text": OWN_ACT},
+            output=f"POSTED {SAID_LINK}",
+            tool_use_id=SAID_CALL,
+            state=sent_found(refused_post(OWN_ACT, "refused: a line naming a cause carries {record:<seq>} of the record that measured it, on that line")),
             session_id=COMMUNICATOR,
             transcript=COMMUNICATOR_TURN,
             decide=JEV_UNSURE,
             llm={"reason": "the line is the session's account of its own act, which the cause rule never asks a record for", "allow": True, "relied_on": ["rule:findings"]},
-        ): Warn(pattern="Jev read no finding's rule as holding"),
+        ): Warn(pattern="Jev read no finding's rule as holding against this post, so it stays as say sent it"),
     },
 )
-def message_limits(evt: BaseHookEvent) -> HookResult | None:
-    return checked(evt, "message_limits.py")
+def sent_post(evt: BaseHookEvent) -> HookResult | None:
+    """Jev's verdict on a say post Slack already has, from what the drive's checks found in it before say ran, so say posts at once and Jev checks afterwards, by his pick "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until its handler edits it": a post Jev holds stays in his DM as written, and its session hears to reword it in place, its turn waiting on the verdict; a say call that posted nothing, its POSTED or EDITED link missing, hears nothing more."""
+    if (output := SentPosts.load(evt).found.get(evt.tool_use_id)) is None:
+        return None
+    with SentPosts.mutate(evt) as sent:
+        del sent.found[evt.tool_use_id]
+    response = evt.tool_response
+    if not (link := SENT.search(response if isinstance(response, str) else json.dumps(response))):
+        return None
+    return judged(evt, output, link[1])
 
 
 @on(

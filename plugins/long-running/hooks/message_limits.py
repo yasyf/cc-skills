@@ -429,7 +429,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
-    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
+    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
         return posted, payload["tool_input"]
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -442,7 +442,7 @@ def checked(payload: dict) -> tuple[str | None, dict]:
         claims = tools.parsed("claims", payload["tool_input"].get("claims") or [], mcp.CLAIMS)
     except DriveError as error:
         return agents.Unjudged(str(error)), payload["tool_input"]
-    sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"]))} if found else {}) | ({"claims": claims} if claims else {})
+    sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": said} if found else {}) | ({"claims": claims} if claims else {})
     return found_in(payload | {"tool_input": sent}, drive, said, found), sent
 
 
