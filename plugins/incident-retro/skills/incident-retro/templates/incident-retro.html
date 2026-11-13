@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:786204e700d2 — do not edit; edit the source and rerun -->
+<!-- built by plugins/_shared/build.py from templates/src/incident-retro.html + 17 partials sha256:4add7d6f7eff — do not edit; edit the source and rerun -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -200,6 +200,7 @@ input.search{border:1px solid var(--line);background:var(--card);color:var(--ink
 .count{font-size:var(--t-md);color:var(--ink2)}
 .empty,.netmsg,.ir-keyempty{padding:var(--s-5) var(--s-1);color:var(--ink2);font-size:var(--t-base)}
 .netmsg{text-align:center;border:1px dashed var(--line);border-radius:var(--r-node)}
+.evmiss{margin:var(--s-3) 0;color:var(--ink2);font-size:var(--t-sm)}
 .empty{border-bottom:1px solid var(--line)}
 .skip{position:fixed;left:var(--s-3);top:-64px;z-index:60;background:var(--card);border:1px solid var(--accent);color:var(--accent);padding:var(--s-3) var(--s-5);border-radius:var(--r-ctl);transition:top .15s}
 .skip:focus{top:var(--s-3);text-decoration:none}
@@ -267,6 +268,7 @@ body.diffmode.show-unch .unch{opacity:.45}
 .disc>summary>.h{flex:0 1 auto;min-width:0;font-weight:600;overflow-wrap:anywhere}
 .disc>summary>.meta{flex:1 1 auto;min-width:0;font-weight:400;font-size:var(--t-md);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .disc>summary:where(:not(:has(>.meta)))>.h{flex:1 1 auto}
+.disc>summary>.h.hwrap{flex:1 1 30ch}
 .disc>summary>.when{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink2);font-variant-numeric:tabular-nums}
 .disc>.body,.disc>.x,.disc>.tbody,.disc>.nbbody{
   padding:0 var(--s-1) var(--s-5) var(--disc-in);
@@ -619,6 +621,17 @@ a.lv-card:hover{border-color:var(--accent);text-decoration:none}
 }
 
 .xs{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:var(--s-6) 0 var(--s-3);padding:0 clamp(18px,3vw,30px) var(--s-6)}
+.gl{background:var(--hero-bg);color:var(--hero-ink);border-radius:var(--r-fig);margin:var(--s-6) 0 var(--s-3);padding:var(--s-6);display:grid;gap:20px}
+.gl-k{display:block;font-size:var(--t-sm);color:var(--hero-ink2);margin-bottom:var(--s-2)}
+.gl-what{font-size:22px;line-height:30px;font-weight:600;margin:0;max-width:65ch;text-wrap:pretty}
+.gl-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-6)}
+.gl-big{font-size:20px;line-height:28px;font-weight:600;margin:0}
+.gl-sub{font-size:var(--t-md);color:var(--hero-ink2);margin:var(--s-1) 0 0}
+.gl-sev{display:inline-block;margin-left:var(--s-3);vertical-align:middle;font-size:var(--t-sm);font-weight:600;border:1px solid var(--hero-line);border-radius:var(--r-pill);padding:0 var(--s-3)}
+.gl-fix{font-size:var(--t-lg);line-height:1.55;margin:0;max-width:72ch}
+.gl-fix .lchips{margin-top:var(--s-2)}
+body.glance #tilesHost,body.glance.onewin #windowsHost{display:none}
+@media (max-width:640px){.gl{padding:var(--s-5);gap:var(--s-5)}.gl-grid{grid-template-columns:1fr;gap:var(--s-5)}}
 .xs-steps{display:flex;gap:var(--s-4);overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;border-bottom:1px solid var(--hero-line);margin-bottom:var(--s-6)}
 .xs-steps::-webkit-scrollbar{display:none}
 .xs-step{scroll-snap-align:start}
@@ -1271,6 +1284,8 @@ html[data-theme=dark]:not([data-print]){
     <form method="dialog"><button class="lv-btn">Close</button></form>
   </dialog>
 </div>
+
+<div class="gl" id="glanceHost" hidden></div>
 
 <div class="xs" id="execHost" hidden></div>
 
@@ -1987,7 +2002,7 @@ const F_TIME=fmtIn({hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
 const F_DAY=fmtIn({weekday:"long",day:"numeric",month:"long",year:"numeric"});
 const F_SHORT=fmtIn({day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
 const F_KEY=fmtIn({year:"numeric",month:"2-digit",day:"2-digit"});
-const F_TZ=fmtIn({timeZoneName:"short"});
+const F_TZ=new Intl.DateTimeFormat("en-US",{timeZone:TZ,timeZoneName:"short"});
 const fmtTime=s=>{const t=tsOf(s);return t==null?"":F_TIME.format(t)};
 const F_CLOCK=fmtIn({hour:"numeric",minute:"2-digit",hour12:true});
 const fmtClock=t=>F_CLOCK.format(t).toLowerCase().replace(/\s+/g,"");
@@ -1995,7 +2010,7 @@ const fmtLocal=s=>{const t=tsOf(s);return t==null?"":F_SHORT.format(t)};
 const fmtDay=s=>{const t=tsOf(s);return t==null?"":F_DAY.format(t)};
 const dayKey=s=>{const t=tsOf(s);if(t==null)return "";const p=Object.fromEntries(F_KEY.formatToParts(t).filter(x=>x.type!=="literal").map(x=>[x.type,x.value]));return `${p.year}-${p.month}-${p.day}`};
 const utcStr=s=>{const t=tsOf(s);return t==null?"":new Date(t).toISOString().slice(0,16).replace("T"," ")+" UTC"};
-const tzName=()=>{const p=F_TZ.formatToParts(Date.now()).find(x=>x.type==="timeZoneName");return p?p.value:TZ};
+const tzName=()=>{const p=F_TZ.formatToParts(Date.now()).find(x=>x.type==="timeZoneName");return p?p.value.replace(/^([A-Z])[SD]T$/,"$1T"):TZ};
 function durMs(ms){
  if(!(ms>=0)||!isFinite(ms))return "";
  const m=Math.round(ms/60000);
@@ -2123,7 +2138,7 @@ function renderDoctop(){
  $("#docTitle").textContent=META.title||"Untitled retrospective";
  const sub=$("#docSub");
  sub.textContent=META.subtitle||"";
- sub.hidden=!META.subtitle;
+ sub.hidden=!META.subtitle||plain(META.subtitle).toLowerCase()===plain(META.title||"").toLowerCase();
  const inc=META.incident||{};
  const pills=[];
  const st=STATUS_LBL[META.status]||(META.status?["p-dead",META.status]:null);
@@ -2370,6 +2385,56 @@ function renderSummary(){
  box.hidden=!(SUMMARY.text||SUMMARY.p);
  termify(box);
 }
+let DECK=false;
+function durWords(ms){
+ const m=Math.round(ms/60000);
+ if(m<1)return "under a minute";
+ const d=Math.floor(m/1440),h=Math.floor(m%1440/60),mm=m%60;
+ const n=(v,u)=>v?`${v} ${u}${v===1?"":"s"}`:"";
+ return (d?[n(d,"day"),n(h,"hour")]:[n(h,"hour"),n(mm,"minute")]).filter(Boolean).join(" ");
+}
+function glanceHow(){
+ const on=tsAt("onset"),end=tsAt("allClear")||tsAt("resolved");
+ const a=tsOf(on),b=tsOf(end);
+ if(a==null)return "";
+ const span=b==null?`Since ${fmtLocal(on)} ${tzName()}`
+  :`${fmtLocal(on)}–${dayKey(on)===dayKey(end)?fmtTime(end):fmtLocal(end)} ${tzName()}`;
+ const steps=[["detected","Detected"],["mitigated","mitigated"]].map(([k,w])=>{const t=tsOf(tsAt(k));return t==null?"":`${w} after ${durWords(t-a)}`}).filter(Boolean);
+ return `<span class="gl-k">How long</span><p class="gl-big">${esc(b==null?"Still open":durWords(b-a))}</p>`+
+  `<p class="gl-sub num">${esc(span)}</p>${steps.length?`<p class="gl-sub">${esc(steps.join(", "))}</p>`:""}`;
+}
+function glanceWho(){
+ const teams=[...new Set([...(IMPACT.teams||[]),...(META.teams||[])].filter(t=>typeof t==="string"&&t))];
+ const said=plain(twin(IMPACT,IMPACT.text||""));
+ const sev=(META.incident||{}).severity;
+ const line=said||(teams.length?teams.join(", "):"Not established");
+ return `<span class="gl-k">Who was hurt</span><p class="gl-big">${said?inline(twin(IMPACT,IMPACT.text||"")):esc(line)}${sev?`<span class="gl-sev">${esc(String(sev).toUpperCase())}</span>`:""}</p>`+
+  (said&&teams.length?`<p class="gl-sub">${esc(teams.join(", "))}</p>`:"");
+}
+function glanceFix(){
+ const said=twin(RESOLUTION,RESOLUTION.text||"");
+ const prs=ACTIONS.flatMap(linksOf).filter(l=>l.kind==="pr");
+ const seen=new Set();
+ const links=prs.filter(l=>!seen.has(l.url)&&seen.add(l.url));
+ const on=tsOf(tsAt("onset"));
+ const deploy=tlAt().find(e=>e.kind==="deploy"&&(on==null||tsOf(e.ts)>=on));
+ const parts=[said?inline(said):"",deploy?esc(`${plain(unslack(deploy.text||deploy.h))} at ${fmtTime(deploy.ts)} ${tzName()}.`):""].filter(Boolean);
+ if(!parts.length&&!links.length)return `<span class="gl-k">What fixed it</span><p class="gl-fix">No fix is recorded yet.</p>`;
+ return `<span class="gl-k">What fixed it</span><div class="gl-fix">${parts.map(x=>`<p class="gl-fix">${x}</p>`).join("")}${linkChipsHtml(links)}</div>`;
+}
+function renderGlance(){
+ const host=$("#glanceHost");
+ const show=!DECK&&!ongoing();
+ document.body.classList.toggle("glance",show);
+ document.body.classList.toggle("onewin",WINDOWS.length<=1);
+ host.hidden=!show;
+ if(!show){host.innerHTML="";return}
+ const cause=causesAt().find(c=>c.kind==="root")||causesAt()[0];
+ const what=cause?twin(cause,cause.text||cause.t||""):(SUMMARY.p||SUMMARY.text||META.title||"");
+ host.innerHTML=`<div><span class="gl-k">What happened</span><p class="gl-what">${inline(unslack(what))}</p></div>`+
+  `<div class="gl-grid"><div>${glanceWho()}</div><div>${glanceHow()}</div></div><div>${glanceFix()}</div>`;
+ termify(host);
+}
 function renderIncidents(){
  const host=$("#incidentsHost");
  host.innerHTML=INCIDENTS.map(i=>`<div class="ir-incident" id="${esc(i.id)}"><b>${inline(i.t||"")}</b><span class="idchip">${esc(i.id)}</span>${i.h?` <span class="chip">${esc(i.h)}</span>`:""}</div>`).join("");
@@ -2407,13 +2472,35 @@ const tlKindsPresent=()=>TL_KINDS.filter(k=>TIMELINE.some(e=>e.kind===k));
 const tlActorsPresent=()=>[...new Set(TIMELINE.map(e=>e.actor).filter(Boolean))].sort();
 const tlPhasesPresent=()=>[["during","While it was live"],...(TIMELINE.some(e=>e.phase==="before")?[["before","Before"]]:[]),
  ...(TIMELINE.some(e=>e.phase==="after")?[["after","After"]]:[])];
-const keyMoments=()=>{const rows=tlAt();const key=rows.filter(e=>e.key===true);return key.length?key:rows};
+const keyMoments=()=>{const rows=tlDedupe(tlAt());const key=rows.filter(e=>e.key===true);return key.length?key:rows};
 function kpill(kind){return `<span class="kpill" data-kind="${esc(kind)}"><i aria-hidden="true">${TL_GLYPH[kind]||"·"}</i>${esc(TL_LABEL[kind]||kind)}</span>`}
 function windowPill(id){
  const w=WINDOWS.find(x=>x.id===id);
  return w?`<a class="wpill" data-kind="${esc(w.kind)}" href="#overview" data-ref="${esc(w.id)}">${esc(handleOf(w.id))}</a>`:"";
 }
-const tlName=e=>e.h||firstSentence(plain(e.text||""));
+const SLACK_MARK=/<(?:[@!][\w^|-]+(?:\|[^>]*)?|#C[A-Z0-9]+\|([^>]+)|(https?:[^|>]+)(?:\|([^>]+))?)>/g;
+const unslack=s=>String(s||"").replace(SLACK_MARK,(m,ch,url,label)=>ch?"#"+ch:url?(label||url):"").replace(/\s{2,}/g," ").trim();
+const tlClipped=e=>{
+ if(!e.h||!e.text)return false;
+ const h=plain(unslack(e.h)).toLowerCase().replace(/[.,;:]+$/,""),t=plain(unslack(e.text)).toLowerCase();
+ return t.length>h.length+1&&t.startsWith(h);
+};
+const causeName=c=>tlClipped(c)?firstSentence(plain(unslack(twin(c,c.text)))):(c.h||c.t||"");
+const tlName=e=>tlClipped(e)?plain(unslack(e.text)):(unslack(e.h)||firstSentence(plain(unslack(e.text||""))));
+const tlSame=(a,b)=>a.kind===b.kind&&(a.actor||"")===(b.actor||"")
+ &&plain(unslack(a.text||a.h)).toLowerCase()===plain(unslack(b.text||b.h)).toLowerCase()
+ &&Math.abs((tsOf(b.ts)||0)-(tsOf(a.ts)||0))<=10*60e3;
+const refKey=r=>typeof r==="string"?r:(r&&r.url)||JSON.stringify(r);
+function tlDedupe(rows){
+ const out=[];
+ rows.forEach(e=>{
+  const prev=out[out.length-1];
+  if(!prev||!tlSame(prev,e)){out.push(e);return}
+  const refs=[...(prev.refs||[]),...(e.refs||[])];
+  out[out.length-1]=Object.assign({},prev,{key:prev.key===true||e.key===true,refs:refs.filter((r,i)=>refs.findIndex(x=>refKey(x)===refKey(r))===i)});
+ });
+ return out;
+}
 function tlRowHtml(e,unchanged,idPrefix){
  return `<details class="disc ir-row${unchanged?" unch":""}${e.key===true?" key":""}" id="${esc((idPrefix||"")+e._id)}" data-kind="${esc(e.kind)}">`+
   `<summary><span class="dis" aria-hidden="true">›</span>`+
@@ -2421,15 +2508,21 @@ function tlRowHtml(e,unchanged,idPrefix){
   `<span class="k">${kpill(e.kind)}${e.actor?`<span class="actor" title="${esc(e.actor)}">${esc(e.actor)}</span>`:""}</span>`+
   `<span class="h">${esc(tlName(e))}</span>`+
   `${e.window?windowPill(e.window):""}${e.id?`<span class="idchip">${esc(e.id)}</span>`:""}${dmark("timeline",e._id)}</summary>`+
-  `<div class="x"><p>${inline(e.text||"")}${e.id?aiAskBtn(e.id):""}</p>${refChipsHtml(e.refs)}</div>`+
+  `<div class="x">${tlClipped(e)?(e.id?`<p>${aiAskBtn(e.id)}</p>`:""):`<p>${inline(unslack(e.text||""))}${e.id?aiAskBtn(e.id):""}</p>`}${refChipsHtml(e.refs)}</div>`+
   `</details>`;
 }
+const rowPhase=e=>e.phase==="before"&&tsOf(e.ts)>=tsOf(TS.onset)-1000?"":(e.phase||"");
+const TL_PHASE_PILL={before:"before the incident",after:"after the incident","":"during the incident"};
 function tlDays(host,rows,idPrefix){
- let day="",vis=0,hid=0;
+ let day="",phase=null,vis=0,hid=0;
  const hiding=DIFF&&!document.body.classList.contains("show-unch");
+ const phased=rows.some(e=>rowPhase(e));
  rows.forEach(e=>{
-  const k=dayKey(e.ts);
-  if(k!==day){day=k;host.append(el("div","ir-day",esc(fmtDay(e.ts))+(e.phase?` <span class="pill p-dead">${esc(e.phase==="before"?"before the incident":"after the incident")}</span>`:"")))}
+  const k=dayKey(e.ts),p=rowPhase(e);
+  if(k!==day||p!==phase){
+   day=k;phase=p;
+   host.append(el("div","ir-day",esc(fmtDay(e.ts))+(phased?` <span class="pill p-dead">${esc(TL_PHASE_PILL[p]||p)}</span>`:"")));
+  }
   const u=DIFF&&!DIFF.marks["timeline:"+e._id];
   if(u&&hiding)hid++;else vis++;
   host.insertAdjacentHTML("beforeend",tlRowHtml(e,u,idPrefix));
@@ -2449,7 +2542,7 @@ const tlMatch=e=>!isFuture(e.ts)&&(tlKind==="all"||e.kind===tlKind)
  &&(!tlQuery||(e.text+" "+(e.h||"")+" "+(e.actor||"")+" "+(e.id||"")).toLowerCase().includes(tlQuery.toLowerCase()));
 function renderTimeline(){
  const host=$("#tlList");host.innerHTML="";
- const all=tlAt();
+ const all=tlDedupe(tlAt());
  $("#tlAll").textContent=`${all.length} entries`;
  const rows=all.filter(tlMatch);
  const [vis,hid]=tlDays(host,rows);
@@ -2531,7 +2624,7 @@ function causeBody(c){
 function causeRow(c){
  const det=el("details","disc ir-cause");det.id=c.id;
  const [sc,sl]=CAUSE_LBL[c.kind]||["st-dead",c.kind||""];
- det.innerHTML=`<summary><span class="dis" aria-hidden="true">›</span><span class="h">${esc(c.h||c.t||"")}</span><span class="st ${sc}">${esc(sl)}</span>${untimed(c.identifiedAt)?NODATA:""}${c.incident&&REF[c.incident]?`<span class="chip">${esc(c.incident)}</span>`:""}<span class="idchip">${esc(c.id)}</span>${dmark("causes",c.id)}${aiAskBtn(c.id)}</summary><div class="body">${causeBody(c)}</div>`;
+ det.innerHTML=`<summary><span class="dis" aria-hidden="true">›</span><span class="h hwrap">${esc(causeName(c))}</span><span class="st ${sc}">${esc(sl)}</span>${untimed(c.identifiedAt)?NODATA:""}${c.incident&&REF[c.incident]?`<span class="chip">${esc(c.incident)}</span>`:""}<span class="idchip">${esc(c.id)}</span>${dmark("causes",c.id)}${aiAskBtn(c.id)}</summary><div class="body">${causeBody(c)}</div>`;
  if(DIFF&&!DIFF.marks["causes:"+c.id])det.classList.add("unch");
  return det;
 }
@@ -2788,7 +2881,7 @@ function renderEvidence(){
   });
   host.append(grid);
  }
- if(EVID.errors.length)host.append(el("p","netmsg",esc(`${EVID.errors.length} evidence snapshot${EVID.errors.length===1?" is":"s are"} missing: `+EVID.errors.map(x=>x.file).join(", "))));
+ if(EVID.errors.length)host.append(el("p","evmiss",esc(`${EVID.errors.length} evidence snapshot${EVID.errors.length===1?"":"s"} did not load.`)));
  termify(host);
 }
 
@@ -2864,6 +2957,8 @@ JOBS.push(loadFile("summary.html").catch(()=>"").then(async text=>{
  termify(host);
  if(panels.length>1)execSteps(host,panels);
  host.hidden=false;
+ DECK=true;
+ renderGlance();
  await mountComponents(host);
 }));
 
@@ -3898,6 +3993,7 @@ function renderAll({evidence=true}={}){
  indexRefs();
  indexCiteable();
  renderDoctop();
+ renderGlance();
  renderOverview();
  setupTimeline();
  setupCauses();
@@ -5159,7 +5255,7 @@ function irNotebook(spec,host,jobs){
  det.id=spec.implicit?"nb-"+id:`nbc-${id}-${++nbSeq}`;
  det.open=spec.open===true;
  if(!nb){
-  det.innerHTML=`<summary><span class="dis" aria-hidden="true">›</span><span class="h">${esc(spec.title||"Notebook "+id)}</span><span class="meta">snapshot missing</span></summary><div class="nbbody"><p class="netmsg">No snapshot at ${esc(meta.file||"evidence/datadog/notebook-"+id+".json")}. Run <code>retro.py evidence fetch --notebook ${esc(id)}</code>.</p></div>`;
+  det.innerHTML=`<summary><span class="dis" aria-hidden="true">›</span><span class="h">${esc(spec.title||"Notebook "+id)}</span><span class="meta">snapshot missing</span></summary><div class="nbbody"><p class="evmiss">The notebook snapshot did not load.${meta.url&&safeUrl(meta.url)?` <a href="${esc(meta.url)}" target="_blank" rel="noopener">Open it in Datadog</a>`:""}</p></div>`;
   det.dataset.failed="1";
   det.dataset.source="notebook "+id;
   return det;
@@ -5238,7 +5334,7 @@ function irSlack(spec){
  const box=el("div","ddc ir-slack");
  box.dataset.kind="ir.slack-thread";
  if(!snap){
-  box.innerHTML=`<div class="shead"><b>Slack</b></div><p class="netmsg">No snapshot for ${esc(shortUrl(spec.permalink||""))}. Write one with <code>retro.py evidence slack new</code>.</p>`;
+  box.innerHTML=`<div class="shead"><b>Slack</b></div><p class="evmiss">The Slack snapshot did not load.${spec.permalink&&safeUrl(spec.permalink)?` <a href="${esc(spec.permalink)}" target="_blank" rel="noopener">Open it in Slack</a>`:""}</p>`;
   return box;
  }
  const users=slackUsers(snap);
@@ -5339,7 +5435,7 @@ function irCauses(spec){
  box.dataset.kind="ir.causes";
  if(spec.title)box.append(el("div","ddc-head",inline(spec.title)));
  const tiers=[["trigger","Trigger"],["root","Root cause"],["contributing","Contributing"]];
- const node=c=>`<button class="ir-node" type="button" data-ref="${esc(c.id)}"><b>${esc(handleOf(c.id))}</b></button>`;
+ const node=c=>`<button class="ir-node" type="button" data-ref="${esc(c.id)}"><b>${esc(tlClipped(c)?causeName(c):handleOf(c.id))}</b></button>`;
  const draw=(list,host)=>{
   if(spec.layout==="list"){
    host.insertAdjacentHTML("beforeend",tiers.map(([k,l])=>{const items=list.filter(c=>c.kind===k);return items.length?`<div class="tier" data-k="${k}"><span class="tl">${l}</span><div class="nodes reflist">${items.map(c=>refChip(c.id)).join("")}</div></div>`:""}).join(""));
@@ -5687,9 +5783,7 @@ const liveSource=()=>{
  return src&&/^[\w.-]+\/[\w.-]+$/.test(String(src.repo||""))&&src.branch?src:null;
 };
 const liveWatchable=()=>ongoing()&&!!liveSource();
-function liveContents(path,token){
- const src=liveSource();
- if(!src)return Promise.reject(new Error("no live source"));
+function liveContents(src,path,token){
  const url=`${GH_API}/repos/${src.repo}/contents/${encodeURIComponent(src.dir||"incident-retros")}/${encodeURIComponent(SLUG)}/`+
   path.split("/").map(encodeURIComponent).join("/")+`?ref=${encodeURIComponent(src.branch)}`;
  return fetch(url,{headers:{Accept:"application/vnd.github.raw","X-GitHub-Api-Version":"2022-11-28",
@@ -5703,12 +5797,13 @@ function stopLive(){
 }
 function watchLive(token){
  if(!liveWatchable())return;
- EV_FETCH=path=>liveContents(path,token);
+ const src=liveSource();
+ EV_FETCH=path=>liveContents(src,path,token);
  let last="";
  const tick=async()=>{
   if(!liveWatchable()){stopLive();return}
   let text;
-  try{text=await liveContents("retro.json",token)}
+  try{text=await liveContents(src,"retro.json",token)}
   catch(e){return}
   if(text===last)return;
   last=text;

@@ -256,6 +256,30 @@ class LivePollRebuildsThePage(unittest.TestCase):
             server.server_close()
             chrome.close()
 
+    def test_a_finalized_draft_on_the_live_branch_keeps_its_evidence(self):
+        chrome = B.Chrome(self.chrome_path)
+        server, base = B.serve(self.root)
+        try:
+            self.publish(record(timeline=TIMELINE[:2]))
+            session = self.open_page(chrome, base)
+            time.sleep(1.5)
+            final = record(timeline=[dict(TIMELINE[2], refs=[SLACK_URL])],
+                           evidence={"slack": [{"url": SLACK_URL, "file": "evidence/slack/thread.json"}]})
+            final["meta"]["status"] = "draft"
+            final["live"].pop("source")
+            self.publish(final, with_slack=True)
+            B.evaluate(chrome, session, "(window.irLiveTick(),1)")
+            time.sleep(1.5)
+            state = json.loads(B.evaluate(chrome, session, """JSON.stringify({
+              messages: document.querySelectorAll("#evidenceHost .ir-msg").length,
+              missing: [...document.querySelectorAll("#evidenceHost .evmiss")].map(n => n.textContent)})"""))
+            self.assertGreater(state["messages"], 0, "the draft's Slack thread did not load from the live branch")
+            self.assertEqual(state["missing"], [], "the draft reported its evidence missing")
+        finally:
+            server.shutdown()
+            server.server_close()
+            chrome.close()
+
     def test_the_models_chapters_regroup_the_live_view_as_entries_land(self):
         chrome = B.Chrome(self.chrome_path)
         server, base = B.serve(self.root)
