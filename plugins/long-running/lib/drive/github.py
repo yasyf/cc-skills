@@ -10,7 +10,7 @@ NUMBER = "<number>"
 REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
     "state isDraft headRefOid baseRefName headRefName title author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
-    "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
+    "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } timelineItems(itemTypes: [LABELED_EVENT], last: 20) { nodes { ... on LabeledEvent { createdAt label { name } } } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
 )
@@ -104,8 +104,10 @@ def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
 
 
 def flatten(node: dict) -> dict:
+    """One PR's GraphQL node as the drive reads it, with ejected_at, when Trunk last put the trunk-failed label it carries on it, or None when it carries none."""
     commits = node["commits"]["nodes"]
     rollup = commits[0]["commit"]["statusCheckRollup"] if commits else None
+    labels = [label["name"] for label in node["labels"]["nodes"]]
     return {
         "state": node["state"],
         "isDraft": node["isDraft"],
@@ -119,7 +121,8 @@ def flatten(node: dict) -> dict:
         "mergeable": node["mergeable"],
         "title": node["title"],
         "author": (node["author"] or {"login": DELETED_AUTHOR})["login"],
-        "labels": [label["name"] for label in node["labels"]["nodes"]],
+        "labels": labels,
+        "ejected_at": max((event["createdAt"] for event in node["timelineItems"]["nodes"] if event["label"]["name"] == EJECTED_LABEL), default=None) if EJECTED_LABEL in labels else None,
     }
 
 

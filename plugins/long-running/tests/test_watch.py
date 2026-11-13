@@ -133,6 +133,7 @@ def read(**overrides: object) -> dict:
         "title": "Fix: the watch",
         "author": "yasyf",
         "labels": [],
+        "ejected_at": None,
         "native": [],
         "required_checks": ["buildkite/test"],
         "required_reviews": 1,
@@ -3581,13 +3582,43 @@ def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_reads_unlanded_
     approve(demo, KEY)
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"head": "aaaaaaa111", "card": CARD, "lander": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": land.QUEUED, "below": []}}
-    serve(monkeypatch, {KEY: read(labels=[github.EJECTED_LABEL])})
+    serve(monkeypatch, {KEY: read(labels=[github.EJECTED_LABEL], ejected_at=state.stamp(T0 + timedelta(minutes=1)))})
     watching = watcher(demo)
     unlanded = f"STAGE {KEY} unlanded since {state.stamp(T0)}, owed by the session holding its order: Trunk ejected it from the merge queue [o1 j1]"
     lines = watch.run_pass(watching, T0)
     assert lines == [f"PR {KEY}: ejected from the merge queue [o1 j1]", unlanded]
     assert (watch.wakes(lines[0], state.load(demo)), watch.wakes(unlanded, state.load(demo))) == (False, True)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+
+
+def test_trunk_failing_a_stack_at_its_top_pr_reads_every_pr_its_lander_queued_ejected_until_one_is_queued_again_alone(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stacked(demo)
+    approve(demo, KEY, OTHER)
+    enqueue_exiting(tmp_path, demo, 0)
+    assert land.run(demo, [KEY, OTHER]) == land.QUEUED
+    queued = max(state.parse_time(state.load(demo)["prs"][key]["lander"]["at"]) for key in (KEY, OTHER))
+    reads = {key: read(headRefOid=head, checks=GREEN, reviewDecision="APPROVED", native=[(KEY, "open"), (OTHER, "open")]) for key, head in ((KEY, "aaaaaaa111"), (OTHER, "bbbbbbb222"))}
+    reads[OTHER] |= {"labels": [github.EJECTED_LABEL], "ejected_at": state.stamp(queued + timedelta(minutes=5))}
+    serve(monkeypatch, reads)
+    assert watch.github_lines(watcher(demo), T0) == [f"PR {KEY}: ejected from the merge queue [o1 j1]", f"PR {OTHER}: ejected from the merge queue [o1 j1]"]
+    ejected = stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue")
+    assert [stage.of(state.load(demo), key, NO_CARDS) for key in (KEY, OTHER)] == [ejected, ejected]
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert watch.github_lines(watcher(demo), T0 + timedelta(minutes=1)) == []
+    assert [stage.of(state.load(demo), key, NO_CARDS).name for key in (KEY, OTHER)] == ["landing", "unlanded"]
+
+
+def test_a_trunk_failed_label_left_from_before_its_landers_try_at_a_pushed_head_is_no_ejection(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
+    approve(demo, KEY)
+    tried = "2026-11-12T21:08:30-08:00"
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"head": "566abed000", "card": CARD, "lander": {"head": "566abed000", "pid": 1, "at": tried, "outcome": land.QUEUED, "below": [], "entry": KEY}}
+    serve(monkeypatch, {KEY: read(headRefOid="566abed000", labels=["externally-merged", github.EJECTED_LABEL], ejected_at="2026-11-12T13:48:03Z")})
+    assert watch.github_lines(watcher(demo), state.parse_time(tried) + timedelta(minutes=1)) == []
+    assert stage.of(state.load(demo), KEY, NO_CARDS).name == "landing"
 
 
 def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_each_plugin_its_merge_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

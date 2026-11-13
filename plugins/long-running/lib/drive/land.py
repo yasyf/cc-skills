@@ -126,12 +126,6 @@ def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
     return {key: tuple(sorted(members, key=lambda member: len(chain(under, member)))) for members in stacks.values() if len(members) > 1 or data["prs"][members[0]]["native"] for key in members}
 
 
-def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
-    """The open PRs a session's stack-enqueue names with key, bottom first, which the landing_guard hook holds it to: those of the card his Approve covered it on that share its landing stack, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together."""
-    landed = stacks.get(key, (key,))
-    return [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open" and member in landed]
-
-
 def unready(data: dict, key: str, cards: dict) -> str | None:
     """Why a lander does not queue the PR now, its stage when that is not ready, or None when it lands."""
     from drive import stage
@@ -286,12 +280,12 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str]) -> str:
-    """Record what came of a landing on each PR, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
+    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander waited on the queue or an install."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key))])
     with state.edit(name) as data:
         for key in keys:
             pr = data["prs"][key]
-            pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
+            pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
             if pr["lander"].get("was") == outcome:
                 continue
             repo, number = key.split("#")

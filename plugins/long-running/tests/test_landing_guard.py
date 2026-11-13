@@ -226,11 +226,15 @@ def stored_stack(drive_pr: str, run: Run) -> list[str]:
     return keys
 
 
-def test_enqueueing_the_bottom_of_a_stored_stack_alone_is_refused_naming_every_pr(stored_stack: list[str], no_calls: None) -> None:
-    reason = landing_guard.deny_reason(bash("stack-enqueue 41"))
-    assert reason == landing_guard.STACK_REASON.format(named=stored_stack[0], left=", ".join(stored_stack[1:]), every="41 42 43")
-    assert reason.endswith("`stack-enqueue 41 42 43`")
-    assert landing_guard.deny_reason(bash("stack-enqueue 41 2>&1 | tail -20")) == reason
+def test_enqueueing_a_pr_of_a_stored_stack_needs_only_the_prs_under_it_named_so_a_held_pr_above_holds_none_of_them(stored_stack: list[str], no_calls: None) -> None:
+    with state.edit("demo") as data:
+        data["prs"][stored_stack[2]] |= {"hold_label": True, "tap": None}
+    assert landing_guard.deny_reason(bash("stack-enqueue 41")) is None
+    reason = landing_guard.deny_reason(bash("stack-enqueue 42"))
+    assert reason == landing_guard.STACK_REASON.format(named=stored_stack[1], left=stored_stack[0], every="41 42")
+    assert reason.endswith("`stack-enqueue 41 42`")
+    assert landing_guard.deny_reason(bash("stack-enqueue 42 2>&1 | tail -20")) == reason
+    assert landing_guard.deny_reason(bash("stack-enqueue 41 42")) is None
 
 
 def test_enqueueing_every_open_pr_of_a_stored_stack_passes(stored_stack: list[str], no_calls: None) -> None:
