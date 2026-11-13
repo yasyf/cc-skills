@@ -74,12 +74,12 @@ class Against(DriveError):
         )
 
 
-def check(name: str, key: str, cited: list[str]) -> None:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, and keep its head checked; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words."""
+def check(name: str, key: str, cited: list[str]) -> dict:
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his cited names or its design cites, and return the head it checked, or the one its head already holds, for verdict to keep, judging past no install's lock; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
-        return None
+        return pr["checked"]
     orders = state.served_orders(data, pr)
     state.let_go_install()
     read = change(key)
@@ -104,27 +104,28 @@ def verdict(name: str, key: str) -> str:
     except DriveError as error:
         outcome = f"{FAILED}: {error}"
     else:
-        stamp = checked or pr["checked"]
-        outcome = f"{CHECKED} against the words of {', '.join(stamp['orders'])} at {stamp['head'][:10]}, so his Approve lands it once it is green"
-    return kept(name, key, {"head": head, "at": at, "outcome": outcome, "against": named, "checked": checked})
+        outcome = f"{CHECKED} against the words of {', '.join(checked['orders'])} at {checked['head'][:10]}, so his Approve lands it once it is green"
+    return kept(name, key, {"head": head, "at": at, "outcome": outcome, "against": named, "checked": checked, "pid": os.getpid()})
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes; when a newer install saved the drive while the check judged holding no install's lock, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
+    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; when a newer install saved the drive while the check judged holding no install's lock, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
     outcome = result["outcome"]
     try:
         with state.edit(name) as data:
             pr = data["prs"][key]
+            if (checker := pr["checker"]) and checker["pid"] != result["pid"] and state.parse_time(checker["at"]) > state.parse_time(result["at"]):
+                return f"{outcome}; not kept, since another check of {key} started while this one judged"
             if result["checked"]:
                 pr["checked"] = result["checked"]
-            pr["checker"] = {"head": result["head"], "pid": os.getpid(), "at": result["at"], "outcome": outcome, "against": result["against"]}
+            pr["checker"] = {"head": result["head"], "pid": result["pid"], "at": result["at"], "outcome": outcome, "against": result["against"]}
             if not outcome.startswith(FAILED):
                 repo, number = key.split("#")
                 state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
     except state.NewerDrive:
         if not (newer := install.upgraded()):
             raise
-        receipt = state.drive_dir(name) / "prs" / f"{key.replace('/', '-').replace('#', '-')}.{result['head'][:12]}.json"
+        receipt = state.drive_dir(name) / "prs" / f"{key.replace('/', '-').replace('#', '-')}.{result['head'][:12]}.{result['pid']}.json"
         receipt.parent.mkdir(exist_ok=True)
         return json.loads(install.handed(newer, name, ["pr", "checked", state.pr_url(key)], receipt, result, f"{key}: {outcome}", JUDGE_SECONDS))["outcome"]
     if outcome.startswith(FAILED):
