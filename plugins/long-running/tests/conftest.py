@@ -689,6 +689,12 @@ def receiving(monkeypatch: pytest.MonkeyPatch) -> Receiver:
 
 
 @pytest.fixture(autouse=True)
+def no_relay(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every watch a test runs starts no relay thread, whose Orca reads and sleeps would run beside the test; a test of the relay runs its passes with relay_pass."""
+    monkeypatch.setattr(watch, "relay", lambda watcher: None)
+
+
+@pytest.fixture(autouse=True)
 def delivered_each_minute(monkeypatch: pytest.MonkeyPatch) -> None:
     """GitHub delivering a change of every PR the watch hears and of every release before each pass that runs its 60-second block, so a test reads them all there; a test of what deliveries owe runs the real pass."""
     passed = watch.run_pass

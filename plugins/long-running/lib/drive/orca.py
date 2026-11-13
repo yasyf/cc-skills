@@ -554,6 +554,11 @@ def mail(run: str, after: int) -> list[dict]:
     return sorted((message for message in messages if message["to_handle"] == f"run:{run}" and message["sequence"] > after), key=lambda message: message["sequence"])
 
 
+def newest_mail() -> list[dict]:
+    """The newest MAIL_LIMIT messages to every recipient, read without binding or consuming, so one call hears every lane's newest questions."""
+    return call("inbox", "--limit", str(MAIL_LIMIT))["messages"]
+
+
 def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
 
