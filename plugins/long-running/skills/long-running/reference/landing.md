@@ -289,7 +289,9 @@ walks each stack his Approve touches, a native GitHub stack or PRs each on the o
 branch, and lands each PR he approved with the PRs under it once each of them is ready.
 `stack-enqueue` queues a named PR with those below it and never one above, so a PR above that cannot land
 now, such as one red, held, in conflict or still waiting on his Approve, holds none of them. While a PR
-below cannot land, the PR above it reads `behind` it. Each other PR of his card lands in a call of its own, since `stack-enqueue`
+below cannot land, the PR above it reads `behind` it, and while one below conflicts with its base, every PR above it
+reads `behind` it whatever its own row reads, owed by that PR's owner or the card holding it, so no builder above it
+is woken: none of them lands before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`
 refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. What
 holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
 watch wakes, and its deadline wakes that owner again.

@@ -243,6 +243,48 @@ def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_h
     assert woken == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(conflicting_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
 
 
+REPLAYED_54026 = "Forge-AI/monorepo#54026"
+REPLAYED_UNKNOWN = (REPLAYED_55220, "Forge-AI/monorepo#55285", "Forge-AI/monorepo#55522")
+REPLAYED_STACK_55221 = (REPLAYED_54026, "Forge-AI/monorepo#54916", "Forge-AI/monorepo#54904", *REPLAYED_UNKNOWN)
+REPLAYED_HOLDING_CARD = "demo:j850-684800"
+
+
+def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_with_its_base_is_behind_it_owed_by_its_owner_and_wakes_no_builder_above_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
+) -> None:
+    waiting_job(demo)
+    asking(monkeypatch, demo, REPLAYED_HOLDING_CARD)
+    with state.edit(demo) as data:
+        for key in REPLAYED_STACK_55221:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": True, "card": CARD, "checked": CHECKED}
+        data["prs"][REPLAYED_54026]["waits"] = [REPLAYED_HOLDING_CARD]
+    native = [(key, "open") for key in REPLAYED_STACK_55221]
+    branches = ["durable-agents-j850", "durable-agents-j1389-a", STACKED_BASE, "durable-agents-j2279-a", "durable-agents-j2279-b", "durable-agents-j2279-c"]
+    stacked = {
+        key: {"baseRefName": base, "headRefName": branch, "checks": GREEN, "reviewDecision": "APPROVED", "native": native}
+        for key, base, branch in zip(REPLAYED_STACK_55221, ["dev", *branches[:-1]], branches, strict=True)
+    }
+    reads = {key: read(**stacked[key], mergeable="CONFLICTING" if key == REPLAYED_54026 else "UNKNOWN" if key in REPLAYED_UNKNOWN else "MERGEABLE") for key in REPLAYED_STACK_55221}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    held_why = f"{REPLAYED_54026} below it in its stack conflicts with its base dev, held: it waits on his cards {REPLAYED_HOLDING_CARD}"
+    for minutes, mergeable in ((0, "UNKNOWN"), (2, "CONFLICTING"), (32, "CONFLICTING"), (242, "CONFLICTING")):
+        for key in REPLAYED_UNKNOWN:
+            reads[key] = read(**stacked[key], mergeable=mergeable)
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+        prs = state.load(demo)["prs"]
+        assert [(prs[key]["stage"]["name"], prs[key]["stage"]["owner"], prs[key]["stage"]["why"]) for key in REPLAYED_STACK_55221[1:]] == [("behind", stage.HIM, held_why)] * 5
+        assert woken == []
+    reads[REPLAYED_54026] = read(**stacked[REPLAYED_54026], mergeable="MERGEABLE")
+    restacked_at = T0 + timedelta(minutes=243)
+    watch.run_pass(watching, restacked_at)
+    prs = state.load(demo)["prs"]
+    assert [prs[key]["stage"]["name"] for key in REPLAYED_STACK_55221[:4]] == ["held", "card", "card", "red"]
+    behind_55220 = ("behind", stage.BUILDER, f"{REPLAYED_55220} below it in its stack conflicts with its base {STACKED_BASE}, red: {CONFLICTS_WITH_BASE}")
+    assert [(prs[key]["stage"]["name"], prs[key]["stage"]["owner"], prs[key]["stage"]["why"]) for key in REPLAYED_UNKNOWN[1:]] == [behind_55220] * 2
+    assert woken == [(REPLAYED_55220, f"{REPLAYED_55220} red since {state.stamp(restacked_at)}, owed by its builder: {CONFLICTS_WITH_BASE} [o1 j1]")]
+
+
 def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     reads = {KEY: read()}
     serve(monkeypatch, reads)
