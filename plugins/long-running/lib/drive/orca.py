@@ -113,6 +113,7 @@ class LaneEnd(NamedTuple):
     run: str | None = None
     unfit: bool = False
     unreached: bool = False
+    live: bool = False
 
 
 def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
@@ -365,7 +366,7 @@ def brief_of(vm_brief: str) -> str:
 def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None) -> str:
     """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
     local = here or state.on_mac(job)
-    how = "finished" if end.worktree else "died"
+    how = "finished" if end.worktree or end.live else "died"
     if end.worktree and not here:
         where = f"You continue the job in its terminal and checkout {ON_MAC}, as it left them." if local else "You continue the job on the same Sprite, in the checkout it left as it was."
     elif since:
@@ -599,12 +600,7 @@ def receipt(dispatch: str) -> dict:
 
 def adopted(brief: Path) -> dict | None:
     """The worker an earlier launch of this brief started and the drive never recorded, as a job records it, when the attempt the launcher keeps for the brief holds a ready worker-start receipt, which the launcher refuses to launch the brief again past; else None, as when Orca no longer reaches that worker, which leaves its attempt to the launcher."""
-    attempt = brief.with_suffix(".worker")
-    status = attempt / "worker-start.status"
-    if not status.is_file() or status.read_text().strip() != "0":
-        return None
-    started = json.loads((attempt / "worker-start.json").read_text()).get("result") or {}
-    if started.get("state") != "ready":
+    if not (started := kept_start(brief)):
         return None
     try:
         return receipt(started["dispatchId"])
@@ -613,6 +609,16 @@ def adopted(brief: Path) -> dict | None:
             return None
         raise
 
+
+
+def kept_start(brief: Path) -> dict | None:
+    """The ready worker-start receipt the launcher keeps in the attempt of this brief, None when that attempt started no worker or there is none."""
+    attempt = brief.with_suffix(".worker")
+    status = attempt / "worker-start.status"
+    if not status.is_file() or status.read_text().strip() != "0":
+        return None
+    started = json.loads((attempt / "worker-start.json").read_text()).get("result") or {}
+    return started if started.get("state") == "ready" else None
 
 def death(worker: dict) -> str | None:
     """Why a lane's worker is gone for good, from its worker-show, or None while Orca still holds it."""
