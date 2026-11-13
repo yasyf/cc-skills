@@ -5190,6 +5190,32 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     assert (asked, shown) == ([(state.pr_url(other), f"{KEY} merged, {other} merged"), (state.pr_url(KEY), f"{KEY} merged")], [])
 
 
+def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_is_read_while_closed_so_its_reopen_redraws_that_card_in_place(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
+    url = state.pr_url(KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(wants_tap=True, card=CARD)
+    shown = [pr_card(KEY)]
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": list(shown)})
+    monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda pr, why: shown.clear() or [CARD])
+    reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
+    calls = serve(monkeypatch, reads)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert (redraws.asked, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([url], "card")
+    reads[KEY] = read(state="CLOSED", checks=GREEN, reviewDecision="APPROVED")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"PR {KEY}: closed [o1 j1]", f"CARD {CARD} settled in place: {KEY} closed"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+    assert (redraws.asked, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([url], "closed")
+    reads[KEY] = read(checks=GREEN, reviewDecision="APPROVED")
+    reopened = watch.run_pass(watching, T0 + timedelta(minutes=3))
+    data = state.load(demo)
+    assert (reopened, watch.wakes(reopened[0], data)) == ([f"PR {KEY}: open [o1 j1]"], False)
+    assert (redraws.asked, data["prs"][KEY]["state"], data["prs"][KEY]["stage"]["name"], data["prs"][KEY]["card"]) == ([url, url], "open", "card", CARD)
+    assert calls == [[KEY]] * 4
+
+
 def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_builders_ready(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True

@@ -160,12 +160,12 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard open PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it."""
     data = state.load(watcher.name)
     pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
     keys = [
         key
-        for key in state.open_pr_keys(data)
+        for key in state.unmerged_pr_keys(data)
         if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or (data["prs"][key]["required"] is None and key not in watcher.stale))
     ]
     watcher.owed = set()
@@ -184,13 +184,15 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
+            was_open = pr["state"] == "open"
             changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
             pr["required"]["read"] = state.stamp(moment)
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
                 continue
             pr["updated"] = state.stamp(moment)
-            lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
+            if was_open or pr["state"] == "open":
+                lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
     watcher.stale |= set(foreign)
     return lines + dropped_lines(watcher, foreign, moment)
 
@@ -1376,7 +1378,7 @@ def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if state.scratch():
         return []
     data = state.load(watcher.name)
-    heard = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
     awaited = {found["pr"] for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (found := state.RELEASE_WAIT.fullmatch(wait))}
     errors: list[str] = []
     try:
@@ -2158,7 +2160,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard open PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again on one that waits on him while it fixes a live bug. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each uncarded PR, one card for the PRs of one card unit as drive card draws them, redraw his card in place on every other change of stage so its line shows it, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again on one that waits on him while it fixes a live bug. A draw that fails keeps the PR uncarded for the next read, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -2166,14 +2168,15 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
         stacks = land.landing_stacks(data)
         units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
         acts = []
-        for key in state.open_pr_keys(data):
+        for key in state.unmerged_pr_keys(data):
             pr = data["prs"][key]
             if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
                 continue
             now = stage.of(data, key, watcher.cards)
             if stage.entered(pr["stage"], now):
                 stage.stamp(pr, now, moment)
-                acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
+                if pr["state"] == "open":
+                    acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
             elif stage.overdue(data, pr, now, moment):
                 stage.kept(pr, now)
                 pr["stage"]["woke"] = state.stamp(moment)
