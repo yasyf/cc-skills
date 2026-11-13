@@ -469,6 +469,7 @@ def newest_drive() -> Path:
 
 def handed(newer: Path, name: str, verb: list[str], receipt: Path, kept: dict, what: str, seconds: float) -> str:
     """Run the newest install's `drive <verb> <receipt>` on what an older install's verb kept in receipt, once a newer install saved the drive while that verb worked holding no install's lock, so what it did lands either way; its stdout, or a refusal naming the receipt, which stays."""
+    receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(kept))
     try:
         done = subprocess.run([str(newer), *verb, str(receipt), "--drive", name, "--json"], capture_output=True, text=True, check=False, timeout=seconds)
