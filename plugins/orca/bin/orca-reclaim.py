@@ -906,8 +906,12 @@ def apply(action: Action, orca: Orca, git: Git, pause: Pause, budget: Budget | N
             return Action("removed", action.target, action.reason, action.shells, action.agents) if refusal is None else Action("keep", action.target, refusal)
         try:
             with one_removal(budget):
+                if pause.files_held():
+                    return pause.skip_files(action.target)
                 refusal = orca.remove(action.target)
                 if refusal is not None and refusal.startswith(UNREGISTERED) and Path(action.target).is_dir():
+                    if pause.files_held():
+                        return pause.skip_files(action.target)
                     if refusal := git.remove(action.target):
                         return Action("keep", action.target, f"Orca no longer tracks it and git worktree remove refused: {refusal}")
                     return Action("removed", action.target, ", ".join(filter(None, (action.reason, "Orca no longer tracks it, so git worktree remove removed it"))), action.shells, action.agents)
