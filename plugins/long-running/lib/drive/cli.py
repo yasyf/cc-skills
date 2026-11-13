@@ -1950,7 +1950,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     if refused := (
         state.held_elsewhere(data, job["order"], role)
         or brief.brief_refusal(name, data, job_id, written)
-        or orca.uncarried(name, written)
+        or orca.uncarried(name, job_id, written)
         or (f"its brief names {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")

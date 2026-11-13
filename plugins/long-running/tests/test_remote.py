@@ -425,7 +425,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
         path.write_text(text)
     (folder / "scratch" / "j4").mkdir()
     text = (
-        "Order (his words): ship it\nResearched: j1\nPlan: Design j2, whole: drive job report j2\n"
+        "Order (his words): ship it\nResearched: j1\nPlan: Design j2, whole: reports/j2.md (drive job report j2)\n"
         f"Done when: j3 asked for `{folder}/asks/j2-0c1d2e3f.md` and repro/j1.sh, then ~/{folder.relative_to(folder.parents[1])}/scratch/j1/notes.md.\n"
         "Elsewhere: /other/long-running/other/asks/j9-1a2b3c4d.md\n"
         f"Scratch: {folder}/scratch/j4\nTranscripts:\n- j3 reader: x.jsonl"
@@ -439,7 +439,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     assert "# Drive file scratch/j1/notes.md, which your brief names\n\nthe notes\n" in composed
     carried = composed.split(orca.BRIEF_HEADING)[0]
     assert (carried.count("\n# Report of j2"), carried.count("\n# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 3, False, False)
-    assert orca.uncarried(demo, text) is None
+    assert orca.uncarried(demo, "j5", text) is None
     assert orca.brief_of(composed) == text
 
 
@@ -454,8 +454,65 @@ def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_a
     before = state.load(demo)["jobs"]["j1"]
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     refusal = capsys.readouterr().err
-    assert refusal.startswith("drive: j1: refused, not launched: its brief names Report of j404; Drive file asks/j1290-702505b0.md, which the drive keeps no text of")
+    assert refusal == (
+        "drive: j1: refused, not launched: its brief names Report of j404; Drive file asks/j1290-702505b0.md, which the drive keeps no text of,"
+        " so its lane would stop to ask for each; launch it on a brief file that leaves each out: drive job launch j1 <file>\n"
+    )
     assert state.load(demo)["jobs"]["j1"] == before
+
+
+def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2102s_carries_its_kept_report_and_launches(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    folder = state.drive_dir(demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read it back")
+    run("job", "add", "builder", "--order", "o1", "--goal", "read it back again", "--remote")
+    state.keep_report(demo, "j1", "DONE the read-back", "DONE the read-back\n- the delete half NOT PROVEN\n")
+    (tmp_path / "brief.md").write_text(
+        "Order (his words): ship it\n"
+        "Goal: rerun the read-back to prove what reports/j1.md left unproven\n"
+        f"Where: the earlier result {folder}/reports/j1.md, the research {folder}/scratch/j1/researched.md\n"
+        "Drive: demo, order o1, job j2\n"
+    )
+    (folder / "scratch" / "j1").mkdir(parents=True)
+    (folder / "scratch" / "j1" / "researched.md").write_text("the research\n")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    briefs = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: briefs.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j2", "brief.md") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    carried = briefs[0].split(orca.BRIEF_HEADING)[0]
+    assert "\n# Report of j1, which your brief names\n\nDONE the read-back\n- the delete half NOT PROVEN\n" in carried
+    assert (carried.count("\n# Report of j1"), carried.count("\n# Drive file")) == (1, 1)
+
+
+def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_j2807s_carries_the_file_job_set_kept_and_launches(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    folder = state.drive_dir(demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
+    state.keep_report(demo, "j1", "DONE the cause", "DONE the cause\nREPRO: repro/j1.py\n")
+    (tmp_path / "steps.py").write_text("raise SystemExit(1)\n")
+    assert run("job", "set", "j1", "--repro", str(tmp_path / "steps.py"))[0] == 0
+    (tmp_path / "brief.md").write_text(
+        "Order (his words): ship it\n"
+        f"Done when: on the installed release, {folder}/repro/j1.* exits 0\n"
+        "Researched: j1\n"
+        "Drive: demo, order o1, job j2\n"
+    )
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    briefs = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: briefs.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j2", "brief.md") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    carried = briefs[0].split(orca.BRIEF_HEADING)[0]
+    assert "\n# Drive file repro/j1.py, which your brief names\n\nraise SystemExit(1)\n" in carried
+    assert (carried.count("\n# Report of j1"), carried.count("\n# Drive file")) == (1, 1)
 
 
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
