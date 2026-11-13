@@ -138,13 +138,14 @@ RECORD = {
 
 
 def verb_tools() -> list[dict]:
-    """The drive verbs the MCP server serves beside say, each typed from the CLI's own parser."""
-    job_add = schema(leaf("job", "add"))
+    """The drive verbs the MCP server serves beside say, each typed from the CLI's own parser, built once for them all."""
+    root = cli.parser()
+    job_add = schema(leaf("job", "add", root=root))
     job_add["properties"]["order"] = {
-        "anyOf": [TEXT, schema(leaf("order", "add"))],
+        "anyOf": [TEXT, schema(leaf("order", "add", root=root))],
         "description": "the order's id, or the fields of drive order add, which adds that order first and takes its id",
     }
-    item = RECORD | {"properties": RECORD["properties"] | {"order": {"anyOf": [TEXT, schema(leaf("order", "add"))], "description": RECORD_ORDER}}}
+    item = RECORD | {"properties": RECORD["properties"] | {"order": {"anyOf": [TEXT, schema(leaf("order", "add", root=root))], "description": RECORD_ORDER}}}
     return [
         {
             "name": "heard",
@@ -152,7 +153,7 @@ def verb_tools() -> list[dict]:
                 "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on:"
                 " the drive's watch posts his catch-up through a handler it starts."
             ),
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("heard", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
         },
         {
             "name": "handler",
@@ -165,7 +166,7 @@ def verb_tools() -> list[dict]:
                 " <that handler's id>, which takes it at its next step and covers it in its post; it refuses a brief while a"
                 " live handler holds the same record or the same message of his, a copy that needs nothing."
             ),
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("handler"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("handler", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
         },
         {
             "name": "record",
@@ -191,11 +192,11 @@ def verb_tools() -> list[dict]:
                 "required": ["records"],
             },
         },
-        *(ops_tool(group, {"add": job_add} if group == "job" else {}) for group in OPS),
+        *(ops_tool(group, {"add": job_add} if group == "job" else {}, root) for group in OPS),
         {
             "name": "status",
             "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, each whole, or with none a coordinator's own open orders, a line each, and any other session's every open order. A handler, the coordinator or the meta session reads this, never the communicator.",
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("status", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
         {
@@ -205,7 +206,7 @@ def verb_tools() -> list[dict]:
                 " before building it or asking. Returns the sections carrying the most of them, best first, each under its"
                 " plan's title, id, status and the headings above it."
             ),
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["words"]},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["words"]},
             "annotations": {"readOnlyHint": True},
         },
     ]
@@ -284,10 +285,10 @@ def listing(arguments: dict, field: str, items: str) -> list[dict]:
     return arguments[field]
 
 
-def ops_tool(group: str, typed: dict[str, dict]) -> dict:
+def ops_tool(group: str, typed: dict[str, dict], root: argparse.ArgumentParser) -> dict:
     verbs = OPS[group]
     shapes = [
-        {"type": "object", "properties": {verb: typed.get(verb) or chained(schema(leaf(group, verb)))}, "required": [verb], "additionalProperties": False}
+        {"type": "object", "properties": {verb: typed.get(verb) or chained(schema(leaf(group, verb, root=root)))}, "required": [verb], "additionalProperties": False}
         for verb in verbs
     ]
     return {
@@ -308,8 +309,8 @@ def chained(shape: dict) -> dict:
     return shape
 
 
-def leaf(*words: str) -> argparse.ArgumentParser:
-    parser = cli.parser()
+def leaf(*words: str, root: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
+    parser = root or cli.parser()
     for word in words:
         parser = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction)).choices[word]
     return parser
