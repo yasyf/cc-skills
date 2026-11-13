@@ -281,8 +281,10 @@ approvals and queues it. His card tap starts it when the PR is already green, ap
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 one GitHub read, 60 seconds, of the PR getting there. It
 walks each stack his Approve touches, a native GitHub stack or PRs each on the one below's head
-branch, and lands it whole once every PR of it is ready; while one cannot land now, such as one red,
-held, in conflict or still waiting on his Approve, each other PR of it reads `behind` it. Each other PR of his card lands in a call of its own, since `stack-enqueue`
+branch, and lands each PR he approved with the PRs under it once each of them is ready.
+`stack-enqueue` queues a named PR with those below it and never one above, so a PR above that cannot land
+now, such as one red, held, in conflict or still waiting on his Approve, holds none of them. While a PR
+below cannot land, the PR above it reads `behind` it. Each other PR of his card lands in a call of its own, since `stack-enqueue`
 refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. What
 holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
 watch wakes, and its deadline wakes that owner again.

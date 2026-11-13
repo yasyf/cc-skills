@@ -2953,9 +2953,9 @@ def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_an
 
 @pytest.mark.parametrize(
     ("approved", "card", "unit"),
-    [((KEY, OTHER), None, (KEY, OTHER)), ((KEY,), None, None), ((OTHER,), None, None), ((KEY, OTHER), "demo:j1-7-a", None)],
+    [((KEY, OTHER), None, (KEY, OTHER)), ((KEY,), None, (KEY,)), ((OTHER,), None, None), ((KEY, OTHER), "demo:j1-7-a", None)],
 )
-def test_a_lander_queues_a_stack_whole_once_he_approved_each_pr_and_nothing_while_his_card_holds_it(
+def test_a_lander_queues_each_pr_he_approved_with_those_below_it_never_one_above_and_nothing_while_his_card_holds_it(
     demo: str, landers: list[tuple[str, ...]], approved: tuple[str, ...], card: str | None, unit: tuple[str, ...] | None
 ) -> None:
     stacked(demo)
@@ -3003,27 +3003,65 @@ def test_a_question_kept_before_holds_lines_holds_nothing_so_the_approved_pr_of_
     assert land.start(demo, [KEY], cards) == [(KEY,)]
 
 
-def test_a_lander_queues_a_stack_whole_once_the_open_pr_a_pr_above_its_ready_bottom_waits_on_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_lander_queues_a_stacks_ready_bottom_while_a_pr_above_it_waits_on_an_open_pr_and_that_pr_once_it_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j1", "o1")
         data["jobs"]["j1"]["waits"] = [KEY, OTHER, THIRD]
         data["prs"][OTHER]["waits"] = [THIRD]
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == []
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
     with state.edit(demo) as data:
         data["prs"][THIRD]["state"] = "merged"
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY, OTHER)]
-    assert landers == [(KEY, OTHER)]
+        data["prs"][KEY]["state"] = "merged"
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(OTHER,)]
+    assert landers == [(KEY,), (OTHER,)]
 
 
-def test_a_lander_queues_nothing_while_a_pr_above_its_green_approved_bottom_is_red(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_lander_queues_a_stacks_green_approved_bottom_while_a_pr_above_it_is_red(demo: str, landers: list[tuple[str, ...]]) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][OTHER]["checks"] = "fail"
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == []
-    assert landers == []
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
+    assert landers == [(KEY,)]
+
+
+def test_his_approve_under_a_pr_the_hold_label_holds_queues_it_with_the_prs_under_it_and_leaves_the_held_pr_open(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    reads = three_stacked(demo, monkeypatch)
+    reads[THIRD] = stacked_read("ccccccc333", labels=[github.HOLD_LABEL])
+    approve(demo, KEY, OTHER)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(minutes=10))
+    assert landers == [(KEY, OTHER)]
+    assert state.load(demo)["prs"][THIRD]["lander"] is None
+
+
+def test_his_approve_on_a_branch_of_a_stack_tree_beside_an_unapproved_one_queues_that_branch_with_its_root_as_its_tap_line_and_dry_run_say(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    fourth, fifth = "Forge-AI/monorepo#45", "Forge-AI/monorepo#46"
+    shape = {KEY: ("root", "main"), OTHER: ("middle", "root"), THIRD: ("top", "middle"), fourth: ("left", "root"), fifth: ("right", "root")}
+    with state.edit(demo) as data:
+        for key, (branch, base) in shape.items():
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "branch": branch, "base": base, "checks": "pass", "review": "approved"}
+    approve(demo, KEY, THIRD, fourth, fifth)
+    head = enqueue_exiting(tmp_path, demo, 0)
+    monkeypatch.setattr(land.github, "below", lambda key: {THIRD: [KEY, OTHER], fourth: [KEY], fifth: [KEY]}.get(key, []))
+    behind = stage.of(state.load(demo), THIRD, NO_CARDS)
+    assert (behind.name, behind.why.startswith(f"{OTHER} below it in its stack, ")) == ("behind", True)
+    assert land.run(demo, [THIRD], dry_run=True) == land.held_below([THIRD], [OTHER])
+    assert stage.of(state.load(demo), fourth, NO_CARDS).name == "ready"
+    assert land.run(demo, [fourth], dry_run=True).startswith(f"would queue {fourth} through stack-enqueue --watch from main at {head[:12]}")
+    assert land.start(demo, list(shape), NO_CARDS) == [(KEY, fourth)]
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["prs"][fourth]["lander"]["outcome"] = land.QUEUED
+    assert land.start(demo, list(shape), NO_CARDS) == [(fifth,)]
+    assert landers == [(KEY, fourth), (fifth,)]
 
 
 def test_a_native_stack_on_another_tracked_prs_branch_joins_its_landing_stack_and_lands_with_it_once_he_approves_each(

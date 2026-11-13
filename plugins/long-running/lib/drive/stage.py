@@ -148,13 +148,12 @@ def grading(pr: dict) -> str:
 
 
 def behind(data: dict, key: str, cards: dict, now: Stage) -> Stage:
-    """The PR's stage now, unless it reads ready while another PR of its landing stack, bottom first, does not by its own row, since the stack lands whole: then that PR's stage, seen from this one, whose owner owes the step."""
+    """The PR's stage now, unless it reads ready while a PR under it, bottom first, does not by its own row, since stack-enqueue lands it with the PRs under it and never waits on one above: then that PR's stage, seen from this one, whose owner owes the step."""
     if now.name != "ready":
         return now
-    stack = land.landing_stacks(data).get(key, (key,))
-    for member in stack:
-        if member != key and (other := own(data, member, cards)).name != "ready":
-            return Stage("behind", other.owner, f"{member} {'below' if stack.index(member) < stack.index(key) else 'above'} it in its stack, {other.name}: {other.why}")
+    for member in land.chain(land.unders(data), key)[:-1]:
+        if (other := own(data, member, cards)).name != "ready":
+            return Stage("behind", other.owner, f"{member} below it in its stack, {other.name}: {other.why}")
     return now
 
 
