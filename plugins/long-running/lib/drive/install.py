@@ -611,12 +611,12 @@ def proof_gap(data: dict, job_id: str) -> str | None:
     if product(data, job_id):
         return (
             f"{', '.join(map(state.pr_key, job['prs']))} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install"
-            " puts on this Mac: a fresh builder with a merge handoff proves it from its INSTALL: and PROVE: lines once that release is out"
+            " puts on this Mac: a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines once that release is out"
         )
     if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
         return (
             f"{job_id} keeps no proof file to run: keep one with drive job set {job_id} --repro <file>, which the watch runs on the installed plugins,"
-            " or start a fresh builder with a merge handoff that proves it from its INSTALL: and PROVE: lines"
+            " or start a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, that proves it from its INSTALL: and PROVE: lines"
         )
     return None
 
