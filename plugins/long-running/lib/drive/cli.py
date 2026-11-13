@@ -2590,7 +2590,8 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         saved = None if finished or unreached else orca.save(name, args.id, job, root)
     except orca.OrcaError as error:
         saved, left = None, str(error)
-    branches = [] if finished or unreached else orca.saved(name, args.id, job, root, every=bool(left))
+    unsaved = left if here else None
+    branches = [] if finished or unreached else orca.saved(name, args.id, job, root, every=bool(unsaved))
     continued = None
     if unreached:
         continued = "Orca could not reach that Sprite"
@@ -2610,7 +2611,6 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.md"
     kept.parent.mkdir(exist_ok=True)
-    unsaved = None if continued else left
     brief = orca.vm_brief(name, args.id, orca.handoff(rebriefed(name, args.id), ended, branches, job, message, end, continued, here, unsaved), route)
     was = orca.place(job)
     if same:
@@ -2646,13 +2646,15 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             + (
                 f"it continues in the checkout it left on {source}, which cc-remote prepared again with the tools and keys a fresh Sprite gets"
                 if finished
-                else f"it continues in the checkout the dead lane left on {source}, since {continued}"
-                if continued
                 else f"{source} is kept, since what it holds on no remote could not be saved: {unsaved}"
                 + (f"; the job's lanes saved on GitHub {', '.join(branches)}" if branches else "")
                 if unsaved
                 else f"what {source} held on no remote is saved on GitHub as {', '.join(branches)}"
                 if branches
+                else f"it continues in the checkout the dead lane left on {source}, since {continued}"
+                if continued
+                else f"{source} is kept, since what it holds on no remote could not be saved: {left}"
+                if left
                 else f"work not pushed from {source} is not carried over"
             )
         )

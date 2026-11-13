@@ -2308,6 +2308,7 @@ def test_a_resume_holding_the_lock_stands_down_before_it_wakes_or_starts_anythin
     unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a resume standing down reads nothing of its lane"))
     waiting = os.getppid()
+    (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
     (state.drive_dir(remote) / "jobs" / "j1.launch").write_text(f"{waiting}\n")
     assert cli.main(["job", "resume", "j1", watch.UNREACHED]) == 2
     assert capsys.readouterr().err == (
