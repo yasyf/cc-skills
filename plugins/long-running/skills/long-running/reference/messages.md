@@ -318,7 +318,8 @@ Posting it:
   asked it>`. One question keeps one `waits` id and one card, which every copy of it in Slack and the
   dashboard draws from: `drive job ask` keeps a block asking an open question again, in the same
   words, as that question, `drive job card` draws it under the question's `waits` id whatever new
-  seq it is given, and his answer closes every copy at once. `drive job ask` refuses a block another
+  seq it is given, and his answer closes every copy at once. A question that ended draws under no
+  `waits` id: `drive job card` refuses it, naming the words it ended on. `drive job ask` refuses a block another
   job's open card asks. When a job builds the recommended option meanwhile, the summary says which
   option is being built, and names the immediate fix or rollback already shipping.
 - Set `drive` to the drive's name on every card, so cc-slack reads a `waits` card as the drive's

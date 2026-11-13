@@ -95,14 +95,23 @@ def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | Non
         return f"refused: {file} keeps no question of {job_id}, and {keep}"
     if " ".join(question["title"].split()).casefold() not in " ".join(text.split()).casefold():
         return f'refused: {file} keeps {job_id}\'s question "{question["title"]}", which this record does not ask, and {keep}'
-    if question["refused"]:
-        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `drive job ask` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
-    if question["closed"]:
-        return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} ended {question["closed"]["how"]}, so its card never draws again, and {keep}'
+    if refused := card_refusal(job_id, question, file):
+        return f"{refused}, and {keep}" if question["closed"] else refused
     if marks := incident_marks(names, named):
         orders = ", ".join(state.open_incidents(data, [job["order"], *job["carries"]]))
         return UNMARKED_INCIDENT.format(job=job_id, orders=orders, flags=" ".join(f"--attr {key}={value}" for key, value in marks.items()))
     return None
+
+
+def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
+    """Why the job's question kept in this file draws no card, whatever waits id it is drawn under: `drive job ask` refused it, so it waits on that refusal, or it ended, answered by his tap or words, withdrawn or superseded, so its card never draws again, naming the words it ended on."""
+    if question["refused"]:
+        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}" pending, since `drive job ask` refused it, so no card draws from it; act on that refusal and ask again: {question["refused"]}'
+    if not (closed := question["closed"]):
+        return None
+    words = f': "{cut(closed["words"], QUOTED_CHARS)}"' if closed["words"] else ""
+    link = f' ({closed["link"]})' if closed["link"] else ""
+    return f'refused: {job_id}\'s question "{question["title"]}" kept in {file} ended {closed["how"]}, so its card never draws again{words}{link}'
 
 
 def incident_marks(names: list[str], named: dict[str, str]) -> dict[str, str]:

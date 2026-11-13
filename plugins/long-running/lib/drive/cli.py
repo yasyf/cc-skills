@@ -1443,17 +1443,20 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
         return named_file(args.ask, "ASK block file").resolve(), args.waits
     job = find(state.load(name)["jobs"], args.ask, "job")
     named = Path(args.file).expanduser().resolve() if args.file else None
-    kept = [question for question in job["questions"] if question["file"] and not question["refused"] and named in (None, Path(question["file"]).resolve())]
-    if not kept:
-        raise DriveError(f"{args.ask} keeps no ASK block{f' in {args.file}' if args.file else ''}: keep one with drive job ask {args.ask} <file>")
-    question = kept[-1]
+    kept = [question for question in job["questions"] if question["file"] and named in (None, Path(question["file"]).resolve())]
+    if not (drawable := [question for question in kept if not settled.card_refusal(args.ask, question, Path(question["file"]))]):
+        raise DriveError(
+            (kept and settled.card_refusal(args.ask, kept[-1], Path(kept[-1]["file"])))
+            or f"{args.ask} keeps no ASK block{f' in {args.file}' if args.file else ''}: keep one with drive job ask {args.ask} <file>"
+        )
+    question = drawable[-1]
     if not (waits := args.waits or question["waits"]):
         raise DriveError(f"{args.ask}'s ASK in {question['file']} has no card yet, so no waits id: pass --waits {name}:{args.ask}-<its ask record's seq>")
     return Path(question["file"]), waits
 
 
 def question_card(name: str, path: Path, waits: str) -> dict:
-    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code."""
+    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A question that ended, or that `drive job ask` refused, draws none under any waits id, by `settled.card_refusal`, the check an ask record naming it meets. A waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code."""
     from drive import superseded, view
 
     asked = kept_ask(path)
@@ -1463,6 +1466,8 @@ def question_card(name: str, path: Path, waits: str) -> dict:
         question = state.kept_in(job, path) or next(
             (question for other, question in reversed(asking(data, asked.title)) if other == job_id and question["file"]), None
         )
+        if question and (refused := settled.card_refusal(job_id, question, Path(question["file"]))):
+            raise DriveError(refused)
         if question and Path(question["file"]).resolve() != path.resolve():
             path = Path(question["file"])
             asked = kept_ask(path)
@@ -3644,7 +3649,9 @@ def parser() -> argparse.ArgumentParser:
             " every ask of one question redraws its one card, unless --waits names a card another of the job's questions"
             " holds, which it then redraws. A question holding none takes --waits, and one of the job's that held it"
             " before, a card this redraws, hands over its card and leaves the job; a waits id naming no job of the drive"
-            " only draws the card. Refused when his"
+            " only draws the card. Refused, under any waits id, when the question kept in the file ended, answered,"
+            " withdrawn or superseded, naming the words it ended on, or `drive job ask` refused it, the check an ask"
+            " record naming it meets; and refused when his"
             " words under that card answered it: they are his answer, and a question they leave open goes on a card of"
             " its own. A block kept under older rules redraws as kept, its Show me's visuals never checked again, and"
             " markdown in its question or options, which Slack draws raw, drawn as the words it marks. Name a job first,"
