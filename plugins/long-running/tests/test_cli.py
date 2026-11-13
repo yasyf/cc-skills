@@ -2810,7 +2810,7 @@ def test_a_builders_done_on_a_surface_its_brief_names_pictures_each_user_story_a
     one, both = (f"DONE the queue opens each card\nCHECK: {' '.join(map(str, shown))}\n" for shown in (pictures[:1], pictures))
     code, refused = keep(monkeypatch, capsys, "j1", one)
     assert code == 2
-    assert "its brief names 2 user stories and its proof pictures or records 1 of them on the installed surface" in refused
+    assert "its brief names 2 user stories and its proof shows 1 of them on the installed surface" in refused
     code, refused = keep(monkeypatch, capsys, "j1", both)
     assert code == 2
     assert "j1's brief names user stories and it keeps no proof file holding their acceptance criteria" in refused
@@ -2822,6 +2822,24 @@ def test_a_builders_done_on_a_surface_its_brief_names_pictures_each_user_story_a
     assert [asked["state"]["proof_file"] for asked in jev.asked if "proof1" in asked["questions"]] == ["#!/bin/sh\nexit 0\n"]
     jev.picks("none")
     assert keep(monkeypatch, capsys, "j1", both)[0] == 0
+
+
+def test_a_builders_done_on_his_slack_dm_is_proven_by_the_live_posts_link_its_proof_file_reads_back(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "draw the table post")
+    run("job", "add", "builder", "--order", "o1", "--goal", "draw the table")
+    told = "open the post in his DM, see the table drawn as one table with linked cells, open one link"
+    run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-slack main", "--native", "his Slack DM", "--interactions", told)
+    post = "https://acme.slack.com/archives/D123/p1794559450293519?thread_ts=1794555580.526529&cid=D123"
+    done = f"DONE the table post draws as one table\nCHECK: {post}\nNATIVE: Slack's table block\nUNPROVEN: no picture of the post in his Slack window\n"
+    code, refused = keep(monkeypatch, capsys, "j1", done)
+    assert code == 2
+    assert "j1's brief names user stories and it keeps no proof file holding their acceptance criteria" in refused
+    kept_proof(tmp_path, "j1")
+    assert keep(monkeypatch, capsys, "j1", done)[0] == 0
+    [asked] = [asked["questions"]["proof1"]["label"]["instructions"] for asked in jev.asked if "proof1" in asked["questions"]]
+    assert "the check names a picture or recording of it, or the live post's link its proof file reads back" in asked
 
 
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:

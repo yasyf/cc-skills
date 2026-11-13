@@ -4080,7 +4080,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--interactions",
-        help="his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves with one picture each on the installed surface; needed when --native names a surface",
+        help=f"his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
     )
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")

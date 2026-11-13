@@ -234,7 +234,7 @@ def test_a_codex_done_on_a_surface_its_brief_names_is_taken_only_with_a_picture_
     job = state.load(demo)["jobs"]["j1"]
     assert job["state"] == taken
     if taken == "failed":
-        assert job["said"].startswith("BLOCKED codex-ask completed, its reply refused: its brief names 2 user stories and its proof pictures or records 1 of them")
+        assert job["said"].startswith("BLOCKED codex-ask completed, its reply refused: its brief names 2 user stories and its proof shows 1 of them")
 
 
 def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:

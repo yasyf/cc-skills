@@ -24,6 +24,7 @@ CHECK = re.compile(r"^CHECK:(.*)$", re.MULTILINE)
 NATIVE = re.compile(r"^NATIVE:[ \t]*(.*)$", re.MULTILINE)
 PROOF = re.compile(r"https?://\S+|(?<![\w.])/[^\s,;)]+")
 SEEN_PROOF = re.compile(r"slack\.com/archives/|\.(?:mov|mp4|webm|gif|png|jpe?g)$", re.IGNORECASE)
+SEEN = "a picture or recording of it, or the live post's link its proof file reads back"
 NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
 STORIES_RULING = (
     '"you\'re supposed to proactively view and click through every user story and have strict acceptance critera for yourself and'
@@ -38,10 +39,10 @@ STORY_OPTIONS = {"none": "It says what he does and what he must then see.", "ste
 PROOF_QUESTION = (
     'Does the evidence below prove the user story "{story}" on the installed surface? Pick none when the proof file states strict'
     " acceptance criteria for it, what he sees first, the result of each click, key or hover, and its empty and error states, and"
-    " asserts each on the installed surface, and the check names a picture or recording of it. Pick bare when it only opens a page"
-    " or checks that something drew, states no criteria for this story, or names no picture of it."
+    f" asserts each on the installed surface, and the check names {SEEN}. Pick bare when it only opens a page"
+    " or checks that something drew, states no criteria for this story, or names none of these."
 )
-PROOF_OPTIONS = {"none": "Its criteria are stated, asserted on the installed surface and pictured.", "bare": "It stops at the bare minimum for this story."}
+PROOF_OPTIONS = {"none": "Its criteria are stated, asserted on the installed surface and seen in a picture, recording or live post.", "bare": "It stops at the bare minimum for this story."}
 CRITERIA_CHARS = 6000
 REPRO = re.compile(r"^REPRO:[ \t]*\S", re.MULTILINE)
 LEFT = re.compile(r"^(?:NEXT|UNPROVEN):.*$", re.MULTILINE)
@@ -316,7 +317,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, one picture of each user story its brief names when he sees the result, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -499,7 +500,7 @@ def unstoried(native: str, interactions: str | None) -> str | None:
     shape = (
         f"name each user story on {native} with --interactions, one per `;`, each what he does there and what he must then see,"
         ' such as "press j on the queue; the next card opens with its question as its first line", which its job writes strict'
-        f" acceptance criteria for before building and proves one picture each on the installed surface, by his words {STORIES_RULING}"
+        f" acceptance criteria for before building and proves each on the installed surface with {SEEN}, by his words {STORIES_RULING}"
     )
     if not (told := stories(interactions)):
         return shape
@@ -532,7 +533,7 @@ def unproven(text: str, job_id: str, job: dict) -> str | None:
 
 
 def story_gap(job_id: str, job: dict, named: list[str], evidence: str) -> str | None:
-    """Why the proof of a result he sees falls short: it names no recording, picture or live post of that surface, or, for a brief naming user stories, fewer pictures or recordings than stories, no proof file holding their acceptance criteria, or one Jev reads with the evidence as stopping at the bare minimum for a story, at least settled.DECIDES sure, every story read in one call; Jev giving no reading leaves it proven, said on stderr."""
+    """Why the proof of a result he sees falls short: it names no recording, picture or live post of that surface, or, for a brief naming user stories, fewer pictures, recordings or live posts than stories, no proof file holding their acceptance criteria, or one Jev reads with the evidence as stopping at the bare minimum for a story, at least settled.DECIDES sure, every story read in one call; Jev giving no reading leaves it proven, said on stderr."""
     from drive import settled
 
     seen = [proof for proof in named if SEEN_PROOF.search(proof)]
@@ -544,8 +545,8 @@ def story_gap(job_id: str, job: dict, named: list[str], evidence: str) -> str | 
         )
     if len(seen) < len(told):
         return (
-            f"its brief names {len(told)} user stories and its proof pictures or records {len(seen)} of them on the installed surface:"
-            " its proof file clicks through each story and saves one picture of each, named with its story, by his words " + STORIES_RULING
+            f"its brief names {len(told)} user stories and its proof shows {len(seen)} of them on the installed surface:"
+            f" its proof file clicks through each story and its check names, for each, {SEEN}, by his words " + STORIES_RULING
         )
     if not (job.get("repro") and Path(job["repro"]).is_file()):
         return (
@@ -565,5 +566,5 @@ def story_gap(job_id: str, job: dict, named: list[str], evidence: str) -> str | 
     return (
         f'its proof stops at the bare minimum for the story "{cut(bare[0], 120)}": its proof file states that story\'s strict acceptance'
         " criteria, what he sees first, each click, key and hover's result and its empty and error states, asserts each on the installed"
-        " surface and saves its picture, by his words " + STORIES_RULING
+        f" surface, and its check names {SEEN}, by his words " + STORIES_RULING
     )
