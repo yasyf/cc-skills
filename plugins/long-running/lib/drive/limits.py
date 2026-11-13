@@ -97,7 +97,7 @@ DESIGN_OPENING = re.compile(r"\A\s*DESIGN\b[ \t]*")
 OPTIONS_HEADING = re.compile(r"options:", re.IGNORECASE)
 QUOTE = ">"
 REDONE = "*This question is being redone:* "
-REBUILT = "Root cause: none: rebuilt from the posted card"
+REBUILT = "Root cause: none: rebuilt from the posted card\nHolds: none: rebuilt from the posted card"
 POSTED_PICTURE = re.compile(r"!\[(?P<caption>[^\]]*)\]\((?P<path>/[^)\s]+)\)")
 NAMELESS_CAPTION = re.compile(r"Show me(?: \(\d+\))?")
 FENCE = re.compile(r"^[ \t]*```")
@@ -107,6 +107,13 @@ ROOT_CAUSE = re.compile(r"^[ \t]*Root cause:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 FIRST_PRINCIPLES = re.compile(r"^[ \t]*First principles:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NONE_WHY = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+HOLDS = re.compile(r"^[ \t]*Holds:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+HOLDS_RULING = 'his pick "Each question names the changes it holds, kept with it"'
+HOLDS_SHAPE = (
+    "`Holds: <each change of the order its options alter, in that change's words, as the order's parts or your `Change:`"
+    " lines name it>` or `Holds: none: <why no option alters what any job builds>`, since his open card holds from landing"
+    " only the PRs building a change it names"
+)
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)
 FIXED = re.compile(r"fixed[ \t]*:[ \t]*(.*)", re.IGNORECASE)
@@ -382,6 +389,7 @@ class Question:
     options: list[str]
     recommended: str
     hints: dict[str, str]
+    holds: str
 
     def card(self, drive: str, waits: str) -> dict:
         """The question card a handler draws from this block, each option's description as the hint cc-slack draws under it, and each file name and path in its body and hints in code formatting."""
@@ -547,7 +555,7 @@ def ask_block(text: str) -> str:
 
 
 def question(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, and a question on a bug hurting someone now names the immediate fix shipping while he picks."""
+    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -632,12 +640,15 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
         problems += root_cause_problems(findings[0], options, RECOMMENDED.sub("", marked[0]))
+    held = HOLDS.search(findings[0]) if findings else None
+    if not kept and not (held and held[1] and held[1].casefold() != "none"):
+        problems.append(f"no `Holds:` line under `Findings:` naming what his open card holds: write {HOLDS_SHAPE} ({HOLDS_RULING})")
     if hurting and not kept:
         problems += interim_fix_problems("".join(findings[:1]))
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
-    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), hints)
+    return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]), hints, "" if held is None or NONE_WHY.match(held[1]) else held[1])
 
 
 def shape(text: str, drive: str, job_id: str, pictures: Path, unsettled: str | None = None, hurting: bool = False) -> Question:

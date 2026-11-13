@@ -89,10 +89,14 @@ flags and verbs, is always an option too, by his words "in geernal keeps implify
 defect is behind it>`. His ruling: "Update your skill to not just brush over the root cause ever". `drive job report` refuses a `DESIGN` without it. On an
 incident or a bug a reporter shared, an `Interim fix:` line links the immediate fix shipping while he
 picks, or the job building it, or says `Interim fix: none: <why nobody is hurt now>`, and `drive job
-report` refuses a `DESIGN` without it. On a bug a reporter shared, any report but an `ASK`, `BLOCKED`
-or `HANDOFF` ends with `FIX <the order or PR that fixes the cause>`, several comma-separated, or
-`FIX none`, which marks that order a live bug's fix from then on, and `drive job report` refuses
-one without it. Start no other line with `- `, since
+report` refuses a `DESIGN` without it. A `Holds:` line names, in each change's own words, every
+part of the order its options alter, or says `Holds: none: <why no option alters what any job builds>`,
+since his open card holds from landing only the PRs of jobs working a change it names, by his pick
+"Each question names the changes it holds, kept with it", and `drive job report` refuses a `DESIGN`
+without it. On a bug a reporter shared, any report but an `ASK`, `BLOCKED` or `HANDOFF` ends with
+`FIX <the order or PR that fixes the cause>`, several comma-separated, or `FIX none`, which marks that
+order a live bug's fix from then on, and `drive job report` refuses one without it. Start no other
+line with `- `, since
 `drive job report` counts each as an option. Any other report opens `DONE`, and `drive job report`
 refuses one naming a limit beside a number left as is, unchanged, hit or exceeded, such as "the bucket
 caps at 5k objects/s, left as is": that finding is a `DESIGN`. Only your own words count, so a quote,

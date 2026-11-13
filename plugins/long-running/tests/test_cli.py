@@ -42,6 +42,7 @@ PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
+HOLDS = "Holds: none: no option changes code any job builds\n"
 DESIGN_TITLE = "Where should store_copy_at in supervisor/copies.rs run each store copy?"
 SECOND_OPTION = (
     "- store_copy_at runs on a separate worker that reads each store from the bucket and copies it there\n"
@@ -55,7 +56,7 @@ DESIGN_RESEARCH = (
     "- store_copy_at runs on the primary, beside the queries it serves, copying each store in list order (recommended)\n"
     "  The primary calls store_copy_at in `supervisor/copies.rs` for each store in list order between the queries it serves, writing"
     " each copy to the team's bucket for a restore to read; each query waits behind a running copy.\n"
-    f"{SECOND_OPTION}Findings:\n{ROOT_CAUSE}{RESEARCH.removeprefix('DONE researched the store copy\n')}"
+    f"{SECOND_OPTION}Findings:\n{ROOT_CAUSE}{HOLDS}{RESEARCH.removeprefix('DONE researched the store copy\n')}"
 )
 DESIGNED = f"""DESIGN the store copy
 Design: one copy per store, in the order the stores list
@@ -109,6 +110,7 @@ Where each reader's reads of the four moved tables go, per option
   Touches: the server code of the first option, and `dashboard/src/iris/journal`, which loses its direct bucket reads for the Calls section, values and the program.
 Findings:
 Root cause: none: the split is new work; it moves four tables into a second database while every reader today opens one database per run.
+Holds: none: no option changes code any job builds
 First principles: The journal engine attaches the record
 Interim fix: none: no runner writes format 16 yet, so no reader meets a split journal.
 - The card behind answer 0507794 says, in every option: "Readers attach the record only when a step, value or binding opens." No answer says how a reader attaches it.
@@ -1261,6 +1263,7 @@ The sidebar from the top down under each option, with a pinned Unichat and one p
 - Chat pins join today's Pinned section of projects and apps, and that section moves from below the chat lists to the top
 Findings:
 Root cause: none: a new feature a user asked for, not a defect
+Holds: none: no option changes code any job builds
 The sidebar draws New Chat, Search, New Agent, then the session list, then the Pinned section of projects and apps.
 """)
 
@@ -1368,7 +1371,7 @@ def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_un
     state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
-    bare = explained("ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n")
+    bare = explained("ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nKept on disk.\n")
     block.write_text(bare)
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
     assert (
@@ -1415,7 +1418,7 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
         explained(
             "ASK How do leases stop leaking?\nA lease outlives the run that took it, so the next run waits on it.\n"
             "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
-            "Findings:\nRoot cause: none: a design pick\nTwo runs held one lease.\n"
+            "Findings:\nRoot cause: none: a design pick\nHolds: none: no option changes code any job builds\nTwo runs held one lease.\n"
         )
     )
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
@@ -1491,6 +1494,7 @@ A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand 
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed PR.
 Findings:
 Root cause: none: two landed designs of one button, a pick between them with no defect behind it
+Holds: none: no option changes code any job builds
 - Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
 """)
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
@@ -1604,6 +1608,7 @@ I recommend landing both together, run history first; meanwhile both stay open.
 
 Findings:
 Root cause: none: landing two PRs, with no defect behind it
+Holds: none: no option changes code any job builds
 The run page change's base branch is the run history change's branch, so the merge queue cannot take it alone.
 """)
 

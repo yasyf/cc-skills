@@ -2917,26 +2917,37 @@ def test_a_lander_queues_a_stack_bottom_first_up_to_the_first_pr_he_has_not_appr
 
 
 @pytest.mark.parametrize(
-    ("asker_parts", "designs_its_part", "held"),
-    [(["ship the watch"], False, True), (["design the watch"], True, True), ([], False, True), (["the dashboard"], False, False)],
+    ("asker", "holds", "held"),
+    [("j1", "", False), ("j2", "", False), ("j2", "the dashboard", False), ("j1", "ship the watch", True), ("j2", "Ship  the WATCH, once its store is picked", True)],
 )
-def test_a_question_of_his_open_on_a_job_sharing_its_work_holds_its_stack_from_landing_until_he_answers(
-    demo: str, landers: list[tuple[str, ...]], asker_parts: list[str], designs_its_part: bool, held: bool
+def test_an_open_question_holds_a_stack_from_landing_only_while_its_holds_line_names_a_change_the_stacks_job_builds(
+    demo: str, landers: list[tuple[str, ...]], asker: str, holds: str, held: bool
 ) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
+    waits = f"demo:{asker}-1-a"
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
-        data["orders"]["o1"]["parts"] |= {part: state.new_part() for part in asker_parts}
-        data["orders"]["o1"]["parts"]["ship the watch"]["design"] = "j2" if designs_its_part else None
-        asked = state.new_question(None, "Which store?", state.stamp(T0)) | {"waits": "demo:j2-1-a"}
-        data["jobs"]["j2"] = job(kind="design", parts=asker_parts, carries={}, state="done", questions=[asked])
-    cards = NO_CARDS | {"questions": [question("demo:j2-1-a")]}
-    assert land.open_cards(state.load(demo), "j1", [], cards) == (["demo:j2-1-a"] if held else [])
+        data["orders"]["o1"]["parts"]["the dashboard"] = state.new_part()
+        data["jobs"]["j2"] = job(kind="design", parts=["the dashboard"], carries={}, state="done")
+        data["jobs"][asker]["questions"].append(state.new_question(None, "Which OpenAI endpoint?", state.stamp(T0), holds=holds) | {"waits": waits})
+    cards = NO_CARDS | {"questions": [question(waits)]}
+    assert land.open_cards(state.load(demo), "j1", [], cards) == ([waits] if held else [])
     assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
     with state.edit(demo) as data:
-        data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "Team", None, seq="#9")
+        data["jobs"][asker]["questions"][-1]["closed"] = state.new_close("answered", "Team", None, seq="#9")
     assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
+
+
+def test_a_question_kept_before_holds_lines_holds_nothing_so_the_approved_pr_of_its_own_job_lands(demo: str, landers: list[tuple[str, ...]]) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+        data["jobs"]["j1"] |= {"waits": [KEY], "questions": [{"file": None, "title": "Which OpenAI endpoint?", "asked": state.stamp(T0), "unsettled": None, "waits": "demo:j1-1-a", "card": None}]}
+    cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
+    assert state.load(demo)["jobs"]["j1"]["questions"][0]["holds"] == ""
+    assert land.unready(state.load(demo), KEY, cards) is None
+    assert land.start(demo, [KEY], cards) == [(KEY,)]
 
 
 def test_a_lander_queues_a_stacks_ready_bottom_and_the_pr_above_once_the_open_pr_it_waits_on_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
