@@ -38,6 +38,7 @@ REAL_DRIVE_TERMINAL = orca.drive_terminal
 REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
+REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 TEAM = [
@@ -501,6 +502,14 @@ def sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     held: dict[str, str] = {}
     monkeypatch.setattr(orca, "session_of", lambda workspace, dispatch: held.get(workspace))
     return held
+
+
+@pytest.fixture(autouse=True)
+def kept_transcripts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Each lane whose Sprite's transcripts an end or a relaunch copied to the drive's folder, by job and dispatch."""
+    kept: list[tuple[str, str]] = []
+    monkeypatch.setattr(orca, "keep_transcripts", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)))
+    return kept
 
 
 @pytest.fixture(autouse=True)

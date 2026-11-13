@@ -1663,7 +1663,7 @@ def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]
 
 
 def release_lanes(watcher: Watcher, moment: datetime) -> None:
-    """Free what each job it hears is done with still holds, never what an unfinished job holds: each Sprite cc-remote still records that a done, failed or stopped job ran on, or that an earlier lane of any job died on, such as the Sprite a relaunch moved off, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails frees nothing, saying why there."""
+    """Free what each job it hears is done with still holds, never what an unfinished job holds: each Sprite cc-remote still records that a done, failed or stopped job ran on, or that an earlier lane of any job died on, such as the Sprite a relaunch moved off, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or, for a finished job's own lane no drive job end ended, such as a stopped job's, ended by `drive job end` in a process of its own, which keeps its transcripts first; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each other goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails frees nothing, saying why there."""
     if state.scratch():
         return
     watcher.releasing = {held: run for held, run in watcher.releasing.items() if run.poll() is None}
@@ -1675,6 +1675,10 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
         for held in sorted(lane_holds(job, moment, live) - watcher.released - live):
             if len(watcher.releasing) >= RELEASES_AT_ONCE:
                 return
+            if held == job.get("workspace") and not state.lane_ended(job):
+                watcher.released.add(held)
+                end_lane(watcher.name, job_id)
+                continue
             with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
                 try:
                     checkout = orca.checkout(watcher.name, data)
@@ -1742,7 +1746,7 @@ def send_held(name: str, job_id: str) -> int:
 
 
 def end_lane(name: str, job_id: str) -> None:
-    """Run `drive job end` on a waiting job whose lane on a Sprite died as its own process, so that idle Sprite, its forward and its Orca environment go once what it holds is saved, and the job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log."""
+    """Run `drive job end` as its own process on a waiting job whose lane on a Sprite died, or a finished job whose lane on one no end ended, so that idle Sprite, its forward and its Orca environment go once its transcripts are kept and what it holds is saved, and a waiting job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log."""
     state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
 
 

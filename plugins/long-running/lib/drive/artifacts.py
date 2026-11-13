@@ -17,14 +17,14 @@ TAIL_BYTES = 256 * 1024
 
 
 def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
-    """The files the drive keeps for a job, in reading order: its brief, its report, every return its history keeps, when `reports` names it as a job with a history, the questions it asked back, its reproduction, and its session's transcript when it ran on this Mac, whose first turn is the brief of a job drive job brief wrote none for."""
+    """The files the drive keeps for a job, in reading order: its brief, its report, every return its history keeps, when `reports` names it as a job with a history, the questions it asked back, its reproduction, and its session's transcript when it ran on this Mac, whose first turn is the brief of a job drive job brief wrote none for, or the one its current lane's end kept from its Sprite."""
     on_mac = job.get("where") != "remote" and job.get("agent") and job.get("session")
     held = {
         "brief": job.get("brief") or on_mac,
         "report": job_id in reports,
         "question": any(question["file"] for question in job["questions"]),
         "repro": job.get("repro"),
-        "transcript": on_mac,
+        "transcript": on_mac or lane_transcript(job),
     }
     return [kind for kind in FILES if held[kind]]
 
@@ -57,12 +57,17 @@ def said_in(path: Path) -> Iterator[dict]:
 
 
 def transcript(job: dict) -> Path | None:
-    """A local job's transcript on this Mac, when its session still holds it; a handler's is its own session's."""
-    if own := job.get("transcript"):
+    """A local job's transcript on this Mac, when its session still holds it; a handler's is its own session's, and a Sprite lane's the one its end kept."""
+    if own := job.get("transcript") or lane_transcript(job):
         return Path(own)
     if not (job.get("agent") and job.get("session")):
         return None
     return next((install.config_dir() / "projects").glob(f"*/{job['session']}/subagents/agent-{job['agent']}.jsonl"), None)
+
+
+def lane_transcript(job: dict) -> str | None:
+    """The transcript orca.keep_transcripts kept from the Sprite of the job's current lane once that lane ended, None while it runs."""
+    return (death := state.lane_death(job)) and death.get("transcript")
 
 
 def read(name: str, job_id: str, job: dict, kind: str) -> dict:

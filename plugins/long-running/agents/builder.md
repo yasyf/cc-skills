@@ -367,7 +367,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`
   lines name under `# Report of <job>`, and each file under the drive's `reports/`, `asks/`,
   `repro/`, `scratch/` and `jobs/` folders it names, by its path on the coordinator's Mac or from the
-  drive's folder, under `# Drive file <its path from the drive's folder>`. Read through the
+  drive's folder, under `# Drive file <its path from the drive's folder>`, but a lane's Claude Code
+  transcript, which the drive keeps whole under `jobs/<job>.<dispatch>.transcripts/` once that lane
+  ends, yours included, and which you read with `READ <its path>`. Read through the
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read, which runs its first line alone.
