@@ -588,6 +588,12 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
     return entry["version"]
 
 
+def reported_prs(data: dict, job_id: str) -> list[str]:
+    """The drive PRs a builder's said line names, its READY or PUSHED's PRs, the ones its proof proves: a PR registered on the job that the line leaves out, such as one closed as superseded, owes the proof nothing."""
+    job = data["jobs"][job_id]
+    return state.named_prs(data, job["order"], job["said"] or "")
+
+
 def merged_ready(data: dict, job_id: str) -> bool:
     """Whether the job is a builder still waiting on its taken READY or PUSHED, every PR of which merged."""
     job = data["jobs"][job_id]
@@ -595,14 +601,14 @@ def merged_ready(data: dict, job_id: str) -> bool:
         job["kind"] == "builder"
         and job["state"] == "waiting"
         and bool(state.REPORTED_LINE.match(job["said"] or ""))
-        and bool(job["prs"])
-        and all(data["prs"][state.pr_key(url)]["merged_sha"] for url in job["prs"])
+        and bool(keys := reported_prs(data, job_id))
+        and all(data["prs"][key]["merged_sha"] for key in keys)
     )
 
 
 def product(data: dict, job_id: str) -> bool:
-    """Whether every PR of the job merges outside yasyf/*, a product change, which no drive install puts on this Mac."""
-    return not any(state.merges_untapped(state.pr_key(url)) for url in data["jobs"][job_id]["prs"])
+    """Whether every PR of the job's READY or PUSHED merges outside yasyf/*, a product change, which no drive install puts on this Mac."""
+    return not any(state.merges_untapped(key) for key in reported_prs(data, job_id))
 
 
 def proof_gap(data: dict, job_id: str) -> str | None:
@@ -610,7 +616,7 @@ def proof_gap(data: dict, job_id: str) -> str | None:
     job = data["jobs"][job_id]
     if product(data, job_id):
         return (
-            f"{', '.join(map(state.pr_key, job['prs']))} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install"
+            f"{', '.join(reported_prs(data, job_id))} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install"
             " puts on this Mac: a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines once that release is out"
         )
     if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
@@ -706,15 +712,15 @@ def ci_verdict(repo: str, sha: str) -> tuple[bool, list[str]]:
 
 
 def merges_of(data: dict, job_id: str) -> dict[str, str]:
-    return {state.pr_key(url): data["prs"][state.pr_key(url)]["merged_sha"] for url in data["jobs"][job_id]["prs"]}
+    return {key: data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)}
 
 
 def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str) -> bool:
     """Take the line drive job prove sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
     from drive import cli
 
-    job = data["jobs"][job_id]
-    order_id, urls = job["order"], " ".join(job["prs"])
+    job, keys = data["jobs"][job_id], reported_prs(data, job_id)
+    order_id, urls = job["order"], " ".join(map(state.pr_url, keys))
     order = data["orders"][order_id]
     whole = f"{line}\nPR: {urls}\nCHECK: {' '.join(check)}\n"
     state.keep_report(name, job_id, line, whole)
@@ -722,7 +728,7 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen
     closes = line.startswith("DONE") and (seen or not cli.order_surface(data, order)) and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
     closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [order_id])
     if closes:
-        title = "; ".join(data["prs"][state.pr_key(url)]["title"] for url in job["prs"])
+        title = "; ".join(data["prs"][key]["title"] for key in keys)
         order["proof"] = " ".join(check)
         order["close_report"] = {
             "id": f"install-proved-{job_id}",
@@ -736,9 +742,9 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen
     return closes
 
 
-def said_on_prs(name: str, data: dict, job_id: str, change: str) -> None:
+def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str) -> None:
     lane = state.heard_lane(data, data["jobs"][job_id]["order"])
-    for key in map(state.pr_key, data["jobs"][job_id]["prs"]):
+    for key in keys:
         merged_in, number = key.split("#")
         state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
 
@@ -748,8 +754,8 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
     from drive import brief
 
     job = data["jobs"][job_id]
-    order_id, urls = job["order"], " ".join(job["prs"])
     merges = merges_of(data, job_id)
+    order_id, urls = job["order"], " ".join(map(state.pr_url, merges))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     commits = " ".join(f"https://github.com/{key.partition('#')[0]}/commit/{sha}" for key, sha in merges.items())
     line = f"DONE {urls} merged: {merged}"
@@ -779,7 +785,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
         raise state.DriveError(why)
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
-    urls = " ".join(job["prs"])
+    urls = " ".join(map(state.pr_url, merges))
     untapped = {key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     try:
         plugins = merged_plugins(untapped, deadline, timeout, name)
@@ -832,6 +838,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
             job = data["jobs"][job_id]
             if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
                 return f"{job_id}: another proof took its result first"
+            keys = reported_prs(data, job_id)
             proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
             kept.parent.mkdir(exist_ok=True)
             kept.write_text(output)
@@ -847,7 +854,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
             raise
         receipt = state.drive_dir(name) / "jobs" / f"{job_id}.proved.{os.getpid()}.json"
         return json.loads(handed(newer, name, ["job", "proved", job_id], receipt, result, f"{job_id}: its proof", state.DRIVE_LOCK_SECONDS))["line"]
-    said_on_prs(name, data, job_id, change)
+    said_on_prs(name, data, job_id, keys, change)
     return f"{job_id}: {change}"
 
 

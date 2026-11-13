@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, slack, stage, stall, state, superseded, view
-from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, product, proof_gap, said_on_prs, upgraded
+from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, product, proof_gap, reported_prs, said_on_prs, upgraded
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -2081,7 +2081,7 @@ def at_merge(data: dict, job_id: str) -> bool:
 def proof_due(data: dict, job_id: str) -> bool:
     """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, or one that ended with no result before a newer long-running's watch read it."""
     job = data["jobs"][job_id]
-    if not merged_ready(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][state.pr_key(url)]) for url in job["prs"]):
+    if not merged_ready(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)):
         return False
     proof = job.get("proof")
     return not proof or proof["said"] != job["said"] or proof["version"] != state.VERSION and not state.alive(proof["pid"])
@@ -2093,7 +2093,7 @@ def proving(data: dict, job_id: str) -> bool:
     if not merged_ready(data, job_id) or proof_gap(data, job_id):
         return False
     proof = job.get("proof")
-    return proof_due(data, job_id) or any(land.running(data["prs"][state.pr_key(url)]) for url in job["prs"]) or proof["said"] == job["said"] and state.alive(proof["pid"])
+    return proof_due(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)) or proof["said"] == job["said"] and state.alive(proof["pid"])
 
 
 def finished(watcher: Watcher, moment: datetime) -> None:
@@ -2107,11 +2107,12 @@ def finished(watcher: Watcher, moment: datetime) -> None:
             if not hears(watcher, data, job["order"]):
                 continue
             if at_merge(data, job_id):
-                said[job_id] = merged_done(watcher.name, data, job_id)
+                keys = reported_prs(data, job_id)
+                said[job_id] = (keys, merged_done(watcher.name, data, job_id))
             elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
-    for job_id, change in said.items():
-        said_on_prs(watcher.name, data, job_id, change)
+    for job_id, (keys, change) in said.items():
+        said_on_prs(watcher.name, data, job_id, keys, change)
 
 
 def prove(name: str, job_id: str) -> int:

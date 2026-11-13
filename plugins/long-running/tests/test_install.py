@@ -1103,6 +1103,17 @@ def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} {slack} live: {script} exits 0 on long-running@skills 1.0.2"
 
 
+def test_a_proof_proves_the_prs_its_ready_names_while_the_job_also_holds_a_pr_closed_as_superseded(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    superseded = "https://github.com/yasyf/cc-skills/pull/8"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["prs"].append(superseded)
+        data["prs"]["yasyf/cc-skills#8"] = state.new_pr(superseded, "j1", "o1") | {"state": "closed"}
+    assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+    assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7"]
+
+
 def proving_hooks(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, app: str) -> tuple[FakeGit, Path]:
     git = fake([BUILD], {BUILD, OLD_COMMIT, "v12.121.71"})
     script = proving(config, tmp_path, git, 0)
@@ -1180,7 +1191,7 @@ def test_a_product_merge_takes_done_at_once_its_merge_commit_its_check_keeping_n
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         change = install.merged_done("demo", data, "j1")
-        install.said_on_prs("demo", data, "j1", change)
+        install.said_on_prs("demo", data, "j1", ["Forge-AI/monorepo#9"], change)
     merged = "Forge-AI/monorepo#9 at fedcba987654"
     assert change == (
         f"{install.MERGED_DONE}: {merged}; no proof kept, since only a release holding fedcba987654 puts it live, so o1's fix-live note waits on that release:"
