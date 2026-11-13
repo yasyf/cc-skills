@@ -187,10 +187,11 @@ def conflicts_with(pr: dict) -> str:
 
 
 def waited(data: dict, job_id: str, line: str) -> dict:
-    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's, each release and each question card of his the line names that holds then, the builder's own question included, so a red only his answer fixes wakes that builder once per red until he answers."""
+    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's and each release its words name and each question card of his its first line's `waits on <cards>` names, the builder's own question included, that holds then, so a red only his answer fixes wakes that builder once per red until he answers, while a card cited on any other line, such as DESIGN:, holds nothing."""
     job = data["jobs"][job_id]
     own = [key for key, pr in data["prs"].items() if pr["url"] in job["prs"]]
-    asked = [card for card in view.stored_waits(data, state.BUILT_CARD.findall(line)) if view.drawn_on(data, card)]
+    declared = state.WAITING_LINE.match(line)
+    asked = [card for card in view.stored_waits(data, state.BUILT_CARD.findall(declared["cards"])) if view.drawn_on(data, card)] if declared else []
     return {
         "red": {key: failing for key in own if data["prs"][key]["state"] == "open" and (failing := red(key, data["prs"][key]))},
         "waits": [wait for wait in [*state.named_waits(data, job["order"], line), *asked] if wait not in own and view.holds(data, wait, None)],
