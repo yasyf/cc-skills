@@ -1072,9 +1072,11 @@ def test_a_sentence_saying_one_pr_shipped_and_another_waits_on_his_approve_is_ju
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-remote#162"] = state.new_pr(shipped, "j1", "o1") | {"head": "9f1c2ab", "state": "merged"}
         data["prs"]["Forge-AI/monorepo#55639"] = state.new_pr(bump, "j2", "o1") | {"head": "4d7e0c3"}
-    tap = {"asked": state.stamp(), "url": link, "prs": [bump], "card": {"title": "New: bump the pin?", "prs": [{"url": bump, "head": "4d7e0c3"}]}}
+    tap = {"asked": state.stamp(), "url": link, "prs": [shipped, bump], "card": {"title": "New: bump the pin?", "prs": [{"url": shipped, "head": "9f1c2ab"}, {"url": bump, "head": "4d7e0c3"}]}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
     view.refresh_cards("demo")
+    assert say(transcript, text=f"<{bump}|The monorepo bump> waits on your Approve on <{link}|its tap card>.") is None
+    assert f"yasyf/cc-remote#162: its tap card {link}, which the words link, no longer stands: merged" in say(transcript, text=f"<{shipped}|The cc-remote fix> waits on your Approve on <{link}|its tap card>.")
     text = (
         "*Fixed: a builder restarted on your card answer now builds your pick, not its old result.* "
         "<https://github.com/yasyf/cc-skills/pull/4820|The fix> is live in long-running 1.0.684. "
