@@ -11,7 +11,7 @@ from typing import Self
 from drive import limits, reads, render, state
 from drive.brief import BRIEF_JOB, carried, heavier
 
-RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
+RECORD = re.compile(r"^Record: #?(\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:\s*\S+\s+(\d+\.\d+)", re.MULTILINE)
 RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")

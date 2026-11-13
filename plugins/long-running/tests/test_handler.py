@@ -218,3 +218,13 @@ def test_one_message_of_his_has_one_handler_at_a_time_whichever_record_names_it(
     ended_sessions.add("died-session")
     assert tools.run("handler", "demo", {"brief": message}).startswith("started ")
     assert restarted not in state.load("demo")["handlers"]
+
+
+def test_the_watchs_brief_naming_a_record_as_cci_post_prints_it_holds_the_same_record_as_the_communicators(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict]
+) -> None:
+    handler = tools.run("handler", "demo", {"brief": f"Record: #680562 Drive: demo Scratch: {tmp_path / 'quiet-#680562'}"}).removeprefix("started ")
+    assert state.load("demo")["handlers"][handler]["holds"]["record"] == "680562"
+    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 680562.*; this copy needs no handler of its own"):
+        tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"})
+    assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1

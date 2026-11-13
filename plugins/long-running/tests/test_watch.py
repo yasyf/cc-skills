@@ -691,6 +691,28 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     assert len(calls) == 1
 
 
+def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_and_one_handler_on_the_threads_newest_line(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quiet_incident(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o3"] = order(text="checkout is down too", incident=True, joins=None, thread=["D123", INCIDENT_THREAD], note="674300", jobs=["j3"], last_line=state.stamp(T0 + timedelta(minutes=1)))
+        data["jobs"]["j3"] = job(order="o3", kind="codex")
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=6, seconds=59)) == []
+    assert calls == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    [(report, body), (start, _)] = calls
+    assert (report["text"], report["topic"]) == ("POST incidents o1, o3 have had no line to him in 5 minutes: post where each stands now in its thread", "watch-quiet-o1")
+    assert {"Incident o1, o1, o2: ship the watch", "Incident o3, o3: checkout is down too", "Evidence record: 674300", f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}"} <= set(body.splitlines())
+    assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+    orders = state.load(demo)["orders"]
+    assert orders["o1"]["quiet"] == orders["o3"]["quiet"] == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=11, seconds=59)) == []
+    assert len(calls) == 2
+
+
 def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:

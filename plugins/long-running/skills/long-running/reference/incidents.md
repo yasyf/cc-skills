@@ -269,10 +269,11 @@ check's verdict, or from the order when none ran.
 - His next line's clock is the watch's, never a time a line promises, by his pick "Watch-owned
   clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
   jobs; costs one handler session each". Five minutes after the newest drive post on any order of
-  the incident, or after it opened, the watch's `quiet_lines` sends the communicator a `report`
-  carrying `quiet=true` and the incident's thread, naming its orders and each job. It starts a
-  handler on that report, which reads the jobs and posts where the incident stands in that thread;
-  a handler already at work in the thread takes the report when it ends.
+  the open incidents in one thread, or after the newest of them opened, the watch's `quiet_lines`
+  sends the communicator one `report` carrying `quiet=true` and that thread, naming every incident
+  there with its orders and each job, so two incidents in one thread get one line, not one each. It
+  starts one handler on that report, which reads the jobs and posts where each incident stands in
+  that thread; a handler already at work in the thread takes the report when it ends.
   - It runs while he is away too, and restarts once a handler has the report, so a handler that
     cannot post leaves the next five minutes owed.
   - It stops once the fix is recorded live, by his words "werte still in incident until its fixed".

@@ -1079,53 +1079,63 @@ def quiet_since(data: dict, head: str) -> datetime:
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line on each open incident the watch hears whose fix is not live yet and that had none in five minutes, whatever its last line said and while he is away too, since he is in incident until it is fixed, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each": a report naming the incident's orders and jobs, written once, and a handler the watch starts on it, which reads the jobs and posts where the incident stands in its thread. A handler already at work in that thread takes the report when it ends. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in each thread of open incidents the watch hears whose fix is not live yet and that had none in five minutes, whatever its last line said and while he is away too, since he is in incident until it is fixed, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each": one report naming every such incident in the thread with its orders and jobs, written once, and one handler the watch starts on it, which reads the jobs and posts where each incident stands in that thread, so incidents sharing a thread get one line, not one each. A handler already at work in that thread takes the report when it ends. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
-    owing = [
-        head
-        for head, order in heard_orders(watcher, data).items()
-        if order["incident"] and not order["joins"] and not order["fixed"] and moment - quiet_since(data, head) >= QUIET_INCIDENT
-    ]
+    threads: dict[tuple[str, str] | str, list[str]] = {}
+    for head, order in heard_orders(watcher, data).items():
+        if order["incident"] and not order["joins"] and not order["fixed"]:
+            threads.setdefault(state.promise_thread(order) or head, []).append(head)
     lines = []
-    for head in owing:
-        source = f"quiet {head}"
-        owed = data["orders"][head]["quiet"]
+    for heads in threads.values():
+        since = max(quiet_since(data, head) for head in heads)
+        if moment - since < QUIET_INCIDENT:
+            continue
+        source = f"quiet {heads[0]}"
+        owed = data["orders"][heads[0]]["quiet"]
         try:
-            seq = owed["record"] if owed and not owed["at"] else quiet_report(watcher, data, head, moment)
+            seq = owed["record"] if owed and not owed["at"] else quiet_report(watcher, data, heads, since, moment)
             with state.edit(watcher.name) as data:
-                data["orders"][head]["quiet"] = {"record": seq, "at": None, "handler": None}
+                for head in heads:
+                    data["orders"][head]["quiet"] = {"record": seq, "at": None, "handler": None}
             try:
                 handler = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
             except agents.Busy:
                 handler = None
         except (reads.ReadError, state.DriveError) as error:
-            lines += failed(watcher, source, f"line owed on quiet incident {head}", error, moment)
+            lines += failed(watcher, source, f"line owed on quiet incident {', '.join(heads)}", error, moment)
             continue
         watcher.failures.pop(source, None)
         with state.edit(watcher.name) as data:
-            data["orders"][head]["quiet"] = {"record": seq, "at": state.stamp(moment), "handler": handler}
+            for head in heads:
+                data["orders"][head]["quiet"] = {"record": seq, "at": state.stamp(moment), "handler": handler}
     return lines
 
 
-def quiet_report(watcher: Watcher, data: dict, head: str, moment: datetime) -> str:
-    """Write the report owing him a line on a quiet incident, for the handler that posts it in the incident's thread; its seq."""
-    incident = data["orders"][head]
-    group = state.incident_orders(data, head)
-    since = quiet_since(data, head)
-    jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for order_id in group for job_id in data["orders"][order_id]["jobs"]]
+def quiet_report(watcher: Watcher, data: dict, heads: list[str], since: datetime, moment: datetime) -> str:
+    """Write the report owing him a line on the quiet incidents of one thread, for the handler that posts it there; its seq."""
+    minutes = int((moment - since).total_seconds() // 60)
+    one = len(heads) == 1
+    groups = {head: state.incident_orders(data, head) for head in heads}
+    jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
     facts = [
-        f"Incident {head}, {', '.join(group)}: {incident['text']}",
-        f"Evidence record: {incident['note'] or 'none'}",
-        f"No line to him since {when(state.stamp(since))}, {int((moment - since).total_seconds() // 60)} minutes.",
-        "Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then post where the incident stands now in its thread: what each job found or is doing, a card of his that blocks it with the option built meanwhile, and what ships next.",
+        *(
+            line
+            for head, group in groups.items()
+            for line in (f"Incident {head}, {', '.join(group)}: {data['orders'][head]['text']}", f"Evidence record: {data['orders'][head]['note'] or 'none'}")
+        ),
+        f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
+        f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then post where {'the' if one else 'each'} incident stands now in its thread: what each job found or is doing, a card of his that blocks it with the option built meanwhile, and what ships next.",
         f"Jobs: {len(jobs)}",
         *jobs,
     ]
+    head = heads[0]
+    incident = data["orders"][head]
+    named = f"incident {head} has" if one else f"incidents {', '.join(heads)} have"
     record = {
         "kind": "report",
         "topic": f"watch-quiet-{head}",
         "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"thread": incident["thread"][1]} if incident["thread"] else {}),
-        "text": f"POST incident {head} has had no line to him in {int((moment - since).total_seconds() // 60)} minutes: post where it stands now in its thread",
+        "text": f"POST {named} had no line to him in {minutes} minutes: post where {'it stands' if one else 'each stands'} now in its thread",
         "body": "\n".join(facts) + "\n",
     }
     from drive import tools
