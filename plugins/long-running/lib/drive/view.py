@@ -2,10 +2,13 @@
 
 `build` returns:
 
-- `queue`: what waits on him, highest priority first: his open question cards, those holding up the most finished work
-  first, then PRs ready for his tap, one item for each PR card however many PRs it carries, then promised times that
-  passed. Each item has `kind` (`question`, `tap`, `late`), `title`, `detail`, `since` (when it started waiting, when
-  known), `due`, `url` (where he acts), `links`, and for a question or a tap with a Slack card, `card` (the whole card
+- `queue`: what waits on him, in one rank whatever its kind: what an open incident waits on first, then what is past
+  due, then what holds the most (a built job first, then the finished PRs, built jobs and tasks it holds, a tap counting
+  the PRs it lands and those stacked above them), then what has waited longest. Its items are his open question cards,
+  PRs ready for his tap, one item for each PR card however many PRs it carries, and promised times that passed. Each
+  item has `kind` (`question`, `tap`, `late`), `title`, `detail`, `since` (when it started waiting, when known), `due`,
+  `url` (where he acts), `links`, `tasks` (the ids of the tasks it serves), `project` and `workstream` (where its first task is filed, null until filed), `rank_why`
+  (why it ranks where it does, in his words' order of the rank), and for a question or a tap with a Slack card, `card` (the whole card
   cc-slack draws), `answer` (the card's permalink, which takes his answer from any surface) and `thread` (the Slack
   thread the card sits in, or starts). A question also has `holds`: how many green approved open PRs and built jobs
   wait on it, alone or beside other cards of his, `blocks`: each feature it holds up, with its `id` and `title`,
@@ -365,12 +368,14 @@ def tap_detail(pr: dict) -> str:
 def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict], asker: str | None) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
     finished = held_up(drive, card)
+    tasks = [entry["id"] for entry in features if any(held["url"] == card["url"] for held in entry["cards"])]
     return {
         "kind": "question",
+        "tasks": list(dict.fromkeys([*tasks, *([drive["jobs"][asker]["order"]] if asker else [])])),
         "job": asker,
         "holds": len(finished),
         "rail": {"held": finished},
-        "blocks": [{"id": entry["id"], "title": entry["title"]} for entry in features if any(held["url"] == card["url"] for held in entry["cards"])],
+        "blocks": [{"id": entry["id"], "title": entry["title"]} for entry in features if entry["id"] in tasks],
         "built": [{"job": entry["job"], "branch": entry["branch"]} for entry in waiting if entry["card"]["url"] == card["url"]],
         "title": card["question"],
         "detail": pick,
@@ -419,9 +424,11 @@ def rail(drive: dict, item: dict, reports: set[str]) -> dict:
 def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
     """A PR card in his queue, with each of its PRs as the drive holds it now, in the card's order, since a stacked PR can merge while the card still waits on him."""
     if not card:
-        return {"kind": "tap", "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": [], "pr": pr["url"], "checks": pr["checks"], "prs": [pr_entry(pr)]}
+        return {"kind": "tap", "tasks": [pr["order"]], "title": pr_title(pr), "detail": f"{tap_detail(pr)}; no Slack card yet", "since": None, "due": None, "url": pr["url"], "links": [], "pr": pr["url"], "checks": pr["checks"], "prs": [pr_entry(pr)]}
+    rows = [named_pr(drive["prs"], state.pr_key(row["url"])) for row in card["card"].get("prs") or []]
     return {
         "kind": "tap",
+        "tasks": list(dict.fromkeys(row["order"] for row in rows if row["order"])) or [pr["order"]],
         "title": pr_title(pr),
         "detail": tap_detail(pr),
         "pr": pr["url"],
@@ -433,13 +440,14 @@ def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
         "card": card["card"],
         "answer": card["url"],
         "thread": card_thread(card["url"]),
-        "prs": [pr_entry(named_pr(drive["prs"], state.pr_key(row["url"]))) for row in card["card"].get("prs") or []],
+        "prs": [pr_entry(row) for row in rows],
     }
 
 
-def late_item(drive: dict, order: dict, team_url: str) -> dict:
+def late_item(drive: dict, order_id: str, order: dict, team_url: str) -> dict:
     return {
         "kind": "late",
+        "tasks": [order_id],
         "title": order_title(order),
         "detail": said(order.get("note")),
         "since": order["created"],
@@ -456,15 +464,62 @@ def is_late(order: dict, moment: datetime) -> bool:
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> list[dict]:
     taps = [(pr, card_for(found["pr_cards"], pr["url"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
-    taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
-    late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
     waiting = waiting_on_him(drive, found)
     asker = asked_by(drive, found)
-    return [
-        *sorted((question_item(drive, card, features, waiting, asker[card["url"]]) for card in found["questions"]), key=lambda item: (not item["built"], -item["holds"])),
+    items = [
+        *(question_item(drive, card, features, waiting, asker[card["url"]]) for card in found["questions"]),
         *(tap_item(drive, pr, card) for pr, card in taps),
-        *(late_item(drive, order, found["team_url"]) for order in late),
+        *(late_item(drive, order_id, order, found["team_url"]) for order_id, order in drive["orders"].items() if is_late(order, moment)),
     ]
+    filed = {entry["id"]: entry for entry in features}
+    urgent = {entry["id"]: entry["title"] for entry in incidents(drive)}
+    ranked = []
+    for item in items:
+        home = next((filed.get(order_id) or drive["orders"][order_id] for order_id in item["tasks"] if order_id in drive["orders"]), None)
+        item |= {"project": home and home["project"], "workstream": home and home["workstream"]}
+        rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment)
+        ranked.append((rank, item))
+    return [item for _, item in sorted(ranked, key=lambda entry: entry[0])]
+
+
+def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime) -> tuple[tuple, str]:
+    """Where an item ranks in his queue, and why in plain words: an open incident it serves, past due, a built job it holds, how much it holds, then how long it has waited."""
+    incident = next((urgent[order_id] for order_id in orders if order_id in urgent), None)
+    late = item["due"] or next((state.owed_at(drive["orders"][order_id]) for order_id in orders if order_id in drive["orders"] and is_late(drive["orders"][order_id], moment)), None)
+    built = len(item.get("built") or [])
+    if item["kind"] == "question":
+        weight = item["holds"] + len(item["blocks"])
+        holding = f"holds {counted(item['holds'], 'finished PR or built job', 'finished PRs or built jobs')} and {counted(len(item['blocks']), 'task')}" if weight else ""
+    elif item["kind"] == "tap":
+        lands = [pr for pr in item["prs"] if pr["state"] == "open"]
+        above = stacked_above(drive, [state.pr_key(pr["url"]) for pr in lands])
+        weight = len(lands) + len(above) + len(orders)
+        holding = f"lands {counted(len(lands), 'PR')}" + (f", and {counted(len(above), 'PR')} stacked above {'it waits' if len(above) == 1 else 'them wait'} on it" if above else "")
+    else:
+        weight, holding = 0, ""
+    since = item["since"] or (drive["prs"][state.pr_key(item["pr"])]["updated"] if item.get("pr") else None)
+    why = [
+        f"incident: {cut(incident, TITLE_CHARS)}" if incident else "",
+        f"past due since {when(late)}" if late else "",
+        f"{counted(built, 'built job')} {'waits' if built == 1 else 'wait'} on it" if built else "",
+        holding,
+        f"waiting since {when(since)}" if since and not late else "",
+    ]
+    rank = (incident is None, late is None, not built, -weight, state.parse_time(late or since) if late or since else datetime.max.replace(tzinfo=moment.tzinfo))
+    return rank, "; ".join(part for part in why if part)
+
+
+def stacked_above(drive: dict, keys: list[str]) -> list[str]:
+    """The open PRs stacked above any of keys that keys do not already name, each by its key."""
+    above = []
+    for key in keys:
+        stack = drive["prs"][key].get("stack") or []
+        above += stack[stack.index(key) + 1 :] if key in stack else []
+    return [member for member in dict.fromkeys(above) if member not in keys and drive["prs"].get(member, {}).get("state") == "open"]
+
+
+def counted(n: int, one: str, many: str | None = None) -> str:
+    return f"{n} {one if n == 1 else many or one + 's'}"
 
 
 def feature_state(order: dict, jobs: list[dict], prs: list[dict]) -> str:
@@ -667,6 +722,7 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
 def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
     card = card_for(found["pr_cards"], pr["url"])
     order = drive["orders"].get(pr["order"]) or {}
+    job = drive["jobs"].get(pr["job"])
     group = "decided" if pr.get("tap") else "you" if waits_on_tap(pr) else "not ready"
     return {
         "key": key,
@@ -681,12 +737,41 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "review": pr["review"],
         "tap": tap_of(pr),
         "stage": pr["stage"],
+        "failed": pr["failed_checks"],
+        "conflict": pr["conflict"],
+        "draft": pr["draft"],
+        "branch": pr["branch"],
+        "base": pr["base"],
+        "stack": pr.get("stack") or [],
+        "landing": landing_words(pr),
+        "approve_waits": approve_waits(drive, key, pr, found),
+        "parts": pr["parts"],
+        "job": pr["job"],
+        "job_said": said(job["said"]) if job else "",
+        "job_at": job["updated"] if job else None,
         "since": card["asked"] if card else None,
         "updated": pr["updated"],
         "card": card["card"] if card else None,
         "answer": card["url"] if card else None,
         "thread": card and card_thread(card["url"]),
     }
+
+
+def approve_waits(drive: dict, key: str, pr: dict, found: dict) -> str | None:
+    """What still holds the PR once he approves it, as its lander reads it: empty when his Approve queues it at once, None for a repository no lander queues."""
+    from drive import land
+
+    if not state.queued_by_lander(key):
+        return None
+    return land.unready(drive | {"prs": drive["prs"] | {key: pr | {"tap": {"label": "Approve"}}}}, key, found) or ""
+
+
+def landing_words(pr: dict) -> str | None:
+    """What the drive's lander did with a PR, as its card says it: the outcome of its last try, or that one runs now on its head."""
+    lander = pr["lander"]
+    if not lander:
+        return None
+    return cut(lander["outcome"], NOW_CHARS) if lander.get("outcome") else f"a lander started on {lander['head'][:7]} at {when(lander['at'])}"
 
 
 def review(drive: dict, found: dict) -> list[dict]:

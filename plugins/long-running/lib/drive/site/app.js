@@ -47,6 +47,8 @@ const QUEUE_FILTERS = [
 ];
 const NONE_LEFT = { tap: 'No PR waits on your tap.', question: 'No decision waits on you.' };
 const LABEL = { question: 'Decision', tap: 'Pull request', late: 'Late' };
+const TAP_LABELS = ['Approve', 'Hold'];
+const TAP_KEYS = { Approve: 'a', Hold: 'h' };
 const PR_TABS = [['show', 'Show me'], ['change', 'The change'], ['context', 'Context']];
 const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'], pending: ['Tests running', 'warn'], none: ['No CI', ''] };
 const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved on an older head', ''], changes: ['Changes requested', 'bad'] };
@@ -65,7 +67,11 @@ const SLICES_KEPT = 40;
 const JUMP_ROWS = 40;
 const KEY_SHEET = [
   ['Anywhere', [[['⌘K'], 'Jump to a screen, question, pull request, task or job'], [['?'], 'Show these keys'], [['Esc'], 'Close what is open, or step back up a level']]],
-  ['Your queue', [[['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Answer with that choice once the card has focus; from outside the card, the key only moves focus to that choice'], [['⌘Z'], 'Take back the newest answer that still shows Undo']]],
+  ['Your queue', [
+    [['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Answer with that choice'], [['a'], 'Approve the pull request'], [['h'], 'Hold the pull request'],
+    [['o'], 'Open the pull request on GitHub'], [['q'], 'Ask about it, or answer in your own words'], [['e'], 'Explain more, or show less'],
+    [['f'], 'Next filter: All, PRs, Decisions'], [['[', ']'], 'Previous or next project'], [['⌘Z'], 'Take back the newest answer that still shows Undo'],
+  ]],
   ['A pull request card', [[['←', '→'], 'Switch between Show me, The change and Context, with a tab focused']]],
   ['Writing to Claude', [[['↵'], 'Send'], [['⇧↵'], 'Start a new line']]],
   ['Jump', [[['↑', '↓'], 'Choose a match'], [['↵'], 'Open it']]],
@@ -188,8 +194,9 @@ function clock(iso) {
 function ago(iso) {
   const minutes = minutesSince(iso);
   if (minutes < 60) return `${minutes}m`;
-  if (minutes < 48 * 60) return `${Math.round(minutes / 60)}h`;
-  return `${Math.round(minutes / 1440)}d`;
+  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)}h`;
+  const hours = Math.floor(minutes / 60) % 24;
+  return `${Math.floor(minutes / 1440)}d${hours ? ` ${hours}h` : ''}`;
 }
 
 function route() {
@@ -464,26 +471,29 @@ function optionParts(option) {
   return [option.slice(0, option[cut] === '.' ? cut + 1 : cut), option.slice(cut + 1).trim()];
 }
 
+function answerKey(item) {
+  return item.answer ?? (item.kind === 'tap' ? `tap:${prKey(item.url)}` : null);
+}
+
 function choices(item, keyed = false) {
-  const card = item.card;
-  const given = answers.get(item.answer);
+  const answered = answerKey(item);
+  const given = answers.get(answered);
   if (given?.done) return `<div class="answered">✓ <b>${esc(given.label)}</b> · answered ${clock(given.at)}</div>`;
   const held = given && !given.error;
   const failed = given?.error ? `<p class="refused">${esc(given.error)}</p>` : '';
-  const shown = picked?.card === item.answer ? picked.index : -1;
-  const buttons = card.options.map((option, i) => {
-    const attrs = `data-card="${esc(item.answer)}" data-label="${esc(option)}"${held ? ' disabled' : ''}`;
-    const key = keyed ? `<kbd>${i + 1}</kbd>` : '';
-    if (item.kind === 'tap') return `<button class="${option === 'Approve' ? 'primary' : 'secondary'}" ${attrs}>${key}${esc(option)}</button>`;
+  const shown = picked?.card === answered ? picked.index : -1;
+  const buttons = (item.card?.options ?? TAP_LABELS).map((option, i) => {
+    const attrs = `data-card="${esc(answered)}" data-label="${esc(option)}"${held ? ' disabled' : ''}`;
+    if (item.kind === 'tap') return `<button class="${option === 'Approve' ? 'primary' : 'secondary'}" ${attrs}>${keyed ? `<kbd>${TAP_KEYS[option] ?? i + 1}</kbd>` : ''}${esc(option)}</button>`;
     const [title, detail] = optionParts(option);
-    const recommended = option === card.recommended;
+    const recommended = option === item.card.recommended;
     return `<button class="choice${recommended ? ' recommended' : ''}${i === shown ? ' on' : ''}" ${attrs} data-preview="${i}">
       <span class="key">${keyed ? i + 1 : ''}</span>
       <span><span class="choice-title">${esc(title)}${recommended ? '<em>Recommended</em>' : ''}</span>${detail ? `<span class="choice-detail">${esc(detail)}</span>` : ''}</span>
       <span class="arrow" aria-hidden="true">›</span>
     </button>`;
   });
-  const back = restored.has(item.answer) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : '';
+  const back = restored.has(answered) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : '';
   return `${back}<div class="${item.kind === 'tap' ? 'pr-picks' : 'choices'}">${buttons.join('')}</div>${failed}`;
 }
 
@@ -503,9 +513,9 @@ function pictures(paths) {
   return paths?.length ? `<div class="pics">${paths.map((path) => shown(path, '')).join('')}</div>` : '';
 }
 
-function fold(id, html, lines) {
+function fold(id, html, lines, key = '') {
   const open = expanded.has(id);
-  return `<div class="fold${open ? ' open' : ''}" id="fold:${esc(id)}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div><button type="button" class="linkish fold-more" data-more="${esc(id)}" aria-controls="fold:${esc(id)}" aria-expanded="${open}">${open ? 'Show less' : 'Explain more'}</button>`;
+  return `<div class="fold${open ? ' open' : ''}" id="fold:${esc(id)}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div><button type="button" class="linkish fold-more" data-more="${esc(id)}" aria-controls="fold:${esc(id)}" aria-expanded="${open}"${key ? ` data-key="${key}"` : ''}>${open ? 'Show less' : 'Explain more'}</button>`;
 }
 
 function fact(html, tip = '', tone = '') {
@@ -520,9 +530,33 @@ function filterOf(id) {
   return QUEUE_FILTERS.some(([filter]) => filter === id) ? id : 'all';
 }
 
-function shownQueue(filter) {
+function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream')) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
-  return model.queue.filter((item) => keep(item) && !(answers.has(item.answer) && !answers.get(item.answer).error));
+  const inScope = (item) => (project === null || fileKey(item.project) === project) && (stream === null || fileKey(item.workstream) === stream);
+  return model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
+}
+
+function scopeQuery(project = route().query.get('project'), stream = route().query.get('stream')) {
+  const query = new URLSearchParams([...(project === null ? [] : [['project', project]]), ...(stream === null ? [] : [['stream', stream]])]);
+  return query.size ? `?${query}` : '';
+}
+
+function scopeKeys(filter, project = null) {
+  const chosen = route().query.get(project === null ? 'project' : 'stream');
+  const keys = shownQueue(filter, project, null).map((item) => fileKey(project === null ? item.project : item.workstream));
+  return [...new Set([...(chosen === null ? [] : [chosen]), ...keys])].sort((a, b) => byName([a], [b]));
+}
+
+function scopeChips(filter) {
+  const project = route().query.get('project');
+  const stream = route().query.get('stream');
+  const chip = (label, href, on, n) => `<a href="${esc(href)}" class="${on ? 'on' : ''}"${on ? ' aria-current="true"' : ''}>${esc(label)}<span class="n">${n}</span></a>`;
+  const projects = scopeKeys(filter);
+  if (projects.length < 2 && project === null) return '';
+  const streams = project === null ? [] : scopeKeys(filter, project);
+  const rows = [chip('All projects', `#/queue/${filter}`, project === null, shownQueue(filter, null, null).length), ...projects.map((key) => chip(fileName(key), `#/queue/${filter}${scopeQuery(key, null)}`, key === project && stream === null, shownQueue(filter, key, null).length))];
+  const inner = streams.length > 1 ? streams.map((key) => chip(fileName(key), `#/queue/${filter}${scopeQuery(project, key)}`, key === stream, shownQueue(filter, project, key).length)) : [];
+  return `<nav class="subtabs scopes" aria-label="Project">${rows.join('')}</nav>${inner.length ? `<nav class="subtabs scopes" aria-label="Workstream">${inner.join('')}</nav>` : ''}`;
 }
 
 function current(list) {
@@ -536,9 +570,9 @@ function current(list) {
 }
 
 function queueHref(filter, item) {
-  if (!item?.answer) return `#/queue/${filter}`;
+  if (!item?.answer) return `#/queue/${filter}${scopeQuery()}`;
   const rows = item.card?.prs ?? [];
-  return `#/queue/${filter}/${cardTs(item.answer)}${rows.length > 1 ? `/${prKey(rows[chosenRow(item)].url).split('#')[1]}` : ''}`;
+  return `#/queue/${filter}/${cardTs(item.answer)}${rows.length > 1 ? `/${prKey(rows[chosenRow(item)].url).split('#')[1]}` : ''}${scopeQuery()}`;
 }
 
 function chosenRow(item) {
@@ -602,7 +636,7 @@ function decisionRail(item) {
     ${rail.answers.length ? `<div class="rail-block"><div class="eyebrow">Your earlier words on it</div><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></div>` : ''}
     ${read ? `<div class="rail-block"><div class="eyebrow">Read first</div>${read}</div>` : ''}
     <div class="rail-block talk-block">
-      <div class="eyebrow">Ask about this, or answer in your own words</div>
+      <div class="eyebrow" data-key="q">Ask about this, or answer in your own words</div>
       ${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}
       ${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}
     </div>
@@ -616,6 +650,7 @@ function decisionCard(item, at, total) {
   const facts = [
     item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
     item.holds ? fact(esc(`Holds up ${item.holds} finished`), `${item.holds} green, approved ${item.holds === 1 ? 'change or built job waits' : 'changes or built jobs wait'} on this answer`, 'warn') : '',
+    item.rank_why ? fact('Why it ranks here', item.rank_why) : '',
     ...(card.facts ?? []).map((each) => fact(`${esc(each.label)}: ${inline(each.value)}`)),
   ].join('');
   return `<div class="queue-layout">
@@ -623,7 +658,7 @@ function decisionCard(item, at, total) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${inline(card.title || item.title)}</h2>
-        ${body ? `<div class="card-summary">${fold(`q:${item.answer}`, body, 8)}</div>` : ''}
+        ${body ? `<div class="card-summary">${fold(`q:${item.answer}`, body, 8, 'e')}</div>` : ''}
         ${facts ? `<div class="facts">${facts}</div>` : ''}
         ${choices(item, true)}
       </div>
@@ -646,6 +681,7 @@ function prFacts(item, row, read) {
     pr?.isDraft ? fact('Draft', '', 'warn') : '',
     row.head ? fact(`<code>${esc(row.head.slice(0, 7))}</code>`, `The commit this card was drawn for, ${row.head}`) : '',
     item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
+    item.rank_why ? fact('Why it ranks here', item.rank_why) : '',
     row.lands ? fact(esc(`Lands once ${row.lands}`), '', 'good') : '',
     row.blocks ? fact(esc(row.blocks), '', 'bad') : '',
     row.changed ? fact('Changed since your tap', row.changed, 'warn') : '',
@@ -690,8 +726,14 @@ function stackRow(row, i, on, key) {
   return `<li><button class="row${on ? ' on' : ''}" data-row="${i}" data-item="${esc(key)}" aria-current="${on}">${name}<span class="row-facts">${stateFacts(row)}${lands}</span></button></li>`;
 }
 
-function landing(item, rows) {
-  if (!item.card) return `<li>${esc(item.untapped ?? 'No Slack card yet, so no tap of yours lands it.')}</li>`;
+function approveWords(entry, row) {
+  if (entry?.approve_waits === '') return 'Approve queues it for merge at once';
+  if (entry?.approve_waits) return `After your Approve it still waits: ${entry.approve_waits}`;
+  return `Lands once ${row?.lands || 'you approve'}`;
+}
+
+function landing(item, rows, entry) {
+  if (!item.card) return `<li><b>${esc(prKey(item.url))}</b> ${esc(approveWords(entry).replace(/^./, (c) => c.toLowerCase()))}</li>`;
   return rows.map((row) => {
     const said = row.state !== 'open' ? GONE_ROWS[row.state] ?? row.state : row.lands ? `lands once ${row.lands}` : row.blocks ? `does not land on Approve: ${row.blocks}` : 'Reading its card…';
     return `<li><b>${esc(prKey(row.url))}</b> ${esc(said)}</li>`;
@@ -732,13 +774,35 @@ function noteBox(key, pr) {
   </form>`;
 }
 
-function prRail(item, key, rows, row, pr, head, read) {
-  const thread = item.thread ? talkPane(item.thread, cardTs(item.answer)) : '<p class="rail-note">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
+function prState(entry) {
+  const facts = [
+    entry.conflict ? fact(esc(`Conflicts with ${entry.base}`), `GitHub cannot merge ${entry.branch} until it is rebased onto ${entry.base}`, 'bad') : '',
+    entry.draft ? fact('Draft', '', 'warn') : '',
+    entry.landing ? fact(esc(`Lander: ${entry.landing}`)) : '',
+  ].join('');
+  const failed = entry.failed.map((name) => `<li>${link(name, `${entry.url}/checks`)}</li>`).join('');
+  const stack = entry.stack.length > 1 ? entry.stack.map((key) => `<li>${key === entry.key ? `<b>${esc(key)}</b>, this one` : `<button class="linkish" data-pr="${esc(key)}">${esc(key)}</button>`}</li>`).join('') : '';
+  return `${facts ? `<div class="facts">${facts}</div>` : ''}${failed ? `<p class="spot-head">Failing checks</p><ul class="rail-list">${failed}</ul>` : ''}${stack ? `<p class="spot-head">Its stack, bottom first</p><ol class="rail-list">${stack}</ol>` : ''}`;
+}
+
+function serves(entry) {
+  const task = featureOf(entry.feature);
+  const html = [
+    task ? `<p><a href="#/feature/${esc(task.id)}">${esc(task.title)}</a></p>` : entry.feature_title ? `<p>${esc(entry.feature_title)}</p>` : '',
+    entry.parts.length ? `<ul class="rail-list">${entry.parts.map((part) => `<li>${esc(part)}</li>`).join('')}</ul>` : '',
+    entry.job_said ? `<p class="spot-head">Its builder, ${ago(entry.job_at)} ago</p><p>${esc(entry.job_said)}</p>` : '',
+  ].join('');
+  return html ? `<div class="rail-block"><div class="eyebrow">What it serves</div>${html}</div>` : '';
+}
+
+function prRail(item, key, rows, row, pr, head, read, inline) {
+  const entry = model.review.find((each) => each.key === pr);
   return `<aside class="context-rail pr-rail" aria-label="About this change">
-    <div class="rail-block"><div class="eyebrow">Attached to this change <code>${esc(head.slice(0, 7))}</code></div><div class="facts">${stateFacts(row)}</div><p class="spot-head">What Approve lands</p><ul class="rail-list">${landing(item, rows)}</ul></div>
+    <div class="rail-block"><div class="eyebrow">Attached to this change <code>${esc(head.slice(0, 7))}</code></div><div class="facts">${stateFacts(row)}</div>${entry ? prState(entry) : ''}<p class="spot-head">What Approve lands</p><ul class="rail-list">${landing(item, rows, entry)}</ul></div>
+    ${entry ? serves(entry) : ''}
     <div class="rail-block"><div class="eyebrow">Jump to a point in the change</div>${jumps(key, row, pr, read)}</div>
     <div class="rail-block"><div class="eyebrow">Question or line comment</div>${noteBox(key, pr)}</div>
-    <div class="rail-block talk"><div class="eyebrow">Tell the drive what to change</div>${thread}
+    <div class="rail-block talk"><div class="eyebrow"${inline ? '' : ' data-key="q"'}>Tell the drive what to change</div>${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}
       ${sayBox(item.answer ? `t:${item.answer}` : `r:${pr}`, item.answer ?? '', 'Ask the drive, or tell Claude what to change', item.answer ? '' : `About ${row.url}`, item.thread ?? '')}
     </div>
   </aside>`;
@@ -760,18 +824,18 @@ function prCard(item, at, total, inline = false) {
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
     <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">
-        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-tip="Open it on GitHub">${esc(pr)}</a></span>${inline ? '' : counter(at, total)}</div>
+        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${inline ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${inline ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
         ${stack}
         ${row.summary ? `<div class="card-summary">${prose(row.summary, pr)}</div>` : ''}
-        ${row.refresher ? `<div class="card-summary">${fold(`r:${key}:${pr}`, prose(row.refresher, pr), 3)}</div>` : ''}
+        ${row.refresher ? `<div class="card-summary">${fold(`r:${key}:${pr}`, prose(row.refresher, pr), 3, inline ? '' : 'e')}</div>` : ''}
         <div class="facts">${prFacts(item, row, read)}</div>
       </div>
       <div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>
       ${panes}
-      <div class="pr-actions">${item.card ? choices(item, true) : `<span class="meta">${esc(item.untapped ?? 'No Slack card yet, so there is no tap to give here.')}</span>`}</div>
+      <div class="pr-actions">${choices(item, !inline)}<span class="meta">${esc(item.untapped ?? approveWords(model.review.find((each) => each.key === pr), row))}</span></div>
     </article>
-    ${prRail(item, key, rows, row, pr, head, read)}
+    ${prRail(item, key, rows, row, pr, head, read, inline)}
   </div>`;
 }
 
@@ -796,7 +860,7 @@ function queueScreen(id) {
   const picked = number && item?.answer && cardTs(item.answer) === named ? (item.card?.prs ?? []).findIndex((row) => row.url.endsWith(`/pull/${number}`)) : -1;
   if (picked >= 0) prRows.set(noticeKey(item), picked);
   if (location.hash !== queueHref(filter, item)) history.replaceState(history.state, '', queueHref(filter, item));
-  const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
+  const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}${scopeQuery()}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
   const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
@@ -804,10 +868,34 @@ function queueScreen(id) {
   return `<div class="page-head">
       <h1 class="h1">${list.length ? `${list.length} ${list.length === 1 ? 'thing waits' : 'things wait'} on you` : 'Your queue'}</h1>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
+      ${scopeChips(filter)}
     </div>
     ${unread}
-    ${shown}
-    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>j</kbd><kbd>k</kbd> move <kbd>1–9</kbd> answer, with the card focused <kbd>⌘Z</kbd> undo <button type="button" class="linkish" data-keys><kbd>?</kbd> every key</button></span></footer>`;
+    <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? queueList(list, at, filter) : ''}${shown}</div>
+    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>j</kbd><kbd>k</kbd> move <kbd>1–9</kbd> answer <kbd>a</kbd> approve <kbd>h</kbd> hold <kbd>o</kbd> GitHub <kbd>q</kbd> ask <kbd>e</kbd> explain <kbd>f</kbd> filter <kbd>[</kbd><kbd>]</kbd> project <kbd>⌘Z</kbd> undo <button type="button" class="linkish" data-keys><kbd>?</kbd> every key</button></span></footer>`;
+}
+
+function queueList(list, at, filter) {
+  return `<ol class="queue-list" aria-label="Everything here, most urgent first">${list.map((item, i) => {
+    const tip = [item.title, item.rank_why, [fileName(fileKey(item.project)), fileName(fileKey(item.workstream))].join(' / '), item.since ? `Waiting ${ago(item.since)}` : ''].filter(Boolean).join('\n');
+    return `<li class="qrow${i === at ? ' on' : ''}">
+      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}" data-tip="${esc(tip)}"${i === at ? ' aria-current="true"' : ''}><span class="type-label">${LABEL[item.kind]}</span><span class="qrow-title">${esc(bare(item.title))}</span><small>${esc(item.rank_why)}</small></a>
+      <span class="qrow-acts">${rowActions(item, filter)}</span>
+    </li>`;
+  }).join('')}</ol>`;
+}
+
+function rowActions(item, filter) {
+  const answered = answerKey(item);
+  const options = item.kind === 'late' ? [] : item.card?.options ?? TAP_LABELS;
+  const picks = options.map((option, i) => `<button class="mini${option === 'Approve' ? ' go' : ''}" data-card="${esc(answered)}" data-label="${esc(option)}" data-tip="${esc(option)}">${item.kind === 'tap' ? esc(option) : i + 1}</button>`);
+  const task = item.tasks.find(Boolean);
+  return [
+    ...picks,
+    `<button class="mini" data-ask-about="${esc(noticeKey(item))}" data-href="${esc(queueHref(filter, item))}">Ask</button>`,
+    task ? `<a class="mini" href="#/feature/${esc(task)}">Open task</a>` : '',
+    item.pr ? `<a class="mini" href="${esc(item.pr)}" target="_blank" rel="noopener">GitHub ↗</a>` : '',
+  ].join('');
 }
 
 function nowScreen() {
@@ -1187,7 +1275,7 @@ function drawDrawer() {
   const [repo, number] = reviewing.split('#');
   const item = entry && {
     kind: 'tap', url: entry.url, title: entry.title, since: entry.since, answer: entry.answer, thread: entry.thread, card: null,
-    untapped: entry.group === 'decided' ? `You answered ${entry.tap} on its card; ${entry.detail}.` : `It does not wait on your tap yet: ${entry.detail}.`,
+    untapped: entry.group === 'decided' ? `You tapped ${entry.tap}; ${entry.detail}.` : entry.group === 'you' ? null : `It does not wait on your tap yet: ${entry.detail}.`,
     prs: [{ state: 'open', checks: entry.checks, review: entry.review }],
   };
   const html = `<div class="dr-bar"><b>${esc(reviewing)}</b><span class="acts"><a class="ext" href="https://github.com/${esc(repo)}/pull/${esc(number)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
@@ -1450,9 +1538,10 @@ function showTip(el) {
   const tip = $('#srctip');
   if (tip.dataset.key === `tip:${el.dataset.tip}` && tip.matches(':popover-open')) return;
   tip.dataset.key = `tip:${el.dataset.tip}`;
-  tip.innerHTML = `<p>${esc(el.dataset.tip)}</p>`;
+  const [head, ...lines] = el.dataset.tip.split('\n');
+  tip.innerHTML = lines.length ? `<header>${esc(head)}</header>${lines.map((line) => `<p>${esc(line)}</p>`).join('')}` : `<p>${esc(head)}</p>`;
   if (!tip.matches(':popover-open')) tip.showPopover();
-  placeTip(tip, el.getBoundingClientRect(), false);
+  placeTip(tip, el.getBoundingClientRect(), el.matches('.qrow-main'));
 }
 
 function placeTip(tip, box, beside) {
@@ -1758,17 +1847,17 @@ function jumpItems() {
     title: item.title,
     href: '#/queue/all',
     item: noticeKey(item),
-    keys: item.kind === 'tap' ? (item.card?.prs ?? [{ url: item.url }]).map((row) => prKey(row.url)) : [],
+    keys: [...(item.kind === 'tap' ? (item.card?.prs ?? [{ url: item.url }]).map((row) => prKey(row.url)) : []), ...item.tasks.filter(Boolean)],
   }));
   const onQueue = new Set(queued.flatMap((row) => row.keys));
   return [
     ...SCREENS.map(([, href, title]) => ({ kind: 'Screen', title, href, keys: [] })),
     ...queued,
-    ...features().map((entry) => ({ kind: 'Task', title: entry.title, href: `#/feature/${entry.id}`, keys: [] })),
+    ...features().map((entry) => ({ kind: 'Task', title: entry.title, href: `#/feature/${entry.id}`, keys: [entry.id, ...entry.prs.map((pr) => prKey(pr.url))] })),
     ...model.review.filter((entry) => !onQueue.has(entry.key)).map((entry) => ({ kind: LABEL.tap, title: entry.title, pr: entry.key, keys: [entry.key] })),
     ...(slice('/api/lanes')?.lanes ?? []).map((job) => {
       const entry = featureOf(job.feature);
-      return { kind: 'Job', title: job.goal, href: zoomHref('work', fileKey(entry.project), fileKey(entry.workstream), job.id), keys: [job.id] };
+      return { kind: 'Job', title: job.goal, href: zoomHref('work', fileKey(entry.project), fileKey(entry.workstream), job.id), keys: [job.id, job.feature] };
     }),
   ];
 }
@@ -1794,7 +1883,7 @@ function drawJump() {
   }).join('');
   if (shown.length) $('#jumpfind').setAttribute('aria-activedescendant', `jump-${jumpAt}`);
   else $('#jumpfind').removeAttribute('aria-activedescendant');
-  $('#jumpnote').textContent = !found.length ? `Nothing matches “${typed}”. Jump finds a screen, a question, a pull request by its title, number or repo, a task, or a job.`
+  $('#jumpnote').textContent = !found.length ? `Nothing matches “${typed}”. Jump finds a screen, a question, a pull request by its title, number or repo, a task by its title or order id, or a job by its id.`
     : found.length > shown.length ? `The first ${shown.length} of ${found.length} matches. Type more to narrow them.`
     : counted(found.length, 'match', 'matches');
 }
@@ -2138,7 +2227,7 @@ function render() {
 
 function pageKey() {
   const { screen, path } = route();
-  return ['now', 'work'].includes(screen) ? screen : screen === 'queue' ? `queue/${filterOf(path[0])}` : location.hash;
+  return ['now', 'work'].includes(screen) ? screen : screen === 'queue' ? `queue/${filterOf(path[0])}${scopeQuery()}` : location.hash;
 }
 
 function morph(old, made) {
@@ -2189,13 +2278,15 @@ function fresh() {
 }
 
 async function answer(card, label) {
-  const asked = [...model.queue, ...model.review].find((candidate) => candidate.answer === card);
+  const tapped = card.startsWith('tap:') ? model.review.find((entry) => `tap:${entry.key}` === card) : null;
+  const asked = model.queue.find((candidate) => answerKey(candidate) === card) ?? tapped ?? model.review.find((entry) => entry.answer === card);
   restored.delete(card);
   answers.set(card, { label });
   toast(card, { label, title: asked.title, until: Date.now() + model.undo_seconds * 1000, state: 'held' });
   render();
   try {
-    const reply = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card, label }) });
+    const [path, body] = tapped ? ['/api/tap', { pr: tapped.key, label, head: tapped.head }] : ['/api/answer', { card, label }];
+    const reply = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const said = await reply.json();
     if (!reply.ok) throw new Error(said.error);
     if (said.undone) {
@@ -2372,7 +2463,14 @@ document.addEventListener('click', (event) => {
   const queued = event.target.closest('[data-queue]');
   if (queued) {
     queueAt = queued.dataset.queue;
-    return go('#/queue/all');
+    return go(queued.getAttribute('href') ?? '#/queue/all');
+  }
+  const asking = event.target.closest('[data-ask-about]');
+  if (asking) {
+    queueAt = asking.dataset.askAbout;
+    history.replaceState(history.state, '', asking.dataset.href);
+    render();
+    return $('#main form[data-say] textarea')?.focus();
   }
   if (event.target.closest('[data-motion]')) {
     paused = !paused;
@@ -2609,10 +2707,31 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       return move(step);
     }
-    const choice = /^[1-9]$/.test(event.key) && document.querySelectorAll('#main .focus-card button[data-card]')[Number(event.key) - 1];
-    if (choice) {
+    const filter = filterOf(route().id);
+    const target = /^[1-9]$/.test(event.key) ? document.querySelectorAll('#main .focus-card button[data-card]')[Number(event.key) - 1] : {
+      a: $('#main .focus-card button[data-card][data-label="Approve"]'),
+      h: $('#main .focus-card button[data-card][data-label="Hold"]'),
+      o: $('#main .focus-card [data-github]'),
+      e: $('#main .focus-card [data-more]'),
+    }[event.key];
+    if (target) {
       event.preventDefault();
-      return event.target.closest('#main .focus-card') ? choice.click() : choice.focus();
+      return target.click();
+    }
+    if (event.key === 'q' && $('#main form[data-say] textarea')) {
+      event.preventDefault();
+      return $('#main form[data-say] textarea').focus();
+    }
+    if (event.key === 'f') {
+      event.preventDefault();
+      const at = QUEUE_FILTERS.findIndex(([id]) => id === filter);
+      return go(`#/queue/${QUEUE_FILTERS[(at + 1) % QUEUE_FILTERS.length][0]}${scopeQuery()}`);
+    }
+    if (event.key === '[' || event.key === ']') {
+      event.preventDefault();
+      const keys = [null, ...scopeKeys(filter)];
+      const at = keys.indexOf(route().query.get('project'));
+      return go(`#/queue/${filter}${scopeQuery(keys[(at + (event.key === ']' ? 1 : keys.length - 1)) % keys.length], null)}`);
     }
   }
   if ($('#lightbox').open && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {

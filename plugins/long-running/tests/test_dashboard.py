@@ -308,6 +308,39 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_history_keeps_th
     assert [(event["kind"], event["label"], event.get("undo_until")) for event, _ in state.read_events("demo")] == [("undone", "Approve", None)]
 
 
+def test_a_tap_on_a_pr_is_held_for_its_undo_then_kept_through_the_one_tap_recorder_unless_its_head_moved(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work", "D1"))
+    key = "yasyf/cc-skills#7"
+    board = dashboard.Board("demo", [])
+    board.heads, board.titles = {key: "abc1234"}, {key: "change 7"}
+    tapped = []
+    monkeypatch.setattr(dashboard.card, "answered", lambda ask: tapped.append(ask) or {"ok": True})
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 2)
+    server, port = serving(board)
+    page = f"http://box:{port}"
+    held = {}
+    clicked = threading.Thread(target=lambda: held.update(reply=post(port, page, "/api/tap", {"pr": key, "label": "Approve", "head": "abc1234"})))
+    clicked.start()
+    while f"tap:{key}" not in board.held:
+        time.sleep(0.01)
+    undone = post(port, page, "/api/undo", {"card": f"tap:{key}"})
+    clicked.join()
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 0)
+    moved = post(port, page, "/api/tap", {"pr": key, "label": "Approve", "head": "0ld0000"})
+    stranger = post(port, page, "/api/tap", {"pr": "yasyf/cc-skills#8", "label": "Approve", "head": "abc1234"})
+    elsewhere = post(port, "https://evil.example", "/api/tap", {"pr": key, "label": "Approve", "head": "abc1234"})
+    sent = post(port, page, "/api/tap", {"pr": key, "label": "Hold", "head": "abc1234"})
+    late = post(port, page, "/api/undo", {"card": f"tap:{key}"})
+    server.shutdown()
+    assert (undone, held["reply"]) == ((200, {"undone": True}), (200, {"undone": True}))
+    assert moved == (409, {"error": dashboard.MOVED})
+    assert (stranger[0], elsewhere[0]) == (409, 403)
+    assert (sent[0], sent[1]["label"]) == (200, "Hold")
+    assert late == (409, {"error": dashboard.SENT_TAP})
+    assert tapped == [{"repo": "yasyf/cc-skills", "number": 7, "label": "Hold", "heads": {key: "abc1234"}, "source": "dashboard", "action_ts": None, "waits": ""}]
+    assert [(event["kind"], event["label"], event["url"], event["question"]) for event, _ in state.read_events("demo")] == [("undone", "Approve", "https://github.com/yasyf/cc-skills/pull/7", "change 7")]
+
+
 def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
     card = "https://acme.slack.com/archives/D1/p100"
 
@@ -574,8 +607,9 @@ FEATURE = {
     "created": "2026-11-10T20:00:00-08:00", "jobs": [], "parts": [], "where": None, "holdup": None,
 }
 
+RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None}
 QUESTION = {
-    "kind": "question", "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
+    "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
     "card": {"title": "Raise the limit?", "body": "", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
 }
 
@@ -702,7 +736,7 @@ const drawer = document.querySelector('#drawer .refused')?.textContent;
 toast('card', { label: 'Approve', title: 'ship it', until: Date.now() + 10000, state: 'held' });
 await undo('card');
 done({ drawer, toast: document.querySelector('#toasts .toast .meta').textContent });
-""", board(review=[{"key": "a/b#7", "title": "change 7", "url": "https://github.com/a/b/pull/7", "head": "abc", "card": None}]))
+""", board(review=[RAIL | {"key": "a/b#7", "title": "change 7", "url": "https://github.com/a/b/pull/7", "head": "abc", "card": None}]))
     assert shown == {
         "drawer": "Could not reach the dashboard server (offline).",
         "toast": "Could not reach the dashboard server (offline).",
@@ -765,7 +799,7 @@ done({ open: document.querySelector('#lightbox').open, kind: host.dataset.visual
 def test_moving_focus_into_a_folded_summary_opens_it_and_its_picture_opens_in_the_lightbox(tmp_path: Path) -> None:
     body = "\n\n".join(f"Reason {n} for the pick." for n in range(12)) + "\n\n![the lookup](/lookup.png)"
     item = {
-        "kind": "question", "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
+        "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
         "card": {"title": "Pick one", "body": body, "options": ["Keep it", "Drop it"], "recommended": "Keep it"},
     }
     seen = browse(tmp_path, """
@@ -786,7 +820,7 @@ done({ before, after, lightbox: document.querySelector('#lightbox').open, hash: 
 def test_a_click_on_a_picture_inside_a_folded_summary_opens_the_lightbox_and_leaves_the_fold_as_it_was(tmp_path: Path) -> None:
     body = "\n\n".join(f"Reason {n} for the pick." for n in range(12)) + "\n\n![the lookup](/lookup.png)"
     item = {
-        "kind": "question", "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
+        "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
         "card": {"title": "Pick one", "body": body, "options": ["Keep it", "Drop it"], "recommended": "Keep it"},
     }
     seen = browse(tmp_path, """
@@ -1171,7 +1205,7 @@ done({ first, hovered, focused: said() });
 
 
 def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
-    tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
@@ -1191,7 +1225,7 @@ READ = {
     "headRefName": "lock-timeout", "baseRefName": "main", "isDraft": False, "row": {},
 }
 STACK = {
-    "kind": "tap", "title": "Fix: the lock stack", "url": f"{DEMO}/40", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "thread": None, "since": None,
+    "kind": "tap", "tasks": [], "title": "Fix: the lock stack", "url": f"{DEMO}/40", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "thread": None, "since": None,
     "detail": "", "due": None, "links": [],
     "card": {
         "title": "Fix: approve the lock stack?", "options": ["Approve", "Hold"], "recommended": "Approve",
@@ -1208,7 +1242,7 @@ STACK = {
     ],
 }
 OPEN = [
-    {"key": f"demo-org/demo-app#{number}", "title": title, "url": f"{DEMO}/{number}", "head": head * 40, "card": None, "answer": None, "thread": None, "since": None}
+    RAIL | {"key": f"demo-org/demo-app#{number}", "title": title, "url": f"{DEMO}/{number}", "head": head * 40, "card": None, "answer": None, "thread": None, "since": None}
     for number, title, head in ((41, "Fix: time out the lock", "b"), (42, "Fix: drop the old queue", "c"))
 ]
 STAND_IN = f"""
@@ -1388,7 +1422,7 @@ done({ drawn, jumped, pointed, commented, refused, asked, heard: HEARD.map(({ id
 @pytest.mark.parametrize("size", ["1440,900", "390,844"])
 def test_a_pr_outside_the_queue_opens_in_the_drawer_as_the_queue_cards_pr_component_with_focus_in_it(tmp_path: Path, size: str) -> None:
     tapped = {"title": "Fix: retry the upload", "url": f"{DEMO}/43", "state": "open", "checks": "pass", "review": "approved", "tap": "Approve"}
-    entry = {"key": "demo-org/demo-app#43", "head": "d" * 40, "group": "decided", "detail": "green, approved", "since": None, "answer": None, "thread": None, "card": None} | tapped
+    entry = RAIL | {"key": "demo-org/demo-app#43", "head": "d" * 40, "group": "decided", "detail": "green, approved", "since": None, "answer": None, "thread": None, "card": None} | tapped
     seen = browse(tmp_path, """
 location.hash = '#/feature/o1';
 await wait(100);
@@ -1414,7 +1448,7 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
     assert seen == {
         "opened": {
             "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
-            "title": "Fix: retry the upload", "counter": False, "actions": "You answered Approve on its card; green, approved.", "focus": True,
+            "title": "Fix: retry the upload", "counter": False, "actions": "ApproveHoldYou tapped Approve; green, approved.", "focus": True,
         },
         "changed": {"embed": "?embed=1", "visible": "visible", "overlays": 0, "files": ["lib/lock.py", "lib/queue.py"]},
         "closed": True,
@@ -1423,7 +1457,7 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
 
 
 def test_a_decision_shows_its_ask_box_beside_the_card_without_a_click_as_a_pr_card_does(tmp_path: Path) -> None:
-    tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
@@ -1555,7 +1589,7 @@ done({ closed, opened, again, shortShown: getComputedStyle(button()).display !==
     }
 
 
-def test_j_and_k_step_through_the_queue_a_question_mark_shows_every_key_and_a_number_answers_only_inside_the_card(tmp_path: Path) -> None:
+def test_j_and_k_step_through_the_queue_a_question_mark_shows_every_key_and_a_number_answers_at_once_from_anywhere_on_the_page(tmp_path: Path) -> None:
     second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
@@ -1574,7 +1608,7 @@ window.fetch = (url, options) => (url === '/api/answer' ? (sent.push(JSON.parse(
 const choices = () => [...document.querySelectorAll('#main .focus-card button[data-card]')];
 press('2');
 await wait(50);
-const outside = { focused: choices().indexOf(document.activeElement), sent: [...sent] };
+const first = { sent: [...sent], title: title() };
 press('?', document.activeElement);
 await wait(50);
 const sheet = document.querySelector('#keys');
@@ -1586,24 +1620,62 @@ keys.footer = sheet.open;
 sheet.close();
 press('1', choices()[1]);
 await wait(50);
-done({ stepped, outside, keys, inside: sent });
+done({ stepped, first, keys, then: sent });
 """, board(queue=[QUESTION, second]))
     assert seen == {
         "stepped": ["Shard it?", "Raise the limit?"],
-        "outside": {"focused": 1, "sent": []},
+        "first": {"sent": ["Shard it"], "title": "Shard it?"},
         "keys": {"open": True, "title": "Keyboard shortcuts", "groups": ["Anywhere", "Your queue", "A pull request card", "Writing to Claude", "Jump", "An enlarged picture"], "footer": True},
-        "inside": ["Raise it"],
+        "then": ["Shard it", "Raise it"],
+    }
+
+
+def test_a_pr_with_no_card_takes_approve_from_its_key_and_the_queue_lists_by_rank_and_steps_to_one_project(tmp_path: Path) -> None:
+    url = "https://github.com/a/b/pull/7"
+    tap = {
+        "kind": "tap", "tasks": ["o1"], "url": url, "pr": url, "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": [],
+        "project": "Drive", "workstream": "Dashboard", "rank_why": "lands 1 PR; waiting since Nov 10 11:00 PM", "prs": [{"url": url, "title": "fix the lock", "state": "open", "checks": "pass", "review": "none", "tap": None}],
+    }
+    other = QUESTION | {"project": "Iris", "workstream": None, "rank_why": "waiting since Nov 10 10:00 PM"}
+    review = [
+        RAIL | {"key": "a/b#7", "title": "fix the lock", "url": url, "head": "abc", "group": "you", "feature": "o1", "feature_title": "", "detail": "green, no review yet", "checks": "pass",
+                "review": "none", "tap": None, "stage": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None, "approve_waits": "its review reads none"}
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const rows = () => [...document.querySelectorAll('#main .queue-list .qrow-main small')].map((why) => why.textContent);
+const listed = rows();
+const chips = [...document.querySelectorAll('#main .scopes a')].map((chip) => chip.textContent);
+const press = (key) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+press(']');
+await wait(100);
+const scoped = { hash: location.hash, title: document.querySelector('#item-title').textContent, listed: rows().length };
+const sent = [];
+const real = window.fetch;
+window.fetch = (url, options) => (url === '/api/tap' ? (sent.push(JSON.parse(options.body)), new Promise(() => {})) : real(url, options));
+const waits = document.querySelector('#main .pr-actions .meta').textContent;
+press('a');
+await wait(50);
+done({ listed, chips, scoped, waits, sent });
+""", board(queue=[tap, other], review=review))
+    assert seen == {
+        "listed": ["lands 1 PR; waiting since Nov 10 11:00 PM", "waiting since Nov 10 10:00 PM"],
+        "chips": ["All projects2", "Drive1", "Iris1"],
+        "scoped": {"hash": "#/queue/all?project=Drive", "title": "fix the lock", "listed": 0},
+        "waits": "After your Approve it still waits: its review reads none",
+        "sent": [{"pr": "a/b#7", "label": "Approve", "head": "abc"}],
     }
 
 
 def test_jump_lists_each_pr_once_finds_it_by_number_or_repo_marks_what_matched_and_counts_what_it_leaves_out(tmp_path: Path) -> None:
     stack = [{"url": f"https://github.com/a/b/pull/{n}", "title": f"Fix: the lock, part {n}", "summary": "", "refresher": "", "show_me": "", "head": "abc"} for n in (101, 102)]
     tap = {
-        "kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "url": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Fix: the lock", "since": None,
+        "kind": "tap", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859300", "url": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Fix: the lock", "since": None,
         "links": [], "thread": None, "holds": 0, "blocks": [], "card": {"title": "Approve the lock?", "options": ["Approve", "Hold"], "recommended": "Approve", "prs": stack},
     }
     review = [
-        {"key": f"a/b#{n}", "title": title, "url": f"https://github.com/a/b/pull/{n}", "head": "abc", "group": "you", "feature": "o1", "feature_title": "ship the fix", "detail": "",
+        RAIL | {"key": f"a/b#{n}", "title": title, "url": f"https://github.com/a/b/pull/{n}", "head": "abc", "group": "you", "feature": "o1", "feature_title": "ship the fix", "detail": "",
          "checks": "pass", "review": "approved", "tap": None, "stage": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None}
         for n, title in ((101, "Fix: the lock, part 101"), (102, "Fix: the lock, part 102"), (103, "New: export the board"))
     ]
@@ -1640,7 +1712,7 @@ done({ number, once, many: { shown: many.shown, note: many.note }, nothing, repo
     assert seen["many"] == {"shown": 40, "note": "The first 40 of 45 matches. Type more to narrow them."}
     assert seen["nothing"] == {
         "rows": [], "shown": 0, "marks": [], "active": None,
-        "note": "Nothing matches “zzz”. Jump finds a screen, a question, a pull request by its title, number or repo, a task, or a job.",
+        "note": "Nothing matches “zzz”. Jump finds a screen, a question, a pull request by its title, number or repo, a task by its title or order id, or a job by its id.",
     }
     assert seen["repo"]["rows"] == [[pull, "Fix: the lock", "a/b#101 +1"], [pull, "New: export the board", "a/b#103"]]
     assert seen["repo"]["marks"] == ["a/b", "a/b"]
@@ -2301,7 +2373,7 @@ done({ opened, again, elsewhere, scrolled, hovered: open() });
 
 
 def test_on_a_phone_the_screens_sit_in_a_bottom_bar_every_target_is_a_thumb_wide_and_nothing_hides_under_the_bar(tmp_path: Path) -> None:
-    tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     incidents = [{"id": "o1", "title": "ship the fix", "created": "2026-11-10T20:00:00-08:00"}]
     looked = """
 location.hash = '#/queue/all';
