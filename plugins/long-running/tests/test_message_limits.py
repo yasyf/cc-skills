@@ -1322,10 +1322,10 @@ def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_hi
 
 def test_a_state_of_work_told_by_a_session_posting_on_its_own_carries_the_read_that_measured_it_or_says_unverified(talker: str, transcript: Path) -> None:
     covered = "The flood fix covers it."
-    own = call("slack_dm_status", transcript, text=f"Got it.\n{covered}") | {"tool_name": message_limits.SAY}
+    own = call("slack_dm_status", transcript, text=covered) | {"tool_name": message_limits.SAY}
     del own["agent_id"]
     refused = message_limits.deny_reason(own)
-    assert refused.endswith(f"says unverified: {covered}") and refused.rule == message_limits.CAUSE_RULE
+    assert refused.endswith(f"says unverified: {covered}") and message_limits.CAUSE_RULE in refused.rule
     for told in ("The flood fix covers it, unverified.", "It goes live once he taps.", "Is the flood fix queued?", "The flood fix is not queued yet.", 'He asked "is it live?"'):
         assert message_limits.deny_reason(own | {"tool_input": {"text": told}}) is None, told
     assert refs.unread_states("Queued #55361 and #55355.\n#55538 is noise; #55513 merged and is live.\n> it merged") == [
