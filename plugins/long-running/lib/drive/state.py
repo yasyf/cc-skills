@@ -1405,8 +1405,12 @@ def pointed(name: str, data: dict) -> None:
 
 
 def clone(name: str, folder: Path) -> None:
-    """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction."""
+    """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction, with the mark of each once-only pass its loads already ran, so a load of the copy runs only the passes a load of the drive would."""
     (folder / name).mkdir(parents=True)
+    for mark in (APPROVALS_LABELLED, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
+        if (drive_dir(name) / mark).exists():
+            (folder / name / mark).parent.mkdir(exist_ok=True)
+            (folder / name / mark).touch()
     if not database_path(name).exists():
         (folder / name / "drive.json").write_text(json.dumps(stored_json(name)))
         return

@@ -203,6 +203,21 @@ def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_on
     assert backfilled == ["/work"]
 
 
+def test_a_copy_of_a_drive_runs_only_the_once_only_passes_a_load_of_the_drive_would(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backfilled: list[str]
+) -> None:
+    make("demo")
+    state.clone("demo", tmp_path / "labelled")
+    (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()
+    state.clone("demo", tmp_path / "unlabelled")
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(tmp_path / "labelled"))
+    state.load("demo")
+    assert backfilled == []
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(tmp_path / "unlabelled"))
+    state.load("demo")
+    assert backfilled == ["/work"]
+
+
 def test_load_drops_the_readings_of_his_answers_drive_job_ask_once_kept_beside_a_job(state_root: Path) -> None:
     data = state.new_drive("demo", "coordinator", None, "/work", None)
     by_words = {"title": "Which store holds a run's files?", "answer": {"id": "b2b2b2b", "asked": "Which store holds the blobs?", "said": "The blob store"}}
