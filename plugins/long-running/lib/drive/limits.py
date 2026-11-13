@@ -635,7 +635,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
-        problems += root_cause_problems(findings[0], options, RECOMMENDED.sub("", marked[0]))
+        problems += root_cause_problems(findings[0], options)
     held = HOLDS.search(findings[0]) if findings else None
     if not kept and not (held and held[1] and held[1].casefold() != "none"):
         problems.append(f"no `Holds:` line under `Findings:` naming what his open card holds: write {HOLDS_SHAPE} ({HOLDS_RULING})")
@@ -812,8 +812,8 @@ def captions(show_me: list[str]) -> list[str]:
     return kept
 
 
-def root_cause_problems(findings: str, options: list[str], recommended: str) -> list[str]:
-    """Whether the findings start from the root cause, the structure that lets the defect happen, and recommend the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Whether that option or PR truly removes the structure, and whether words of his the card quotes choose another, Jev weighs when `drive job ask` keeps it, printing its finding to the agent and refusing no card on it."""
+def root_cause_problems(findings: str, options: list[str]) -> list[str]:
+    """Whether the findings start from the root cause, the structure that lets the defect happen, and name the option that removes it so the defect cannot occur; or name that structure as fixed, linking the merged PR that removed it, on a card asking only when that PR ships; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Which option the card recommends, whether that option or PR truly removes the structure, and whether words of his the card quotes choose another, Jev weighs when `drive job ask` keeps it, printing its finding to the agent and refusing no card on it."""
     cause = ROOT_CAUSE.search(findings)
     if not cause:
         return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
@@ -834,16 +834,10 @@ def root_cause_problems(findings: str, options: list[str], recommended: str) -> 
             f" cannot occur, through one abstraction every caller goes through ({ROOT_CAUSE_RULING})"
         ]
     fix = principled[1].casefold()
-    option = next((option for option in options if fix in (option.strip().casefold(), option_head(option).casefold())), None)
-    if option is None:
+    if not any(fix in (option.strip().casefold(), option_head(option).casefold()) for option in options):
         return [
             f"`First principles: {principled[1]}` names no option: the option that removes the root cause is always one, so add"
             " it, or repeat the words of the option it is, whole or up to the colon that ends its first part"
-        ]
-    if option != recommended:
-        return [
-            f'"{option_head(option)}" removes the root cause and is not the recommended option: recommend it, and say in every'
-            f" other option that it keeps that structure and what that costs ({ROOT_CAUSE_RULING})"
         ]
     return []
 
@@ -1419,9 +1413,14 @@ def kind_refusal(text: str, said: str, data: dict) -> str | None:
 
 def his_words(order: dict) -> str:
     """The words of an order that are his: the whole text of one added from his own Slack message, which keeps his message and the words he added to it verbatim, else only its quoted spans, since a "Drive tooling:" order, a reporter's bug and an order added from the terminal or a record are the drive's words quoting his."""
-    if order["from"].startswith("slack:") and not order["reporter"] and not order["text"].startswith(TOOLING):
+    if from_his_message(order):
         return order["text"]
     return " ".join(SAID.findall(order["text"]))
+
+
+def from_his_message(order: dict) -> bool:
+    """Whether an order's text is his own Slack message: added from it, with no reporter, and not a "Drive tooling:" order the drive wrote."""
+    return order["from"].startswith("slack:") and not order["reporter"] and not order["text"].startswith(TOOLING)
 
 
 def kind_words(data: dict, pr: dict) -> str:

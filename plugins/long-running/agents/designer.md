@@ -124,7 +124,7 @@ Holds: <each change of the order its options alter, in that change's words; or n
   line, and a PR adding a cap, timer, retry, exit, flag, pin or sweeper removed nothing. A card with no
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
-  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block out of this shape, and
+  settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape, and
   Jev reads its recommended option against its root cause and his quoted words, and the words each page it links shows once Chrome opens it against what the card says that page shows, and prints its finding to you, keeping the card whatever it finds, by his pick: "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His words before it: "so why was that
   not the suggested optin to me, or even any of the options?"
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part

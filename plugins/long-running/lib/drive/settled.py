@@ -276,13 +276,16 @@ def answered(data: dict, title: str) -> dict | None:
 
 
 def own_words(data: dict, order_id: str, question: str) -> list[dict]:
-    """His words in the order, as limits.his_words reads them, when they share a rare word with the question."""
-    text = limits.his_words(data["orders"][order_id])
+    """His words the drive quotes in the order, as limits.his_words reads them, when they share a rare word with the question; none for an order added from his own Slack message, whose words thread_words reads from that message, since the order's stored text can lose the line break between his words and the lines he quoted."""
+    order = data["orders"][order_id]
+    if limits.from_his_message(order):
+        return []
+    text = limits.his_words(order)
     return [{"link": f"{order_id}'s own words", "text": text, "shared": shared}] if (shared := sorted(rare(question) & rare(text))) else []
 
 
 def thread_words(data: dict, order_id: str, team_url: str, question: str) -> list[dict]:
-    """His messages about the order in its own thread past its root, as state.message_order reads each, never one about another order sharing that thread, sharing a rare word with the question, each with its permalink and the words shared; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
+    """His messages about the order in its own thread, the message of his that started it included, as state.message_order reads each, never one about another order sharing that thread, each read as only his own lines, never one he quoted with ">" from an alert or another person, and sharing a rare word with the question, each with its permalink and the words shared; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
     if not (where := state.promise_thread(data["orders"][order_id])):
         return []
     try:
@@ -291,14 +294,19 @@ def thread_words(data: dict, order_id: str, team_url: str, question: str) -> lis
         raise slack.SlackError(f"could not read the order's thread {where[1]} for his words that may settle this question, so nothing is kept; run it again: {error}") from None
     asked = rare(question)
     return [
-        {"link": f"{team_url}archives/{where[0]}/p{key}?thread_ts={where[1]}", "key": key, "text": message["text"], "shared": shared}
+        {"link": f"{team_url}archives/{where[0]}/p{key}?thread_ts={where[1]}", "key": key, "text": text, "shared": shared}
         for message in messages
         for key in [message["ts"].replace(".", "")]
+        for text in [unquoted(html.unescape(message["text"]))]
         if message.get("from_user")
-        and message["ts"] != where[1]
-        and (shared := sorted(asked & rare(message["text"])))
+        and (shared := sorted(asked & rare(text)))
         and state.message_order(data, *where, message["ts"]) == order_id
     ]
+
+
+def unquoted(text: str) -> str:
+    """His own lines of a message, without those he quoted with ">", which are another's words."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">"))
 
 
 def unoffered_refusal(said: list[dict], offered: str) -> str | None:

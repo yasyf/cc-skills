@@ -1637,16 +1637,10 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
-def test_job_ask_starts_from_the_root_cause_and_recommends_the_option_that_removes_it(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_job_ask_keeps_a_card_recommending_another_option_than_the_one_its_first_principles_line_names(run: Run, asking: str, tmp_path: Path) -> None:
     block = tmp_path / "ask.md"
     picked = "Root cause: none: two landed designs of one button, a pick between them with no defect behind it"
-    caused = TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states\nFirst principles: Add our status line beside their always-on button")
-    block.write_text(caused)
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert '"Add our status line beside their always-on button" removes the root cause and is not the recommended option' in capsys.readouterr().err
-    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button reads no download state\nFirst principles: Keep theirs, close ours"))
+    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states\nFirst principles: Add our status line beside their always-on button"))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
@@ -2473,6 +2467,26 @@ def test_job_ask_counts_an_amount_only_on_the_order_his_words_are_about_never_an
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
     assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == ["- 30 second: o1's own words"]
     assert cli.main(["job", "ask", "j2", str(block)]) == 0
+
+
+def test_job_ask_reads_his_order_from_his_slack_message_and_never_counts_an_amount_in_a_line_he_quoted(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    alert = "snapshot monitor: a finished snapshot took 15 minutes to copy 64 rows"
+    his = "why is it copied twice? keep each finished snapshot 30 days"
+    slack_thread.messages.append({"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_user": True, "text": f"&gt; {alert}\n{his}"})
+    filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f"> {alert} {his}"]
+    run(*filed, "--from", "slack:D123/1794200000.000100/1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    his_message = "https://acme.slack.com/archives/D123/p1794200000000100?thread_ts=1794200000.000100"
+    assert [line.split(' "')[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f"- 30 day: {his_message}"]
+    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
+    assert cli.main(["job", "ask", "j1", str(block)]) == 0
 
 
 def test_job_ask_counts_only_his_quoted_words_in_an_order_the_drive_wrote(
@@ -3359,7 +3373,7 @@ def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(ROOT_CAUSE, ""))
     assert code == 2
-    assert "j1: refused, nothing kept: a reader's DESIGN starts from the root cause and recommends the option that removes it: no `Root cause:` line" in err
+    assert "j1: refused, nothing kept: a reader's DESIGN starts from the root cause and names the option that removes it: no `Root cause:` line" in err
     bulleted = DESIGN_RESEARCH.replace("\nrulings:", "\n- rulings:").replace("\nexists:", "\n- exists:").replace("\nopen:", "\n- open:")
     assert keep(monkeypatch, capsys, "j1", bulleted) == (0, "")
 

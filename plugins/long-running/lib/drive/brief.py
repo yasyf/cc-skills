@@ -383,8 +383,8 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
             " option lines, exactly one ending (recommended); a finding with no choice in it returns DONE"
         )
     options = [limits.RECOMMENDED.sub("", option) for option in offered]
-    if problems := limits.root_cause_problems(text, options, limits.RECOMMENDED.sub("", marked[0])):
-        return f"a reader's DESIGN starts from the root cause and recommends the option that removes it: {problems[0]}"
+    if problems := limits.root_cause_problems(text, options):
+        return f"a reader's DESIGN starts from the root cause and names the option that removes it: {problems[0]}"
     if state.hurts_now(order) and (problems := limits.interim_fix_problems(text)):
         return f"a reader's DESIGN on a bug hurting someone now names its immediate fix: {problems[0]}"
     return None
