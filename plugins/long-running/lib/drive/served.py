@@ -295,10 +295,10 @@ def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
             question = question or drawn(data, "link", name)
         elif kind == "answer":
             answer = settled.shown(name, cwd)
-            read[answer["id"]] = recorded(answer)
             question = question or drawn(data, "answer", answer["id"])
+            read[answer["id"]] = recorded(answer, "", question)
         elif kind == "record" and (record := refs.shown(data["name"], "record", name))["kind"] == "answer" and (key := record["refs"].get("url") or name) not in read:
-            at = state.parse_time(record["at"]).astimezone()
+            at = given(drawn(data, "record", name), state.parse_time(record["at"]).astimezone())
             read[key] = (at, f'{key}, {at.isoformat(timespec="seconds")}: "{record["text"]}"')
         if question and question["file"]:
             asked[question["file"]] = question
@@ -309,18 +309,24 @@ def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
         read[file] = (at, f'the options his card "{card.title}" offered, numbered as it drew them: {"; ".join(limits.offered(card))}')
         for match in settled.matched("\n".join([card.title, *card.options, *card.hints.values()]), cwd):
             if match["id"] not in own and (answer := settled.shown(match["id"], cwd))["id"] not in read:
-                read[answer["id"]] = recorded(answer, f', recorded on the subject of "{card.title}"')
+                read[answer["id"]] = recorded(answer, f', recorded on the subject of "{card.title}"', drawn(data, "answer", answer["id"]))
     return [line for _, line in sorted(read.values())]
 
 
-def recorded(answer: dict, about: str = "") -> tuple[datetime, str]:
-    """An answer of his as cc-notes keeps it, when he gave it and the line the judge reads: the question he was asked and his words above its notes."""
-    at = datetime.fromisoformat(answer["created_at"]).astimezone()
+def recorded(answer: dict, about: str = "", question: dict | None = None) -> tuple[datetime, str]:
+    """An answer of his as cc-notes keeps it, when he gave it, by the close of the drive's question it answered when there is one, and the line the judge reads: the question he was asked and his words above its notes."""
+    at = given(question, datetime.fromisoformat(answer["created_at"]).astimezone())
     return at, f'{answer["id"][:7]}, {at.isoformat(timespec="seconds")}{about}, asked "{answer["title"]}": "{settled.his(answer["body"])}"'
 
 
+def given(question: dict | None, stamped: datetime) -> datetime:
+    """When he gave an answer: as the close of the drive's question it answered keeps it, his tap's own time for a tap, else as its source stamped it."""
+    return state.parse_time(question["closed"]["at"]).astimezone() if question else stamped
+
+
 def drawn(data: dict, kind: str, name: str) -> dict | None:
-    """The question the drive asked him that this answer of his answered, by the cc-notes answer recorded for it or its card's permalink, the one a later question folded into it left out; None for an answer of his to no question of the drive's."""
+    """The question the drive asked him that this answer of his answered, by the cc-notes answer recorded for it, or whose card the drive answer keeping it links, the record that ended it, or its card's permalink, the one a later question folded into it left out; None for an answer of his to no question of the drive's."""
+    link = (data["answers"].get(name) or {}).get("link") if kind == "answer" else name if kind == "link" else None
     return next(
         (
             question
@@ -329,7 +335,11 @@ def drawn(data: dict, kind: str, name: str) -> dict | None:
             if (closed := question["closed"])
             and closed["how"] == "answered"
             and not question["replaced"]
-            and (closed["answer"] and closed["answer"][:7] == name[:7] if kind == "answer" else question["card"] and view.message_key(question["card"]) == view.message_key(name))
+            and (
+                kind == "answer" and bool(closed["answer"]) and closed["answer"][:7] == name[:7]
+                or kind == "record" and closed["seq"] == name
+                or bool(link and question["card"]) and view.message_key(question["card"]) == view.message_key(link)
+            )
         ),
         None,
     )

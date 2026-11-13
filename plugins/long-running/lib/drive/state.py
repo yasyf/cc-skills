@@ -440,6 +440,11 @@ def parse_time(text: str) -> datetime:
     return moment if moment.tzinfo else moment.astimezone()
 
 
+def made_after(job: dict, moment: str) -> bool:
+    """Whether the job was made after this moment, so its brief was written after his answer given then and no held copy of that answer is owed it."""
+    return parse_time(job["created"]) > parse_time(moment)
+
+
 def parse_due(text: str, reference: datetime | None = None) -> datetime:
     """Parse a due time: "HH:MM" or the "3:30 AM" the drive prints (today, or tomorrow once passed), "+30m"/"+2h"/"+1d", or ISO 8601."""
     base = reference or now()
@@ -507,6 +512,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "one_question_per_file": True,
         "answers_keyed": True,
         "taps_dated": True,
+        "holds_owed": True,
     }
 
 
@@ -777,7 +783,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -816,6 +822,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         key_answers(data)
     if not data.get("taps_dated"):
         date_taps(data)
+    if not data.get("holds_owed"):
+        owe_holds(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -946,6 +954,20 @@ def date_taps(data: dict) -> None:
         if pr["state"] == "open" and pr["answers"] and any(old in line for line in pr["answers"] for old in stale):
             pr.update(answers=None, checker=None)
     data["taps_dated"] = True
+
+
+def owe_holds(data: dict) -> None:
+    """Take off each job every held copy of his answer it is not owed: one he gave before the job was made, by its question's close, since its brief was written after it, and one a drive answer of his marks the job sent or untouched by its words, since an older install held both; marked so this runs once, after date_taps dates each tap's close by the tap."""
+    from drive import superseded
+
+    given = {closed["seq"]: closed["at"] for job in data["jobs"].values() for question in job["questions"] if (closed := question["closed"]) and closed["how"] == "answered" and closed["seq"]}
+    for job in data["jobs"].values():
+        job["undelivered"] = [kept for kept in job["undelivered"] if not (kept["seq"] in given and made_after(job, given[kept["seq"]]))]
+    for answer in data["answers"].values():
+        for job_id, mark in answer["jobs"].items():
+            if mark:
+                superseded.unhold(data["jobs"][job_id], answer["words"])
+    data["holds_owed"] = True
 
 
 def folded(one: dict, other: dict) -> dict:

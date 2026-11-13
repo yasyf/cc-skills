@@ -343,7 +343,7 @@ RECORDS = {
 
 def drive_holding(closed: dict | None, card: str | None = WHOLE_STACK) -> dict:
     question = state.new_question(None, ASKED, "2026-11-12T14:37:04-08:00", card=card, closed=closed) | {"waits": PICK}
-    return {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2274": {"questions": [question]}}}
+    return {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2274": {"questions": [question]}}, "answers": {}}
 
 
 @pytest.fixture
@@ -378,6 +378,23 @@ def test_a_braced_answer_id_reads_as_cc_notes_keeps_it_and_a_card_answered_with_
     ]
 
 
+def test_his_tap_recorded_hours_late_reads_before_his_words_typed_after_it_whether_its_drive_answer_or_its_record_is_cited(
+    monkeypatch: pytest.MonkeyPatch, slack_and_cci: list[str], recorded: Answers
+) -> None:
+    tapped = "2026-11-12T14:42:12-08:00"
+    tap_answer = {"id": "e614876a366cabeb211e9b1bd6c1612ead1f8f4b", "title": ASKED, "body": WHOLE_STACK_WORDS, "tags": [], "created_at": "2026-11-13T01:18:48Z"}
+    typed = {"id": "bf042d6" + "0" * 33, "title": ASKED, "body": "the only one that lands whole is the schema stack", "tags": [], "created_at": "2026-11-12T22:50:00Z"}
+    recorded.shown |= {"e614876": tap_answer, "bf042d6": typed}
+    monkeypatch.setitem(RECORDS, "699068", {"kind": "answer", "text": WHOLE_STACK_WORDS, "refs": {"url": WHOLE_STACK}, "at": "2026-11-12T17:15:38-08:00"})
+    data = drive_holding(state.new_close("answered", WHOLE_STACK_WORDS, WHOLE_STACK, seq="699068", at=tapped))
+    data["answers"][tap_answer["id"]] = {"words": WHOLE_STACK_WORDS, "link": WHOLE_STACK, "at": "2026-11-12T17:18:48-08:00", "said": None, "cards": {}, "jobs": {}}
+    assert served.answers(data, ["DESIGN: the stack lands whole, by {answer:bf042d6}, {answer:e614876} and {record:699068}"], None) == [
+        f'e614876, {at(tapped)}, asked "{ASKED}": "{WHOLE_STACK_WORDS}"',
+        f'{WHOLE_STACK}, {at(tapped)}: "{WHOLE_STACK_WORDS}"',
+        f'bf042d6, {at(typed["created_at"])}, asked "{ASKED}": "{typed["body"]}"',
+    ]
+
+
 @pytest.mark.parametrize(
     ("closed", "refused"),
     [
@@ -404,7 +421,7 @@ def test_a_cited_card_answer_reads_with_the_options_its_card_offered_and_his_dur
     ask.write_text(SEARCH_ASK)
     closed = state.new_close("answered", SEARCH_PICK["body"], SEARCH_CARD, answer="38dfc32", at="2026-11-13T01:47:14Z")
     question = state.new_question(str(ask), SEARCH_ASKED, "2026-11-13T01:21:00Z", card=SEARCH_CARD, closed=closed) | {"waits": "demo:j2513-1794535260000"}
-    data = {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2513": {"questions": [question]}}}
+    data = {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2513": {"questions": [question]}}, "answers": {}}
     recorded.shown |= {answer["id"][:7]: answer for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)}
     monkeypatch.setattr(settled, "matched", lambda text, cwd: [{"id": answer["id"][:7]} for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)] if "land the pages that range needs" in text else [])
     assert served.answers(data, [f"DESIGN: answer 38dfc32 (card {SEARCH_CARD})"], None) == [

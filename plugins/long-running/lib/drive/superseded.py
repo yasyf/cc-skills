@@ -368,6 +368,11 @@ def hear(data: dict, job_id: str, text: str) -> None:
             kept["jobs"][job_id] = {"mark": "sent"}
 
 
+def unhold(job: dict, words: str) -> None:
+    """Take off the job each text it holds quoting these words of his verbatim, once it heard them or his Undo took them back."""
+    job["undelivered"] = [kept for kept in job["undelivered"] if not carries(kept["words"], f'verbatim: "{words}"')]
+
+
 def owed(data: dict, job_id: str) -> list[dict]:
     """Each answer of his that lists the job as waiting to hear it, unmarked."""
     return [kept for kept in data["answers"].values() if job_id in kept["jobs"] and kept["jobs"][job_id] is None]

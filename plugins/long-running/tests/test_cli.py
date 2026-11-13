@@ -7970,16 +7970,20 @@ def test_his_ruling_under_a_pr_card_lists_the_pr_waiting_on_his_tap_there_so_dri
     assert data["answers"]["a1"]["cards"][designing] == {"mark": "dropped", "job": "j1", "card": TAP_CARD}
 
 
-def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touches_is_sent_his_words_or_marked_untouched(
+def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touches_is_sent_his_words_or_marked_untouched_and_a_mark_takes_his_words_off_what_it_holds(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
     run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
+    other = 'His answer on card demo:j9-1, verbatim: "Knock"'
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = data["jobs"]["j4"]["state"] = "waiting"
         data["jobs"]["j3"]["agent"] = "agent-3"
+        data["jobs"]["j3"]["undelivered"] = [
+            {"seq": seq, "words": words, "at": state.stamp(), "said": None, "request": f"req-{seq}"} for seq, words in (("61", f'His answer ({PICK}), verbatim: "{WORDS}"'), ("62", other))
+        ]
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
     sender = "from root@demo, the session session-under-test that started its agent agent-3"
@@ -7996,7 +8000,8 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
         0,
         "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
     )
-    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
+    drive = state.load("demo")
+    assert (drive["answers"]["a1"]["jobs"], [kept["words"] for kept in drive["jobs"]["j3"]["undelivered"]]) == ({"j3": {"mark": "sent"}}, [other])
 
 
 def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_his_answer_through_drive_job_resume_never_sent(

@@ -684,8 +684,8 @@ def keep_closed(name: str, posts: list[dict], seqs: list[str], closes: list[list
     return ended
 
 
-def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], found: dict) -> None:
-    """Hold each answer of his verbatim, under a fresh Orca request id, on every job it frees: the job its attr names and each whose question it ends while they are not finished, and every builder not finished that waits on one of them or on the card it answers, or builds one's research or design, so the watch sends it to a running builder, hands it to the next worker of one that returned and launches one never started with it in its brief, with no session's turn between; an Undo tap takes the answer it undoes off those jobs."""
+def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], found: dict, since: str | None = None) -> None:
+    """Hold each answer of his verbatim, under a fresh Orca request id, on every job it frees: the job its attr names and each whose question it ends while they are not finished, and every builder not finished that waits on one of them or on the card it answers, or builds one's research or design, each made by `since`, when he gave it, so the watch sends it to a running builder, hands it to the next worker of one that returned and launches one never started with it in its brief, with no session's turn between; an Undo tap takes the answer it undoes off those jobs."""
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
@@ -694,16 +694,16 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
             attrs = made.get("attr") or {}
             asking = list(dict.fromkeys(filter(None, [state.named_job(data, attrs), *(job_id for job_id, _ in questions)])))
             cards = {attrs.get("waits"), *(drawn for _, question in questions for drawn in (question["waits"], question["card"]))} - {None}
-            for job_id in hearers(data, asking, cards):
+            for job_id in hearers(data, asking, cards, since):
                 kept = data["jobs"][job_id]["undelivered"]
                 if "undone" in attrs:
-                    kept[:] = [answer for answer in kept if not superseded.carries(answer["words"], f'verbatim: "{attrs["undone"]}"')]
+                    superseded.unhold(data["jobs"][job_id], attrs["undone"])
                 elif all(answer["seq"] != seq for answer in kept):
                     kept.append({"seq": seq, "words": verbatim(made, questions, found), "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
 
 
-def hearers(data: dict, asking: list[str], cards: set[str]) -> list[str]:
-    """The jobs his answer on these cards of these jobs frees: each of them not finished, and every builder not finished that waits on one of them or on one of the cards, or that one asks for by state.asks_for, so a builder of the same order that waits on neither never holds it."""
+def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:
+    """The jobs his answer on these cards of these jobs frees: each of them not finished, and every builder not finished that waits on one of them or on one of the cards, or that one asks for by state.asks_for, so a builder of the same order that waits on neither never holds it, leaving out each made after he gave it, at `since`, whose brief was written after it."""
     freed = [
         job_id
         for job_id, job in data["jobs"].items()
@@ -711,7 +711,8 @@ def hearers(data: dict, asking: list[str], cards: set[str]) -> list[str]:
         and job["state"] not in state.FINISHED_JOB_STATES
         and (not {*asking, *cards}.isdisjoint(job["waits"]) or any(state.asks_for(data, asker_id, job_id) for asker_id in asking))
     ]
-    return list(dict.fromkeys([*(job_id for job_id in asking if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES), *freed]))
+    live = dict.fromkeys([*(job_id for job_id in asking if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES), *freed])
+    return [job_id for job_id in live if not (since and state.made_after(data["jobs"][job_id], since))]
 
 
 def verbatim(made: dict, questions: list[tuple[str, dict]], found: dict) -> str:
