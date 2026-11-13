@@ -797,6 +797,8 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
     for attr in ("thread", "ruling", "thread_card", "about"):
         if item.get(attr):
             attrs[attr] = item[attr]
+    if ruling := attrs.get("ruling"):
+        attrs["ruling"] = settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["id"]
     if unsaid := state.unabout(item["kind"], attrs):
         raise DriveError(unsaid)
     lanes = ["root", "communicator", "meta", *map(state.project_lane, data["subcoordinators"])]

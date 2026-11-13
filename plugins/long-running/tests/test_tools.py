@@ -1100,9 +1100,11 @@ def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_t
     assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", card)]
 
 
-def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_card_never_drew_settles_it(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, heard: Heard
+def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_card_never_drew_settles_it_under_the_rulings_full_id(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, heard: Heard, recorded: Answers
 ) -> None:
+    ruling = "320b7a7" + "e" * 33
+    recorded.shown["320b7a7"] = {"id": ruling, "title": "", "body": "", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     asked = str(state.drive_dir(demo) / "asks" / "j1-5c1d.md")
@@ -1127,10 +1129,10 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
     assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which card keeps the subject?" answered, closing its card']
     assert posted == []
     assert tools.run("record", demo, {"records": [answer]}).splitlines()[0] == "1 answer 672342"
-    assert (posted[0][0].get("resolves"), posted[0][0]["attr"]) == (None, {"job": "j1", "waits": "demo:j1-672331", "ruling": "320b7a7"})
+    assert (posted[0][0].get("resolves"), posted[0][0]["attr"]) == (None, {"job": "j1", "waits": "demo:j1-672331", "ruling": ruling})
     job = state.load(demo)["jobs"]["j1"]
     closed = job["questions"][0]["closed"]
-    assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", "320b7a7"), [])
+    assert ((closed["how"], closed["words"], closed["seq"], closed["ruling"]), view.open_questions(job)) == (("answered", "one subject has one card", "672342", ruling), [])
 
 
 def test_his_answer_settling_a_finished_readers_question_is_held_on_each_builder_of_its_order_and_never_the_reader(

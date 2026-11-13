@@ -504,6 +504,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "closed_from_cards": True,
         "designs_cited": True,
         "one_question_per_file": True,
+        "answers_keyed": True,
     }
 
 
@@ -774,7 +775,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -809,6 +810,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         cite_returned_designs(name, data)
     if not data.get("research_linked"):
         link_research(data)
+    if not data.get("answers_keyed"):
+        key_answers(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -896,6 +899,36 @@ def one_question_per_file(data: dict) -> None:
         chosen = {id(question) for question in kept.values()}
         job["questions"] = [question for question in job["questions"] if not question["file"] or id(question) in chosen]
     data["one_question_per_file"] = True
+
+
+def key_answers(data: dict) -> None:
+    """Key each answer of his the drive keeps, and the answer and ruling each closed question and brief names, by the id cc-notes keeps it under, read once from cc-notes, since an older install kept each by the id as typed and so kept one ruling typed two ways as two answers, which fold into one; marked so this runs once."""
+    from drive import settled
+
+    closes = [closed for job in data["jobs"].values() for question in job["questions"] if (closed := question["closed"])]
+    briefs = [flags for job in data["jobs"].values() if (flags := job.get("brief_flags")) and flags.get("ruling")]
+    typed = {*data["answers"], *(closed[field] for closed in closes for field in ("answer", "ruling") if closed[field]), *(ruling for flags in briefs for ruling in flags["ruling"])}
+    if typed:
+        whole = settled.whole_ids(typed, data["roles"]["coordinator"]["cwd"])
+        answers: dict[str, dict] = {}
+        for answer_id, kept in data["answers"].items():
+            answers[whole[answer_id]] = folded(answers[whole[answer_id]], kept) if whole[answer_id] in answers else kept
+        data["answers"] = answers
+        for closed in closes:
+            closed.update({field: whole[closed[field]] for field in ("answer", "ruling") if closed[field]})
+        for flags in briefs:
+            flags["ruling"] = list(dict.fromkeys(whole[ruling] for ruling in flags["ruling"]))
+    data["answers_keyed"] = True
+
+
+def folded(one: dict, other: dict) -> dict:
+    """One answer of his the drive kept twice, as one: kept when the earlier was, said when the later was, with every mark either made, the later one's where both did."""
+    earlier, later = sorted((one, other), key=lambda kept: parse_time(kept["at"]))
+    return earlier | {
+        "said": max(earlier["said"], later["said"], key=parse_time),
+        "cards": {key: later["cards"].get(key) or earlier["cards"].get(key) for key in earlier["cards"] | later["cards"]},
+        "jobs": {job_id: later["jobs"].get(job_id) or earlier["jobs"].get(job_id) for job_id in earlier["jobs"] | later["jobs"]},
+    }
 
 
 def rebuilt_ask(name: str, waits: str) -> Path:

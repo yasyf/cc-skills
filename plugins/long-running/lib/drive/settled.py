@@ -136,9 +136,9 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
 
 
 def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
-    """Record his answer in cc-notes, the question as its title and his words as its body, and return its short id."""
+    """Record his answer in cc-notes, the question as its title and his words as its body, and return its id."""
     add = ["ccn", "answer", "add", f"--title={title}", "--body-file", "-", *(f"--label={label}" for label in labels), "--json"]
-    return json.loads(ccn(add, words, cwd, "could not record his answer in cc-notes"))["id"][:7]
+    return json.loads(ccn(add, words, cwd, "could not record his answer in cc-notes"))["id"]
 
 
 def supersede(pick: str, answer_id: str, cwd: str) -> None:
@@ -257,6 +257,15 @@ def listed(label: str, cwd: str) -> list[dict]:
 def hold(cwd: str) -> dict | None:
     """His newest standing hold on every release, the answer labelled release-hold that no later answer of his superseded; None when none stands."""
     return next(iter(listed(RELEASE_HOLD, cwd)), None)
+
+
+def whole_ids(typed: set[str], cwd: str) -> dict[str, str]:
+    """The id cc-notes keeps each answer id typed here under, as `ccn answer show` resolves a unique prefix, read in one list of his answers, superseded ones included; an id naming no answer, or several, is its own."""
+    every = ccn(["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"], "", cwd, "could not read his recorded answers")
+    known: dict[str, list[str]] = {}
+    for answer in json.loads(every):
+        known.setdefault(answer["id"][:7], []).append(answer["id"])
+    return {answer_id: found[0] if len(found := [whole for whole in known.get(answer_id[:7], []) if whole.startswith(answer_id)]) == 1 else answer_id for answer_id in typed}
 
 
 def matched(text: str, cwd: str) -> list[dict]:
