@@ -18,7 +18,7 @@ PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would 
 RUNS_AS = re.compile(r"^Runs as:(?![ \t]*none\b)[ \t]*(.+)$", re.MULTILINE | re.IGNORECASE)
 FROM_THIS_MAC = re.compile(r"\bbreak[- ]?glass\w*|\bmachine[- ]profile\b", re.IGNORECASE)
 FIELD = re.compile(
-    r"^(Order \(his words\)|Serves|Goal|Done when|Where|Runs as|Release|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
+    r"^(Order \(his words\)|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
     re.MULTILINE,
 )

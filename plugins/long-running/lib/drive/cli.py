@@ -1,4 +1,5 @@
 import argparse
+import html
 import json
 import os
 import re
@@ -2263,7 +2264,7 @@ def rebriefed(name: str, job_id: str) -> str:
 
 
 def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name."""
+    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, each Slack message they link by linked_messages, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name."""
     data = state.load(name)
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
@@ -2277,6 +2278,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     fields = {
         "Order (his words)": order["text"] + carried,
+        "Linked messages": linked_messages(job_id, order["text"] + carried),
         "Serves": flags["serves"],
         "Goal": job["goal"],
         "Done when": flags["done_when"],
@@ -2325,6 +2327,20 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
             f" meta@{name} a defect record naming {job_id} and its `Read your brief first:` line"
         )
     return line, {"id": job_id, "brief": str(written), "rulings": len(rulings), "earlier": earlier}
+
+
+def linked_messages(job_id: str, words: str) -> list[str]:
+    """Each Slack message the words of a job's orders link, read through cc-slack as its brief is written, with who posted it, when, and each message it shares, so no job reads Slack for the message its order came from; a link cc-slack cannot read refuses the brief in cc-slack's words."""
+    read = []
+    for link in dict.fromkeys(slack.PERMALINK.findall(html.unescape(words))):
+        try:
+            message = slack.message(link)
+        except slack.SlackError as error:
+            raise DriveError(f"{job_id}: no brief written, since cc-slack cannot read {link}, which its order links: {error}; write it again once cc-slack reads it") from None
+        who = "him" if message.get("from_user") else message["user_name"] or message["user"]
+        shared = "".join(f"\nShared from {share['user_name'] or share['user']}: {share['text'] or share.get('unreadable', '')}" for share in message.get("shares", []))
+        read.append(f"{link}, posted by {who} at {slack.sent_at(message).isoformat(timespec='seconds')}:\n" + textwrap.indent(html.unescape(message["text"]) + shared, "  "))
+    return read
 
 
 def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
