@@ -298,6 +298,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     elif state.merges_untapped(keys[0]):
         outcome = f"would merge it with {' '.join(MERGE)} --admin, then install each plugin it changes" if dry_run else merged(name, keys[0], ["--admin"])
     else:
+        if state.queued_by_lander(keys[0]):
+            state.let_go_install()
         try:
             below = uncleared_below(data, keys)
             misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
@@ -349,7 +351,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. The lander holds no install's lock from before it reads the PRs below the unit, through the fresh worktree, which can take minutes on the monorepo, --check, which reads GitHub for every PR of the unit, and --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     signal.signal(signal.SIGTERM, halted)
@@ -358,7 +360,6 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
         with fresh(name, clone, branch) as (checkout, sha):
             script = str(checkout / ENQUEUE)
             print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
-            state.let_go_install()
             try:
                 checked = subprocess.run([script, "--check", *numbers], cwd=checkout, capture_output=True, text=True)
             except OSError as error:
