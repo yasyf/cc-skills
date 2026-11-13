@@ -86,30 +86,24 @@ A question he has answered is never asked again, in any wording. Before you writ
 words in the order's thread and run `ccn answer search "<words>"`, because his answer often rules
 past the question it was given under and names the subject only in his words.
 
-`drive job ask` and the hook on every `ask` record check the part he reads against his recorded
-answers, the whole block, findings included, against his drive's rulings `ccn answer match --nearest`
-ranks nearest to it, his pick or words on each card the job asked, and each message of his in the
-order's own thread that shares a rare word with the question. Jev reads each of them alone, in its own call,
-beside the question and its options, and says whether it picks one of the options, orders the outcome the
-question asks about or who does it, or settles nothing; a bare option number answers the card it was typed
-on and settles nothing here. The answer Jev is surest picks or orders, once at least 0.8 sure, refuses the
-question, quoting that answer; every answer below that, or no word from Jev, sends it to him, since an
-unsure check asks him. The answer it quotes is his answer, and the work goes ahead on it: on a pick,
-build that option; on an order, build the option his words leave that removes the root cause, the
-recommended one, and say in one line that his answer settled it. One that names what you recommend, such as a service he said to build, settles
-what that thing does, so build it and ask nothing. Only when it does not decide this question, ask
-with one `--unsettled` string, or the record's `unsettled` attr, naming that answer's id, or that
-message's permalink, and why, such as `--unsettled "1396ce1: <why>"`. His pick or words on this
-job's own card answer that card, by [His answer](#his-answer): `drive job ask` refuses an
-`--unsettled` naming them while that card still asks him, until `drive answer <id>` settles it with
-his words, and only once it is closed does a follow-up name them with why they leave it open. It runs
-every one of these checks on each ask and prints every refusal at once, so one ask again meets them
-all. A tap approving a PR settles only that PR's landing, so no answer labelled `kind:approval`,
-which every recorded tap on a PR card carries, reaches Jev. A block one of these refusals stops stays kept under `asks/` as the job's pending
-question with its refusal: no card draws from it and no `ask` record may name it, `drive status`
-lists it refused, and the watch says its job waits on a card never posted until the job asks it
-again, in its words or others sharing three rare words, or `drive job ask <j> --drop <file>` drops
-it.
+`drive job ask` keeps a question settled with no card only on his answer to that same question,
+asked in the same words, case and spacing aside. That answer is his pick or words on or under the
+card it was asked on, or his words recorded under it. The tool prints his words and where he gave
+them. On a pick, build that option. On an order, build the option his words leave that removes the
+root cause, the recommended one.
+
+It reads no answer he gave another question, by his pick "Settle only on your answer to that same
+question, copies only in the same words: no wrong skips; each skip below becomes a card." A question
+once kept settled with no card on another answer of his draws its card when its job asks it again.
+An answer he gives later still settles the older cards it decides, through `drive answer`.
+
+It refuses a question that offers no tap for an amount his words on the order, or his messages about
+it in its thread, name, by his words "You didn't give me a tap for 30 day bonding how many times do
+I have to say this". A tap approving a PR settles only that PR's landing. A block a refusal stops
+stays kept under `asks/` as the job's pending question with its refusal. No card draws from it, no
+`ask` record may name it, and `drive status` lists it refused. The watch says its job waits on a
+card never posted until the job asks it again, in its words or others sharing three rare words, or
+`drive job ask <j> --drop <file>` drops it.
 
 A design question goes to him on a card before any PR carries it, by [Design first](design.md). A
 job builds the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless

@@ -420,9 +420,11 @@ Write the block to a new file under your scratch directory, one per question, an
 `drive job ask --check <file>`, which checks its words and the card cc-slack draws from it, draws each
 Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
 or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
-and names each fix, and return the path it prints. When his recorded answer already decides the
-question, it keeps the block settled by that answer instead, draws no card, tells the coordinator,
-and prints his words: build on them and return no `ASK`. A kept block you will not return, such as an
+and names each fix, and return the path it prints. He may already have answered this same
+question, asked in the same words, on or under its card or recorded under it. Then it keeps the block
+settled by that answer instead, draws no card, tells the coordinator, and prints his words: build on
+them and return no `ASK`. An answer he gave another question settles nothing there, so its card
+draws. A kept block you will not return, such as an
 earlier wording of the same question, counts as open until `drive job ask <your job> --drop <its path>`
 throws it away. On a Sprite, ask with the path it prints as On a Sprite says.
 

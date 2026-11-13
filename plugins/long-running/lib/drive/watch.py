@@ -1396,7 +1396,7 @@ class Answered(str):
 
 
 def codex_asks(name: str, job_id: str) -> list[str]:
-    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line waking the coordinator to send its ask record, the settled line when his recorded answer already decides it, or why it was not kept."""
+    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line waking the coordinator to send its ask record, the settled line when he already answered that same question, or why it was not kept."""
     from drive import cli
 
     job = state.load(name)["jobs"][job_id]

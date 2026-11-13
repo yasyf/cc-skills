@@ -37,10 +37,10 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
   since a ruling on a neighboring piece binds this part too.
 - What his words decide is settled: quote him on your `Settled:` line and ask nothing about it.
-  When Jev reads one recorded answer or thread message of his as already deciding a block,
-  `drive job ask` keeps the block settled by it with no card, quotes it, and tells the coordinator:
-  build on it and add the fork to `Settled:`. When it does not decide this, keep the block again
-  with `--unsettled "<its id or permalink and why it does not decide this>"`.
+  He may already have answered a block's own question, asked in the same words, on or under its
+  card or recorded under it. Then `drive job ask` keeps the block settled by that answer with no
+  card, quotes it, and tells the coordinator: build on it and add the fork to `Settled:`. It reads
+  no answer he gave another question, so every other block draws its card.
 - Where the brief adds its own reading of his words, follow his quoted words, since a session's
   reading is not his ruling, and note the difference on `Settled:`. A question he asked, such as
   "… right?", settles nothing, whatever premise it states: only his own answer does, so a fork it
