@@ -186,8 +186,9 @@ and the launch drops those texts off the job and marks it sent those answers. A 
 the run goes waits for its end: the watch starts no launch while it goes, and its next launch
 carries the text. The `scratch_folder` hook refuses a
 `codex:` agent started on a codex job's brief. The schema holds codex's final message to three
-required fields: `state`, a result word of the table above, `line`, the rest of the result line, and
-`report`, the return below it, so no reply lacks its state.
+required fields: `state`, a result word of the table above but `DESIGN`, since a visual design is its
+builder's own `codex-ask` call, `line`, the rest of the result line, and `report`, the return below it,
+so no reply lacks its state.
 
 Once the run ends, the watch reads it with `codex-ask --collect` and takes it as the job's return.
 A completed run's `state` and `line` set the state and said line by the table above, as every job's
