@@ -33,10 +33,7 @@ UNSAID_HERE = (
 BREAKS_QUESTION = (
     'Do his words rule out this option, so building it goes against what he said? The option: "{option}"{marked}. A standing'
     " rule for a kind of work, such as that one kind of thing is like any other, rules out an option that treats that kind as"
-    " its own case. His ruling on root causes rules out the recommended option when it keeps the structure the findings name"
-    " behind a cap, timer, retry, exit, flag, pin or sweeper, unless his own pick or order chooses that option, since his pick"
-    " beats the root-cause preference. Pick the item whose words rule it out, or none when his words do not speak to what the"
-    " option does." + UNSAID_HERE
+    " its own case. Pick the item whose words rule it out, or none when his words do not speak to what the option does." + UNSAID_HERE
 )
 UNTAPPED_QUESTION = (
     "Which item's words name an amount or a choice for what this card asks, such as 30 days or 64 rows, that the card gives"
@@ -46,9 +43,16 @@ UNTAPPED_QUESTION = (
 )
 CARD_QUESTION = (
     "Does the card itself, apart from what any one option builds, break one of his rulings below by the rule it carries: a Page"
-    " line shows a page the card links lacking what the card's words say that page shows, its Root cause line breaks his"
-    " ruling on root causes, or what it says runs meanwhile reads or writes a team's data the way his ruling on a team's"
-    " data rules out? Pick the ruling it breaks, or none."
+    " line shows a page the card links lacking what the card's words say that page shows, its recommended option or its Root"
+    " cause line breaks his ruling on root causes, or what it says runs meanwhile reads or writes a team's data the way his"
+    " ruling on a team's data rules out? His ruling on root causes speaks only to the option the card recommends: an option"
+    " offered beside it, such as the Simplest line's, which every card must offer, breaks nothing. Pick the ruling it breaks,"
+    " or none."
+)
+ADVISED = (
+    "drive job ask: Jev reads {part} as breaking {id}, {asked}, \"{said}\", by its rule: {rule} This finding refuses no card,"
+    " by his pick 320b7a7 that drive job ask keeps every well-shaped card and prints Jev's finding to the agent: when it"
+    " holds, ask again recommending the option that removes the root cause."
 )
 WORKED_QUESTION = (
     'Is this option worked out on the card to what it will look like once built, by his ruling below? The option: "{option}".'
@@ -235,9 +239,9 @@ def shown(answer_id: str, cwd: str) -> dict:
 
 
 def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:
-    """Each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words rule out, his pick or order beating the root-cause preference, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. Jev giving no reading leaves the card to him, said on stderr."""
+    """Each part of a card Jev reads as going against his words, in one reading of the card against all of them at once and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, and a ruling the card itself breaks. His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and a finding on it is printed on stderr and refuses nothing, by his pick 320b7a7. Jev giving no reading leaves the card to him, said on stderr."""
     rules = limits.rule_words(case)
-    cited = {UNDECIDED: UNBROKEN, **dict.fromkeys(word["id"] for word in [*words, *rules])}
+    cited = {UNDECIDED: UNBROKEN, **dict.fromkeys(word["id"] for word in [*words, *rules] if word["id"] != limits.ROOT_CAUSE_WORDS["id"])}
     items = {word["id"]: word for word in [*words, *rules, limits.WORKED_WORDS]}
     parts = {f"{kind}{number}": f'option "{option}"' for kind in ("breaks", "worked") for number, option in enumerate(asked.options, 1)} | {"untapped": "the card", "card": "the card"}
     questions = {
@@ -258,21 +262,22 @@ def judged(case: str, asked: limits.Question, words: list[dict]) -> list[dict]:
     except Unheard as failure:
         print(f"drive job ask: Jev gave no reading of this question against his words, so it goes to him: {failure}", file=sys.stderr)
         return []
-    return [
-        {"part": parts[key], **items[found["choice"]]}
-        for key, found in read.items()
-        if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES
-    ]
+    broken = [{"part": parts[key], **items[found["choice"]]} for key, found in read.items() if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES]
+    for advice in (found for found in broken if found["id"] == limits.ROOT_CAUSE_WORDS["id"]):
+        print(ADVISED.format(**advice), file=sys.stderr)
+    return [found for found in broken if found["id"] != limits.ROOT_CAUSE_WORDS["id"]]
 
 
-def broken_refusal(broken: list[dict], why: str | None) -> str | None:
-    """Why a question may not go to him: a part of it goes against his words, and no reason names those words and says why they do not."""
+def broken_refusal(broken: list[dict], why: str | None, job_id: str, file: Path) -> str | None:
+    """Why a question may not go to him: a part of it goes against his words, and no reason names those words and says why they do not, with the drive job ask that keeps the question kept in this file once one does, the one verb taking --unsettled, which a reader's drive job report then keeps."""
     if not (named := [found for found in broken if found["id"] not in (why or "")]):
         return None
     listed = "\n".join(f'- {found["part"]} breaks {found["id"]}: asked "{cut(found["asked"], 200)}", he said "{cut(found["said"], QUOTED_CHARS)}"' for found in named)
+    reasons = "; ".join(f"{found_id}: <why his words do not reach it>" for found_id in dict.fromkeys(found["id"] for found in named))
     return (
         "refused: Jev reads his words as ruling out what this card offers him. Rewrite or drop each part below so the card"
-        " keeps his words, or ask again with --unsettled naming each id with why his words do not reach it.\n" + listed
+        f' keeps his words, or keep it with `drive job ask {job_id} {file} --unsettled "{reasons}"`, and for a reader\'s DESIGN'
+        f" run `drive job report {job_id} -` again after it, which keeps that --unsettled.\n" + listed
     )
 
 

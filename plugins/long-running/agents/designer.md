@@ -131,7 +131,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever", and his words "so why was that not the suggested optin to me, or even any of the options?" `drive job ask` refuses a block whose lines are out of this shape, and
-  one with an option or part Jev reads as breaking his words, this ruling, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or ask again with `--unsettled` naming each id and why those words do not reach it, by his words "They should all use jev for judgement rather than hard coding thighs".
+  one with an option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, naming each part and the words it breaks: rewrite that part, or keep it with the `drive job ask <j> <file> --unsettled "<id>: <why those words do not reach it>"` the refusal prints, by his words "They should all use jev for judgement rather than hard coding thighs". Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one, and its finding is printed to you and refuses no card, by his pick 320b7a7 "drive job ask keeps every well-shaped card and prints Jev's finding to the agent".
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
   working a change it names, only those its own job or its design's builder carries and those it
@@ -218,7 +218,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   - an option that cleans up a bad state with a sweeper, a time rule such as "a row older than a
     minute counts as waiting", or a reclaim loop, by his ruling b89209a ("No sweepers"): design the
     state out so it cannot exist, such as one owner holding it until it ends, or keep the option with
-    `--unsettled "b89209a: <why the state cannot be designed out>"`.
+    `drive job ask <your job> <file> --unsettled "b89209a: <why the state cannot be designed out>"`.
 
 ## Your report
 

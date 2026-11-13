@@ -2840,12 +2840,15 @@ def test_job_ask_refuses_an_option_his_words_rule_out_until_it_is_rewritten_or_u
     assert "refused: Jev reads his words as ruling out what this card offers him." in refusal
     assert f'- option "A map file beside each journal file: no guessing, but one request per file and twice the objects" breaks {key}: asked "his message in the order\'s thread", he said "{words}"' in refusal
     assert f'- the card breaks {key}: asked "his message in the order\'s thread", he said "{words}"' in refusal
-    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["refused"]
+    [question] = state.load("demo")["jobs"]["j1"]["questions"]
+    assert question["refused"]
+    assert f'or keep it with `drive job ask j1 {question["file"]} --unsettled "{key}: <why his words do not reach it>"`, and for a reader\'s DESIGN run `drive job report j1 -` again' in refusal
     jev.ruled.pop("breaks2")
     block.write_text(SHORT_ASK.replace("ASK How should", "ASK Once a run is billed per object, how should"))
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
     assert [line.split(":")[0] for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f"- the card breaks {key}"]
-    assert run("job", "ask", "j1", str(block), "--unsettled", f"{key}: he named no amount this card asks about")[0] == 0
+    kept = state.load("demo")["jobs"]["j1"]["questions"][-1]["file"]
+    assert run("job", "ask", "j1", kept, "--unsettled", f"{key}: he named no amount this card asks about")[0] == 0
 
 
 def test_job_ask_refuses_an_option_jev_reads_as_never_worked_out_to_what_it_will_look_like_naming_that_option(
@@ -6860,7 +6863,7 @@ NOT_SPECIAL = {
 }
 
 
-def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_rulings_and_refuses_only_what_it_is_eight_in_ten_sure_they_rule_out(jev: Jev) -> None:
+def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_card_against_his_rulings_and_refuses_only_what_it_is_eight_in_ten_sure_they_rule_out(jev: Jev) -> None:
     asked = limits.question(AGENT_START, kept=True)
     case = limits.ask_case(AGENT_START, asked)
     jev.picks(NOT_SPECIAL["id"], 0.79)
@@ -6868,8 +6871,9 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     [request] = jev.asked
     questions = request["questions"]
     assert list(questions) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "untapped", "card"]
-    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:0c59046", "ruling:32f49af"]
+    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:32f49af"]
     assert list(questions["worked2"]["label"]["options"]) == ["none", limits.WORKED_WORDS["id"]]
+    assert list(questions["card"]["label"]["options"]) == ["none", "ruling:0c59046", "ruling:32f49af"]
     assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
     assert f'The option: "{asked.options[2]}".' in questions["worked3"]["label"]["instructions"]
     assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
@@ -6879,6 +6883,21 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_ruli
     assert settled.judged(case, asked, [NOT_SPECIAL]) == [{"part": f'option "{asked.options[1]}"', **NOT_SPECIAL}]
     settled.judged(case, asked, [])
     assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "card"]
+
+
+def test_his_ruling_on_root_causes_is_judged_once_on_the_cards_recommendation_beside_its_simplest_line_and_only_advises(jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+    flagged = AGENT_START.replace("First principles: One api start\n", "First principles: One api start\nSimplest: The Mac builds a chat's children\n")
+    asked = limits.question(flagged, kept=True)
+    case = limits.ask_case(flagged, asked)
+    assert case.splitlines()[-3:] == [limits.ROOT_CAUSE.search(flagged)[0], "First principles: One api start", "Simplest: The Mac builds a chat's children"]
+    assert "speaks only to the option the card recommends" in settled.CARD_QUESTION
+    assert "root causes" not in settled.BREAKS_QUESTION
+    jev.breaks("card", "ruling:0c59046")
+    assert settled.judged(case, asked, [NOT_SPECIAL]) == []
+    assert all("ruling:0c59046" not in question["label"]["options"] for key, question in jev.asked[-1]["questions"].items() if key != "card")
+    advice = capsys.readouterr().err
+    assert advice.startswith(f'drive job ask: Jev reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}", by its rule: {limits.ROOT_CAUSE_RULES["found"]}')
+    assert "This finding refuses no card, by his pick 320b7a7" in advice
 
 
 PROOF_IDENTITY = """ASK Which identity should start the cloud agent of a production proof that a release build runs?
@@ -6924,7 +6943,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
     offered = []
     for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
         asked = limits.question(text, kept=True)
-        assert settled.broken_refusal(settled.judged(limits.ask_case(text, asked), asked, []), None) is None
+        assert settled.broken_refusal(settled.judged(limits.ask_case(text, asked), asked, []), None, "j1", Path("ask.md")) is None
         request = jev.asked[-1]
         offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
     assert offered == [(["none", "ruling:0c59046", "ruling:32f49af"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS])] * 2
