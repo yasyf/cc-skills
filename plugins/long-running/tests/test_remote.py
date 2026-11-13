@@ -3015,6 +3015,34 @@ def test_a_read_answer_kept_whole_past_one_orca_relay_message_goes_cut_and_leave
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
+@pytest.mark.parametrize(
+    ("command", "size"),
+    [
+        ("cc-slack thread --url https://demo.slack.com/archives/D0DEMO00001/p1794033848123456 --raw", 13_040),
+        ("cc-slack history --channel D0DEMO00001 --limit 20 --raw", 109_486),
+    ],
+    ids=["a question card with its blocks", "a DM's newest 20 posts with their blocks"],
+)
+def test_a_slack_read_a_sprite_lane_asks_runs_this_macs_cc_slack_and_reaches_its_sprite_whole_past_the_read_budget(
+    command: str, size: int, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = '{"blocks": "' + "b" * (size - 14) + '"}'
+    ran, placed, replies = [], [], []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: ran.append(argv) or f"{printed}\n")
+    monkeypatch.setattr(orca, "put_on_sprite", lambda workspace, folder, name, text: placed.append((workspace, text)) or f"/home/sprite/{folder}/{name}")
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="pool-one")
+    deliver(monkeypatch, [message("question", f"j1 READ {command}", id="relay_slack")])
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert ran == [["cc-slack", *command.split()[1:]]]
+    assert len(printed.encode()) == size > reads.BUDGET
+    assert placed == [("pool-one", printed.encode())]
+    kept = f"{orca.KEPT_ANSWER}/home/sprite/{orca.SPRITE_ANSWERS}/relay_slack.txt ({size} bytes, SHA-256 {hashlib.sha256(printed.encode()).hexdigest()}); read it in full\n"
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_slack", "--run", RUN, "--body", kept)]
+    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+
+
 def test_a_read_whose_answer_orca_kept_too_big_to_relay_gets_it_cut_by_message_and_says_so_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(remote) as data:
         data["jobs"]["j1"]["workspace"] = "pool-one"

@@ -362,7 +362,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   four-hour AWS session. A GitHub Actions job's log is
   `ccx vcs job-log <job> -R <owner/repo> --budget 1000000`, since its default budget keeps only the
   log's tail.
-- The Sprite holds no copy of the drive's records, so `cci` and `ccn` are missing. Every drive file your
+- The Sprite holds no copy of the drive's records and no Slack credential, so `cci`, `ccn` and
+  `cc-slack` are missing. Every drive file your
   brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`
   lines name under `# Report of <job>`, and each file under the drive's `reports/`, `asks/`,
   `repro/`, `scratch/` and `jobs/` folders it names, by its path on the coordinator's Mac or from the
@@ -375,6 +376,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | --- | --- |
 | `READ <path> [<path>…]` | For a file under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/` or a brief `jobs/<job>.brief.md`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, and a path missing or resolving outside the folder answered as none. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`, a show naming several IDs in one read: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
+| `READ cc-slack thread\|history <flags>` | For a Slack card, thread or channel, run by this Mac's cc-slack bot, which reads only conversations it is in: `cc-slack thread --url <permalink> --raw` for a message and its thread, `cc-slack history --channel <id> --limit <n> --raw` for a channel's or DM's newest top-level posts, `--raw` adding each message's blocks. Its output whole, as a file on your Sprite once past 4,096 bytes. |
 
 - Keep your report with `drive job report` and an `ASK` block with `drive job ask` as on this Mac,
   each refusing what it refuses on this Mac. `kept <your job>'s report: <its first line>` is the

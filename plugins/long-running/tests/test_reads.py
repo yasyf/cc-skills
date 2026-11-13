@@ -145,7 +145,7 @@ def test_a_read_request_in_prose_is_told_the_reads_that_run(monkeypatch: pytest.
         reads.answer("READ request for j1618 (a read, not a report): the dead lane's saved branch is picked up", tmp_path, "demo", "j7")
 
 
-@pytest.mark.parametrize("command", ["cci post --text hi", "ccn answer add x", "ccn -R / answer search x", "rm -rf ."])
+@pytest.mark.parametrize("command", ["cci post --text hi", "ccn answer add x", "ccn -R / answer search x", "cc-slack send --text hi", "rm -rf ."])
 def test_a_record_read_refuses_anything_but_a_listed_read(
     command: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
