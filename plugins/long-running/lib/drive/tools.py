@@ -73,8 +73,9 @@ RECORD = {
         "url": {
             "type": "string",
             "description": (
-                "his message's or the card's permalink, or terminal for words he typed into a drive session's terminal,"
-                " always given for his words: an answer under a question card, in"
+                "his message's permalink, or terminal for words he typed into a drive session's terminal, always given for his"
+                " words, since a record with no url or linking a card, as one session telling another the card it drew, carries"
+                " none and ends nothing: an answer under a question card, in"
                 " whatever thread the record names, ends the job's question that card asks as answered, and owner words"
                 " under it about that card's work end it as withdrawn, and the card follows, showing his words with no"
                 " buttons; his feedback on the drive under a product card leaves it asking, and only the coordinator's"
@@ -561,7 +562,8 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
     said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
     ended = stamped(name, posts, seqs)
-    keep_undelivered(name, posts, seqs, closes, found)
+    his = [index for index, made in enumerate(posts) if superseded.said_at(data, made.get("url")) or "undone" in (made.get("attr") or {})]
+    keep_undelivered(name, [posts[index] for index in his], [seqs[index] for index in his], [closes[index] for index in his], found)
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
     said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
     said += keep_rulings(name, posts, found)
@@ -777,12 +779,12 @@ def his_cards(name: str) -> dict:
 
 
 def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> list[tuple[str, dict]]:
-    """The open job questions this record's words end, each by its job: each its waits id, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, with each these same words ended on a call cci refused, which this call sends again; an answer naming only questions that already ended otherwise is refused, posting nothing, since his answer on each is recorded already."""
+    """The open job questions this record's words end, each by its job: each its waits id, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, with each these same words ended on a call cci refused, which this call sends again; his answer naming only questions that already ended otherwise is refused, posting nothing, since his answer on each is recorded already, while a record whose link is not where he said its words ends none and goes out as it is."""
     attrs = made.get("attr") or {}
     named = superseded.closing(data, made["kind"], attrs | {"order": order or attrs.get("order")}, made.get("topic"), made.get("re") or [], made.get("url"))
     if questions := [(job_id, question) for job_id, question in named if question["closed"] is None or ended_by(question["closed"], made)]:
         return questions
-    if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")):
+    if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")) or not superseded.said_at(data, made.get("url")):
         return []
     if not named:
         raise DriveError(
