@@ -8464,8 +8464,8 @@ def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_
     monkeypatch.setattr(github, "graphql", lambda text, what: {"data": {"r0": {f"p{number}": {"state": states[number]} for number in re.findall(r"pullRequest\(number: (\d+)\)", text)}}})
     deployed, running, missing = "01a1d675-2646-4852-9362-f7eeade5e8c7", "01a1d672-1b16-4b2a-9d0e-3c5f6a7b8c9d", "01a1d699-0000-4000-8000-000000000000"
     builds = {
-        "15515": {"state": "passed", "finished_at": "2026-11-14T00:57:12.057Z", "jobs": [{"id": deployed, "state": "passed", "finished_at": "2026-11-14T00:51:27.139Z"}, {"id": running, "state": "running", "finished_at": None}]},
-        "15516": {"state": "running", "finished_at": None, "jobs": []},
+        "15515": {"state": "passed", "finished_at": "2026-11-14T00:57:12.057Z", "jobs": [{"id": deployed, "state": "passed", "finished_at": "2026-11-14T00:51:27.139Z"}, {"id": running, "state": "running"}]},
+        "15516": {"state": "running"},
     }
     monkeypatch.setattr(github, "run", lambda cmd, **kwargs: json.dumps(builds[cmd[3]]))
     release, gone = "https://buildkite.com/forge/release/builds/15515", "https://acme.slack.com/archives/D123/p1794300000000999"
@@ -8481,6 +8481,7 @@ def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_
         f"{release}#{running}": "that job has not finished: it reads running",
         f"{release}#{missing}": f"forge/release build 15515 has no job {missing}",
         "https://buildkite.com/forge/release/builds/15516": "that build has not finished: it reads running",
+        f"https://buildkite.com/forge/release/builds/15516#{running}": f"forge/release build 15516 has no job {running}",
         "terminal": f"the drive reads no such event; {settled.EVENTS} overtakes a card",
     }
     assert {link: settled.unhappened(link) for link in reasons} == reasons
