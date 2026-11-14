@@ -484,9 +484,12 @@ the strip counts only open incidents and bug reports a reporter of which has not
 
 The watch sends step 8 itself once the incident's fix is live, read fresh each pass and never
 latched. Live means no job on a `fix` part of its orders still works, no PR of one is open, and
-each merged one, at least one, runs on every production stack, all of them read in one
-`tools/ci release pull <pr>... --json` run in the drive's checkout, the `drive-<drive>` worktree
-the watch moves to the default branch's head before the read, as each lane's launch does. A
+each merged one, at least one, runs on every cluster of each component its changed paths reach by
+`tools/ci release select --pr`, production or not, with no release running there, one reaching
+none live at its merge. One `tools/ci release live --json` every five minutes reads them all, run
+in the drive's checkout, the `drive-<drive>` worktree the watch moves to the default branch's head
+before the read, as each lane's launch does, and that checkout's own history says which build
+carries each merge, a hotfix that cherry-picked it included. A
 builder's `DONE`, its own read of a monitor, or one fix
 PR's release never stands for the rest. Every Datadog monitor recorded on the incident
 must read OK too, all of them read in one search a minute; an incident with none, a Sentry issue's

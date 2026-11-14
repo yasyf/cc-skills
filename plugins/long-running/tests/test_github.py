@@ -469,3 +469,21 @@ def test_fetched_reads_origins_head_while_another_fetch_holds_the_clones_remote_
     assert github.fetched(str(clone), "main") == head
     assert git_in(clone, "cat-file", "-t", head) == "commit"
     assert git_in(clone, "rev-parse", "refs/remotes/origin/main") == cloned
+
+
+def test_carrier_counts_a_build_at_or_after_a_merge_on_the_line_or_a_hotfix_cherry_picking_it_and_fetches_a_build_the_clone_lacks(tmp_path: Path) -> None:
+    origin, clone = tmp_path / "origin", tmp_path / "clone"
+    origin.mkdir()
+    git_in(origin, "init", "-q", "-b", "main")
+    old = commit_files(origin, "Fix: the lander (#1)", {"a": "a\n"})
+    merge = commit_files(origin, "Fix: the watch (#2)", {"b": "b\n"})
+    newer = commit_files(origin, "Fix: the card (#3)", {"c": "c\n"})
+    git_in(origin, "checkout", "-q", "-b", "picked", old)
+    picked = commit_files(origin, "Fix: the watch (#2)", {"b": "b\n"})
+    git_in(origin, "checkout", "-q", "-b", "unpicked", old)
+    unpicked = commit_files(origin, "Fix: the page (#4)", {"d": "d\n"})
+    git_in(origin, "checkout", "-q", "main")
+    git_in(tmp_path, "clone", "-q", "--single-branch", "-b", "main", str(origin), str(clone))
+    carries = github.carrier(str(clone))
+    assert [carries(build, merge, 2) for build in (merge, newer, old, picked, unpicked)] == [True, True, False, True, False]
+    assert git_in(clone, "cat-file", "-t", unpicked) == "commit"
