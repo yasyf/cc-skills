@@ -59,6 +59,7 @@ def stop(
     brief: str = HIS_BRIEF,
     event: str = "Stop",
     rows: tuple[dict, ...] = (),
+    **fields: object,
 ) -> str:
     transcript.write_text("".join(json.dumps(row) + "\n" for row in [{"type": "user", "timestamp": EARLIER, "message": {"role": "user", "content": brief}}, *rows]))
     payload = {
@@ -69,7 +70,7 @@ def stop(
         "cwd": str(transcript.parent),
         "stop_hook_active": False,
         "last_assistant_message": line,
-    }
+    } | fields
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
     one_line_result.main()
     return capsys.readouterr().out
@@ -293,6 +294,27 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))
     assert state.own_transcript(data, data["jobs"]["j1"]) == str(transcript)
+
+
+def test_a_handler_whose_session_still_runs_a_background_task_or_wakeup_may_not_end_whatever_stop_hook_active_says_since_both_end_with_its_session(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = start(run, tmp_path)
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    removed: list[list[str]] = []
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    wait = {"id": "bw0snn3ln", "type": "shell", "status": "running", "description": "wait", "command": "until [ $(date +%s) -ge 1794677171 ]; do sleep 5; done; echo due"}
+    wakeup = {"id": "c7", "schedule": "26 9 14 11 *", "recurring": False, "prompt": "read the claim's thread"}
+    for held, named in (({"background_tasks": [wait]}, f"`bw0snn3ln` ({wait['command']})"), ({"session_crons": [wakeup]}, "`c7` (26 9 14 11 *: read the claim's thread)")):
+        reason = json.loads(stop(monkeypatch, capsys, "h-session", transcript, LINE, stop_hook_active=True, **held))["reason"]
+        assert reason.startswith(f"Refused on purpose: your session still holds {named}.")
+        assert "`TaskStop`" in reason and "`CronDelete`" in reason
+    assert (len(started), removed, list(state.load("demo")["handlers"])) == (1, [], [handler])
+    assert stop(monkeypatch, capsys, "h-session", transcript, LINE, stop_hook_active=True, background_tasks=[], session_crons=[]) == ""
+    assert started[-1][-1] == LINE and removed == [["claude", "rm", BACKGROUND_JOB]]
+    assert state.load("demo")["handlers"] == {}
 
 
 def test_a_handlers_done_record_carries_each_post_as_say_returned_it_whatever_the_handler_retyped(
