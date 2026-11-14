@@ -1283,7 +1283,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job["where"] = "remote"
         builder_id = waiting_builder(name, data, job_id, created)
         order["updated"] = created
-        state.end_carried_designs(data, args.order, created)
+        if not args.release:
+            state.end_carried_designs(data, args.order, created)
         named = state.named_prs(data, args.order, args.goal)
         history = {key: state.pr_orders(data, key, args.order) for key in named}
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
@@ -1300,7 +1301,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, and brief the job on that build; a start naming none stops the job with what it said."""
+    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, end the designs the job carries and brief it on that build; a start naming none keeps no job and refuses with what it said."""
     said: list[str] = []
     answer: dict = {}
     with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
@@ -1312,10 +1313,12 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
     if not (build := answer.get("build", {}).get("url")):
         why = answer.get("refused") or render.cut("".join(said).strip(), 600) or f"exit {release.returncode}"
         with state.edit(name) as data:
-            data["jobs"][job_id].update(state="stopped", said=f"its release did not start: {why}", updated=state.stamp())
-        raise DriveError(f"{job_id} added and stopped, since its release did not start: {why}")
+            data["orders"][data["jobs"].pop(job_id)["order"]]["jobs"].remove(job_id)
+        raise DriveError(f"no job added: its release did not start: {why}")
     with state.edit(name) as data:
-        data["jobs"][job_id]["release_build"] = build
+        job = data["jobs"][job_id]
+        job["release_build"] = build
+        state.end_carried_designs(data, job["order"], job["created"])
     line, _ = write_brief(name, job_id, {})
     return [f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
 
@@ -1477,7 +1480,7 @@ def job_set(args: argparse.Namespace) -> int:
             elif url not in job["prs"]:
                 job["prs"].append(url)
         job["updated"] = state.stamp()
-        state.end_carried_designs(data, job["order"], job["updated"])
+        state.end_carried_designs(data, job["order"], job["created"])
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [

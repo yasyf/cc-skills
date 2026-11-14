@@ -1224,7 +1224,7 @@ def released(demo: str, script: str) -> Path:
     return checkout / "started"
 
 
-def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_and_briefs_the_job_on_its_build(
+def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_and_briefs_the_job_on_its_build_and_a_start_naming_no_build_keeps_no_job(
     demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
@@ -1265,11 +1265,17 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
     assert landing_guard.deny_reason(bash(J2666_START) | stepped(tmp_path, out)) == landing_guard.RELEASE_BY_HAND.format(command=J2666_START)
     released(demo, """cat <<'EOF'\n{\n  "refused": "a freeze holds platform",\n  "code": "frozen"\n}\nEOF\nexit 1""")
+    with state.edit(demo) as data:
+        for job_id in ("j1", "j2"):
+            data["jobs"][job_id]["state"] = "stopped"
+        data["jobs"]["j3"] = state.new_job("o1", "design", "cards: the clock", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "waiting", "said": "DESIGN the clock"}
+        data["orders"]["o1"]["jobs"].append("j3")
+    before = state.load(demo)
     assert cli.main([*add, "--release", J2666_START]) == 2
-    assert capsys.readouterr().err.strip() == "drive: j3 added and stopped, since its release did not start: a freeze holds platform"
-    job = state.load(demo)["jobs"]["j3"]
-    assert (job["state"], job["said"], job["release_build"]) == ("stopped", "its release did not start: a freeze holds platform", None)
-    assert not (state.drive_dir(demo) / "jobs" / "j3.brief.md").exists()
+    assert capsys.readouterr().err.strip() == "drive: no job added: its release did not start: a freeze holds platform"
+    after = state.load(demo)
+    assert (after["jobs"], after["orders"]["o1"]["jobs"]) == (before["jobs"], before["orders"]["o1"]["jobs"])
+    assert not (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()
 
 
 def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_never_the_coordinators_own_tree(
