@@ -1360,7 +1360,7 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
 
 
 def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early"; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
+    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
@@ -1376,7 +1376,11 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
         if brief.job_refusal(name, data, order_id, "builder", uncarried, False, waits):
             continue
         builder_id = next_id(data["jobs"], "j")
-        builder = data["jobs"][builder_id] = new_job(order_id, "builder", f"build {design_id}'s change: {'; '.join(uncarried)}", uncarried, created) | {"waits": waits}
+        change = "; ".join(uncarried)
+        builder = data["jobs"][builder_id] = new_job(order_id, "builder", f"build {design_id}'s change: {change}", uncarried, created) | {
+            "waits": waits,
+            "brief_flags": {"plan": f'{design_id}\'s design, change "{change}": drive job report {design_id}'},
+        }
         hold_unstarted(builder)
         data["orders"][order_id]["jobs"].append(builder_id)
         added.append(builder_id)

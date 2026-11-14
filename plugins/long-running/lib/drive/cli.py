@@ -2381,7 +2381,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
@@ -2404,7 +2404,9 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         or (not job["release_build"] and "its brief names the release it started, so `drive job add --release` writes it once that release starts")
     ):
         raise DriveError(f"{job_id}: {held}")
-    line, payload = rewrite_brief(name, job_id, flags)
+    if not (written := rewrite_brief(name, job_id, flags, job.get("brief_flags"))):
+        return write_brief(name, job_id, named)
+    line, payload = written
     if kept:
         line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
     return line, payload | {"kept": kept}
@@ -2416,13 +2418,13 @@ def rebriefed(name: str, job_id: str) -> str:
     held = orca.brief_of(Path(job["brief"]).read_text())
     if not job.get("brief_flags"):
         return held
-    rewrite_brief(name, job_id, job["brief_flags"])
+    rewrite_brief(name, job_id, job["brief_flags"], job["brief_flags"])
     _, over, taken = held.partition(orca.TAKING_OVER)
     return Path(state.load(name)["jobs"][job_id]["brief"]).read_text().strip() + (f"\n\n{over}{taken}" if over else "")
 
 
-def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, each Slack message they link by linked_messages, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name."""
+def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tuple[str, dict] | None:
+    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, each Slack message they link by linked_messages, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name; none, writing nothing, when the job's flags are no longer over, the ones this write replaces, since another brief write saved its own as this one ran."""
     data = state.load(name)
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
@@ -2473,8 +2475,10 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
         written.write_text(text)
         return []
 
-    state.after_save(name, kept)
     with state.edit(name) as data:
+        if data["jobs"][job_id].get("brief_flags") != over:
+            return None
+        state.after_save(name, kept)
         data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data["jobs"][job_id], text))
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
@@ -5112,7 +5116,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")
-    verb.add_argument("--plan", help="the plan section this implements, quoted")
+    verb.add_argument("--plan", help="the plan section this implements, quoted; a builder the drive added for a design's change holds its design's from that add")
     verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     verb.add_argument("--scratch", help="its scratch folder; default one in the drive")
     verb.set_defaults(run=job_brief)

@@ -44,6 +44,8 @@ START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
 TAKING_OVER = "## Taking over from "
 REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
+TRANSCRIPTS_FIELD = re.compile(r"^Transcripts:\n(?:- .*(?:\n|$))+", re.MULTILINE)
+TRANSCRIPT_PATH = re.compile(r"^- (j\d+) (\w+)[^:\n]*: ([/~]\S*)$", re.MULTILINE)
 REPORT_JOB = re.compile(r"\bj\d+\b")
 REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
 REPRO_FILE = re.compile(r"repro/(j\d+)(?:\.\w+)?")
@@ -325,10 +327,11 @@ def place(job: dict) -> str:
 
 
 def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
-    """What a builder started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: its role, landing rules, brief."""
+    """What a builder started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: its role, landing rules, brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts."""
+    on_mac = route == state.LOCAL_ROUTE
     running = (
         'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
-        if route == state.LOCAL_ROUTE
+        if on_mac
         else 'on a Sprite, so its "On a Sprite" section applies'
     )
     return (
@@ -337,8 +340,17 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
         f"{builder_body()}\n\n"
         f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n"
         f"{carried(drive, brief)}"
-        f"{BRIEF_HEADING}{brief.strip()}\n"
+        f"{BRIEF_HEADING}{(brief if on_mac else sprite_transcripts(drive, brief)).strip()}\n"
     )
+
+
+def sprite_transcripts(drive: str, brief: str) -> str:
+    """The brief with each Transcripts: item naming a path no READ serves, a transcript on this Mac outside the drive's folder or a codex run's folder, named instead by `drive job replies <j>`, which prints every return that job kept, since a Sprite opens no path on this Mac."""
+
+    def served(item: re.Match) -> str:
+        return item[0] if any(text is not None for text in drive_files(drive, item[3]).values()) else f"- {item[1]} {item[2]}: drive job replies {item[1]}"
+
+    return TRANSCRIPTS_FIELD.sub(lambda field: TRANSCRIPT_PATH.sub(served, field[0]), brief)
 
 
 def drive_files(drive: str, brief: str) -> dict[str, str | None]:

@@ -319,7 +319,7 @@ def builder_lines(data: dict, builder_ids: list[str]) -> list[str]:
             lines.append(f"{builder_id} builder on {named} {builder['said']}: start no agent for it until the watch's FREE line says its last wait ended")
         else:
             cards = f", building his recommended option with no PR until he answers {', '.join(builder['waits'])}" if builder["waits"] else ""
-            lines.append(f"{builder_id} builder on {named}: start its agent now, the design as its brief's Plan:{cards}")
+            lines.append(f"{builder_id} builder on {named}: start its agent now{cards}")
     return lines
 
 
