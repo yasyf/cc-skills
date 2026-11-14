@@ -2412,7 +2412,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     fields = {
         "Order (his words)": order["text"] + carried,
-        "Linked messages": linked_messages(job_id, order["text"] + carried),
+        "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],
         "Goal": job["goal"],
         "Done when": flags["done_when"],
@@ -2464,18 +2464,22 @@ def rewrite_brief(name: str, job_id: str, flags: dict) -> tuple[str, dict]:
     return line, {"id": job_id, "brief": str(written), "rulings": len(rulings), "earlier": earlier}
 
 
-def linked_messages(job_id: str, words: str) -> list[str]:
-    """Each Slack message the words of a job's orders link, read through cc-slack as its brief is written, with who posted it, when, and each message it shares, so no job reads Slack for the message its order came from; a link cc-slack cannot read refuses the brief in cc-slack's words."""
-    read = []
-    for link in dict.fromkeys(slack.PERMALINK.findall(html.unescape(words))):
+def linked_messages(job_id: str, texts: list[str], handoff: str | None) -> list[str]:
+    """Each Slack message the texts of a job's orders link, read through cc-slack as its brief is written, with who posted it, when, and each message it shares, so no job reads Slack for the message its order came from; a link cc-slack cannot read is kept as not read in cc-slack's words, and refuses the brief only while nothing stands in for it: no linked message read, no word of his in those texts outside their links, and no Handoff, whose merged PR is all a fix's proof needs."""
+    items, unread = [], {}
+    for link in dict.fromkeys(slack.PERMALINK.findall(html.unescape("\n".join(texts)))):
         try:
             message = slack.message(link)
         except slack.SlackError as error:
-            raise DriveError(f"{job_id}: no brief written, since cc-slack cannot read {link}, which its order links: {error}; write it again once cc-slack reads it") from None
+            unread[link] = error
+            items.append(f"{link}, not read: {error}")
+            continue
         who = "him" if message.get("from_user") else message["user_name"] or message["user"]
         shared = "".join(f"\nShared from {share['user_name'] or share['user']}: {share['text'] or share.get('unreadable', '')}" for share in message.get("shares", []))
-        read.append(f"{link}, posted by {who} at {slack.sent_at(message).isoformat(timespec='seconds')}:\n" + textwrap.indent(html.unescape(message["text"]) + shared, "  "))
-    return read
+        items.append(f"{link}, posted by {who} at {slack.sent_at(message).isoformat(timespec='seconds')}:\n" + textwrap.indent(html.unescape(message["text"]) + shared, "  "))
+    if unread and len(unread) == len(items) and not handoff and not any(re.search(r"\w", slack.PERMALINK.sub("", html.unescape(text))) for text in texts):
+        raise DriveError(f"{job_id}: no brief written, since cc-slack cannot read {'; '.join(f'{link}, which its order links: {error}' for link, error in unread.items())}; write it again once cc-slack reads it")
+    return items
 
 
 def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
