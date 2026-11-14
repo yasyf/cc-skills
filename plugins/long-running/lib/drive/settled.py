@@ -224,10 +224,10 @@ def unhappened(link: str) -> str | None:
         if build := github.BUILD.match(link):
             read = json.loads(github.run(["bk", "build", "view", build["number"], "-p", build["pipeline"], "-o", "json"]))
             step = STEP.search(link, build.end())
-            ran = next((job for job in read["jobs"] if job["id"] == step[0]), None) if step else read
+            ran = next((job for job in read.get("jobs", []) if job["id"] == step[0]), None) if step else read
             if ran is None:
                 return f"{build['pipeline']} build {build['number']} has no job {step[0]}"
-            return None if ran["finished_at"] else f"{'that job' if step else 'that build'} has not finished: it reads {ran['state']}"
+            return None if "finished_at" in ran else f"{'that job' if step else 'that build'} has not finished: it reads {ran['state']}"
     except (slack.SlackError, github.GithubError) as error:
         return f"it could not be read: {error}"
     return f"the drive reads no such event; {EVENTS} overtakes a card"
