@@ -3533,7 +3533,7 @@ def refuse_an_unwritten_rule(data: dict, key: str) -> None:
             for line in text.splitlines()
             if line.startswith("+") and not line.startswith("+++")
         ]
-        said = settled.his(ruled["body"]).splitlines()[0]
+        said = settled.his(ruled["body"]).partition("\n")[0]
         words = quoted[0][1:-1] if (quoted := limits.QUOTED.findall(said)) else said
         if " ".join(words.split()).casefold() not in " ".join(" ".join(written).split()).casefold():
             raise DriveError(

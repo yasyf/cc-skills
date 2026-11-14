@@ -118,6 +118,7 @@ TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
 NOTES = "\nNotes:"
+PROVISIONAL = "PROVISIONAL"
 ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
 UNWORDED = re.compile(r"[\W_]+")
 TERMINAL = "terminal"
@@ -186,8 +187,8 @@ def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
 
 
 def his(body: str) -> str:
-    """His words in a recorded answer's body: all of it above the drive's notes, which a Notes: line opens."""
-    return body.partition(NOTES)[0].strip()
+    """His words in a recorded answer's body: all of it above the drive's notes, which a Notes: line opens; none in a pick a lane made by its recommendation, which opens PROVISIONAL, since he never said it."""
+    return "" if body.lstrip().startswith(PROVISIONAL) else body.partition(NOTES)[0].strip()
 
 
 def heard(link: str, found: dict | None, data: dict) -> str | None:
@@ -310,10 +311,10 @@ def whole_ids(typed: set[str], cwd: str) -> dict[str, str]:
 
 
 def matched(text: str, cwd: str) -> list[dict]:
-    """The first CANDIDATES of his recorded answers ccn ranks nearest to an ASK's whole block, findings included, which reach a ruling whose subject only its findings name, such as a wait he ordered on another order, each as Jev reads his words beside the card; never a tap approving a PR, which rules only whether that PR lands."""
+    """The first CANDIDATES of his recorded answers ccn ranks nearest to an ASK's whole block, findings included, which reach a ruling whose subject only its findings name, such as a wait he ordered on another order, each as Jev reads his words beside the card; never a tap approving a PR, which rules only whether that PR lands, nor a provisional pick, which holds no words of his."""
     match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"]
     found = json.loads(ccn(match, read(text), cwd, "could not check the question against his recorded answers"))
-    return [{"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for answer in found if APPROVAL not in answer["tags"]][:CANDIDATES]
+    return [{"id": answer["id"][:7], "asked": answer["title"], "said": said[:BODY_CHARS]} for answer in found if APPROVAL not in answer["tags"] and (said := his(answer["body"]))][:CANDIDATES]
 
 
 def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dict], cards: dict[str, str]) -> tuple[dict | None, list[str]]:

@@ -1338,6 +1338,18 @@ def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str
     assert "waits-without-card" in posted(transcript, text=text)
 
 
+def test_a_line_waiting_on_his_pick_with_no_card_is_judged_by_his_card_rule_and_told_how_the_card_gets_drawn(talker: str, transcript: Path, checked: Checked) -> None:
+    pick = '1:1 waits-without-card "Ready for your pick: the backfill runs as a service account": link the card'
+    checked.findings = [pick]
+    alone = posted(transcript, text="Ready for your pick: the backfill runs as a service account.")
+    assert alone.rule == message_limits.CARD_RULE
+    assert "`handoff`" in alone and "`drive job ask`" in alone and alone.endswith(pick)
+    checked.findings = [pick, "1:1 drive-term 'desk': say what happens to the reader's work instead"]
+    both = posted(transcript, text="Ready for your pick: the backfill runs as a service account.")
+    assert both.startswith("refused, 2 ways;")
+    assert both.rule == f"1. {message_limits.CARD_RULE}\n2. {agents.PLAIN_WORDS_RULE}"
+
+
 def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_his_own_words_are_not(talker: str, transcript: Path) -> None:
     caused = "Merged.\nThe runs failed because the pool was full"
     assert say(transcript, text=caused) == (
