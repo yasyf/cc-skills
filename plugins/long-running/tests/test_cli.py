@@ -2729,7 +2729,7 @@ def test_job_card_redraws_a_kept_ask_edited_by_hand_whose_card_cc_slack_forgot_w
 
 
 def test_job_card_redraws_a_question_it_asked_in_words_kept_before_the_new_ask_shape_and_holds_a_file_no_question_keeps_to_that_shape(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    run: Run, asking: str, tmp_path: Path, slack_thread: Thread, capsys: pytest.CaptureFixture[str]
 ) -> None:
     old = (
         "ASK Which layout should a finished run keep?\n"
@@ -2750,6 +2750,7 @@ def test_job_card_redraws_a_question_it_asked_in_words_kept_before_the_new_ask_s
     unasked.write_text(old)
     assert cli.main(["job", "card", str(unasked), "--waits", "demo:j1-9"]) == 2
     assert "the ASK is out of shape" in capsys.readouterr().err
+    slack_thread.messages = [posted_question("1794300000.000100", limits.redrawn(old))]
     code, printed = run("job", "card", asking, str(rebuilt), "--waits", "demo:j1-8")
     assert (code, json.loads(printed)["waits"], json.loads(printed)["options"]) == (
         0,

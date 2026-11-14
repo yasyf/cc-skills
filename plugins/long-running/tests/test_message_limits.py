@@ -2170,10 +2170,11 @@ def in_description(link: str) -> str:
 
 
 @pytest.mark.parametrize(("link", "target"), LOCAL_LINKS.items())
-def test_a_link_to_a_path_on_this_mac_is_refused_in_a_summary_and_a_new_option_description_since_slack_opens_no_path(link: str, target: str) -> None:
+def test_a_link_to_a_path_on_this_mac_is_refused_in_a_new_summary_and_option_description_since_slack_opens_no_path(link: str, target: str) -> None:
     refused = f'"{link}" links {target}, which is no web page: a path on this Mac does not open from Slack'
-    for block, kept, found in ((in_summary(link), False, True), (in_summary(link), True, True), (in_description(link), False, True), (in_description(link), True, False)):
-        assert any(problem.startswith(refused) for problem in limits.question_problems(block, kept)[1]) is found
+    for block in (in_summary(link), in_description(link)):
+        assert any(problem.startswith(refused) for problem in limits.question_problems(block)[1])
+        assert limits.question_problems(block, kept=True)[1] == []
 
 
 @pytest.mark.parametrize("link", OPENED_LINKS)
