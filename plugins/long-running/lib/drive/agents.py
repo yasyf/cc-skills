@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -23,6 +24,7 @@ AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
 POSTS_CURSOR = "watch-posts"
+POSTS_LOCK = ".posts.lock"
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 CLAUDE_HOOK_SECONDS = "600"
@@ -342,6 +344,43 @@ def unread(name: str, seq: str) -> None:
         reads.run(["cci", "cursor", "set", POSTS_CURSOR, str(int(seq) - 1), "--drive", name], Path.cwd())
     except reads.ReadError as error:
         raise state.DriveError(f"the POST reports' cursor could not move back to {seq}: {error}") from None
+
+
+def posted(name: str, seq: str) -> bool:
+    """Whether record seq is a `POST` report to communicator@<drive>, one POSTS_CURSOR reads."""
+    record = shown(seq)
+    return bool({"communicator", f"communicator@{name}"} & set(record.get("to", ()))) and record["kind"] == "report" and record["text"].startswith("POST")
+
+
+def start_posts(name: str, own: str | None = None, detached: bool = False) -> bool:
+    """Start a handler on each POST report POSTS_CURSOR has not passed but own, on the watch's brief for it, under its caller's hold of the drive's POSTS_LOCK, so no two starters read at once: the first to read a report, the watch's read, a stage of the watch on its own report or the handler tool on one, starts its one handler, and each later one finds it passed. One whose handler did not start sets the cursor back to it, or to own read before it, raising, so the next read starts both; whether the cursor had not passed own."""
+    seqs = posts(name)
+    for seq in seqs:
+        if seq == own:
+            continue
+        try:
+            with contextlib.suppress(Busy):
+                handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", detached=detached)
+        except state.DriveError as error:
+            unread(name, min(seq, own, key=int) if own in seqs else seq)
+            raise state.DriveError(f"the handler on POST report {seq} did not start: {error}") from None
+    return own in seqs
+
+
+def handle_report(name: str, seq: str, brief: str, once: bool = False, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
+    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed is refused, since whichever starter read it first started its handler; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
+    with state.flocked(state.drive_dir(name) / POSTS_LOCK):
+        read = start_posts(name, seq, detached)
+        if once and not read:
+            raise Busy(f"refused, no handler started: the drive read POST report {seq} before this call and started its handler then; this copy needs no handler of its own")
+        try:
+            return handle(name, brief, detached=detached, briefed=briefed)
+        except Busy:
+            raise
+        except state.DriveError:
+            if read:
+                unread(name, seq)
+            raise
 
 
 def trunk_failures(keys: list[str], since: str) -> list[dict]:

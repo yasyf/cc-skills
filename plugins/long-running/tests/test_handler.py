@@ -14,7 +14,7 @@ import one_line_result
 import pytest
 import session_start
 from conftest import LANE_SPEC, Thread
-from drive import agents, orca, reads, slack, state, talk, tools
+from drive import agents, orca, reads, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -405,6 +405,26 @@ def test_the_watchs_brief_names_its_record_by_the_bare_seq_the_communicators_bri
     with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 680562.*; this copy needs no handler of its own"):
         tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"})
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
+
+
+def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_watchs_read_comes_first_however_soon_the_first_ends(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str]
+) -> None:
+    for seq in ("706844", "706845"):
+        cci_records[seq] = {"seq": int(seq), "kind": "report", "lane": "iris", "to": ["communicator@demo"], "text": "POST the release shipped", "fields": {"attrs": {}}}
+    watching = watch.Watcher("demo", offset=state.events_end("demo"))
+    posts_to_communicator.append("706844")
+    assert tools.run("handler", "demo", {"brief": f"Record: 706844 Drive: demo Scratch: {tmp_path / 'handler-706844'}"}).startswith("started ")
+    with state.edit("demo") as data:
+        data["handlers"].clear()
+    posts_to_communicator.append("706845")
+    assert watch.post_lines(watching, state.now()) == []
+    with state.edit("demo") as data:
+        data["handlers"].clear()
+    assert watch.post_lines(watching, state.now()) == []
+    with pytest.raises(state.DriveError, match="the drive read POST report 706845 before this call and started its handler then"):
+        tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
+    assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["706844", "706845"]
 
 
 LIVE_RECORDS = {

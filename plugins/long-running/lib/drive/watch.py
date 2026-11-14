@@ -1117,7 +1117,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
         handler = None
         try:
             with contextlib.suppress(agents.Busy):
-                handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
+                handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
             watcher.failures.pop(source, None)
         except state.DriveError as error:
             lines += failed(watcher, source, f"handler on report {seq} owing the line {order_id} promised him", error, moment)
@@ -1191,7 +1191,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 for head in heads:
                     data["orders"][head]["quiet"] |= {"record": seq, "at": None, "handler": None}
             try:
-                handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
+                handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
             except agents.Busy:
                 handler = None
         except (reads.ReadError, state.DriveError) as error:
@@ -1324,7 +1324,7 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
         try:
             if seq := watch["record"] or watched_report(watcher, order_id, order):
                 with contextlib.suppress(agents.Busy):
-                    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
+                    agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
         except (slack.SlackError, reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of {order_id}'s watched thread {watch['channel']}/{watch['thread']}", error, moment)
             continue
@@ -2095,7 +2095,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 [seq] = reported(watcher, [stall_report(data, subject, links[subject], held, watcher.cards, moment)])
                 held["told"] = state.stamp(moment)
                 with contextlib.suppress(agents.Busy):
-                    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
+                    agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
             except (reads.ReadError, state.DriveError) as error:
                 lines += failed(watcher, f"stall {subject}", f"line to him on {subject}, which stood unmoved", error, moment)
                 continue
@@ -2858,7 +2858,7 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
         seq = owed["record"] or catch_up_report(watcher, data)
         with state.edit(watcher.name) as data:
             data["catch_up"]["record"] = seq
-        handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
+        handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
     except (reads.ReadError, state.DriveError) as error:
         return failed(watcher, "catch-up", "post of his catch-up", error, moment)
     watcher.failures.pop("catch-up", None)
@@ -2958,22 +2958,15 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive>, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator, and a live handler on the same record, as the one a stall line starts, refuses its copy. Each report is read once, through cci's cursor, which a handler that did not start sets back to its report, so the next poll starts it again."""
+    """Start the handler on each `POST` report to communicator@<drive>, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. Each report is read once, through cci's cursor in a hold of the drive's POSTS_LOCK, which a stage of the watch starting its own report's handler and the handler tool starting one on a POST report read first too, so whichever reads a report first starts its one handler, however soon that handler ends; a handler that did not start sets the cursor back to its report, so the next poll starts it again."""
     if watcher.project:
         return []
     try:
-        seqs = agents.posts(watcher.name)
+        with state.flocked(state.drive_dir(watcher.name) / agents.POSTS_LOCK):
+            agents.start_posts(watcher.name)
     except state.DriveError as error:
-        return read_failed(watcher, "POST reports", error, moment)
+        return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
     watcher.failures.pop("POST reports", None)
-    for seq in seqs:
-        try:
-            with contextlib.suppress(agents.Busy):
-                agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'post-{seq}'}")
-        except state.DriveError as error:
-            agents.unread(watcher.name, seq)
-            return failed(watcher, "POST handler", f"handler on POST report {seq}", error, moment)
-    watcher.failures.pop("POST handler", None)
     return []
 
 
