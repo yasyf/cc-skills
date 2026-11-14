@@ -1269,7 +1269,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, and never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on."""
     from drive import view
 
     job = data["jobs"][job_id]
@@ -1301,6 +1301,11 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             " release:<service>:<owner>/<repo>#<n>, a staging test's soak commit as staging:<target>/<env>@<commit>, an open PR the drive tracks or a part of an order not yet delivered as <order>:<part>, since a PR"
             f" that merged or closed and a part delivered free it at once, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
+    if waiting := WAITING_LINE.match(line):
+        for key in named_prs(data, job["order"], waiting["prs"]):
+            for wait in named_parts(data, waiting["cards"]):
+                if why := view.pooled(data, key, wait):
+                    return f"its WAITING puts {key} on {wait}: {why}"
     return fix_refusal(data, job_id, line, report)
 
 

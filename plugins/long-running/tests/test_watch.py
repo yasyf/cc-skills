@@ -3578,6 +3578,45 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_bui
     assert landers == [(KEY,)]
 
 
+def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_any_done_while_a_part_of_a_prs_own_frees_it_on_its_builders_done(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(demo) as data:
+        files_order(data)
+        data["orders"]["o2"]["jobs"] = ["j2", "j4", "j5"]
+        data["orders"]["o2"]["parts"] |= {"staging test of #42 before it lands": state.new_part(), "staging test of #43 before it lands": state.new_part()}
+        data["jobs"] |= {
+            "j3": job(prs=[state.pr_url(OTHER)]),
+            "j4": job(order="o2", parts=["staging test of #42 before it lands"]),
+            "j5": job(order="o2", parts=["staging test of #43 before it lands"]),
+        }
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o1") | {"head": "bbbbbbb222", "wants_tap": True, "waits": ["o2:stack 1"]}
+    waits_on(demo, "o2:stack 1")
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED"), OTHER: read(checks=GREEN, headRefOid="bbbbbbb222", headRefName="other-fix")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", "DONE followed the staging release; freeze may lift")
+        data["orders"]["o2"]["state"] = "done"
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
+    data = state.load(demo)
+    assert ([data["prs"][key]["waits"] for key in (KEY, OTHER)], view.shared(data, "o2:stack 1"), landers) == ([["o2:stack 1"]] * 2, True, [])
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["state"] = "working"
+        data["prs"][KEY]["waits"] = ["o2:staging test of #42 before it lands"]
+        data["prs"][OTHER]["waits"] = ["o2:staging test of #43 before it lands"]
+        state.take_result(data, "j4", "DONE every staging case of #42 passed on its cut")
+    freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=60)) if line.startswith("FREE ")]
+    assert (freed, state.load(demo)["prs"][OTHER]["waits"], landers) == (
+        [f"FREE {KEY} j1 o1: o2:staging test of #42 before it lands answered or done, nothing else holds it"],
+        ["o2:staging test of #43 before it lands"],
+        [(KEY,)],
+    )
+
+
 @pytest.mark.parametrize(
     ("ran", "start"),
     [(None, "not started yet: drive job launch j1 starts it"), ("/drive/scratch/j1/codex", "its codex-ask run ended: drive job launch j1 starts its next")],

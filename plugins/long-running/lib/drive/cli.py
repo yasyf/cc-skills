@@ -1233,7 +1233,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits)
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing), args.waits)
             or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
         ):
             raise DriveError(f"refused, no job added: {refused}")
@@ -1402,7 +1402,7 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 
 def job_set(args: argparse.Namespace) -> int:
-    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it, but for a done or failed job given a part it does not hold, which runs, since it has not returned on that part; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
+    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it, but for a done or failed job given a part it does not hold, which runs, since it has not returned on that part; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up."""
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
@@ -1417,6 +1417,12 @@ def job_set(args: argparse.Namespace) -> int:
             f"{args.id}: refused, nothing changed: --state sets only stopped, for a job that ends unfinished, and done for a design job a"
             " builder carries, which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a"
             f" change its DESIGN listed; every other state comes from the job's return: pipe it into `drive job report {args.id} -`{line}"
+        )
+    resulted = args.said and (re.match(r"[A-Z]*", args.said)[0] in state.RESULT_STATES or state.BUILT_LINE.match(args.said))
+    if resulted and (taken := state.result_state(found, args.said)) != (stays := args.state or found["state"]):
+        raise DriveError(
+            f"{args.id}: refused, nothing changed: --said opens with a result that sets {taken}, and {args.id} stays {stays}, so every reader of its said line"
+            f" would read a result it never returned: pipe a result into `drive job report {args.id} -`, or say what happened in words opening with no result word"
         )
     if args.state == "stopped":
         fix_kept(known, args.id)
@@ -3621,7 +3627,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tapped and not args.tap_source:
         raise DriveError(
             f"--tapped {args.tapped} needs --tap-source <the Slack permalink of his message or of the card he tapped>:"
-            " only his own words are his tap, and a PR the drive holds itself carries a hold label or --waits on what it waits for"
+            " only his own words are his tap, and a PR the drive holds itself carries --waits on what it waits for, never the hold label, which takes his Approve off his card"
         )
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
@@ -3672,6 +3678,9 @@ def pr_set(args: argparse.Namespace) -> int:
             f" a card whose Holds: line names {key}'s change or its link, or that its DESIGN: line cites, already holds it, and drive job set --waits <card> wakes a job on his answer"
         )
     found = check_waits(name, args.waits)
+    for wait in args.waits:
+        if state.part_wait(known, wait) and (why := view.pooled(known, key, wait)):
+            raise DriveError(f"--waits {wait}: refused, nothing set: {why}")
     if args.port_of or args.tap or args.exempt == INCIDENT_EXEMPTION:
         read = github_pr(key)
         if args.port_of or args.tap:
