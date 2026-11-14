@@ -243,8 +243,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
   reads each card against his recorded answers `ccn answer match` ranks nearest to its whole block
   and those the card cites, and prints each option Jev reads his words as ruling out, refusing none,
   by his pick 320b7a7. When Jev picks a recorded answer or ruling of his for the recommended option,
-  the cited answer the card says it goes against first, the verb itself keeps the card unsettled on
-  it, as `--unsettled` naming those words does. That mark makes
+  the cited answer the card says it goes against first, or else for any other option the card
+  offers, since offering it asks him to lift those words, the verb itself keeps the card unsettled
+  on it, as `--unsettled` naming those words does. That mark makes
   `land.open_cards` keep the card on an incident, so the `bash_guard` hook refuses the
   `ccx vcs ship` that would open its PR, and the lander, `landing_guard` and his PR card hold an
   open one, until he answers on the card or approves the PR, whose card says his Approve picks the

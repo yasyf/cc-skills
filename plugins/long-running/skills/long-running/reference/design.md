@@ -114,9 +114,10 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      it is open, because the recommendation is yours and the decision is his. The immediate fix is no
      recommended option: it stops harm now, waits on none of his cards, and his pick replaces it.
    - In an incident, by his pick, the fix's PR opens and lands on the recommended option while the
-     card stays open, and `drive pr set --waits <card>` refuses on it, unless the card asks him to
-     lift a ruling of his, which holds the PR until he answers, by his pick "Hold the PR until you
-     answer; the drive finds each card against your recorded answers". Another pick of his starts a
+     card stays open, unless the card asks him to lift a ruling of his, one an option it offers
+     breaks, which `drive job ask` marks and which holds the PR from its `Holds:` line until he
+     answers, by his pick "Hold the PR until you answer; the drive finds each card against your
+     recorded answers". Another pick of his starts a
      follow-up job on the same order, by [Incidents](incidents.md#his-card-on-an-incident).
    - His order to land a change does not answer a design card still open on it. Name that card in
      your `report` at once, so the handler redraws it with its buttons in his order's thread, and
