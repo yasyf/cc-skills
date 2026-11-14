@@ -160,6 +160,5 @@ nothing to him yourself, which the `post` tool refuses: a handler posts your `An
 relays your report.
 
 Route around a tool that breaks on you, and send a `defect` on the cci `post` tool with
-`to: [meta@<drive>]` quoting its refusal, with `lane: reader` when
-your brief's order opens `Drive tooling:` and `lane: root` otherwise, since the meta session
+`to: [meta@<drive>]` quoting its refusal, since the meta session
 starts every tool fix. Follow a `drive` refusal that names its fix.

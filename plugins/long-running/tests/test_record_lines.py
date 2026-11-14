@@ -18,8 +18,8 @@ SSQL = "are we doing the ssql release foe it"
 FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
 
 
-def post(session: str = SESSION, **tool_input: object) -> dict:
-    return {"session_id": session, "tool_name": "mcp__plugin_cc-inbox_cci__post", "tool_input": tool_input}
+def post(session: str = SESSION, lane: str = "root", **tool_input: object) -> dict:
+    return {"session_id": session, "tool_name": "mcp__plugin_cc-inbox_cci__post", "tool_input": {"lane": lane} | tool_input}
 
 
 def refusal(made: dict | None) -> str:
@@ -57,12 +57,12 @@ def test_a_long_record_that_attaches_a_file_keeps_its_whole_text_atop_its_body_a
     facts = tmp_path / "j1936.md"
     facts.write_text("DONE dev already fixes it\n")
     asked = f"POST mechanism found: the failing Macs run an older sand, and their reports name migration 10 in {'/x' * 40}/j1936.md"
-    made = record_lines.decision(post(records=[post(kind="report", text=LONG)["tool_input"], {"kind": "report", "text": asked, "path": str(facts)}]))
+    made = record_lines.decision(post(records=[{"kind": "report", "text": LONG}, {"kind": "report", "text": asked, "path": str(facts)}]))
     cut = made["updatedInput"]["records"][1]
     assert cut == {"kind": "report", "text": limits.first_line(asked), "body": f"{asked}\n\nDONE dev already fixes it\n"}
     assert len(cut["text"]) <= limits.RECORD_CHARS
     both = record_lines.decision(post(kind="report", text=asked, body="facts: drive job report j1936", path=str(facts)))["updatedInput"]
-    assert both == {"kind": "report", "text": limits.first_line(asked), "body": f"{asked}\n\nfacts: drive job report j1936\n\nDONE dev already fixes it\n"}
+    assert both == {"lane": "root", "kind": "report", "text": limits.first_line(asked), "body": f"{asked}\n\nfacts: drive job report j1936\n\nDONE dev already fixes it\n"}
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"
@@ -151,17 +151,38 @@ def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_
     for agent in ("long-running:reader", "long-running:designer"):
         reason = refusal(record_lines.decision(by(agent, kind="report", text="j12 found the leak", to=["owner@demo"])))
         assert "drive job report <j>" in reason and "meta@<drive>" in reason
-    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=META, lane="reader")) is None
-    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO, lane="reader"))["updatedInput"]["to"] == META
+    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=META)) is None
+    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO))["updatedInput"]["to"] == META
     assert record_lines.decision(by("long-running:handler", kind="note", text="j12 found the leak", to=["owner@demo"])) is None
 
 
 def test_a_handler_returns_a_defect_line_instead_of_posting_one(communicator: str) -> None:
     reason = refusal(record_lines.decision(by("long-running:handler", kind="defect", text="cc-slack say fails", to=["root@demo"])))
     assert "DEFECT <tool>" in reason
-    assert record_lines.decision(post(kind="defect", text="cc-slack say fails", to=META)) is None
-    assert record_lines.decision(by("long-running:designer", kind="defect", text="drive job ask fails", to=META, lane="designer")) is None
+    assert record_lines.decision(post(lane="communicator", kind="defect", text="cc-slack say fails", to=META)) is None
+    assert record_lines.decision(by("long-running:designer", kind="defect", text="drive job ask fails", to=META, lane="communicator")) is None
     assert record_lines.decision(by("long-running:handler", kind="report", text="POST j12 merged", to=TO, lane="handler", attrs=PROGRESS)) is None
+
+
+def test_a_post_goes_out_as_its_sessions_lane_and_an_agents_post_to_that_lane_alone_as_the_agents_own(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    defect = {"kind": "defect", "text": "drive job report fails", "to": META}
+    for typed in ("root", "reader"):
+        assert record_lines.decision(by("long-running:reader", session="iris-1", lane=typed, **defect))["updatedInput"] == {"lane": "iris"} | defect
+    batch = by("long-running:reader", session="iris-1", records=[defect, {"kind": "note", "text": "j12 merged", "to": META}])
+    assert record_lines.decision(batch)["updatedInput"]["lane"] == "iris"
+    assert record_lines.decision(post("iris-1", "iris", **defect)) is None
+    fyi = {"kind": "report", "text": "FYI j12 merged", "to": ["root@demo"]}
+    assert record_lines.decision(by("long-running:builder", **fyi))["updatedInput"] == {"lane": "builder"} | fyi
+    relayed = by("long-running:handler", session="talker", lane="communicator", kind="report", text="POST j12 merged", to=TO, attrs=PROGRESS)
+    assert record_lines.decision(relayed)["updatedInput"]["lane"] == "handler"
+    assert record_lines.decision(by("long-running:handler", session="talker", kind="note", text="j12 merged", to=["root@demo"]))["updatedInput"]["lane"] == "communicator"
 
 
 def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_line(demo: str, tmp_path: Path) -> None:
@@ -177,7 +198,7 @@ def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_li
 
 def test_a_record_goes_out_without_a_max_words_attr_on_any_kind(demo: str) -> None:
     for record in ({"kind": "report", "text": "FYI j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
-        assert record_lines.decision(post(**record, attrs={"max_words": "200"})) == {"updatedInput": record | {"attrs": {}}}
+        assert record_lines.decision(post(**record, attrs={"max_words": "200"})) == {"updatedInput": {"lane": "root"} | record | {"attrs": {}}}
         assert record_lines.decision(post(**record)) is None
 
 
@@ -513,11 +534,11 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     about_drive = {"kind": "owner", "text": "the dashboard drops my cards", "to": ["meta@demo"], "attrs": {"thread": THREAD, "about": "drive"}}
     unordered = refusal(record_lines.decision(post("talker", **about_drive)))
     assert isinstance(unordered, agents.Unjudged) and "his words about the drive go out on the drive's `record` tool" in unordered
-    assert record_lines.decision(post("iris-1", **about_drive)) is None
+    assert record_lines.decision(post("iris-1", "iris", **about_drive)) is None
     for words in ({"text": "also the logs page", "attrs": {"thread": THREAD, "about": "his work"}}, {"text": "a new order", "attrs": {"about": "his work"}}):
         unparted = refusal(record_lines.decision(post("talker", kind="owner", to=root, **words)))
         assert isinstance(unparted, agents.Unjudged) and "keeps them as a new part of the open order its attrs or thread serve" in unparted
-        assert record_lines.decision(post("iris-1", kind="owner", to=root, **words)) is None
+        assert record_lines.decision(post("iris-1", "iris", kind="owner", to=root, **words)) is None
     unsaid = {"kind": "owner", "text": "a new order", "to": root}
     assert 'an owner record names what his words are about, about "drive" for drive tooling' in refusal(record_lines.decision(post("talker", **unsaid)))
 
