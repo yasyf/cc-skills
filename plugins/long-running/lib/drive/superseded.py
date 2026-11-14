@@ -121,8 +121,8 @@ def on_open_order(data: dict, key: str) -> dict | None:
     return part_entry(data, order_id, part) if part in order["parts"] else None
 
 
-def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
-    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, and each job with a question his tap closed that his words end in place of it, whatever its state, since it heard the tap, each marked heard only when the text its worker started on carries his words, as hear_start reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
+def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], bound: dict[str, list[str]], moment: str) -> dict:
+    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, and each job with a question his tap closed that his words end in place of it, whatever its state, since it heard the tap, each marked heard only when the text its worker started on carries his words, as hear_start reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
     answered = [entry for entry in asked.values() if entry["card"] and view.under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if ended_at(link, question)}
     taps = {question["closed"]["tap"] for job in data["jobs"].values() for question in job["questions"] if question["closed"] and question["closed"]["tap"] and view.answerable(question, link)}
@@ -137,7 +137,6 @@ def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, d
             entry["kind"] != "order" and (entry["job"] in jobs or jobs & set(entry.get("jobs", ())) or entry["order"] in orders)
             or entry["order"] in bound
             or named(words, key, entry)
-            or key in changes
         )
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
@@ -302,17 +301,17 @@ def superseded_by(closed: dict, question: dict) -> dict:
 
 
 def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict | None) -> list[dict]:
-    """The job's other open questions, asked before this one, that his answer to it decides or makes moot as Jev reads it at the 0.8 bar, so his answer on a job's newer question ends the older ones it settles; none when Jev gives no reading, which leaves them asking him."""
+    """The job's other open questions, asked before this one, that his answer to it settles whole as Jev reads it at settled.YES, so his answer on a job's newer question ends the older ones it settles; none when Jev gives no reading, which leaves them asking him."""
     asked = state.parse_time(question["asked"])
     older = [other for other in view.open_questions(data["jobs"][job_id]) if other is not question and state.parse_time(other["asked"]) <= asked]
     if not older:
         return []
     shown = {card["card"].get("waits"): card["options"] for card in (found or view.NO_CARDS)["questions"]}
-    entries = {f"{job_id}:q{index}": {"kind": "question", "title": other["title"] or "", "options": shown.get(other["waits"]) or []} for index, other in enumerate(older)}
+    entries = {f"{job_id}:q{index}": {"title": other["title"] or "", "options": shown.get(other["waits"]) or []} for index, other in enumerate(older)}
     try:
-        keys = settled.changed(question["title"] or "", words, entries, settled.SUPERSEDES, unsure=False)
-    except state.DriveError as error:
-        print(f"his answer to {question['waits'] or question['file']} ends none of {job_id}'s older questions: {error}", file=sys.stderr)
+        keys = settled.decided(question["title"] or "", words, entries)
+    except settled.Unheard as failure:
+        print(f"his answer to {question['waits'] or question['file']} ends none of {job_id}'s older questions: Jev gave no reading ({failure})", file=sys.stderr)
         return []
     return [older[int(key.rpartition(":q")[2])] for key in sorted(keys)]
 

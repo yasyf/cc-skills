@@ -84,10 +84,6 @@ UNSETTLED = (
     ' on an incident too until he answers, by his pick "Hold the PR until you answer; the drive finds each card against your'
     ' recorded answers"; --unsettled "<id>: <why>" names other words of his it asks him to lift.'
 )
-CHANGES = Noul(
-    "Does `answer.said`, his answer to `answer.asked`, decide, rule out options of, or make moot what `open.{slot}` asks him?",
-    no="It leaves every choice that card asks open; a standing rule for a kind of work, worded with always, every or never, changes each card about work of that kind whatever its subject.",
-)
 SUPERSEDES = Noul("Does `answer.said`, his answer to a newer question of the same job, settle everything `open.{slot}` asks him?")
 REPEATS = Noul(
     "Is `order` on the feature `open.{slot}` holds: the same fault or change, a slice of it, a fix to it or a step after it?",
@@ -542,23 +538,12 @@ def deciding(asked: limits.Question, answers: list[dict]) -> list[dict]:
     return [answer for answer in answers if reading(read.get(f"decides.{answer['answer']}", 0.0))]
 
 
-def changed(title: str, words: str, asked: dict[str, dict], question: Noul = CHANGES, unsure: bool = True) -> set[str]:
-    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it in one request, one Noul a card, the cards filled whole into the request in the order of the rare words each shares with his answer, so a card the request has no room for is one sharing the fewest: each Jev reads at YES or more, and with unsure each in the band between NO and YES too, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer settles, with the question given and unsure off."""
-    cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
-    if not cards:
-        return set()
-    said = rare(f"{title} {words}")
-    ranked = sorted(cards, key=lambda short: len(said & rare(f'{asked[cards[short]]["title"]} {" ".join(asked[cards[short]]["options"])}')), reverse=True)
-    items = (({"open": {short: {"asked": asked[cards[short]]["title"], "options": asked[cards[short]]["options"]}}}, {f"changes.{short}": asking(question, slot=short)}) for short in ranked)
+def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:
+    """The older questions of a job that his answer to its newer one settles whole, as Jev reads it in one request, one Noul a question, each read at YES or more; Unheard when Jev gave no reading."""
+    shorts = {key.rpartition(":")[2]: key for key in older}
+    items = (({"open": {short: {"asked": older[key]["title"], "options": older[key]["options"]}}}, {f"supersedes.{short}": asking(SUPERSEDES, slot=short)}) for short, key in shorts.items())
     told, questions, _ = fill({"answer": {"asked": title, "said": words[:BODY_CHARS]}}, {}, items)
-    try:
-        read = jev(told, questions)
-    except Unheard as failure:
-        raise DriveError(
-            f"nothing recorded in the drive: Jev did not read his answer against his {len(cards)} open {'card' if len(cards) == 1 else 'cards'} ({failure}), so each"
-            " card it settles would keep asking him; run this drive answer again"
-        ) from None
-    return {cards[key.partition(".")[2]] for key, sure in read.items() if (found := reading(sure)) or unsure and found is None}
+    return {shorts[key.partition(".")[2]] for key, sure in jev(told, questions).items() if reading(sure)}
 
 
 def repeats(data: dict, words: str, tooling: bool) -> str | None:

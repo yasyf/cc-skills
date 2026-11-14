@@ -400,13 +400,10 @@ When it is answered, replaced or redone:
   included, which X answers: the card closes showing them, and the work goes ahead on them. Only a
   question asking for facts or options is answered in its thread while the card waits. `drive job card` refuses to redraw that card with another question, so put a question his
   words leave open on a new card.
-- When an answer or ruling he gave elsewhere decides a card, `drive answer` lists it. Jev reads
-  his answer against his open cards in one request of at most 10,000 characters, one yes-or-no
-  question a card, the cards sharing the most rare words with his answer going in first and each
-  whole; a card Jev answers yes at 0.7 or more is listed, and so is one in the band between 0.3 and
-  0.7, since a card listed wrongly costs one `--stands` mark and one missed keeps asking him what he
-  already decided. `--settled` shows his words and a link to them
-  in place where its buttons were, so a late tap records nothing. A card it decides only in part is
+- When an answer or ruling he gave elsewhere decides a card, mark it on that answer's `drive answer`,
+  which lists only the cards of the answered card's job and order, those of an order a lifted pick
+  binds and those his words name, but marks any card still asking him, and `--settled` shows his
+  words and a link to them in place where its buttons were, so a late tap records nothing. A card it decides only in part is
   redrawn under its `waits` id to the ASK its job keeps asking only what is left, linking his answer,
   by `drive job ask <j> <file> --redraws <key>`, then marked with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
   alrady say to move all those to lazy? we need to update tehse old cards based on future desicions".
@@ -438,9 +435,8 @@ When it is answered, replaced or redone:
   answer. Same words means case, spacing and punctuation aside, and his answer on any card answers
   every open question of every job asking it in those words: each card shows his words settled with
   no buttons, each of those jobs holds his words, and each builder waiting on one of them goes free.
-  `drive answer` lists every open card
-  his answer decides, rules options out of or makes moot, whatever job, order or words it shares with
-  the one he answered. His words, on three cards about one search
+  A card of another order his answer settles is marked on its `drive answer` by its key, since only
+  the cards tied to the one he answered are listed. His words, on three cards about one search
   worker's cache disk: "We're already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"
 - No option asks a reporter or anyone else to retry, confirm or check, because the drive proves a fix
   itself, and `drive job ask` refuses an option asking someone to retry or confirm.

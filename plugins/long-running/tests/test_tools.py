@@ -1485,7 +1485,7 @@ def test_drive_answer_lists_and_ends_the_question_his_tap_closed_once_his_words_
     answer_id = "a1c0ffee" + "0" * 32
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
-        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), set(), {}, state.stamp())
+        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), {}, state.stamp())
         ended = superseded.answer_cards(data, answer_id, kept)
     assert list(kept["jobs"]) == ["j1"]
     assert [(job_id, question["closed"]["answer"], question["closed"]["replaces"]["tap"]) for job_id, question in ended] == [("j1", answer_id, TAP)]
