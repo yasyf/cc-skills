@@ -4,7 +4,7 @@ description: Use before any builder starts on a part of a long-running drive who
 model: fable
 effort: medium
 background: true
-disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message, mcp__slack__slack_get_thread, mcp__slack__slack_conversations_history, mcp__slack__slack_get_full_conversation, mcp__slack__slack_users_info
+disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
 
 You draw the initial design for the one part your brief names, before anyone builds it, so he picks
