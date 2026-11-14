@@ -330,7 +330,8 @@ prints and a remote lane's brief carries whole:
   into the drive's pictures folder and link their paths, never a `buildkite.com` artifact link, which
   his card and GitHub's page both get HTTP 403 for and `drive pr add` refuses, and never by building
   the app on your machine.
-- `## Against the plan`, only on a departure; `## Port`, on a port.
+- `## Against the plan`, only on a departure, and each piece of the plan it leaves for a follow-up is a
+  `Change:` line of your return too; `## Port`, on a port.
 - `## FDE impact`, on a change FDE or customer code can observe: what `fde-scan` found, each FDE
   repository and call site the change reaches, or none, with the command that found it.
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
@@ -540,6 +541,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |
 | `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents; a `yasyf/*` merge gets no handoff, so a step after its install is your proof file's, never one left to the lander or a Mac lane, which `drive job report` refuses |
+| `Change:` | each piece of your plan you leave for a follow-up, a line each, named as a design names a change: in at most 80 characters with no backtick, double quote, `$` or backslash, ending `(waits on change <N>)` when it builds on change N of these lines; each becomes a part of your order under the design of your parts, or read by their readers when they have none, with a builder of its own, so the order cannot read finished while it is unbuilt |
 
 Finish the step before you return: announcing a next step you could take, offering to carry on, or
 listing decisions that block nothing is not a result.
@@ -561,7 +563,12 @@ a `DONE` or `READY` whose `NEXT:` or `UNPROVEN:` line leaves a step for someone 
 coordinator runs the backfill once it ships" or "until the coordinator runs it": do that step
 yourself before you return, or return `ASK` when it needs his choice. "PROVE: after release, open the
 run page" checks what is live and passes, and so does a line ruling a step out, such as "NEXT: no
-coordinator runs it". It refuses any report but an `ASK` or `DESIGN` that names a limit beside a
+coordinator runs it". It refuses a `DONE`, `READY` or `PUSHED` whose `NEXT:` or `UNPROVEN:` line Jev
+reads as leaving a piece of your plan unbuilt for a follow-up, such as "UNPROVEN: the menu item on
+shared rows (design part 4) is left out of this PR", that no `Change:` line of the return and no
+undelivered other part of the order names, a delivered part holding it counting for nothing: build it, name it on a `Change:` line, or return `ASK` when leaving
+it out needs his choice; a piece his words never asked for or ruled out passes.
+It refuses any report but an `ASK` or `DESIGN` that names a limit beside a
 number as a finding left standing, such as "the bucket caps at 5k objects/s, left as is", or one
 "unchanged", "hit" or "exceeds": a limit or capacity finding is his choice, so return `ASK` with two
 to four options for it. A cap his order asked for, such as "the queue caps at 4 cards", passes, and
