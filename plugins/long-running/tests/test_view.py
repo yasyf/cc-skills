@@ -312,7 +312,7 @@ def test_a_question_cards_rail_names_the_job_that_asked_it_what_it_holds_up_and_
     data = drive_of(
         {"o1": order("rank the cards", ["j1", "j2"]), "o2": order("ship the page", ["j3"])},
         {
-            "j1": job("o1", "waiting", goal="read the ranking", questions=asked_on(layout["url"]), brief="/tmp/brief.md"),
+            "j1": job("o1", "waiting", goal="read the ranking", questions=[asked | {"holds": None} for asked in asked_on(layout["url"])], brief="/tmp/brief.md"),
             "j2": job("o1", "built", goal="rank by age", branch="lane/age", waits=["demo:j2-7-a"]),
             "j3": job("o2", "running", goal="rank by size"),
         },
@@ -339,11 +339,12 @@ def test_a_question_cards_rail_names_the_job_that_asked_it_what_it_holds_up_and_
 
 
 def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiting_on_one_asks_no_tap() -> None:
+    holding = [state.new_question(None, None, at(-30), holds=holds) | {"waits": waits} for waits, holds in (("demo:j2-7-b", None), ("demo:j2-7-a", "the layout"))]
     data = drive_of(
         {"o1": order("rank the cards", ["j1", "j2"])},
-        {"j1": job("o1", "waiting"), "j2": job("o1", "built", branch="lane/built", waits=["demo:j2-7-b"])},
+        {"j1": job("o1", "waiting", questions=holding), "j2": job("o1", "built", branch="lane/built", waits=["demo:j2-7-b"])},
         [
-            pr(1, "o1", waits=["demo:j2-7-b", "demo:j2-7-a"], wants_tap=True),
+            pr(1, "o1", waits=["demo:j2-7-b", "demo:j2-7-a"], wants_tap=True, parts=["the layout"]),
             pr(2, "o1", waits=[f"{TEAM}archives/D123/p-10"]),
             pr(3, "o1", waits=["demo:j2-7-b"], checks="fail"),
         ],
@@ -360,7 +361,7 @@ def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiti
 def test_a_card_holding_a_built_job_leads_the_queue_however_much_else_another_card_holds() -> None:
     data = drive_of(
         {"o1": order("rank the cards", ["j1", "j2"])},
-        {"j1": job("o1", "built", branch="lane/built", waits=["demo:j1-7-a"]), "j2": job("o1", "waiting")},
+        {"j1": job("o1", "built", branch="lane/built", waits=["demo:j1-7-a"], questions=[state.new_question(None, None, at(-30), holds=None) | {"waits": "demo:j2-7-b"}]), "j2": job("o1", "waiting")},
         [pr(1, "o1", waits=["demo:j2-7-b"]), pr(2, "o1", waits=["demo:j2-7-b"])],
     )
     questions = [question("Busy one?", -10, "demo:j2-7-b"), question("Built one?", -30, "demo:j1-7-a")]

@@ -150,7 +150,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
   working a change it names, only those its own job, its design's builder or a job briefed on its
   research carries and those it names by link, `#N` or their job's id, so a card on another subject holds no PR its options leave alone, and
-  `Holds: none: <why>` holds nothing and joins no job's waits, while a question kept with no `Holds:` line holds every change of those jobs. `drive job ask` refuses a block without the line, or one
+  `Holds: none: <why>` holds nothing, whichever job waits on it, while a question kept with no `Holds:` line holds every change of those jobs. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".
 - A question built on another open question of his, such as a ceiling that assumes his pick on

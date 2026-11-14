@@ -1577,7 +1577,7 @@ def asked_on(name: str, waits: str) -> set[str]:
 
 
 def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
-    """Record the card cc-slack drew under the waits id as the card of each question asked under it, its thread joining each order of the job asking it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
+    """Record the card cc-slack drew under the waits id as the card of each question asked under it, its thread joining each order of the job asking it, and point each wait of a job on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
     from drive import view
 
     moved = asked - {view.message_key(url)}
@@ -1587,8 +1587,8 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
                 if question["waits"] == waits:
                     question["card"] = url
                     state.join_card(data, job_id, url)
-        for owner in [*data["jobs"].values(), *data["prs"].values()]:
-            state.rewait(owner, list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in owner["waits"])))
+        for job in data["jobs"].values():
+            state.rewait(job, list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in job["waits"])))
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -3132,8 +3132,6 @@ def job_replies(args: argparse.Namespace) -> int:
 
 
 def job_held(args: argparse.Namespace) -> int:
-    from drive import view
-
     name = state.resolve(args.drive)
     job_id = args.id or os.environ.get(state.OWN_JOB_ENV)
     if not job_id:
@@ -3144,13 +3142,12 @@ def job_held(args: argparse.Namespace) -> int:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
         refused = hold and brief.hold_refusal(args.release, data, hold)
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
-    live = view.live_cards(name)
     if args.pr:
         tracked = {stored.lower(): pr for stored, pr in data["prs"].items()}
-        held = {key: land.pr_cards(data, pr, live) if (pr := tracked.get(key.lower())) else [] for key in map(state.pr_key, args.pr)}
+        held = {key: land.pr_cards(data, pr) if (pr := tracked.get(key.lower())) else [] for key in map(state.pr_key, args.pr)}
         line = "\n".join(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards)
         return emit(args, line or f"no open card of his holds {', '.join(held)}", {"id": job_id, "prs": held})
-    cards = land.ship_held(data, job_id, live, args.exempt)
+    cards = land.ship_held(data, job_id, args.exempt)
     return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
 
 
@@ -3461,15 +3458,11 @@ def pr_set(args: argparse.Namespace) -> int:
             f"--serves on a PR waiting on his tap needs --design asked:<{served.NAMES}> for each design decision"
             " the PR makes, or --design none: a design he never answered goes back as a question, never on a card"
         )
-    if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
+    if cards := [wait for wait in args.waits if state.card_wait(known, wait) and not state.PR_KEY.fullmatch(wait) and not state.ORDER_PART.fullmatch(wait)]:
         raise DriveError(
-            f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
-            " stays open; a different pick of his starts a follow-up job on the same order"
-        )
-    if cards and state.IMMEDIATE_FIX in known["jobs"][known["prs"][key]["job"]]["parts"]:
-        raise DriveError(
-            f'--waits {", ".join(cards)}: {key} is {order}\'s immediate fix, which lands at once while his cards on the proper fix stay'
-            " open, and the proper fix's PR replaces it"
+            f"--waits {', '.join(cards)}: refused, nothing set: a card of his holds a PR from landing only by its question's Holds: line,"
+            f" which drive job ask keeps, by his pick \"Each question names the changes it holds, kept with it\"; a card whose Holds: line"
+            f" names {key}'s change or its link already holds it, and drive job set --waits <card> wakes a job on his answer"
         )
     found = check_waits(name, args.waits)
     if args.port_of or args.tap or args.exempt == INCIDENT_EXEMPTION:
@@ -4598,7 +4591,8 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="CARD|JOB|PR|RELEASE|PART",
         help=(
-            "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
+            "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
+            " only by its question's Holds: line and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
             " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE, never the DONE the watch takes at a merge,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"

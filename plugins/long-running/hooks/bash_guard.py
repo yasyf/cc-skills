@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, land, limits, orca, state, view
+from drive import agents, github, install, land, limits, orca, state
 from drive.orca import OrcaError
 from drive.shell import expanded, runnable, simple_commands, templates
 
@@ -195,7 +195,7 @@ def held_pr(found: list[list[str]], agent: str, drives: list[str]) -> str | None
         return None
     for name in drives:
         data = state.load(name)
-        if (job_id := state.agent_job(data, agent)) and (cards := land.ship_held(data, job_id, view.live_cards(name), exempted(found))):
+        if (job_id := state.agent_job(data, agent)) and (cards := land.ship_held(data, job_id, exempted(found))):
             return held(job_id, cards)
     return None
 

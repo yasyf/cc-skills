@@ -569,10 +569,10 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
 
 
-def test_a_pr_waiting_on_his_open_design_card_draws_its_card_with_approve_saying_it_lands_once_he_answers(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_his_open_design_card_holds_draws_its_card_with_approve_saying_it_lands_once_he_answers(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds=None) | {"waits": "demo:j1-7-a"}]
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["options"] == ["Approve", "Hold"]
     assert drawn["card"]["prs"][0]["lands"].startswith("you approve") and "you answer" in drawn["card"]["prs"][0]["lands"]
@@ -943,7 +943,7 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
     monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closed.append((card, words, link, settled)) or {})
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["prs"][0]["lands"] == f'you approve; your Approve also picks "{JOURNAL_PICK}" on [{JOURNAL_QUESTION}]({JOURNAL_CARD})'
-    assert stage.held(state.load(drive), state.load(drive)["prs"]["Forge-AI/monorepo#42"], view.live_cards(drive)) == f"his cards {JOURNAL_CARD} on its work are open"
+    assert stage.held(state.load(drive), state.load(drive)["prs"]["Forge-AI/monorepo#42"]) == f"his cards {JOURNAL_CARD} on its work are open"
     approve = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "1794626600.000100", "source": "pressed the button"}
     assert ask({"answer": approve}) == {"ok": True}
     [question] = state.load(drive)["jobs"][asker]["questions"]
@@ -1201,10 +1201,9 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
     assert drawn["card"]["prs"][1]["changed"] == 'Reworked to your words "Topology goes in the meta table": it reads the meta table'
 
 
-def test_a_stack_whose_every_pr_asking_his_tap_waits_on_his_open_card_draws_one_card_saying_each_lands_once_he_answers(stacked: list[list[str]]) -> None:
+def test_a_stack_whose_every_pr_asking_his_tap_is_held_by_his_open_card_draws_one_card_saying_each_lands_once_he_answers(stacked: list[list[str]]) -> None:
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#41"]["waits"] = ["demo:j1-7-a"]
-        data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds=None) | {"waits": "demo:j1-7-a"}]
         data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert all("you answer" in row["lands"] for row in drawn["card"]["prs"][:2])

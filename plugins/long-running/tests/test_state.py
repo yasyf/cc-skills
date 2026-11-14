@@ -821,13 +821,15 @@ def test_load_keeps_his_answers_rework_on_the_head_it_reopened_as_a_rework_to_hi
     assert (kept[f"{MONOREPO}#4279"]["rework"], kept[f"{MONOREPO}#4284"]["rework"], any("verdict" in pr for pr in kept.values())) == (None, None, False)
 
 
-def test_a_waiting_line_puts_each_card_it_names_on_each_pr_of_its_order_it_names() -> None:
+def test_a_waiting_line_puts_no_card_it_names_on_any_pr_since_a_card_holds_a_pr_only_by_its_holds_line(state_root: Path) -> None:
     data = kept_prs()
     data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
     card = "https://acme.slack.com/archives/D123/p1794300000000200"
     state.take_result(data, "j9", f"WAITING #4289 and #4279 waits on {card} and demo:j9-3")
-    assert [data["prs"][f"{MONOREPO}#{n}"]["waits"] for n in (4289, 4279, 4284)] == [[card, "demo:j9-3"], [card, "demo:j9-3"], []]
-    assert data["prs"]["yasyf/cc-skills#4289"]["waits"] == []
+    assert [pr["waits"] for pr in data["prs"].values()] == [[]] * len(data["prs"])
+    data["prs"][f"{MONOREPO}#4289"]["waits"] = [card, "demo:j9-3", f"{MONOREPO}#4302"]
+    state.create(data)
+    assert state.load("demo")["prs"][f"{MONOREPO}#4289"]["waits"] == [f"{MONOREPO}#4302"]
 
 
 def test_a_waiting_report_naming_his_open_card_only_below_its_first_line_waits_on_no_card() -> None:

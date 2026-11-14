@@ -371,7 +371,7 @@ def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run
     refused = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"ASK {asked}", **lane))))
     assert refused["reason"].startswith("Refused on purpose: j2776 put his card up and built nothing")
     assert "`ccx vcs ship --no-pr`" in refused["reason"]
-    assert land.ship_held(state.load("durable-agents"), "j2776", {}) == [drawn_card(1)]
+    assert land.ship_held(state.load("durable-agents"), "j2776") == [drawn_card(1)]
     built = "BUILT j2776-delete-agent, waits on durable-agents:j2776-7"
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{built}\nCHECK: the recommended deleteAgent mutation, pushed on j2776-delete-agent\n"))
     run("job", "report", "j2776", "-")

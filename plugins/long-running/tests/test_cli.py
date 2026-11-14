@@ -3297,11 +3297,11 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     assert f'drive job ask: kept the card unsettled as "9992100: {settled.MARKED}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in advice
     assert WAIT_RULING in jev.asked[-1]["state"]["his_words"]
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3", {})) == (f"9992100: {settled.MARKED}", [question["card"]])
+    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (f"9992100: {settled.MARKED}", [question["card"]])
     unsettled = "9992100: this card asks whether the incident overrides his wait"
     assert run("job", "ask", "j3", str(block), "--unsettled", unsettled)[0] == 0
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3", {})) == (unsettled, [question["card"]])
+    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (unsettled, [question["card"]])
     url = "https://github.com/Forge-AI/monorepo/pull/43"
     assert run("pr", "add", url, "--job", "j3", *LEAD)[0] == 0
     unlinked = asked.replace("Meanwhile nothing is built on either layout.", "Meanwhile this job builds it on a branch, no PR.")
@@ -3311,7 +3311,7 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     block.write_text(unlinked.replace("on a branch, no PR.", f"in <{url}|the helper process PR>, held until you answer."))
     assert run("job", "ask", "j3", str(block))[0] == 0
     data = state.load("demo")
-    assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"], {}) == [data["jobs"]["j3"]["questions"][-1]["card"]]
+    assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
 
 
 NIGHTLY_EXPORT = {
@@ -3338,12 +3338,12 @@ def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replace
     cited = {"id": "7a1c0de", "asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
     assert (request["questions"]["says"]["label"]["options"], cited in request["state"]["his_words"]) == ({settled.UNDECIDED: settled.UNSAID, "7a1c0de": None}, True)
     assert DEPARTS in request["state"]["card"].splitlines()
-    assert land.ship_held(state.load("demo"), "j3", {}) == []
+    assert land.ship_held(state.load("demo"), "j3") == []
     jev.breaks("says", "7a1c0de")
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert f'drive job ask: kept the card unsettled as "7a1c0de: {settled.MARKED}", asking him to lift 7a1c0de, {NIGHTLY_EXPORT["title"]}, so it holds its PR from landing on an incident too' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3", {})) == (f"7a1c0de: {settled.MARKED}", [question["card"]])
+    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (f"7a1c0de: {settled.MARKED}", [question["card"]])
 
 
 def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading(

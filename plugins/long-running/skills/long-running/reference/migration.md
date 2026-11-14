@@ -164,7 +164,7 @@ His rulings already live in cc-notes answers.
    again: `drive pr set <url> --tapped Approve --tap-source <the permalink of his message or card>`,
    or `--tapped Hold`. A hold the old drive or a desk made itself is not his, and his PR card would
    say "Held by you": it carries as `--waits` on what it waits for, or, when nothing it waits on is a
-   card, job, PR or release, such as a deletion held for the cutover, as a `hold` label on GitHub,
+   job, PR or release, such as a deletion held for the cutover, as a `hold` label on GitHub,
    which keeps it off his tap queue and card and makes the landing guard refuse it. `drive pr set`
    refuses `--tapped` with no permalink of his, and one already recorded as his tap drops with
    `drive pr set <url> --no-tapped --why "<what holds it now>"`, in the same call as its `--waits`,

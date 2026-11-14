@@ -45,32 +45,27 @@ STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
 
 
-def open_cards(data: dict, job_id: str, pr: dict | None, cards: dict | None, exempt: str | None = None) -> list[str]:
-    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card the PR or job waits on but one whose every open question reads `Holds: none`, which holds nothing, and each card of an open question holding its work by state.part_cards, the one rule a BUILT line's waits read too; none for an immediate fix, which lands while he picks the proper fix, or a flake fix, the PR's exempt class or else `exempt`, which fixes a flaking test the day it flakes by his ruling 532cd3d, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask` marks when Jev reads its recommended option as breaking a recorded answer or ruling of his, or --unsettled names one, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
+def open_cards(data: dict, job_id: str, pr: dict | None, exempt: str | None = None) -> list[str]:
+    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card of an open question holding its work by state.part_cards, the one rule by which a card holds work, so a card a job or PR waits on otherwise only wakes it; none for an immediate fix, which lands while he picks the proper fix, or a flake fix, the PR's exempt class or else `exempt`, which fixes a flaking test the day it flakes by his ruling 532cd3d, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask` marks when Jev reads its recommended option as breaking a recorded answer or ruling of his, or --unsettled names one, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
     job = data["jobs"][job_id]
     if state.IMMEDIATE_FIX in job["parts"] or (pr.get("exempt") if pr is not None else exempt) == state.FLAKE_FIX:
         return []
-    waited = [
-        wait
-        for wait in view.holding(data, list(dict.fromkeys([*(pr["waits"] if pr is not None else []), *job["waits"]])), cards)
-        if state.card_wait(data, wait) and (not (drawn := view.drawn_on(data, wait)) or any(question["holds"] != "" for _, question in drawn if question["closed"] is None))
-    ]
-    found = list(dict.fromkeys([*waited, *state.part_cards(data, job_id, pr)]))
+    found = list(dict.fromkeys(state.part_cards(data, job_id, pr)))
     if state.open_incidents(data, [job["order"], *job["carries"]]):
         return [card for card in found if any(question["unsettled"] and question["closed"] is None for _, question in view.drawn_on(data, card))]
     return found
 
 
-def pr_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
+def pr_cards(data: dict, pr: dict) -> list[str]:
     """His open cards holding a PR from landing: those holding the work of any job carrying it, its own and each that holds its landing, by open_cards()."""
-    return list(dict.fromkeys(card for job_id in state.pr_jobs(data, pr) for card in open_cards(data, job_id, pr, cards)))
+    return list(dict.fromkeys(card for job_id in state.pr_jobs(data, pr) for card in open_cards(data, job_id, pr)))
 
 
-def ship_held(data: dict, job_id: str, cards: dict | None, exempt: str | None = None) -> list[str]:
+def ship_held(data: dict, job_id: str, exempt: str | None = None) -> list[str]:
     """His open cards holding a job's PR from going up, which the `bash_guard` hook refuses the `ccx vcs ship` that would open it by, on this Mac and through `drive job held` on a Sprite: none once the job has an open PR, which a ship pushes to rather than opens, holding it as open_cards() holds it once registered under the exempt class `exempt` the same call gives it."""
     if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
         return []
-    return open_cards(data, job_id, None, cards, exempt)
+    return open_cards(data, job_id, None, exempt)
 
 
 def lane_held(*flags: str) -> dict:
@@ -220,11 +215,11 @@ def unready(data: dict, key: str, cards: dict) -> str | None:
     return None if now.name == "ready" else f"{now.name}: {now.why}"
 
 
-def held(data: dict, keys: list[str], cards: dict | None) -> str:
+def held(data: dict, keys: list[str]) -> str:
     """What of his holds any PR among keys, each by its key, as its stage reads it; empty when nothing does."""
     from drive import stage
 
-    return "; ".join(f"{key}: {why}" for key in keys if (why := stage.held(data, data["prs"][key], cards)))
+    return "; ".join(f"{key}: {why}" for key in keys if (why := stage.held(data, data["prs"][key])))
 
 
 def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
@@ -290,12 +285,12 @@ def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...
     return started
 
 
-def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped. With his cards unread, none."""
-    if cards is None or not held_landers(state.load(name), keys, cards):
+def halt(name: str, keys: list[str]) -> list[str]:
+    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped."""
+    if not held_landers(state.load(name), keys):
         return []
     with state.edit(name) as data:
-        stopped = held_landers(data, keys, cards)
+        stopped = held_landers(data, keys)
         under = unders(data)
         units = {pid: sorted((key for key, pr in data["prs"].items() if running(pr) and pr["lander"]["pid"] == pid), key=lambda key: len(chain(under, key))) for pid in stopped}
         for pid, unit in units.items():
@@ -304,12 +299,12 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     return [key for unit in units.values() for key in unit]
 
 
-def held_landers(data: dict, keys: list[str], cards: dict) -> dict[int, str]:
+def held_landers(data: dict, keys: list[str]) -> dict[int, str]:
     """Each running lander queueing a Forge-AI/monorepo unit with a PR among keys that a hold of his holds, by its pid, with the outcome saying so."""
     return {
         data["prs"][key]["lander"]["pid"]: f"{HELD}: {holding}"
         for key in keys
-        if state.queued_by_lander(key) and running(data["prs"][key]) and (holding := held(data, [key], cards))
+        if state.queued_by_lander(key) and running(data["prs"][key]) and (holding := held(data, [key]))
     }
 
 
@@ -364,7 +359,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []
     asked: dict[str, str] = {}
-    if holding := held(data, keys, view.live_cards(name)):
+    if holding := held(data, keys):
         outcome = f"{HELD}: {holding}"
     elif state.merges_untapped(keys[0]):
         outcome = f"would merge it with {' '.join(MERGE)} --admin once no check fails at its head, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])

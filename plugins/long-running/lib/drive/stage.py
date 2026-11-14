@@ -80,7 +80,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         if waits := answered(data, key, failing):
             return blocked(data, failing, waits, cards)
         return Stage("red", BUILDER, failing)
-    if holds := held(data, pr, cards):
+    if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if state.ships_untapped(data, key):
         return waiting(data, pr, cards) or Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
@@ -103,8 +103,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 
 def waiting(data: dict, pr: dict, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it; None once nothing it waits on holds, its card waits read by held()."""
-    if standing := [wait for wait in view.holding(data, pr["waits"], cards) if not state.card_wait(data, wait)]:
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it; None once nothing it waits on holds."""
+    if standing := view.holding(data, pr["waits"], cards):
         return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
     return None
 
@@ -161,13 +161,11 @@ def stopped(pr: dict) -> str:
     return ""
 
 
-def held(data: dict, pr: dict, cards: dict) -> str:
-    """What of his holds the PR: what stops it, a card of his it waits on, or a question card of his open on the work of any job carrying it; a red PR waiting on one of his cards reads red, so its builder keeps it green while he decides."""
+def held(data: dict, pr: dict) -> str:
+    """What of his holds the PR: what stops it, or a question card of his open on the work of any job carrying it whose `Holds:` line holds it, by land.pr_cards; a red PR one of his cards holds reads red, so its builder keeps it green while he decides."""
     if stops := stopped(pr):
         return stops
-    if waiting := [wait for wait in view.holding(data, pr["waits"], cards) if state.card_wait(data, wait)]:
-        return f"it waits on his cards {', '.join(waiting)}"
-    if asking := land.pr_cards(data, pr, cards):
+    if asking := land.pr_cards(data, pr):
         return f"his cards {', '.join(asking)} on its work are open"
     return ""
 

@@ -569,11 +569,11 @@ def siblings(known: dict[str, tuple[str, dict]], members: list[str], reads: dict
 
 
 def holding(name: str, entry: dict) -> dict[str, str]:
-    """Each wait of the PR that still holds and each card of his the lander holds it on by stage.held, its waits and the cards on its work by land.pr_cards, each card once, with what it waits for in his card's words."""
+    """Each wait of the PR that still holds and each card of his holding it by land.pr_cards, each card once, with what it waits for in his card's words."""
     from drive import land, view
 
     data, found = state.load(name), view.live_cards(name)
-    return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*view.holding(data, entry["waits"], found), *land.pr_cards(data, entry, found)], found)}
+    return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*view.holding(data, entry["waits"], found), *land.pr_cards(data, entry)], found)}
 
 
 def picks(name: str, held: dict[str, str]) -> dict[str, dict]:
