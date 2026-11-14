@@ -1471,6 +1471,8 @@ STAND_IN = f"""
 window.HEARD = [];
 window.FAILS = [];
 window.STARTS = 0;
+window.HOLD = false;
+window.HELD = [];
 {{
   const served = window.fetch;
   const reply = (body, status = 200) => new Response(JSON.stringify(body), {{ status }});
@@ -1478,7 +1480,7 @@ window.STARTS = 0;
     if (String(url).startsWith('/api/pr/')) return reply({json.dumps(READ)});
     if (!String(url).startsWith('/api/review/')) return served(url, options);
     STARTS += 1;
-    await wait(200);
+    if (HOLD) await new Promise((answer) => HELD.push(answer));
     const error = FAILS.shift();
     return error ? reply({{ error }}, 502) : reply({{ url: `${{location.origin}}/test/embed` }});
   }};
@@ -1579,21 +1581,23 @@ def test_the_change_tab_shows_progress_while_cc_review_starts_then_why_it_failed
     reason = "GitHub did not answer cc-review in time (cc-review said: net/http: TLS handshake timeout)"
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
-await wait(20);
+await until(() => HELD.length === 1);
 document.querySelector('#main [data-prtab="change"]').click();
-await wait(20);
 const pane = () => document.querySelector('#main .pr-pane.change');
 const starting = { steps: [...pane().querySelectorAll('.steps li')].map((li) => [li.className, li.textContent]), bar: Boolean(pane().querySelector('.progress')) };
-await wait(400);
+HELD.shift()();
+await until(() => pane().querySelector('.refused'));
 const failed = { said: pane().querySelector('.refused').textContent, retry: pane().querySelector('[data-retry]').textContent, frames: document.querySelectorAll('#frames iframe').length };
 pane().querySelector('[data-retry]').click();
-await wait(20);
+await until(() => HELD.length === 1);
 const retried = pane().querySelector('.steps .on').textContent;
-await wait(600);
+HOLD = false;
+HELD.shift()();
+await until(() => document.querySelector('#frames iframe') && !pane().querySelector('.review-wait'));
 const frame = document.querySelector('#frames iframe');
 const [slot, shown] = [pane().querySelector('[data-slot]'), frame].map((el) => { const box = el.getBoundingClientRect(); return [box.left, box.top, box.width, box.height].map(Math.round); });
 done({ starting, failed, retried, embed: new URL(frame.src).search, title: frame.title, waiting: Boolean(pane().querySelector('.review-wait')), visible: getComputedStyle(frame).visibility, fits: String(slot) === String(shown), starts: STARTS });
-""", board(queue=[STACK], review=OPEN), "1440,900", before=f"{STAND_IN}FAILS.push({json.dumps(reason)});")
+""", board(queue=[STACK], review=OPEN), "1440,900", before=f"{STAND_IN}HOLD = true;\nFAILS.push({json.dumps(reason)});")
     assert seen == {
         "starting": {"steps": [["on", "Start cc-review for demo-org/demo-app#41 at bbbbbbb"], ["", "Load its diff"]], "bar": True},
         "failed": {"said": f"cc-review could not open demo-org/demo-app#41: {reason}", "retry": "Retry", "frames": 0},
