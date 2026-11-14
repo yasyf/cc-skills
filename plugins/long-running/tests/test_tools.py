@@ -1298,7 +1298,7 @@ DROPPED = "oks o tehreore close this oen and the one about electron, and get rid
 
 
 def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_they_touch_and_one_drive_answer_drops_them_all(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, closed: list[str]
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, closed: list[str], send_message: Callable[..., None]
 ) -> None:
     parts = (*SANDSQL_PARTS, ELECTRON, MONTY)
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *parts)
@@ -1349,7 +1349,8 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     dropped = ["demo:j1-684682", f"o1:{ELECTRON}", f"o1:{MONTY}", "Forge-AI/monorepo#54102"]
     with state.edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "agent-1"
-    code, out = run("answer", "8427b3c", "--dropped", *dropped, "--stands", *(f"o1:{part}" for part in SANDSQL_PARTS), "Forge-AI/monorepo#54101", "--sent", "j1")
+    send_message(demo, "j1", f"His rulings, verbatim:\n\n{RULED}\n\n{DROPPED}")
+    code, out = run("answer", "8427b3c", "--dropped", *dropped, "--stands", *(f"o1:{part}" for part in SANDSQL_PARTS), "Forge-AI/monorepo#54101")
     assert (code, out.splitlines()) == (
         0,
         [
@@ -1360,7 +1361,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
             "Forge-AI/monorepo#54102 closed on GitHub",
         ],
     )
-    assert run("answer", "cabb099", "--others-stand", "--sent", "j1") == (0, "his answer cabb099 recorded: 3 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched")
+    assert run("answer", "cabb099", "--others-stand") == (0, "his answer cabb099 recorded: 3 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched")
     assert answered == [("card-answer", "--card", card, "--label", RULED, "--withdrawn", "--via", UNDER_CARD) for card in (CARD, sibling)]
     assert closed == [electron]
     drive = state.load(demo)

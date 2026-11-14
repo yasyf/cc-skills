@@ -357,7 +357,7 @@ def unheard(data: dict, kept: dict) -> list[str]:
 
 
 def delivery(data: dict, job_id: str, job: dict, what: str = "his words") -> str:
-    """The one step by which the session holding the job gets a text to its worker: a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which drive answer --sent records for his words since the drive cannot see it; drive job resume for a job any other worker runs or ran, which sends the text to its lane, or hands the job and the text to a fresh worker of the holder for an agent another session started or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
+    """The one step by which the session holding the job gets a text to its worker: a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which the drive reads from that agent's transcript; drive job resume for a job any other worker runs or ran, which sends the text to its lane, or hands the job and the text to a fresh worker of the holder for an agent another session started or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
     from drive import place
 
     if (lane := state.agent_lane(data, job)) and not place.woken(data, job_id, state.now()):
@@ -368,10 +368,18 @@ def delivery(data: dict, job_id: str, job: dict, what: str = "his words") -> str
 
 
 def hear(data: dict, job_id: str, text: str, written: datetime) -> None:
-    """Mark the job sent each answer of his it has not heard whose words the text delivered to its worker holds, a message sent to it or the brief, handoff or launch text it started on, written once he gave that answer: a text written before it, such as a brief quoting a card's option ahead of his tap, carried words he had not said yet."""
+    """Mark the job sent each answer of his it has not heard whose words the text delivered to its worker holds, a message sent to it or the brief, handoff or launch text it started on, written once he gave that answer: a text written before it, such as a brief quoting a card's option ahead of his tap, carried words he had not said yet; and take off the job each text it holds that the text delivers by the same reading, his words alone for his answer, so a SendMessage relaying them verbatim clears the copy as a resume does."""
     for answer_id, kept in owed(data, job_id):
         if carries(text, kept["words"]) and given(data, answer_id) <= written:
             heard(data, job_id, kept, "sent")
+    job = data["jobs"][job_id]
+    job["undelivered"] = [held for held in job["undelivered"] if not (carries(text, (said := held_answer(data, held))[0]) and said[1] <= written)]
+
+
+def held_answer(data: dict, held: dict) -> tuple[str, datetime]:
+    """The words a text the job holds delivers and when they were given: his words and when he gave them, by the close of the question his answer record at its seq ended, else the text whole and when it was held."""
+    closed = held["seq"] and next((closed for job in data["jobs"].values() for question in job["questions"] if (closed := question["closed"]) and closed["seq"] == held["seq"] and closed["words"]), None)
+    return (closed["words"], state.parse_time(closed["at"])) if closed else (held["words"], state.parse_time(held["at"]))
 
 
 def hear_start(data: dict, job_id: str) -> None:
@@ -456,9 +464,9 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
         f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each job waiting on an order it touches has heard it:',
         *jobs,
         (
-            f"mark each: drive answer {answer_id} --sent <job>... once SendMessage gave it his words verbatim, or --untouched"
-            " <job>... for one his words leave as it is; any other job is marked sent by the drive job resume, brief or handoff that"
-            " carries his words verbatim to its worker, and by nothing else"
+            f"mark each his words leave as it is: drive answer {answer_id} --untouched <job>...; any other job is marked sent by the"
+            " SendMessage, drive job resume, brief or handoff that carries his words verbatim to its worker, as its agent's transcript"
+            " or its worker's launch shows it, and by nothing else"
         ),
     ]
     return "\n".join([*(cards if keys else []), *(told if jobs else [])])

@@ -358,9 +358,10 @@ before it sends or starts.
   that one refuses them too, his answer still held.
 - A delivered message, sent to a live worker or carried in the brief or handoff a worker started
   on, marks the job sent each answer of his whose words it holds verbatim, and a first launch adds
-  each text the job holds and each answer it has not heard that its brief lacks under `His answers since:`; `drive answer
-  --sent` records only a `SendMessage` to an agent a coordinator session on this Mac runs, and is
-  refused on any other job.
+  each text the job holds and each answer it has not heard that its brief lacks under `His answers since:`; a `SendMessage`
+  from the coordinator session to its agent on this Mac does the same once that agent's transcript
+  holds it, as a queued command while the agent works or a meta user row once it waits, which the
+  watch and `drive answer` read before either says the job has not heard them.
 - Either new worker gets a handoff carrying the job's brief, rebuilt from its `drive job brief`
   call so it holds the rulings and carried orders the drive holds now, branch, last line, report,
   PRs and the message, and the output says which ran.

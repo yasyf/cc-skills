@@ -2573,7 +2573,6 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
                 codex_run=str(folder),
                 brief=str(kept),
                 researched=brief.research_links(job, written),
-                undelivered=[held for held in job["undelivered"] if not superseded.carries(written, held["words"])],
             )
             state.start(job)
             superseded.hear(data, job_id, written, state.now())
@@ -3881,7 +3880,7 @@ def answer(args: argparse.Namespace) -> int:
         changes = settled.changed(args.title, args.words, asked)
         labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
         args.id = settled.recorded(args.title, args.words, labels, cwd)
-    marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
+    marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     if args.id not in data["answers"]:
         if marking:
             raise DriveError(
@@ -3905,8 +3904,7 @@ def answer(args: argparse.Namespace) -> int:
     kept = data["answers"][args.id]
     open_keys = superseded.unmarked(kept, asked)
     named = [*args.stands, *args.dropped, *(key for key, _ in [*args.settled, *args.superseded, *args.reopened])]
-    sent = [job_id for job_id in args.sent if (kept["jobs"].get(job_id) or {}).get("mark") != "sent"]
-    told = [*sent, *args.untouched]
+    told = args.untouched
     if twice := sorted({key for key in [*named, *told] if [*named, *told].count(key) > 1}):
         raise DriveError(f"{', '.join(twice)}: marked twice; mark each card, part or PR once, standing, settled, dropped, superseded or reopened, and each job once, sent or untouched")
     if stray := [key for key in named if key not in superseded.markable(kept, asked)]:
@@ -3916,12 +3914,6 @@ def answer(args: argparse.Namespace) -> int:
         raise DriveError(
             f"{', '.join(stray)}: not a job waiting on an order {args.id} touches that is unmarked, with an agent or lane; a job with"
             f" neither hears his words from the launch that starts it\n{superseded.listing(args.id, kept, open_keys, asked, data)}"
-        )
-    if unreached := [job_id for job_id in sent if not state.agent_lane(data, data["jobs"][job_id])]:
-        raise DriveError(
-            f"{', '.join(unreached)}: refused, nothing marked: --sent records only a SendMessage to an agent a coordinator session on this Mac"
-            " runs, the one delivery the drive cannot see, and no such agent runs it, so his answer has not reached it: mark the rest without it, then "
-            + "; ".join(f"{job_id}: {superseded.delivery(data, job_id, data['jobs'][job_id])}" for job_id in unreached)
         )
     refusals = [
         *(superseded.settled_refusal(data, kept, key, asked[key], file) for key, file in args.settled),
@@ -3937,7 +3929,7 @@ def answer(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
         for job_id in told:
-            superseded.heard(data, job_id, data["answers"][args.id], "sent" if job_id in sent else "untouched")
+            superseded.heard(data, job_id, data["answers"][args.id], "untouched")
     cleared: set[str] = set()
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
@@ -3993,6 +3985,8 @@ def answer(args: argparse.Namespace) -> int:
         kept = data["answers"][args.id]
         if args.others_stand:
             kept["cards"].update({key: {"mark": "stands"} for key in superseded.unmarked(kept, asked)})
+    data = watch.hear_sent(name, set(superseded.unheard(data, kept)))
+    kept = data["answers"][args.id]
     if (left := superseded.unmarked(kept, asked)) or superseded.unheard(data, kept):
         raise DriveError("\n".join([*done, superseded.listing(args.id, kept, left, asked, data)]))
     marked = [mark["mark"] for mark in kept["cards"].values() if mark]
@@ -5436,9 +5430,9 @@ def parser() -> argparse.ArgumentParser:
             " link to them with no buttons, drops its PR's tap ask, and stops its job, closing an open PR on GitHub, or"
             " folds what the job carries and each open PR it answers for into the live job named, and --reopened for a PR his words change, which drops his"
             " tap on it, withdraws each open card of his carrying it in the same call, and names the live job that reworks"
-            " it, no card coming back until that job's READY says how his words are met; --sent for a waiting agent"
-            " SendMessage gave his words verbatim, while the drive job resume that delivers them verbatim to a remote"
-            " lane's worker marks that lane itself, and --untouched for one they leave as it is. --others-stand marks the"
+            " it, no card coming back until that job's READY says how his words are met; and --untouched for a waiting job"
+            " they leave as it is, while each other is marked sent by the SendMessage, resume, brief or handoff that"
+            " delivers them verbatim to its worker, as its agent's transcript or its worker's launch shows it. --others-stand marks the"
             " cards, parts and PRs left standing only while a few are left. It exits 2, listing the rest, until every one is"
             " marked; the watch says ANSWER every 10 minutes while a card, part or PR is not."
         ),
@@ -5492,7 +5486,7 @@ def parser() -> argparse.ArgumentParser:
             "a question card his answer decides: it shows his answer in place with no buttons, its job's question is settled by it, and the job"
             " builds on his words; or, with FILE, one it decides in part: FILE is the ASK its job keeps with drive job ask --redraws KEY asking only"
             " what his answer leaves open, linking his answer in its summary, which redraws that card under its waits id. Either"
-            " way the card's job hears his words, marked --sent or --untouched"
+            " way the card's job hears his words, marked sent by their delivery or --untouched"
         ),
     )
     verb.add_argument(
@@ -5517,17 +5511,6 @@ def parser() -> argparse.ArgumentParser:
         "--others-stand",
         action="store_true",
         help="every card, part and PR still unmarked after this call's marks stands, refused while more than a few are left, so each is read against his words",
-    )
-    verb.add_argument(
-        "--sent",
-        action="extend",
-        nargs="+",
-        default=[],
-        metavar="JOB",
-        help=(
-            "a job waiting on an order his answer touches, once SendMessage gave its agent his words verbatim; a remote lane is marked sent"
-            " only by the drive job resume that delivers them verbatim to its worker, so naming one confirms that mark and is refused without it"
-        ),
     )
     verb.add_argument("--untouched", action="extend", nargs="+", default=[], metavar="JOB", help="a job waiting on an order his answer touches that his words leave as it is")
     verb.set_defaults(run=answer)

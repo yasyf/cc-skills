@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import sys
 from datetime import UTC, datetime, timedelta
@@ -32,7 +31,6 @@ STATE_CLAIM = re.compile(
 STATE_RULE = "A message that states or asks a running job's own state, such as that it stopped, stalled or went quiet, sent with no read of its transcript."
 FRESH_STATES = ("built", "done")
 READ_WINDOW = timedelta(minutes=10)
-TAIL_BYTES = 65536
 
 
 def own_call(payload: dict) -> bool:
@@ -110,20 +108,6 @@ def woken_builder(payload: dict, data: dict, job_id: str) -> str | None:
     )
 
 
-def recent_rows(path: Path, since: datetime) -> list[dict]:
-    """The transcript's rows written since, read back from its end, since a coordinator's transcript grows past 300 MB."""
-    with path.open("rb") as handle:
-        end = handle.seek(0, os.SEEK_END)
-        span = TAIL_BYTES
-        while True:
-            start = max(0, end - span)
-            handle.seek(start)
-            rows = [row for line in handle.read().splitlines()[1 if start else 0 :] if (row := json.loads(line)).get("timestamp")]
-            if not start or (rows and datetime.fromisoformat(rows[0]["timestamp"]) < since):
-                return [row for row in rows if datetime.fromisoformat(row["timestamp"]) >= since]
-            span *= 2
-
-
 def transcript_read(job_id: str, job: dict) -> re.Pattern[str]:
     """A command that reads the job's transcript: `drive job replies` on it, `cc-transcript` on its agent, or `orca orchestration worker-read` on its dispatch."""
     reads = [rf"\bdrive job replies\b.*\b{job_id}\b"]
@@ -138,7 +122,7 @@ def read_job(path: Path, job_id: str, job: dict) -> bool:
     """Whether the session's own transcript shows, in the last 10 minutes, a Bash call that read the job's transcript and did not fail."""
     pattern = transcript_read(job_id, job)
     calls: set[str] = set()
-    for row in recent_rows(path, datetime.now(UTC) - READ_WINDOW):
+    for row in agents.recent_rows(path, datetime.now(UTC) - READ_WINDOW):
         content = (row.get("message") or {}).get("content")
         for part in content if isinstance(content, list) else []:
             if part.get("type") == "tool_use" and part.get("name") == "Bash" and pattern.search(part["input"].get("command") or ""):

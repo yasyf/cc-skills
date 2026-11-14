@@ -272,7 +272,7 @@ def lacking(words: str, said: str) -> str | None:
 
 
 def typed(data: dict) -> Iterator[str]:
-    """Each prompt typed into a session the drive binds, read from its transcript by human_words; a row still being written is left for the next read."""
+    """Each prompt typed into a session the drive binds, read from its transcript by prompt_words; a row still being written is left for the next read."""
     for held in state.bound_sessions(data).values():
         path = next((config_dir() / "projects").glob(f"*/{held['session']}.jsonl"), None)
         if path is None or not path.stat().st_size:
@@ -280,18 +280,18 @@ def typed(data: dict) -> Iterator[str]:
         with path.open("rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as rows:
             at = rows.find(HUMAN)
             while at != -1 and (end := rows.find(b"\n", at)) != -1:
-                if (said := human_words(json.loads(rows[rows.rfind(b"\n", 0, at) + 1 : end]))) is not None:
+                if (said := prompt_words(json.loads(rows[rows.rfind(b"\n", 0, at) + 1 : end]), "human")) is not None:
                     yield said
                 at = rows.find(HUMAN, end)
 
 
-def human_words(row: dict) -> str | None:
-    """The words of a transcript row that is a prompt a person typed, as cc-sync's ClassifyRecord reads human input: a user row or queued command whose origin Claude Code marks a human's and that is no meta injection. A cci delivery's origin is its channel's and a tool result carries none, so neither is his; a prompt Orca types into a terminal is marked a human's too."""
+def prompt_words(row: dict, origin: str) -> str | None:
+    """The words of a transcript row that is a prompt of this origin, as cc-sync's ClassifyRecord reads human input: a user row or queued command whose origin Claude Code marks so, a human's only when it is no meta injection, while a coordinator's SendMessage comes as a queued command to an agent at work and as a meta user row to one that waits. A cci delivery's origin is its channel's and a tool result carries none, so neither is his; a prompt Orca types into a terminal is marked a human's too."""
     queued = row["type"] == "attachment" and row["attachment"].get("type") == "queued_command"
     if not queued and row["type"] != "user":
         return None
     prompt = row["attachment"] if queued else row
-    if (prompt.get("origin") or {}).get("kind") != "human" or prompt.get("isMeta"):
+    if (prompt.get("origin") or {}).get("kind") != origin or origin == "human" and prompt.get("isMeta"):
         return None
     said = prompt["prompt"] if queued else row["message"]["content"]
     return said if isinstance(said, str) else " ".join(block["text"] for block in said if block.get("type") == "text")

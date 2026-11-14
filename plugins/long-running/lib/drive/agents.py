@@ -86,6 +86,7 @@ UNREAD_JOB = (
     " minutes; read it with `drive job replies <j>` or `cc-transcript`, then quote what it shows"
 )
 TAIL_BYTES = 4 << 20
+RECENT_BYTES = 65536
 TYPED_TIME_RULE = (
     "A clock time a session typed for work already done in words he reads, a post, a card or a record a handler posts to him,"
     " such as when a job started or a post went out, which the drive's stamps give, and a job's or record's stamp given as when a release, build or deploy started; a time after the write,"
@@ -145,6 +146,20 @@ def tail(path: Path) -> list[dict]:
         handle.seek(start)
         lines = handle.read().split(b"\n")
     return [json.loads(line) for line in lines[1 if start else 0 :] if line.strip()]
+
+
+def recent_rows(path: Path, since: datetime) -> list[dict]:
+    """The transcript's rows written since, read back from its end, since a coordinator's transcript grows past 300 MB; a row still being written is left for the next read."""
+    with path.open("rb") as handle:
+        end = handle.seek(0, os.SEEK_END)
+        span = RECENT_BYTES
+        while True:
+            start = max(0, end - span)
+            handle.seek(start)
+            rows = [row for line in handle.read().split(b"\n")[1 if start else 0 : -1] if (row := json.loads(line)).get("timestamp")]
+            if not start or (rows and datetime.fromisoformat(rows[0]["timestamp"]) < since):
+                return [row for row in rows if datetime.fromisoformat(row["timestamp"]) >= since]
+            span *= 2
 
 
 def parts(row: dict) -> list[dict]:
