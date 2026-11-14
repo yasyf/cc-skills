@@ -680,6 +680,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("closed_on", None)
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
+        order.setdefault("prove_said", None)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
         order.setdefault("quiet", None)
@@ -1287,7 +1288,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1308,9 +1309,15 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *named_parts(data, waiting["cards"])])
     if taken == "done" and job["kind"] == "builder":
+        from drive import brief
+
         for order_id in open_incidents(data, [job["order"], *job["carries"]]):
             if {INCIDENT_STOP, INCIDENT_ROLLBACK} & set(job_parts(job, order_id)):
                 data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or line.removeprefix("DONE").strip()
+        if seen := " ".join(found for check in brief.CHECK.findall(report) for found in brief.proofs(check) if brief.SEEN_PROOF.search(found)):
+            for order_id in open_incidents(data, list(dict.fromkeys(other for held in [job["order"], *job["carries"]] for other in incident_orders(data, held)))):
+                if brief.unseen(data, order := data["orders"][order_id], order["proof"]):
+                    order["proof"] = "; ".join(filter(None, [order["proof"], seen]))
     if (bug := traced(data, job_id, line)) and (fixes := FIX_LINE.findall(report)):
         head = data["orders"][bug]["joins"] or bug
         for order_id in fix_named(data, job["order"], fixes[-1])[0]:
@@ -1600,9 +1607,13 @@ def prover(data: dict, order_id: str, keys: list[str], job_id: str | None = None
     )
 
 
-def may_tell(order: dict) -> bool:
-    """Whether the threads an order's reporters asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live."""
-    return all(held["posted"] for held in order["parts"].values()) if order["kind"] == "answer" else bool(order["proof"])
+def may_tell(data: dict, order: dict) -> bool:
+    """Whether the threads an order's reporters asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live, from where he sees it when it builds something he uses, by brief.unseen."""
+    from drive import brief
+
+    if order["kind"] == "answer":
+        return all(held["posted"] for held in order["parts"].values())
+    return bool(order["proof"]) and not brief.unseen(data, order, order["proof"])
 
 
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
@@ -1705,6 +1716,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "jobs": [],
         "alerts": [],
         "recovered": None,
+        "prove_said": None,
         "quiet": None,
         "reporters": [],
         "watch": None,

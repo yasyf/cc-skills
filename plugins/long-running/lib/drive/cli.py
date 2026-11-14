@@ -696,7 +696,7 @@ def order_set(args: argparse.Namespace) -> int:
             " an incident takes --no-options-only, and an order limited to options --no-incident"
         )
     proof = args.proof or (order["proof"] if args.state == "done" else None)
-    if proof and (seen := order_surface(data, order)) and not any(brief.SEEN_PROOF.search(found) for found in brief.proofs(proof)):
+    if proof and (seen := brief.unseen(data, order, proof)):
         raise DriveError(
             f"{'--proof' if args.proof else 'its proof'} {proof}: refused, {args.id} builds something he uses ({seen}), so it is proven"
             " done on that surface: a recording of each step through it (agent-browser's recording, or screencapture -v of the window)"
@@ -797,7 +797,7 @@ def order_set(args: argparse.Namespace) -> int:
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
-    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
@@ -859,11 +859,6 @@ def check_proof(proof: str) -> None:
 
 def filing_pairs(data: dict, but: str | None = None) -> list[tuple[str, str]]:
     return sorted({(order["project"], order["workstream"]) for order_id, order in data["orders"].items() if order["project"] and order["workstream"] and order_id != but})
-
-
-def order_surface(data: dict, order: dict) -> str | None:
-    """Where he sees or uses an order's result, by the first of its jobs' briefs naming a surface; None when none does."""
-    return next(filter(None, (brief.surface(data["jobs"][job_id]) for job_id in order["jobs"])), None)
 
 
 def order_unfiled(args: argparse.Namespace) -> int:
@@ -976,12 +971,13 @@ def order_told(args: argparse.Namespace) -> int:
     if not order["reporters"]:
         raise DriveError(f"{args.id} names no one to tell: drive order set {args.id} --reporter <their message's permalink> names them")
     asked = order["kind"] == "answer"
-    if not state.may_tell(order):
+    if not state.may_tell(data, order):
         if asked:
             raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
+        seen = brief.unseen(data, order, order["proof"]) if order["proof"] else None
         raise DriveError(
-            f"{args.id}: refused, it keeps no proof that its fix is live, so a note now would come before the fix:"
-            f" drive order set {args.id} --proof <the check> records it once the fix is live"
+            f"{args.id}: refused, it keeps no proof that its fix is live{f' on {seen}, where he uses it' if seen else ''}, so a note now would come before the fix:"
+            f" drive order set {args.id} --proof <{'the recording or live post from there' if seen else 'the check'}> records it once the fix is live"
         )
     posted, _ = slack.message_and_root(args.link)
     channel = state.CARD_LINK.search(args.link)[1]

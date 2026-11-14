@@ -270,7 +270,7 @@ def test_when_names_the_day_for_other_days() -> None:
 def test_an_incident_orders_line_says_it_is_one() -> None:
     drive = sample()
     drive["orders"]["o3"]["incident"] = True
-    assert render.order_line("o3", drive["orders"]["o3"], 40) == "o3 open incident: Answer whether the cache is warm…"
+    assert render.order_line(drive, "o3", drive["orders"]["o3"], 40) == "o3 open incident: Answer whether the cache is warm…"
 
 
 def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:

@@ -749,9 +749,9 @@ def merges_of(data: dict, job_id: str) -> dict[str, str]:
     return {key: data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)}
 
 
-def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str) -> bool:
+def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post: str, facts: str) -> bool:
     """Take the line drive job prove sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
-    from drive import cli
+    from drive import brief
 
     job, keys = data["jobs"][job_id], reported_prs(data, job_id)
     order_id, urls = job["order"], " ".join(map(state.pr_url, keys))
@@ -759,7 +759,7 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen
     whole = f"{line}\nPR: {urls}\nCHECK: {' '.join(check)}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
-    closes = line.startswith("DONE") and (seen or not cli.order_surface(data, order)) and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
+    closes = line.startswith("DONE") and not brief.unseen(data, order, " ".join(check)) and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
     closes = closes and all(data["jobs"][other]["state"] in state.FINISHED_JOB_STATES for other in order["jobs"]) and not state.open_incidents(data, [order_id])
     if closes:
         title = "; ".join(data["prs"][key]["title"] for key in keys)
@@ -846,7 +846,7 @@ def proofless(name: str, data: dict, job_id: str) -> None:
         f"BLOCKED {' '.join(map(state.pr_url, reported_prs(data, job_id)))} merged, and {job_id} keeps no proof file to run, so nothing proves it live:"
         f" keep one with drive job set {job_id} --repro <file>, written from its PROVE: line, then drive job prove {job_id} proves it on {job_id}"
     )
-    finish(name, data, job_id, line, merge_commits(merges_of(data, job_id)), True, "", "")
+    finish(name, data, job_id, line, merge_commits(merges_of(data, job_id)), "", "")
 
 
 def merge_commits(merges: dict[str, str]) -> list[str]:
@@ -967,7 +967,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
                 change = f"{PROOF_WAITS}: {line.removeprefix('BLOCKED ')}"
             else:
                 seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
-                closes = finish(name, data, job_id, line, [str(kept), *seen], bool(seen), f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n")
+                closes = finish(name, data, job_id, line, [str(kept), *seen], f"is live in {versions}", f"Live: {versions}\nProof: {proven}\n")
                 change = proven
                 if code:
                     change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}"

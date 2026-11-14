@@ -7224,16 +7224,18 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    order = state.load(demo)["orders"]["o1"]
-    assert not watch.owed_reporters(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    data = state.load(demo)
+    order = data["orders"]["o1"]
+    assert not watch.owed_reporters(data, order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
     note = note_in(slack_thread, "1794418000.000100")
     assert cli.main(["order", "told", "o1", note]) == 2
     assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
     monkeypatch.setattr("sys.stdin", io.StringIO(f"POSTED {slack_thread.post(state.now(), from_claude=True)}\n"))
     run("job", "report", "j1", "-")
-    order = state.load(demo)["orders"]["o1"]
+    data = state.load(demo)
+    order = data["orders"]["o1"]
     assert order["state"] != "done" and not order["proof"]
-    assert watch.owed_reporters(order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert watch.owed_reporters(data, order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
     assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
 
 

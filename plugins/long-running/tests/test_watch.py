@@ -1441,7 +1441,7 @@ def test_his_next_message_after_away_owes_his_catch_up_on_each_order_whose_news_
     [(report, body), (start, _)] = calls
     assert report["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
     assert (report["to"], report["kind"], report["attr"]) == ([f"communicator@{demo}"], "report", {"catch_up": "true"})
-    assert f"- {render.order_line('o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
+    assert f"- {render.order_line(state.load(demo), 'o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
     assert start[:4] == ["claude", "--bg", "--agent", "long-running:handler"]
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}"
     owed = state.load(demo)["catch_up"]
@@ -5852,7 +5852,7 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporters"][0]["tell_said"]) == ("done", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
-    assert render.reporter_said(data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
+    assert render.reporter_said(data, data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
     assert provers == []
 
 
@@ -6198,6 +6198,41 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
     data = state.load(demo)
     assert (view.incidents(data), data["orders"]["o1"]["proof"]) == ([], fixed)
     assert [argv[1:] for argv in calls if argv[1:3] == ["release", "pull"]] == [["release", "pull", "42", "--json"]]
+
+
+def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_line_until_a_builders_done_keeps_a_recording_from_there(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
+    incident_reads(monkeypatch, {}, {"42": True})
+    surface, recording = "the Iris chat on a Mac", "/tmp/proofs/o761-chat-answers.mov"
+    fixed = f"{state.pr_url(KEY)} live in production"
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()}, proof=fixed)
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(parts=["fix"], state="done", brief_flags={"native": surface})
+    watching = watcher(demo)
+    lines = [line for minute in range(3) for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith(("PROVE", "RECOVERED"))]
+    add = shlex.join(["drive", "job", "add", "builder", "--builds-nothing", "--order", "o1", "--part", "fix", "--goal", f"prove {state.pr_url(KEY)} live on {surface} with a recording of it"])
+    assert lines == [
+        f"PROVE o1: {fixed}, but o1 builds what he uses on {surface}, so its Live line waits on a recording or live post from there: add the builder"
+        f" that proves it, {add}, brief it with --native and --interactions for {surface} and start it; its DONE keeps that recording as the proof"
+        " of o1, and the watch then closes o1"
+    ]
+    data = state.load(demo)
+    assert (watch.wakes(lines[0], data, NO_CARDS), ready_records, data["orders"]["o1"]["recovered"], state.may_tell(data, data["orders"]["o1"])) == (True, [], None, False)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(parts=["fix"], brief_flags={"native": surface})
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", "DONE the Iris chat answers again", f"DONE the Iris chat answers again\nCHECK: {recording}\n")
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["proof"], state.may_tell(data, data["orders"]["o1"])) == (f"{fixed}; {recording}", True)
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=3)) if line.startswith(("PROVE", "RECOVERED"))] == [
+        f"RECOVERED o1: {fixed}, so the communicator posts its Live line and closes o1"
+    ]
+    assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
 def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

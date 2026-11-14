@@ -714,6 +714,13 @@ def surface(job: dict) -> str | None:
     return native if native and not NO_SURFACE.match(native) else None
 
 
+def unseen(data: dict, order: dict, proof: str | None) -> str | None:
+    """Where he sees or uses an order's result, by the first of its jobs' briefs naming a surface, while the proof names no recording, picture or live post, so it does not prove the order done there; None once it does, or when the order builds nothing he uses."""
+    if any(SEEN_PROOF.search(found) for found in proofs(proof or "")):
+        return None
+    return next(filter(None, (surface(data["jobs"][job_id]) for job_id in order["jobs"])), None)
+
+
 def stories(interactions: str | None) -> list[str]:
     """The user stories a brief's Interactions line names, one per `;`: each what he does on its surface and what he must then see."""
     return [story.strip() for story in (interactions or "").split(";") if story.strip()]
