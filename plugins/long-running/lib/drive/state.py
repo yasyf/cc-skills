@@ -1691,6 +1691,11 @@ def pass_due(jobs: list[tuple[str, dict]]) -> datetime | None:
     return parse_time(jobs[-1][1]["created"]) + STANDING_EVERY if jobs else None
 
 
+def standing_part(data: dict, job: dict) -> tuple[str, str] | None:
+    """The standing part a job is a pass of, as its order and part, by the parts it delivers of its own order or carries of another; None for a job on no standing part."""
+    return next(((order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) if data["orders"][order_id]["parts"][part]["standing"]), None)
+
+
 def part_builders(data: dict, order_id: str, part: str) -> list[str]:
     """Each builder or codex job that builds a part of an order: on it and neither failed nor stopped, as design_builder reads its builder, since a job that ended so builds nothing; one done or built counts, so a design read again builds no change twice."""
     return [job_id for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] not in ENDED_JOB_STATES]

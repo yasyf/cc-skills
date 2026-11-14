@@ -222,6 +222,30 @@ def test_a_text_resumed_to_a_codex_job_waits_for_its_next_run_while_one_goes_and
     assert ((folder / "question").read_text().endswith(f"From the coordinator since:\n- {answer}\n"), state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, [])
 
 
+@pytest.mark.parametrize(("ended", "said"), [("done", "DONE round 4 ran"), ("failed", "BLOCKED codex-ask failed: its log is empty"), ("stopped", "HANDOFF round 4 ran")])
+@pytest.mark.parametrize("live", [False, True])
+@pytest.mark.parametrize("verb", [["launch"], ["resume"], ["resume", "run round 5 against staging-2"]])
+def test_a_standing_parts_pass_that_ended_is_never_started_again_by_hand_and_its_refusal_names_the_live_pass_or_when_the_watch_starts_the_next_as_j4810_ran_beside_j4984(
+    demo: str, run: Run, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk, ended: str, said: str, live: bool, verb: list[str]
+) -> None:
+    codex_job(run)
+    goal = "review the fix, round after round"
+    with state.edit(demo) as data:
+        (part,) = data["jobs"]["j1"]["parts"]
+        data["orders"]["o1"]["parts"][part]["standing"] = goal
+        data["jobs"]["j1"].update(state=ended, said=said)
+        if live:
+            data["jobs"]["j2"] = state.new_job("o1", "codex", goal, [part], state.stamp())
+            data["orders"]["o1"]["jobs"].append("j2")
+    assert cli.main(["job", verb[0], "j1", *verb[1:]]) == 2
+    err = capsys.readouterr().err
+    assert f'j1: refused, nothing written, held, sent or started: it ended {ended} as a pass of o1\'s standing part "{part}": standing on "{goal}", ' in err
+    assert ("its live pass codex j2 running" if live else "no pass at work, the watch starts the next at ") in err
+    assert "; the watch alone starts each pass of a standing part, carrying the texts and answers the last pass holds" in err
+    held = state.load(demo)["jobs"]["j1"]
+    assert (held["state"], held.get("codex_run"), held["undelivered"]) == (ended, None, [])
+
+
 def test_a_codex_jobs_launch_files_a_coordinators_text_under_from_the_coordinator_and_only_his_answers_under_his_answers_since(
     demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
 ) -> None:
