@@ -1172,9 +1172,15 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, and a WAITING names something the watch frees it on."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, and a WAITING names something the watch frees it on."""
     job = data["jobs"][job_id]
     if job["state"] == "stopped":
+        parts = set(job_parts(job, job["order"]))
+        carrying = [other_id for other_id, other in data["jobs"].items() if other["state"] not in FINISHED_JOB_STATES and parts & set(job_parts(other, job["order"]))]
+        if carrying:
+            successor = max(carrying, key=lambda other_id: parse_time(data["jobs"][other_id]["created"]))
+            part = next(part for part in job_parts(data["jobs"][successor], job["order"]) if part in parts)
+            return f'{job_id} is stopped, so its work goes on in {successor}, the newest open job carrying its part "{part}": hand {successor} this return with drive job resume {successor} -, the return on stdin'
         return (
             f"{job_id} is stopped, so its work goes on in another job: hand this return to the job its said line names,"
             f" or start one with drive job add {job['kind']} --order {job['order']} briefed with a Handoff: line"

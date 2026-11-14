@@ -5094,6 +5094,13 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
     assert [reply["body"] for reply in state.returns("demo", "j1")] == [done, f"WAITING on his card demo:j1-3\n{check}", built]
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it again")
+    code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
+    assert (code, err) == (
+        2,
+        'drive: j1: refused, nothing kept: j1 is stopped, so its work goes on in j2, the newest open job carrying its part "Short title": hand j2 this return'
+        " with drive job resume j2 -, the return on stdin\n",
+    )
     run("job", "set", "j1", "--agent", "a-7")
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n") == (0, "")
@@ -6639,10 +6646,12 @@ def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_chang
         ' send it the event with drive job resume j1 "<the event>", or stop it with drive job set j1 --state stopped before adding the job that replaces it'
     )
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
-    held = "o1 is the sub-coordinator for Platform's order, session platform-1: only the sub-coordinator for Platform adds its jobs"
-    for argv in (["job", "add", "builder", "--order", "o1", "--part", "one code path", "--goal", "build it"], ["job", "resume", "j1", "fault the socket"]):
-        assert cli.main(argv) == 2
-        assert held in capsys.readouterr().err
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "one code path", "--goal", "build it"]) == 2
+    assert "o1 is the sub-coordinator for Platform's order, session platform-1: only the sub-coordinator for Platform adds its jobs" in capsys.readouterr().err
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["5"])
+    assert run("job", "resume", "j1", "fault the socket")[1].startswith("j1: posted to platform@demo as handoff record 5")
+    assert [post["to"] for post in posted] == [["platform@demo"]]
     assert list(state.load("demo")["jobs"]) == ["j1"]
 
 

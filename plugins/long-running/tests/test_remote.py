@@ -988,7 +988,7 @@ def test_each_refused_mac_only_launch_replayed_stays_here_only_when_its_brief_de
     assert (place.mac_step(written), place.mac_step(declaring)) == (None, declared)
 
 
-def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_its_lane_on_a_handoff_as_that_sessions(
+def test_launch_local_from_a_session_that_did_not_start_the_jobs_ended_agent_starts_its_lane_on_a_handoff_as_that_sessions(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, demo)
@@ -996,6 +996,8 @@ def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_it
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main")
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["session"] = "after-restart"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
@@ -1006,6 +1008,37 @@ def test_launch_local_from_a_session_that_did_not_start_the_jobs_agent_starts_it
     assert "Drive: demo, order o1, job j1\n\n## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session session-under-test," in launched[0]
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["session"], job["where"], job["route"], job["dispatch"]) == (None, "meta-session", "remote", state.LOCAL_ROUTE, DISPATCH)
+
+
+@pytest.mark.parametrize("caller", ["session-under-test", "orca-lane-session"], ids=["the-top-holding-nothing-of-it", "an-orca-lane-the-drive-does-not-bind"])
+def test_a_resume_from_another_session_posts_the_text_to_the_session_that_started_the_jobs_live_agent_and_a_launch_is_refused(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], caller: str
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "watch")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["project"] = "Platform"
+        data["subcoordinators"]["Platform"] = {"session": "platform-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
+        data["jobs"]["j1"].update(agent="a0b74915bac29cf3e", session="platform-1", where="local")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", caller)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["7"])
+    text = "From j3904: the staging dry run it started, build 15531, passed\nits log is scratch/j3904/b15531.log"
+    assert run("job", "resume", "j1", text) == (
+        0,
+        f"j1: posted to platform@{demo} as handoff record 7, since agent a0b74915bac29cf3e takes SendMessage only from session platform-1, which started it",
+    )
+    [(lane, record)] = posted
+    assert (lane, record["kind"], record["to"], record["attr"]) == ("j1", "handoff", [f"platform@{demo}"], {"order": "o1", "job": "j1"})
+    assert record["body"] == f"j1 runs as agent a0b74915bac29cf3e of your session platform-1, whose SendMessage alone reaches it: send it this text verbatim\n\n{text}"
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["session"], job["undelivered"], job.get("handoff")) == ("a0b74915bac29cf3e", "platform-1", [], None)
+    assert cli.main(["job", "launch", "j1"]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1: refused, not launched: it runs as agent a0b74915bac29cf3e of session platform-1, which still holds it and whose SendMessage alone"
+        f' reaches it, so the agent finishes its job: drive job resume j1 "<the event>" posts the event to platform@{demo}\n'
+    )
 
 
 STOPPED_TEXT = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
