@@ -361,14 +361,19 @@ def ships_by_components(repo: str, release: dict, service: str) -> bool:
 @cache
 def started_on_production(repo: str, tag: str, pipeline: str, number: str) -> bool:
     """Whether a go/ci release build started on production: its RELEASE_START named no environments, so it ran on every one, or named one flagged prod: true in infra/envs at the release's tag; read once a process, since neither changes once a release is published."""
-    try:
-        build = json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))
-    except GithubError as error:
-        raise GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: {error}") from None
-    envs = json.loads(build["env"].get("RELEASE_START") or "{}").get("envs") or []
+    envs = json.loads(build_env(pipeline, number).get("RELEASE_START") or "{}").get("envs") or []
     return not envs or any(
         PROD_ENV.search(read(f"{repo}'s {env} environment at {tag}", ["gh", "api", f"repos/{repo}/contents/infra/envs/{env}.yaml?ref={tag}", "-H", "Accept: application/vnd.github.raw"])) for env in envs
     )
+
+
+@cache
+def build_env(pipeline: str, number: str) -> dict[str, str]:
+    """The environment a Buildkite build started with, such as a go/ci release's RELEASE_START or a cluster job's CLUSTER_JOB, read once a process, since a build's env never changes."""
+    try:
+        return json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))["env"]
+    except GithubError as error:
+        raise GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: {error}") from None
 
 
 def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:

@@ -116,6 +116,9 @@ RELEASE_ASK_QUESTION = (
     " run, states as a fact that an approval or answer of his is pending, his Approve on a pull request included, which merges"
     " code and is no release step, or says nothing starts; when it quotes a command, plan or refusal, asks for a plan, a dry run"
     " or a card redrawn, or asks that session to put the release to him and start nothing until he answers."
+    " A one-off cluster job is no production release: a `tools/ci cluster-job` start, or the unblock of the gate of the"
+    " forge/release build it starts, such as a team's memory move, runs one suspended CronJob in a team's cluster and ships"
+    " no change, so pick none for a record asking only for those."
 )
 RELEASE_ASK_OPTIONS = {settled.UNDECIDED: "It asks no session to take a release step.", "asks": "It asks a session to take one."}
 RELEASE_ASKED = "refused: Jev reads this record as asking a session to take a step of a production release"

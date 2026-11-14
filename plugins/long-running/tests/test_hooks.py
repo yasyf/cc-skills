@@ -19,7 +19,7 @@ import record_lines
 import scratch_folder
 import session_start
 from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, label, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, land, limits, orca, place, render, settled, state, tools, watch
+from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -27,6 +27,8 @@ EARLIER = "2026-01-01T00:00:00+00:00"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 HANDOFF_START = "tools/ci release start sand sand-next cloudrunner-next --from 4f06b6d"
 RELEASE_ASK = f"Start the regular sand-next release carrying #55784 while he is away: `{HANDOFF_START}{{}}`"
+RELEASE_CUT_BUILD = "15495"
+CLUSTER_JOB_BUILD = "15699"
 
 
 @pytest.fixture
@@ -47,6 +49,21 @@ def no_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
     monkeypatch.setattr(landing_guard, "run", record)
     return calls
+
+
+@pytest.fixture
+def release_builds(monkeypatch: pytest.MonkeyPatch) -> None:
+    started = {
+        RELEASE_CUT_BUILD: {"RELEASE_START": json.dumps({"mode": "release", "envs": []})},
+        CLUSTER_JOB_BUILD: {"CLUSTER_JOB": json.dumps({"cluster": "plat-usw2-prod", "cronJob": "memory-move-poetic", "reason": "move poetic's memories"})},
+    }
+
+    def build_env(pipeline: str, number: str) -> dict[str, str]:
+        if pipeline != "forge/release" or number not in started:
+            raise github.GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: HTTP 404")
+        return started[number]
+
+    monkeypatch.setattr(github, "build_env", build_env)
 
 
 def origin_is(monkeypatch: pytest.MonkeyPatch, remote: str) -> None:
@@ -1271,7 +1288,9 @@ def held(release: str, why: str) -> str:
     return brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where=f"15c4de1, {HOLD_LINK}", hold="15c4de1", release=release, why=why)
 
 
-def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_recorded_since(demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev) -> None:
+def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_recorded_since(
+    demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
+) -> None:
     top = {"session_id": "session-under-test"}
     with state.edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
@@ -1322,6 +1341,35 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     recorded.listed = recorded.listed[1:]
     jev.picks("5d0c4a1")
     assert [brief.approval_refusal(start.format("5d0c4a1"), data), landing_guard.deny_reason(bash(HELD_VERBS[0]) | top)] == [None, None]
+
+
+def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_gate_while_he_holds_every_release(
+    drive_pr: str, run: Run, no_calls: list[list[str]], recorded: Answers, release_builds: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit("demo") as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD]
+    recorded.shown = {"15c4de1": RELEASE_HOLD}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-sub")
+    assert run("start", "demo", "--role", "coordinator", "--project", "The drive")[0] == 0
+    top, sub = {"session_id": "session-under-test"}, {"session_id": "drive-sub"}
+    job = {"session_id": "session-under-test", "agent_id": "a4da3dca63d05a40d", "agent_type": "long-running:builder"}
+    gate = "tools/ci bk api -X PUT /pipelines/release/builds/{}/jobs/01a1d8aa/unblock"
+    moves = (
+        gate.format(CLUSTER_JOB_BUILD),
+        f"tools/ci bk rerun release {CLUSTER_JOB_BUILD} --unit cluster-job",
+        "tools/ci cluster-job --cluster plat-usw2-prod --cronjob memory-move-poetic --reason 'move poetic memories'",
+    )
+    assert [landing_guard.deny_reason(bash(command) | who) for who in (top, sub, job) for command in moves] == [None] * 9
+    assert landing_guard.deny_reason(bash(f"tools/ci bk cancel release {CLUSTER_JOB_BUILD}") | job) is None
+    cut = gate.format(RELEASE_CUT_BUILD)
+    assert landing_guard.deny_reason(bash(cut) | top) == held(cut, "it names no `--order`, and neither does a `Release:` line of its job's brief")
+    assert landing_guard.deny_reason(bash(cut) | sub).startswith("ci bk api: the sub-coordinator for The drive starts, approves and rolls back no production cut")
+    assert landing_guard.deny_reason(bash(f"tools/ci bk cancel release {RELEASE_CUT_BUILD}") | job) == landing_guard.RELEASE_CANCEL
+    unread = gate.format("15700")
+    assert landing_guard.deny_reason(bash(unread) | top) == landing_guard.CUT_UNREAD.format(
+        command=unread, error="could not read the start of forge/release build 15700 from Buildkite: HTTP 404"
+    )
 
 
 def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_start_his_answer_approves(
@@ -1382,7 +1430,7 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
 
 
 def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_every_release(
-    demo: str, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev
+    demo: str, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
 ) -> None:
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}

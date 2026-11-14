@@ -106,10 +106,16 @@ COORDINATOR_WORK = (
 RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "rerun", "api"})
 PLAN_ONLY = frozenset({"--plan", "--dry-run"})
 RELEASE_PIPELINE = "release"
-RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/|$)")
+RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
+RELEASE_BUILDKITE = f"forge/{RELEASE_PIPELINE}"
+RELEASE_START_ENV = "RELEASE_START"
 HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
+)
+CUT_UNREAD = (
+    "Refused on purpose: whether this forge/release build is a release cut, one whose env holds RELEASE_START, could not be"
+    " read, so `{command}` waits until it can: {error}. Run it again once Buildkite answers"
 )
 RELEASE_CANCEL = (
     "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
@@ -450,7 +456,11 @@ def lane_reason(keys: list[str]) -> str | None:
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
     """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
-    if (verb := release_verb(words)) is None:
+    try:
+        verb = release_verb(words)
+    except github.GithubError as error:
+        return CUT_UNREAD.format(command=" ".join(words), error=error)
+    if verb is None:
         return None
     lane = os.environ.get(state.REMOTE_LANE_ENV)
     codex = None if lane else os.environ.get(state.OWN_JOB_ENV)
@@ -489,21 +499,26 @@ def release_of(words: list[str], briefed: str) -> str:
 
 
 def release_verb(words: list[str]) -> str | None:
-    """The release verb a command runs: a `ci release` verb, a `ci bk rerun` of a forge/release build, or `api` for a `ci bk api` call writing to one, such as unblocking its approval step."""
+    """The release verb a command runs: a `ci release` verb, a `ci bk rerun` or `cancel` of a forge/release build that is a release cut, or `api` for a `ci bk api` call creating a forge/release build or writing to a cut, such as unblocking its approval step; a build is a cut only when its env holds RELEASE_START, the release tool's own test, so the gate of a cluster job or any other build go/ci starts on that pipeline is no release verb."""
     if Path(words[0]).name not in brief.CI_BINARIES:
         return None
     if words[1:2] == ["release"]:
         return next(iter(words[2:3]), None)
     if words[1:2] == ["bk"] and words[2:3] in (["rerun"], ["cancel"]) and words[3:4] == [RELEASE_PIPELINE]:
-        return words[2]
-    if words[1:3] != ["bk", "api"] or not any(RELEASE_BUILDS.search(word) for word in words[3:]):
+        return words[2] if release_cut(next(iter(words[4:5]), None)) else None
+    if words[1:3] != ["bk", "api"] or not (named := next(filter(None, map(RELEASE_BUILDS.search, words[3:])), None)):
         return None
     method, rest = "GET", iter(words[3:])
     for word in rest:
         flag, given, value = word.partition("=")
         if flag in ("-X", "--X"):
             method = value if given else next(rest, "")
-    return "api" if method.upper() != "GET" else None
+    return "api" if method.upper() != "GET" and release_cut(named[1]) else None
+
+
+def release_cut(number: str | None) -> bool:
+    """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a write naming no build, such as one creating a build, counts as one."""
+    return not (number and number.isdigit()) or bool(github.build_env(RELEASE_BUILDKITE, number).get(RELEASE_START_ENV))
 
 
 def lane_release_reason(release: str) -> str | None:

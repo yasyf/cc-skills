@@ -3233,6 +3233,7 @@ def unlined(published: dict) -> dict:
 
 def release_reads(published: list[dict], starts: dict[str, list[str]], statuses: list[str], calls: list[str]) -> Callable[..., str]:
     github.started_on_production.cache_clear()
+    github.build_env.cache_clear()
 
     def run(cmd: list[str], **_: object) -> str:
         calls.append(" ".join(cmd[:4]) if cmd[0] == "bk" else cmd[2])
