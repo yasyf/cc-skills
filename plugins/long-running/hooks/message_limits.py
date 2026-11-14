@@ -829,7 +829,7 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
 
 
 def own_calls(payload: dict) -> dict[str, str]:
-    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so; a result the tool saved to a file, keeping only its preview in the transcript, is that file whole, its call named by the file's path too; the newest result of two calls alike."""
+    """Each call of the handler's own transcript, its posts aside, as its tool's name and its input, beside its whole result, an error's marked so; a result the tool saved to a file, keeping only its preview in the transcript, is that file whole, its call named by the file's path too; the newest result of two calls alike, in the order of each call's newest run."""
     calls: dict[str, str] = {}
     results: dict[str, str] = {}
     for row in agents.tail(agents.transcript(payload)):
@@ -839,6 +839,7 @@ def own_calls(payload: dict) -> dict[str, str]:
             elif part.get("type") == "tool_result" and (call := calls.get(part.get("tool_use_id"))):
                 if saved := SAVED.search(text := result_text(part)):
                     call, text = f"{call} {saved[1]}", Path(saved[1]).read_text()
+                results.pop(call, None)
                 results[call] = ("error: " if part.get("is_error") else "") + text
     return results
 

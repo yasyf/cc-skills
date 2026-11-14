@@ -889,7 +889,7 @@ def evidence(transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
 
 
 @pytest.mark.parametrize("as_text", [False, True])
-def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
+def test_jev_gets_each_call_a_claims_read_names_whole_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], as_text: bool
 ) -> None:
     lane = lane_of(transcript)
@@ -903,11 +903,11 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
     ]
     backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
     assert (backed["id"], backed["quote"]) == ("read:1", f"{shown(*SHADOW)}\n\n{shown(*SHADOWED)}")
-    assert '"lower.rs:295-305" behind its claims ["Each table has a `<table>__history` shadow table", "its columns plus the run"]' in backed["source"]
+    assert backed["source"] == message_limits.NAMED_SOURCE.format(read='"lower.rs:295-305"')
     assert "is a doc" not in backed["source"]
     assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
     assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
-    assert doc["source"].endswith('; ["/drive/reports/j1880.md"] this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word')
+    assert doc["source"].endswith(message_limits.DOC_SOURCE.format(docs='["/drive/reports/j1880.md"]'))
 
 
 @pytest.mark.parametrize(

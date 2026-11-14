@@ -518,7 +518,7 @@ def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, D
 
 
 def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
-    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, such as one whose own words and his already pass it, goes to the judge as it stands, and so does one whose transcript Jev cannot read, which the judge says it gave no verdict on."""
+    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules, own words and his already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
     ctx, judge, handed = jev_reads(evt, output, reason)
     try:
         prompt = str(judge.framed(ctx, [*judge.items(ctx), *handed], DETAIL_SHOWN))
@@ -528,15 +528,15 @@ def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
         ((f"{item['id']} {json.dumps(item['read'], ensure_ascii=False)}" if item["id"].startswith("read:") else item["id"], len(render_evidence([Evidence.model_validate(item)]) or "")) for item in output["reads"]),
         key=lambda pair: -pair[1],
     )
-    if (cut := len(prompt) - JEV_PROMPT_CHARS) <= 0 or cut > sum(chars for _, chars in reads):
+    if (cut := len(prompt) - JEV_PROMPT_CHARS) <= 0:
         return None
-    sizes = "; ".join(f"{name} is {chars:,}" for name, chars in reads)
+    too_long = f"refused: Jev's prompt for this post would be {len(prompt):,} characters, over the {JEV_PROMPT_CHARS:,} it takes"
+    if cut > sum(chars for _, chars in reads):
+        return f"{too_long}, and its rules, the post and his words alone pass that. Say less and name it on a `DEFECT` line."
+    sizes = "\n".join(f"{name} {chars:,}" for name, chars in reads)
     return (
-        f"refused: Jev's prompt for this post would be {len(prompt):,} characters, and it takes at most {JEV_PROMPT_CHARS:,}, by his words"
-        f' "jev should be getting like 10k chars at most for any call", so cut your reads by at least {cut:,}. Your reads and records,'
-        f" largest first: {sizes}. Make a call showing only what each claim needs, such as a grep, a jq filter or a line range, and name it"
-        " in claims by words only that call holds; a record stands on your newest call naming its seq, so read it again narrower, such as"
-        " cci read with a smaller budget. Then call say again."
+        f"{too_long}. Cut your reads by at least {cut:,} with a call showing only what each claim needs, such as a grep, a jq filter or"
+        f" `cci read` with a smaller budget, name it in claims, and call say again:\n```text\n{sizes}\n```"
     )
 
 
@@ -734,7 +734,16 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads("x" * JEV_PROMPT_CHARS)},
-        ): Block(pattern=r'(?s)it takes at most 10,000.*cut your reads by at least \d,\d{3}\..*largest first: read:1 "cloudrunner/inbox\.go" is 10,\d{3}\.'),
+        ): Block(pattern=r'(?s)over the 10,000 it takes\. Cut your reads by at least \d,\d{3} .*read:1 "cloudrunner/inbox\.go" 10,\d{3}'),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps(json.loads(handler_reads("x")) | {"his_words": [{"id": "ruling:1", "source": "his words", "quote": "y" * JEV_PROMPT_CHARS}]})},
+        ): Block(pattern=r"(?s)over the 10,000 it takes, and its rules, the post and his words alone pass that\. Say less and name it on a `DEFECT` line"),
         Input(
             tool=SAY,
             tool_input={"text": "The fix merged."},
