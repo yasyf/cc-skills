@@ -40,7 +40,8 @@ UNSEEN_PROMPT = (
     " no answer either: reach what it does another way, or return BLOCKED naming the call"
 )
 TEAM_BUCKETS = "origin/dev:release/team-buckets.generated.json"
-CI_CACHE = "origin/dev:tools/artifacts.json"
+BUILD_OUTPUTS = ("tools/artifacts.json", "infra/ci/src/pipelines/identity.ts", "infra/ci/src/contract/")
+NAMED_BUCKET = re.compile(r'(?:"bucket":\s*|export const \w*_BUCKET = )"([^"]+)"')
 STORAGE_TOOLS = {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"}
 SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage",)}
 S3API_OBJECTS = re.compile(r"object|upload|part")
@@ -80,10 +81,11 @@ TEAM_DATA = (
 UNLISTED = (
     "refused: this reads or writes `{location}` where the job runs, and `{folder}`, the folder its session runs in, holds no"
     " `release/team-buckets.generated.json` at origin/dev to say whether that bucket holds a team's data, so it is refused"
-    " as one that does, as is every bucket there but CI's cache, the one its `tools/artifacts.json` names; a `cd` in the"
-    " command changes nothing, since the list is read where the session runs. Run it from"
-    " a session in a Forge-AI/monorepo checkout, after `git fetch origin dev` in one fetched before that list landed: the"
-    " list names each bucket and folder holding a team's data"
+    " as one that does. Until that list is on origin/dev, only the buckets Forge-AI/monorepo's own code names there as its"
+    " build, release and infra output pass, and only from a session in its checkout: CI's cache in `tools/artifacts.json`,"
+    " the release buckets in `infra/ci/src/pipelines/identity.ts`, and each bucket `infra/ci/src/contract/` gives go/ci's"
+    " `contract.C`, such as its Pulumi state. A `cd` in the command changes nothing, since both are read where the session"
+    " runs. " + BOX_ROUTE
 )
 SANDSQL_NAMESPACES = {"sandsql", "sandsql-system", "sandsql-inbox"}
 SANDSQL_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
@@ -460,19 +462,26 @@ def remote_location(tool: str, word: str) -> str | None:
 
 
 def team_data(command: str, cwd: str) -> agents.Unjudged | None:
-    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the folder its session runs in, whatever folder the command `cd`s to, or a location holding one, any bucket but CI's cache, which `tools/artifacts.json` names there, when that folder holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the folder its session runs in, whatever folder the command `cd`s to, or a location holding one, any bucket but those `build_outputs` reads there, when that folder holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
     for words in reached(command, Place(Path(cwd))):
         for location in bucket_locations(words):
             if TEAM_AREA.search(location):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
             listed = shown(Path(cwd), TEAM_BUCKETS)
-            if listed is None and location.split("/")[0] != (shown(Path(cwd), CI_CACHE) or {}).get("bucket"):
+            if listed is None and location.split("/")[0] not in build_outputs(Path(cwd)):
                 return agents.Unjudged(UNLISTED.format(location=location, folder=cwd))
             if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed or ()):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
         if reach := sandsql_reach(words):
             return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], namespace=reach[1]))
     return None
+
+
+@cache
+def build_outputs(cwd: Path) -> set[str]:
+    """The buckets Forge-AI/monorepo's own code names, as a string, at origin/dev of the checkout a folder is in as its build, release and infra output: CI's cache in `tools/artifacts.json`, the release-artifacts bucket and the desktop auto-updater's release origin in `infra/ci/src/pipelines/identity.ts`, and the buckets `infra/ci/src/contract/` gives go/ci's `contract.C`, such as the Pulumi state the release resolver reads."""
+    done = subprocess.run(["git", "-C", str(cwd), "grep", "-h", "-e", '"bucket"', "-e", "_BUCKET = ", "origin/dev", "--", *BUILD_OUTPUTS], capture_output=True, text=True, check=False)
+    return set(NAMED_BUCKET.findall(done.stdout))
 
 
 @cache
