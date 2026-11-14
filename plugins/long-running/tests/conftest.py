@@ -5,7 +5,7 @@ import re
 import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -663,6 +663,29 @@ def kept_transcripts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     kept: list[tuple[str, str]] = []
     monkeypatch.setattr(orca, "keep_transcripts", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)))
     return kept
+
+
+@pytest.fixture
+def send_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+    """Write a coordinator SendMessage into a local job's agent transcript as Claude Code does: a queued command while the agent works, a meta user row once it waits."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+
+    def send(name: str, job_id: str, text: str, waiting: bool = False) -> None:
+        data = state.load(name)
+        job = data["jobs"][job_id]
+        path = watch.agent_transcript(watch.session_of(job, data), job, data)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        origin = {"kind": agents.MESSAGE_ORIGIN}
+        written = datetime.now(UTC).isoformat()
+        row = (
+            {"type": "user", "isMeta": True, "origin": origin, "timestamp": written, "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+            if waiting
+            else {"type": "attachment", "attachment": {"type": "queued_command", "prompt": text, "origin": origin}, "timestamp": written}
+        )
+        with path.open("a") as handle:
+            handle.write(json.dumps(row) + "\n")
+
+    return send
 
 
 @pytest.fixture(autouse=True)

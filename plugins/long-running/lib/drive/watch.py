@@ -1291,8 +1291,10 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each text a job an agent or lane started holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a SendMessage carries it."""
-    if not any(owed_answers(watcher, state.load(watcher.name), moment)):
+    """Each text a job an agent or lane started holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a SendMessage carries it, as its agent's transcript shows each SendMessage by hear_sent."""
+    if not (owed := owed_answers(watcher, state.load(watcher.name), moment)):
+        return []
+    if not owed_answers(watcher, hear_sent(watcher.name, {job_id for job_id, _ in owed}), moment):
         return []
     lines = []
     with state.edit(watcher.name) as data:
@@ -1325,17 +1327,34 @@ def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[s
     ]
 
 
+def hear_sent(name: str, job_ids: set[str]) -> dict:
+    """Hear each SendMessage the coordinator session gave the agent of each of these jobs only it reaches, as superseded.hear hears any text that reaches a worker, read from that agent's transcript back to when the oldest text the job holds or answer of his it owes was given, so his words relayed verbatim leave nothing held or owed; the drive as it stands after."""
+    data = state.load(name)
+    sent = {}
+    for job_id in job_ids:
+        job = data["jobs"][job_id]
+        given = [*(superseded.held_answer(data, held)[1] for held in job["undelivered"]), *(superseded.given(data, answer_id) for answer_id, _ in superseded.owed(data, job_id))]
+        if not given or not state.agent_lane(data, job) or not (path := agent_transcript(session_of(job, data), job, data)).exists():
+            continue
+        sent[job_id] = [(said, state.parse_time(row["timestamp"])) for row in agents.recent_rows(path, min(given)) if (said := settled.prompt_words(row, agents.MESSAGE_ORIGIN)) is not None]
+    if not any(sent.values()):
+        return data
+    with state.edit(name) as data:
+        for job_id, messages in sent.items():
+            for said, written in messages:
+                superseded.hear(data, job_id, said, written)
+    return data
+
+
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him, a part undelivered or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, again every ten minutes until each has one."""
+    """Each answer of his that leaves a card still asking him, a part undelivered or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
+    due = [answer_id for answer_id, kept in data["answers"].items() if moment - state.parse_time(kept["said"]) >= DUE_EVERY]
+    data = hear_sent(watcher.name, {job_id for answer_id in due for job_id in superseded.unheard(data, data["answers"][answer_id])})
     asked = superseded.asking(data, watcher.cards)
-    owed = {
-        answer_id: (superseded.unmarked(kept, asked), superseded.unheard(data, kept))
-        for answer_id, kept in data["answers"].items()
-        if moment - state.parse_time(kept["said"]) >= DUE_EVERY
-    }
+    owed = {answer_id: (superseded.unmarked(data["answers"][answer_id], asked), superseded.unheard(data, data["answers"][answer_id])) for answer_id in due}
     owed = {answer_id: left for answer_id, left in owed.items() if any(left)}
     if not owed:
         return []

@@ -1958,6 +1958,32 @@ def test_a_text_held_on_an_agent_on_this_mac_names_its_sessions_sendmessage_and_
     ]
 
 
+def held_tap(demo: str, tapped: datetime) -> None:
+    words = "drift only in a window you pick"
+    closed = state.new_close("answered", words, CARD, seq="699075", at=state.stamp(tapped))
+    held = {"seq": "699075", "words": f'His answer on card demo:j1-7 ({CARD}), verbatim: "{words}"', "at": state.stamp(tapped), "said": None, "request": "req-held"}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(agent="agent-j1", where="local", session="session-under-test", undelivered=[held])
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "When may it drift?", state.stamp(tapped), card=CARD, closed=closed) | {"waits": "demo:j1-7"})
+
+
+@pytest.mark.parametrize("waiting", [False, True])
+def test_a_sendmessage_relaying_his_words_to_an_agent_on_this_mac_takes_his_answer_off_its_job_so_the_watch_never_says_it_undelivered(
+    demo: str, send_message: Callable[..., None], waiting: bool
+) -> None:
+    held_tap(demo, T0)
+    send_message(demo, "j1", "He tapped: drift only in a window you pick. Go on with that.", waiting)
+    assert watch.undelivered_lines(watcher(demo), T0 + timedelta(minutes=10)) == []
+    assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
+
+
+def test_a_sendmessage_written_before_he_gave_his_words_leaves_his_answer_undelivered(demo: str, send_message: Callable[..., None]) -> None:
+    tapped = state.now() + timedelta(minutes=5)
+    held_tap(demo, tapped)
+    send_message(demo, "j1", "If he taps it: drift only in a window you pick")
+    assert [line.split(":")[0] for line in watch.undelivered_lines(watcher(demo), tapped + timedelta(minutes=10))] == ["ANSWER undelivered j1"]
+
+
 def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_builder_never_started_once_its_waits_end(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     detached = []
 
@@ -5930,7 +5956,9 @@ def test_a_line_holding_a_credential_posts_once_with_it_withheld_rather_than_bei
     assert posted(sent) == [("evidence", f"root@{demo}", "EVENT j1's proof was killed running env ANTHROPIC_API_KEY=<an sk- API key withheld> probe --live")]
 
 
-def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(
+    demo: str, monkeypatch: pytest.MonkeyPatch, send_message: Callable[..., None]
+) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
@@ -5948,12 +5976,12 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
         data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
     assert said(40) == []
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["agent"] = "a1"
+        data["jobs"]["j1"].update(agent="a1", where="local", session="session-under-test")
         data["answers"]["a1"]["jobs"]["j1"] = None
     assert said(50) == ['ANSWER a1 "one new tool": j1 not sent his words; drive answer a1 lists them']
-    with state.edit(demo) as data:
-        data["answers"]["a1"]["jobs"]["j1"] = {"mark": "sent"}
+    send_message(demo, "j1", "He wants one new tool")
     assert said(70) == []
+    assert state.load(demo)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
 
 
 MONITOR = "https://app.datadoghq.com/monitors/315028134"
