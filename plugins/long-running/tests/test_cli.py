@@ -2302,7 +2302,7 @@ def test_j4239_a_waits_id_typed_without_its_drive_names_the_card_its_drive_store
     assert refs.resolved("demo", "{card:j1-7}")["{card:j1-7}"]["url"] == slack_card(1)
 
 
-def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_open_card_with_redraws_and_his_answer_there_is_its_alone(
+def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_open_card_with_redraws_folding_that_jobs_question_into_its_own(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
 ) -> None:
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
@@ -2323,8 +2323,8 @@ def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_o
     assert run("job", "ask", "j2", "-", "--redraws", "demo:j1-685522") == (0, f"{again}\nhis card {slack_card(1)} asks it under demo:j1-685522")
     assert drawn_waits(slack_calls) == ["demo:j1-685522"]
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["questions"], [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j2"]["questions"]]) == (
-        [],
+    assert ([(question["file"], question["replaced"]) for question in data["jobs"]["j1"]["questions"]], [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j2"]["questions"]]) == (
+        [(str(kept), str(again))],
         [(str(again), "demo:j1-685522", slack_card(1))],
     )
     assert (state.named_job(data, {"waits": "demo:j1-685522"}), view.asked_by(data, {"questions": [{"url": slack_card(9), "card": {"waits": "demo:j1-685522"}}]})) == (
@@ -2337,6 +2337,65 @@ def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_o
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK Where should")))
     assert cli.main(["job", "ask", "j2", "-", "--redraws", "demo:j1-685522"]) == 2
     assert "--redraws demo:j1-685522: its question there ended answered" in capsys.readouterr().err
+
+
+def test_j4258_an_ask_jev_reads_as_asking_again_what_n_open_cards_ask_takes_the_newest_card_and_folds_the_other_n_minus_1_into_it_each_closed_asked_again(
+    run: Run, asking: str, tmp_path: Path, jev: Jev, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
+) -> None:
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "design the status page")
+    for order in ("o1", "o2", "o1"):
+        run("job", "add", "reader", "--order", order, "--goal", "research the run page")
+    titles = ["Which layout should a finished run's files take?", "Where should a finished run's files go so its page opens?", "How are a finished run's files laid out for its page?"]
+    cards = [f"https://acme.slack.com/archives/D123/p{1794300000000100 + n}" for n in (2, 3, 1)]
+    waits = ["demo:j1-1", "demo:j2-2", "demo:j3-3"]
+    with state.edit("demo") as data:
+        for job_id, title, card, wait in zip(("j1", "j2", "j3"), titles, cards, waits):
+            data["jobs"][job_id].update(waits=[wait], questions=[state.new_question(str(tmp_path / f"{job_id}.md"), title, state.stamp(), card=card) | {"waits": wait}])
+        data["jobs"]["j1"]["waits"] = [cards[0]]
+    jev.again = set(titles)
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    kept = state.drive_dir("demo") / "asks" / f"j4-{state.ask_hash(SHORT_ASK)}.md"
+    assert run("job", "ask", "j4", "-") == (
+        0,
+        f"{kept}\nhis card {slack_card(1)} asks it under demo:j2-2;"
+        f" demo:j1-1: his card {cards[0]} now shows his words with no buttons, its question superseded;"
+        f" demo:j3-3: his card {cards[2]} now shows his words with no buttons, its question superseded",
+    )
+    [request] = [request for request in jev.asked if "again1" in request["questions"]]
+    assert sorted(key for key in request["questions"] if key.startswith("again")) == ["again1", "again2", "again3"]
+    assert drawn_waits(slack_calls) == ["demo:j2-2"]
+    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == [
+        ("card-answer", "--card", card, "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", slack_card(1)) for card in (cards[0], cards[2])
+    ]
+    data = state.load("demo")
+    assert [(job_id, question["waits"], question["card"], question["replaced"], question["closed"]) for job_id in ("j1", "j2", "j3", "j4") for question in data["jobs"][job_id]["questions"]] == [
+        *((job_id, "demo:j2-2", slack_card(1), str(kept), None) for job_id in ("j1", "j2", "j3")),
+        ("j4", "demo:j2-2", slack_card(1), None, None),
+    ]
+    assert [data["jobs"][job_id]["waits"] for job_id in ("j1", "j2", "j3")] == [["demo:j2-2"]] * 3
+
+
+def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_it_on_a_later_design_return_in_its_old_words_or_new_ones(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)[0] == 0
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")
+    taken = "Which process should run store_copy_at for each store copy?"
+    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH.replace(DESIGN_TITLE, taken)))
+    took = run("job", "ask", "j2", "-", "--redraws", "demo:j1-7")[1].splitlines()[0]
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)[0] == 0
+    jev.again = {taken}
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, "Should store_copy_at copy each store on the primary or on a worker?"))[0] == 0
+    assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7"]
+    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == []
+    jobs = state.load("demo")["jobs"]
+    assert [(question["title"], question["waits"], question["card"], question["replaced"]) for question in jobs["j1"]["questions"]] == [
+        (DESIGN_TITLE, "demo:j1-7", slack_card(2), took),
+        ("Should store_copy_at copy each store on the primary or on a worker?", "demo:j1-7", slack_card(2), took),
+    ]
+    assert [(question["file"], question["title"], question["card"], question["replaced"], question["closed"]) for question in jobs["j2"]["questions"]] == [(took, taken, slack_card(2), None, None)]
 
 def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_line_saying_what_it_blocks_to_the_communicator(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
@@ -2766,7 +2825,7 @@ def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_th
     ]
 
 
-def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_order_redraws_under_its_waits_id_and_leaves_its_job(
+def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_order_redraws_under_its_waits_id_leaving_its_own_job_and_folding_into_the_other(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
@@ -2795,7 +2854,10 @@ def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 2 calls")))
     assert json.loads(run("job", "ask", "j2", "-", "--json", "--redraws", "demo:j1-7")[1])["waits"] == "demo:j1-7"
     jobs = state.load("demo")["jobs"]
-    assert ([(question["waits"], question["card"]) for question in jobs["j2"]["questions"]], jobs["j1"]["questions"]) == ([("demo:j1-7", drawn_card(3))], [])
+    assert ([(question["waits"], question["card"]) for question in jobs["j2"]["questions"]], [(question["file"], question["replaced"]) for question in jobs["j1"]["questions"]]) == (
+        [("demo:j1-7", drawn_card(3))],
+        [(again["question"], jobs["j2"]["questions"][0]["file"])],
+    )
 
 
 def test_job_card_refuses_a_question_he_answered_under_a_new_waits_id_and_never_swaps_in_the_answered_one(
@@ -7825,7 +7887,7 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_
     asked = limits.question(AGENT_START, kept=True)
     case = limits.ask_case(AGENT_START, asked)
     jev.picks(NOT_SPECIAL["id"], 0.79)
-    settled.judged(case, asked, [NOT_SPECIAL], [])
+    settled.judged(case, asked, [NOT_SPECIAL], [], {})
     assert capsys.readouterr().err == ""
     [request] = jev.asked
     questions = request["questions"]
@@ -7839,9 +7901,9 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_
     assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
-    settled.judged(case, asked, [NOT_SPECIAL], [])
+    settled.judged(case, asked, [NOT_SPECIAL], [], {})
     assert capsys.readouterr().err.startswith(f'drive job ask: Jev reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
-    settled.judged(case, asked, [], [])
+    settled.judged(case, asked, [], [], {})
     assert list(jev.asked[-1]["questions"]) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "card"]
 
 
@@ -7853,7 +7915,7 @@ def test_his_ruling_on_root_causes_is_judged_once_on_the_cards_recommendation_be
     assert "speaks only to the option the card recommends" in settled.CARD_QUESTION
     assert "root causes" not in settled.BREAKS_QUESTION
     jev.breaks("card", "ruling:0c59046")
-    settled.judged(case, asked, [NOT_SPECIAL], [])
+    settled.judged(case, asked, [NOT_SPECIAL], [], {})
     assert all("ruling:0c59046" not in question["label"]["options"] for key, question in jev.asked[-1]["questions"].items() if key != "card")
     advice = capsys.readouterr().err
     assert advice.startswith(f'drive job ask: Jev reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}". Its rule: {limits.ROOT_CAUSE_RULES["found"]}')
@@ -7903,7 +7965,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
     offered = []
     for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
         asked = limits.question(text, kept=True)
-        settled.judged(limits.ask_case(text, asked), asked, [], [])
+        settled.judged(limits.ask_case(text, asked), asked, [], [], {})
         assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
@@ -7920,18 +7982,18 @@ def test_jev_names_the_recorded_answer_or_ruling_it_picks_for_the_recommended_op
     assert [line for line in case.splitlines() if line != DEPARTS] == limits.ask_case(text, asked).splitlines()
     assert DEPARTS in case.splitlines() and "holds the branch" not in case
     cited = {"id": "7a1c0de", "asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited]) is None
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     assert (jev.asked[-1]["questions"]["says"]["label"]["instructions"], cited in jev.asked[-1]["state"]["his_words"]) == (settled.SAYS_QUESTION, True)
     jev.breaks("breaks1", NOT_SPECIAL["id"])
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited]) is None
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited]) == limits.TEAM_DATA_WORDS
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == limits.TEAM_DATA_WORDS
     jev.breaks("says", "7a1c0de")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited]) == cited
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == cited
     capsys.readouterr()
     jev.ruled = {}
     jev.picks("7a1c0de", 0.55)
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited]) == cited
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == cited
     assert capsys.readouterr().err == ""
 
 

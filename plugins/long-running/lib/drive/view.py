@@ -491,8 +491,8 @@ def held_up(drive: dict, card: dict) -> list[dict]:
 
 
 def asked_by(drive: dict, found: dict) -> dict[str, str | None]:
-    """The job that asked each of his open question cards, by the card's link: the job whose question drew the card, else the job whose question holds its waits id, else the job that waits id names."""
-    drawn = {message_key(question["card"]): job_id for job_id, job in drive["jobs"].items() for question in job["questions"] if question["card"]}
+    """The job that asked each of his open question cards, by the card's link: the job whose question drew the card, never one folded into another's, which asks him only through that one, else the job whose question holds its waits id, else the job that waits id names."""
+    drawn = {message_key(question["card"]): job_id for job_id, job in drive["jobs"].items() for question in job["questions"] if question["card"] and not question["replaced"]}
     asker = {}
     for card in found["questions"]:
         named = state.waits_job(drive, card["card"].get("waits") or "")
