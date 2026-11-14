@@ -20,7 +20,14 @@ else, because users are blocked while it waits.
   rollout.
 
 Every other alert in the channels the drive holds gets no line, no order and no job, because he
-ruled against time spent on incidents nobody asked for. Anything else he asks you to fix is an
+ruled against time spent on incidents nobody asked for, but one. A customer team's production runs
+failing or stopped that the drive did not cause, such as after a teammate's release or the
+customer's own build, is no incident and pages nobody, yet he hears it at once in his DM, while he
+is away too: one `report` to `communicator@<drive>` names the team, what fails since when and the
+alert's link, and it and every later report on that outage, on any order, a reader's answer
+included, carry `--attr incident=true`, which the away hold lets through. No job starts on it until
+his words order one. His pick: "Only the drive's own outages page you; a teammate's customer outage
+posts at once in your DM, paging nobody". Anything else he asks you to fix is an
 ordinary order, by [coordinator.md](coordinator.md). When his words on an order ask for options or
 a diagnosis, it is no incident even with something down: a reader's diagnosis and option cards
 answer it, and no job builds the proper fix before his pick. His words: "no wetf this one bring me

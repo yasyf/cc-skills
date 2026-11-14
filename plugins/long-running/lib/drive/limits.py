@@ -439,7 +439,7 @@ AWS_ACTION = re.compile(
 RECORD_CHARS = 120
 THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b|(?<!\w[ \t])\b(?:He|Him|His|Himself)\b")
 WHOLE_KINDS = {"owner", "answer", "incident"}
-REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<n>"}
+REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<n>", "incident": "true"}
 UNSPELLED = re.compile(r"[^a-z0-9]")
 MISNAMED = "refused: the drive reads no `{key}` attr on a report, so nothing acts on it; it reads `{attr}`, so post it again with `--attr {attr}={value}` in its place"
 
