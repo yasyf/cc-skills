@@ -5955,6 +5955,112 @@ def test_an_old_merge_whose_prover_failed_or_stopped_gets_no_second_and_its_part
     assert [line for line in lines if line.startswith('ORPHAN o1 "ship the watch": ')]
 
 
+def unstarted_prover(keys: list[str], parts: list[str], waits: list[str], handoff: str, **overrides: object) -> dict:
+    earlier = state.stamp(T0 - timedelta(days=2))
+    return state.new_job("o1", "builder", f"prove {', '.join(keys)} live", parts, earlier) | {
+        "state": "waiting",
+        "waits": waits,
+        "said": state.waits_line(waits),
+        "builds_nothing": True,
+        "brief_flags": {"handoff": handoff},
+        "session": None,
+        "updated": earlier,
+    } | overrides
+
+
+def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_prover_to_the_others_and_a_second_pass_adds_no_job(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    production_reads(monkeypatch, {"42": [{"component": "api", "env": "plat-usw2-prod"}]})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"]}})
+    earlier, second = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
+    handoff = f"{KEY} at ccc333ddd444 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["orders"]["o1"]["parts"][second] = state.new_part()
+        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", parts=["ship the watch", second], updated=earlier)
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = unstarted_prover([KEY], ["ship the watch"], [f"release:api:{KEY}"], handoff)
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 widened to the parts of j1, proves {KEY}, waits on 1 release: drive status j2"]
+    data = state.load(demo)
+    prover = data["jobs"]["j2"]
+    assert (list(data["jobs"]), prover["parts"], prover["waits"], prover["brief_flags"]["handoff"]) == (["j1", "j2"], ["ship the watch", second], [f"release:api:{KEY}"], handoff)
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("JOB ", "ORPHAN "))]
+    assert list(state.load(demo)["jobs"]) == ["j1", "j2"]
+
+
+def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_and_other_prs_waiting_only_on_the_releases_of_those_prs(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    production_reads(monkeypatch, {"42": [{"component": "api", "env": "plat-usw2-prod"}], "43": [{"component": "web", "env": "plat-usw2-prod"}]})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"]}})
+    earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
+    first = f"{KEY} at ccc333ddd444 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
+        data["orders"]["o2"] = order(text=carried, jobs=["j3"], parts={carried: state.new_part()}, updated=earlier)
+        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=earlier)
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = unstarted_prover([KEY], data["jobs"]["j1"]["parts"], [f"release:api:{KEY}"], first)
+        data["jobs"]["j3"] = state.new_job("o2", "builder", carried, [carried], earlier) | {
+            "state": "done",
+            "said": f"DONE {state.pr_url(KEY)} {state.pr_url(OTHER)} merged: {KEY} at ccc333ddd444, {OTHER} at aaa111bbb222",
+            "session": None,
+            "updated": earlier,
+        }
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 widened to the parts of j3, proves {KEY}, {OTHER}, waits on 2 releases: drive status j2"]
+    data = state.load(demo)
+    prover = data["jobs"]["j2"]
+    assert (list(data["jobs"]), prover["goal"], prover["carries"], prover["waits"]) == (["j1", "j2", "j3"], f"prove {KEY}, {OTHER} live", {"o2": [carried]}, [f"release:api:{KEY}", f"release:web:{OTHER}"])
+    second = f"{KEY} at ccc333ddd444, {OTHER} at aaa111bbb222 merged: install it and prove it live by the INSTALL: and PROVE: lines of j3's return before its DONE, in reports/j3.md"
+    assert (prover["brief_flags"]["handoff"], "j2" in data["orders"]["o2"]["jobs"]) == (f"{first}; {second}", True)
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("JOB ", "ORPHAN "))]
+    assert list(state.load(demo)["jobs"]) == ["j1", "j2", "j3"]
+
+
+def test_a_second_unstarted_prover_of_a_pr_folds_into_the_first_which_takes_its_parts_prs_waits_and_handoff_and_a_second_pass_changes_nothing(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    production_reads(monkeypatch, {"42": [{"component": "api", "env": "plat-usw2-prod"}], "43": [{"component": "web", "env": "plat-usw2-prod"}]})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
+    first, second = (f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return" for merged in (KEY, f"{KEY}, {OTHER}"))
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
+        data["orders"]["o2"] = order(text=carried, jobs=["j1", "j3"], parts={carried: state.new_part()}, updated=earlier)
+        data["jobs"]["j1"].update(
+            state="done", said=f"DONE {state.pr_url(KEY)} {state.pr_url(OTHER)} merged: {KEY} at ccc333ddd444, {OTHER} at aaa111bbb222", carries={"o2": [carried]}, updated=earlier
+        )
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["jobs"]["j2"] = unstarted_prover([KEY], ["ship the watch"], [f"release:api:{KEY}"], first)
+        data["jobs"]["j3"] = unstarted_prover([KEY, OTHER], ["ship the watch"], [f"release:api:{KEY}", f"release:web:{OTHER}"], second, carries={"o2": [carried]})
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 took the parts and waits of j3, a duplicate now stopped, proves {KEY}, {OTHER}, waits on 2 releases: drive status j2"]
+    data = state.load(demo)
+    prover, duplicate = data["jobs"]["j2"], data["jobs"]["j3"]
+    assert (prover["state"], prover["goal"], prover["parts"], prover["carries"], prover["waits"], prover["brief_flags"]["handoff"]) == (
+        "waiting",
+        f"prove {KEY}, {OTHER} live",
+        ["ship the watch"],
+        {"o2": [carried]},
+        [f"release:api:{KEY}", f"release:web:{OTHER}"],
+        f"{first}; {second}",
+    )
+    assert (duplicate["state"], duplicate["said"], list(data["jobs"])) == ("stopped", "folded into j2", ["j1", "j2", "j3"])
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("JOB ", "ORPHAN "))]
+    assert state.load(demo)["jobs"]["j2"]["waits"] == [f"release:api:{KEY}", f"release:web:{OTHER}"]
+
+
 def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder_briefed_to_start_in_the_turn_its_line_wakes(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:

@@ -1341,6 +1341,25 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
 
+def test_a_second_prover_of_the_same_prs_widens_the_unstarted_one_and_adds_a_job_only_beside_a_prover_already_started(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
+        install.merged_done("demo", data, "j1")
+        reach, parts = {"Forge-AI/monorepo#9": {"components": ["api"], "touched": ["api"]}}, {"o1": data["jobs"]["j1"]["parts"]}
+        unstarted = install.add_prover(data, "j1", reach, parts)
+        widened = install.add_prover(data, "j1", reach, parts)
+        data["jobs"][unstarted]["agent"] = "a-1"
+        started = install.add_prover(data, "j1", reach, parts)
+    data = state.load("demo")
+    assert (unstarted, widened, started, list(data["jobs"])) == ("j2", "j2", "j3", ["j1", "j2", "j3"])
+    assert data["jobs"]["j2"]["waits"] == data["jobs"]["j3"]["waits"] == ["release:api:Forge-AI/monorepo#9"]
+
+
 def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_line_briefing_it_to_start_now(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
@@ -1363,7 +1382,7 @@ def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_lin
             install.merged_done("demo", data, job_id)
         asking = install.add_prover(data, "j2", {}, {"o1": data["jobs"]["j2"]["parts"]})
         merging = install.add_prover(data, "j1", {}, {"o1": data["jobs"]["j1"]["parts"]})
-    asked, merged = install.merged_said("demo", "j2", asking), install.merged_said("demo", "j1", merging)
+    asked, merged = install.merged_said("demo", asking, "added"), install.merged_said("demo", merging, "added")
     data = state.load("demo")
     assert (asking, merging, data["jobs"][asking]["waits"], data["jobs"][merging]["waits"]) == ("j3", "j4", [], [])
     started = "waits on no release: start its agent now, run_in_background, on the prompt"
