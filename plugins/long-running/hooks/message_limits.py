@@ -46,8 +46,8 @@ WAITING = "WAITING-ON-HIM"
 AWAY_RULE = (
     "He is away when the drive marks him so, as it has for this post, from his saying so or an hour with no word or tap of his;"
     ' while he is away a line to him waits for his catch-up, by his words "Just do less realtime more summary / batching, with a'
-    " catch up post once I'm back\": only a card, a line saying what waits on him, an incident line or the answer to a question"
-    " of his goes out, and news that work moved, such as a fix merging, waits even when that work is his order."
+    " catch up post once I'm back\": only a card, a line saying what waits on him, an incident line, a line naming a clock time still"
+    " to come or the answer to a question of his goes out, and news that work moved, such as a fix merging, waits even when that work is his order."
 )
 REPORTER_RULE = (
     "The thread someone else reported a bug or asked him a question in hears from the drive once: that the bug is fixed once its fix"
@@ -649,11 +649,12 @@ def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) 
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines, lines naming a clock time still to come and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
-    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
+    text, moment = tool_input.get("text") or "", state.now()
+    if WAITING in text or not state.owner_away(drive, moment) or incident(tool_input, drive, report, order_id) or time_to_come(text, moment):
         return None
     seq = report.get("seq")
     posted = posted_order(drive, tool_input, order_id)
@@ -664,11 +665,17 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
         else ""
     )
     away = (
-        "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
-        " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"
+        f"Refused on purpose: he is {render.owner_reading(drive['owner'])}, and while he is away only cards, incident lines, lines naming a clock time still"
+        " to come and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"
         f" when he is back.{held}"
     )
     return agents.Ruled(away, AWAY_RULE, away)
+
+
+def time_to_come(text: str, at: datetime) -> bool:
+    """Whether a line names a clock time still to come, such as a freeze ending at 5:00 PM, by the drive's own reader of typed times, a promise of the next line aside, so it reaches him before that time rather than in his catch-up."""
+    promised = [found.span() for found in cli.PROMISED_TIME.finditer(text)]
+    return any(limits.typed_moment(text, found, at) > at for found in limits.CLOCK_TIME.finditer(text) if not any(start <= found.start() < end for start, end in promised))
 
 
 def long_ack(payload: dict) -> str | None:

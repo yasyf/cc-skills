@@ -262,6 +262,21 @@ def test_status_lists_each_report_held_for_his_catch_up() -> None:
     assert not any(line.startswith("Held for his catch-up") for line in render.status_text(sample(), {}).splitlines())
 
 
+def test_status_prints_the_moment_he_reads_away_from_the_one_every_hold_reads() -> None:
+    drive = sample()
+    heard = state.now() - timedelta(minutes=10)
+    drive["owner"] = {"heard": state.stamp(heard), "away": state.stamp(heard + state.AWAY_AFTER)}
+    here = f"He is here until {render.when(drive['owner']['away'])}: last heard {render.when(drive['owner']['heard'])}, and an hour with no word or tap reads him away"
+    assert here in render.status_text(drive, {}).splitlines()
+    drive["owner"]["away"] = drive["owner"]["heard"]
+    assert f"He is away since he said so at {render.when(drive['owner']['heard'])}" in render.status_text(drive, {}).splitlines()
+    drive["owner"] = {"heard": state.stamp(heard - timedelta(hours=2)), "away": state.stamp(heard - timedelta(hours=1))}
+    away = f"He is away since {render.when(drive['owner']['away'])}: last heard {render.when(drive['owner']['heard'])}, an hour with no word or tap"
+    assert away in render.status_text(drive, {}).splitlines()
+    assert render.status_data(drive, {})["owner"] == drive["owner"]
+    assert not any(line.startswith("He is") for line in render.status_text(sample(), {}).splitlines())
+
+
 def test_when_names_the_day_for_other_days() -> None:
     tomorrow = state.now() + timedelta(days=1)
     assert render.when(state.stamp(tomorrow)).startswith(tomorrow.strftime("%b %-d"))

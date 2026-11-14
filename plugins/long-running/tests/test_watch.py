@@ -912,7 +912,7 @@ def shown_pr(demo: str, key: str) -> str:
 
 def quiet_incident(demo: str) -> None:
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o1"].update(incident=True, joins=None, thread=["D123", INCIDENT_THREAD], note="674295", due=state.stamp(T0 + timedelta(minutes=10)), promised=state.stamp(T0))
         data["orders"]["o2"] = order(text="the same alert again", incident=True, joins="o1", jobs=["j2"], last_line=state.stamp(T0 + timedelta(minutes=2)))
         data["jobs"]["j2"] = job(order="o2", kind="codex")
@@ -1259,13 +1259,13 @@ def test_an_order_owes_its_thread_no_line_while_he_is_away_until_he_is_back_nor_
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
         if held == "away":
-            data["owner"] = {"heard": state.stamp(T0), "away": True}
+            data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         else:
             data["orders"]["o1"][held] = {"kind": "report", "attr": {"close": "o1"}, "text": "POST o1 is done", "body": ""} if held == "close_report" else "685000"
     assert watch.quiet_lines(watching, T0 + timedelta(hours=2)) == []
     assert calls == []
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 + timedelta(hours=2)), "away": False}
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(hours=2)), "away": state.stamp(T0 + timedelta(hours=3))}
     assert watch.quiet_lines(watching, T0 + timedelta(hours=2, seconds=5)) == []
     assert len(calls) == (2 if held == "away" else 0)
 
@@ -1326,7 +1326,7 @@ def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_thr
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
@@ -1358,6 +1358,7 @@ def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_thr
         data["handlers"].clear()
     monkeypatch.setattr(state, "now", lambda: BACK + timedelta(minutes=3))
     assert heard_now(demo, capsys, "--away") == "away"
+    assert state.load(demo)["owner"] == {"heard": state.stamp(BACK + timedelta(minutes=3)), "away": state.stamp(BACK + timedelta(minutes=3))}
     assert watch.catch_up_lines(watching, BACK) == []
     assert len(calls) == 3
 
@@ -1366,7 +1367,7 @@ def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_re
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
     calls = catching_up(monkeypatch, demo)
     answered = reads.run
@@ -1392,7 +1393,7 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
         data["held"]["669950"] = {"order": "o2", "at": held_at, "told": "669957"}
@@ -1413,7 +1414,7 @@ def test_a_held_report_its_writer_withdrew_reads_withdrawn_in_drive_status_and_s
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
         data["held"] |= {"669950": {"order": "o2", "at": held_at, "told": "669957"}, "669960": {"order": "o2", "at": held_at, "told": "669961"}}
@@ -2713,7 +2714,7 @@ def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries:
     os.utime(path, (stamp, stamp))
     with state.edit(demo) as data:
         data["roles"]["communicator"] = {"session": "talker", "terminal": "term-7", "cwd": "/work", "started": state.stamp(T0)}
-        data["owner"] = {"heard": state.stamp(state.now() - heard), "away": False}
+        data["owner"] = {"heard": state.stamp(state.now() - heard), "away": state.stamp(state.now() - heard + state.AWAY_AFTER)}
 
 
 def answered(tokens: int) -> dict:
@@ -6549,7 +6550,7 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
     watching = stalling(demo)
     said_at = T0 + timedelta(minutes=68)
     with state.edit(demo) as data:
-        data["owner"]["away"] = True
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["prs"][KEY]["stall"] = {
             "print": REPLAYED_53519_CHAIN,
             "since": state.stamp(T0),
@@ -6562,7 +6563,7 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     assert ready_records == []
     with state.edit(demo) as data:
-        data["owner"]["away"] = False
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=141)), "away": state.stamp(T0 + timedelta(minutes=201))}
     for minutes in (141, 142):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     assert [record["text"] for [record] in ready_records] == [f"POST {KEY} has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
@@ -6575,7 +6576,6 @@ def test_a_stall_on_an_order_from_a_channel_thread_names_the_thread_of_his_dm_it
 ) -> None:
     watching = stalling(demo)
     with state.edit(demo) as data:
-        data["owner"]["away"] = False
         data["orders"]["o1"].update(thread=["C0B75AL4XEW", "1794436805.002349"], threads=[["C0B75AL4XEW", "1794438322.192619", state.stamp(T0), "posted"], *kept])
         data["prs"][KEY]["stall"] = {
             "print": REPLAYED_53519_CHAIN,

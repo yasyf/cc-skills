@@ -529,11 +529,15 @@ restating it.
   works on it or something it names moved, while he is away too, which the watch owes and has a
   handler post. A report on it goes out even when its thread already had one that turn, by
   [incidents.md](incidents.md).
-- He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
-  neither written nor tapped a card for an hour, since each tap on a card records him heard as a
-  message does. While he is away only cards, the watch's one reply under a card holding built work,
-  an incident line [incidents.md](incidents.md) calls for and an answer passing `asked` post; a hook
-  refuses any other handler line. Summaries, due-time lines and job results wait.
+- He is away from the moment the owner row's `away` holds, which `drive status` prints beside when he
+  was last heard and the hook's refusal names: the moment he says he is going to sleep or stepping
+  out (`drive heard --away`), else an hour after he last wrote or tapped a card, since each tap on a
+  card records him heard as a message does. While he is away only cards, the watch's one reply under
+  a card holding built work, an incident line [incidents.md](incidents.md) calls for, a line naming a
+  clock time still to come, such as a release freeze ending at 5:00 PM before a production deploy
+  applies by itself, and an answer passing `asked` post; a hook refuses any other handler line. A
+  time that only promises the next line, as "next line by 5:30 PM" does, lets nothing out.
+  Summaries, due-time lines and job results wait.
   A report whose line the hook holds is marked held on the drive, `drive status` lists it under
   `Held for his catch-up`, and a `refused` record carrying `held=<seq>` tells the coordinator
   session that wrote it, so nobody takes it for a line he got. A correction record `--re` a held

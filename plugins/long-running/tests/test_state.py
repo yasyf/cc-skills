@@ -531,6 +531,15 @@ def test_an_order_an_older_install_saved_with_one_reporter_reads_as_a_list_of_th
     assert [(orders[order_id]["reporters"], "reporter" in orders[order_id]) for order_id in ("o1", "o2")] == [([told], False), ([], False)]
 
 
+@pytest.mark.parametrize(("heard", "away", "moment"), [("2026-11-13T15:20:49-08:00", True, "2026-11-13T15:20:49-08:00"), ("2026-11-13T15:20:49-08:00", False, "2026-11-13T16:20:49-08:00"), (None, False, None)])
+def test_an_owner_row_an_older_install_saved_with_an_away_flag_reads_as_the_moment_he_reads_away_from(state_root: Path, heard: str | None, away: bool, moment: str | None) -> None:
+    make("demo")
+    data = state.load("demo")
+    data["owner"] = {"heard": heard, "away": away}
+    state.create(data)
+    assert state.load("demo")["owner"] == {"heard": heard, "away": moment}
+
+
 @pytest.mark.parametrize(
     ("source", "message"),
     [

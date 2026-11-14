@@ -2317,11 +2317,11 @@ def orphan_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, add each order that changed since he was last heard, and each a report held for his catch-up is on, to the catch-up the drive owes him, which keeps the time of the first such absence it covers, and which the watch's next pass posts."""
+    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, add each order that changed since he was last heard, and each a report held for his catch-up is on, to the catch-up the drive owes him, which keeps the time of the first such absence it covers, and which the watch's next pass posts."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         since = (data.get("owner") or {}).get("heard")
-        data["owner"] = {"heard": state.stamp(moment), "away": away}
+        data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER)}
         news = []
         held = list(data["held"]) if back and since else []
         if back and since:
