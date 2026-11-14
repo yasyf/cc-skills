@@ -9183,8 +9183,8 @@ def test_cards_withdraw_settles_a_card_an_event_overtook_showing_what_happened_a
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
 
 
-def test_j4738_cards_withdraw_via_another_open_card_of_the_drive_settles_it_as_asked_again_there_and_moves_each_wait_on_it_to_that_cards_waits_id(
-    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_j4737_cards_withdraw_via_another_open_card_of_the_drive_folds_its_question_into_that_cards_question_so_his_one_answer_there_ends_both(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for goal in ("read what releasing api alone needs", "read what releasing rsw-go alone needs"):
         assert run("job", "add", "reader", "--order", "o1", "--goal", goal)[0] == 0
@@ -9192,9 +9192,10 @@ def test_j4738_cards_withdraw_via_another_open_card_of_the_drive_settles_it_as_a
     stale = open_card(2, {"title": "Hotfix api alone tonight?", "options": ["Hotfix", "Wait"], "recommended": "Hotfix", "waits": "demo:j2-2"})
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [live, stale], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
+    kept = str(tmp_path / "j1-release.md")
     with state.edit("demo") as data:
-        for job_id, shown in (("j1", live), ("j2", stale)):
-            data["jobs"][job_id]["questions"].append(state.new_question(None, shown["question"], state.stamp(), None, shown["url"]) | {"waits": shown["card"]["waits"]})
+        for job_id, shown, file in (("j1", live, kept), ("j2", stale, None)):
+            data["jobs"][job_id]["questions"].append(state.new_question(file, shown["question"], state.stamp(), None, shown["url"]) | {"waits": shown["card"]["waits"]})
         data["jobs"]["j2"]["waits"] = ["demo:j2-2", PR]
         data["jobs"]["j3"]["waits"] = [stale["url"]]
     calls: list[tuple] = []
@@ -9207,15 +9208,17 @@ def test_j4738_cards_withdraw_via_another_open_card_of_the_drive_settles_it_as_a
     code, line = run("cards", "withdraw", "j2-2", "--via", "j1-1")
     assert (code, calls) == (0, [("card-answer", "--card", stale["url"], "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", live["url"])])
     assert line.splitlines() == [
-        f"settled 1 question(s) drawn on his card demo:j2-2 as asked again on his card {live['url']}",
+        f"folded 1 question(s) drawn on his card demo:j2-2 into the question his card {live['url']} asks, which his answer there ends too",
         f'demo:j2-2: his card {stale["url"]} now shows "{cli.ASKED_AGAIN}" and a link to {live["url"]} with no buttons, its question superseded',
         "each wait on demo:j2-2 now waits on demo:j1-1",
     ]
     data = state.load("demo")
-    closed = data["jobs"]["j2"]["questions"][-1]["closed"]
-    assert (closed["how"], closed["words"], closed["link"], closed["by"]) == ("superseded", cli.ASKED_AGAIN, live["url"], "demo:j1-1")
-    assert data["jobs"]["j1"]["questions"][-1]["closed"] is None
+    folded = data["jobs"]["j2"]["questions"][-1]
+    assert (folded["closed"], folded["replaced"], folded["waits"], folded["card"]) == (None, kept, "demo:j1-1", live["url"])
     assert [data["jobs"][job_id]["waits"] for job_id in ("j2", "j3")] == [["demo:j1-1", PR], ["demo:j1-1"]]
+    with state.edit("demo") as data:
+        ended = superseded.end(data, "j1", data["jobs"]["j1"]["questions"][-1], state.new_close("answered", "Ship all three", live["url"], answer="a1"))
+    assert [(job_id, question["closed"]["how"], question["closed"]["words"]) for job_id, question in ended] == [("j1", "answered", "Ship all three"), ("j2", "answered", "Ship all three")]
 
 
 def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_or_a_teammate_or_another_bot_wrote(
