@@ -2,15 +2,16 @@ import io
 import json
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import communicator_calls
 import pytest
-from drive import agents, state
+from drive import agents, state, superseded, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
+CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
 
 
 def hook_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], payload: dict) -> str:
@@ -88,6 +89,16 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
 
 
+def answered(builder: Callable[..., None], demo: str, words: str, at: datetime, **fields: object) -> dict:
+    held = {"seq": "9", "words": f'His answer on card demo:j1-7 ({CARD}), verbatim: "{words}"', "at": state.stamp(at), "said": None, "request": "req-held", "sender": state.HIM}
+    builder(agent="a-7", where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], undelivered=[held], **fields)
+    closed = state.new_close("answered", words, CARD, seq="9", at=state.stamp(at))
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["owner"] = None
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "May it soak on staging?", state.stamp(at), card=CARD, closed=closed) | {"waits": "demo:j1-7"})
+    return held
+
+
 def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts_a_fresh_one_but_sends_it_his_answers_from_the_session_that_started_it(
     demo: str, builder: Callable[..., None], tmp_path: Path
 ) -> None:
@@ -95,22 +106,60 @@ def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts
     reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
     assert reason.startswith("Refused on purpose: j1's builder already returned (built)")
     assert "`drive job add builder`" in reason
-    assert "`Handoff:` line" in reason
+    assert "`Handoff:` line naming this message" in reason
     assert "which takes each PR j1 opened and stops it" in reason
     fresh = "Handoff: red check on https://github.com/Forge-AI/monorepo/pull/4244 Drive: demo, order o1, job j2"
     assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:builder", prompt=fresh)) is None
-    words = 'His answer on card demo:j1-7, verbatim: "Ring"'
-    builder(where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], undelivered=[{"seq": "9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}])
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["owner"] = None
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=words)) is None
+    held = answered(builder, demo, "Ring", state.now())
+    for relayed in ("Ring", "He answered May it soak on staging?: Ring", held["words"]):
+        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=relayed)) is None, relayed
     assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")).startswith("Refused on purpose: j1's builder")
     builder(state="waiting")
     assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
     builder(state="done")
+    assert "`drive pr add <url> --job <new>` for each PR it takes over" in communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
     assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")) is None
+
+
+@pytest.mark.parametrize("returned", ["running", "built", "done"])
+def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_hook_lets_through(
+    demo: str, run: Run, builder: Callable[..., None], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, returned: str
+) -> None:
+    words = "A standing yes: the drive soaks any dangerous branch on staging alone"
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    answered(builder, demo, words, state.now() - timedelta(minutes=11), state=returned, prs=[url])
+    with state.edit(demo) as data:
+        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
+    posted: list[dict] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
+    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: watch.Idle(f'{job_id}\'s agent finished and its result is not recorded: "BUILT j1-soak"'))
+    monkeypatch.setattr(watch, "stall_cards", lambda data, links, cards: [])
+    monkeypatch.setattr(watch, "stall_answers", lambda data, job, links: [])
+    watcher = watch.Watcher(demo, offset=state.events_end(demo))
+    answers = watch.undelivered_lines(watcher, state.now())
+    assert run("pr", "wake", url, "--text", f"PR {state.pr_key(url)}: red: its required check test failed at aaaaaaa")[0] == 0
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
+    idle = [watch.agent_gap("j1", job, data, state.now())] if returned == "running" else []
+    brief = watch.watchdog_brief(watcher, data, "j1", [], {"since": state.stamp(), "print": f"j1 {returned}"}, state.now())
+    [wake] = [line.partition("to wake it: ")[2] for line in brief.splitlines() if line.startswith("Holder:")]
+    lines = [*answers, *(record["text"] for record in posted), *idle, wake]
+    assert len(lines) == (4 if returned == "running" else 3 if returned == "built" else 2)
+    for line in lines:
+        message = words if line.startswith("ANSWER undelivered") else line
+        reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=message))
+        if "SendMessage it " in line:
+            assert reason is None, line
+        else:
+            assert f"j1's builder already returned ({returned}), and a PR event after a builder returns goes to a fresh builder" in line, line
+            assert reason.startswith(f"Refused on purpose: j1's builder already returned ({returned})"), line
+            assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command="drive job add builder --order o1 --goal 'fix the red check'")) is None
+    assert [line.startswith("ANSWER undelivered") and "SendMessage it his words verbatim from root@demo" in line for line in answers] == ([True] if returned != "done" else [])
+    with state.edit(demo) as data:
+        superseded.hear(data, "j1", words, state.now())
+        assert data["jobs"]["j1"]["undelivered"] == []
 
 
 def test_the_coordinator_messages_a_running_job_only_after_reading_its_transcript(

@@ -3220,20 +3220,20 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session
     [record] = posted
     assert (record["to"], record["text"]) == (
         [f"platform@{demo}"],
-        f"STAGE {line}; its builder j1 takes this line alone: SendMessage it this line verbatim from platform@{demo}, the session platform-1 that started its agent a8e6e8443b2472bdb",
+        f"STAGE {line}; for its builder j1, with this line alone: SendMessage it this line verbatim from platform@{demo}, the session platform-1 that started its agent a8e6e8443b2472bdb",
     )
     with state.edit(demo) as data:
         top = data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
     assert [record["text"] for record in posted] == [
-        f"STAGE {line}; its builder j1 takes this line alone: SendMessage it this line verbatim from root@{demo}, the session {top} that started its agent a8e6e8443b2472bdb"
+        f"STAGE {line}; for its builder j1, with this line alone: SendMessage it this line verbatim from root@{demo}, the session {top} that started its agent a8e6e8443b2472bdb"
     ]
     with state.edit(demo) as data:
         data["jobs"]["j1"]["session"] = "ended-session"
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
-    assert [record["text"] for record in posted] == [f"STAGE {line}; its builder j1 takes this line alone: drive job resume j1 with this line verbatim"]
+    assert [record["text"] for record in posted] == [f"STAGE {line}; for its builder j1, with this line alone: drive job resume j1 with this line verbatim"]
 
 
 def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_waits_for_it_and_sends_that_worker_its_line(

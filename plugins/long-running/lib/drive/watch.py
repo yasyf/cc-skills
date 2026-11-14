@@ -1470,7 +1470,7 @@ def unreached(job_id: str, job: dict, data: dict, answer: dict) -> str:
     )
     if job.get("where") == "remote" and job.get("dispatch"):
         return f"{held}, and drive job resume {job_id} delivers it now"
-    return f"{held}; {superseded.delivery(data, job_id, job)}"
+    return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])}"
 
 
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
@@ -1737,7 +1737,7 @@ def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         if isinstance(gap, Answered) or not job.get("agent"):
             return gap
     gap = local_gap(job_id, job, data, moment)
-    return f"{gap}: {superseded.delivery(data, job_id, job, 'this line')}" if isinstance(gap, Idle) else gap
+    return f"{gap}: {superseded.delivery(data, job_id, job, gap, 'this line')}" if isinstance(gap, Idle) else gap
 
 
 def codex_gap(job_id: str, job: dict) -> str | None:
@@ -2130,7 +2130,7 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
     wake = ""
     if job.get("agent") and (runs_in := session_of(job, data)):
         reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
-        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, 'the message')}"
+        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, '', 'the message')}"
     if holding:
         reading.append(f"cc-transcript {session_transcript(holding)}, from {when(held['since'])} on")
     reading += [f"gh pr {verb} {state.pr_url(key)}" for key in named if key in data["prs"] for verb in ("view", "checks")]
