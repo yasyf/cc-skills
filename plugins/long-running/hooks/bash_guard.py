@@ -4,7 +4,8 @@ import re
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from fnmatch import fnmatchcase
 from functools import cache, partial, reduce
 from itertools import pairwise
 from pathlib import Path
@@ -13,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, github, install, land, limits, orca, state
 from drive.orca import OrcaError
-from drive.shell import expanded, runnable, simple_commands, templates
+from drive.shell import KEYWORDS, Case, Function, expanded, grouped, literal, runnable, simple_commands, spread
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
@@ -79,7 +80,6 @@ S3API_OBJECTS = re.compile(r"object|upload|part")
 BUCKET_URI = re.compile(r"(?:s3|gs)://([^\s]*)")
 AZURE_URL = re.compile(r"https://([^/.\s]+)\.(?:blob|dfs)\.core\.windows\.net/([^?\s]*)")
 RCLONE_PATH = re.compile(r"[\w.-]*:(?!//)([^\s]*)")
-KEYWORDS = {"!", "{", "if", "then", "elif", "else", "do", "while", "until"}
 OPTIONED = {
     "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
     "nice": {"-n", "--adjustment"},
@@ -414,34 +414,70 @@ def helper_install(found: list[list[str]], drives: list[str]) -> str | None:
 
 @dataclass
 class Place:
-    """Where a script's commands run: the folder it is in, the variables it set, the script file being read and those read on the way to it."""
+    """Where a script's commands run: the folder it is in, None once a `cd` names one the guard cannot expand, the variables it set, the script file being read and those read on the way to it, the positional parameters its call bound, None when that call is unknown, the functions it defined and those it is inside."""
 
-    cwd: Path
+    cwd: Path | None
     env: dict[str, str] = field(default_factory=dict)
     script: Path | None = None
     seen: frozenset[Path] = frozenset()
+    args: list[str] | None = None
+    functions: dict[str, list] = field(default_factory=dict)
+    calling: frozenset[str] = frozenset()
+
+    def at(self, word: str) -> Path | None:
+        """The path a word names from the folder the script runs in; None when the word holds a parameter or substitution left unexpanded, or is relative and that folder is unknown."""
+        if not literal(word):
+            return None
+        path = Path(os.path.expanduser(word))
+        return path if path.is_absolute() else self.cwd / path if self.cwd else None
 
 
 def reached(text: str, place: Place, depth: int = 0) -> Iterator[list[str]]:
-    """The words of each command shell text runs and of each command it starts: an `sh -c` script, a script file a shell, `source` or its own path runs, the command after `drive break-glass … --` and the one `xargs` runs, each word expanded with the variables set before it."""
-    for written in parsed(text):
-        yield from started([expanded(word, place.env) for word in written], place, depth)
+    """The words of each command shell text runs and of each command it starts: an `sh -c` script, a script file a shell, `source` or its own path runs, the body of each function it calls, the command after `drive break-glass … --` and the one `xargs` runs, each word expanded with the variables and positional parameters set before it; a function nothing calls runs none of its commands, and a case statement only the arms its selector's value picks."""
+    yield from walked(parsed(text), place, depth)
 
 
-def parsed(text: str) -> list[list[str]]:
-    """The commands of shell text, line by line where the whole text does not parse, so one unclosed quote hides no other line."""
+def parsed(text: str) -> list:
+    """The commands of shell text as `grouped` reads them, line by line where the whole text does not parse, so one unclosed quote hides no other line."""
     try:
-        return templates(runnable(text))
+        return grouped(runnable(text))
     except ValueError:
-        return [group for line in text.splitlines() if line.strip() != text.strip() for group in parsed(line)]
+        return [node for line in text.splitlines() if line.strip() != text.strip() for node in parsed(line)]
 
 
-def started(words: list[str], place: Place, depth: int) -> Iterator[list[str]]:
-    words = unwrapped(words, place)
+def walked(nodes: list, place: Place, depth: int) -> Iterator[list[str]]:
+    for node in nodes:
+        if isinstance(node, Function):
+            place.functions[node.name] = node.body
+        elif isinstance(node, Case):
+            for body in taken(node, place):
+                yield from walked(body, place, depth)
+        else:
+            yield from started(spread(node, place.env, place.args), place, depth)
+
+
+def taken(case: Case, place: Place) -> list[list]:
+    """The bodies of the arms a case statement can run: the first whose literal pattern its selector's literal value matches and each a `;&` or `;;&` goes on to, with each arm before it whose pattern is not literal; every arm when the selector is not literal."""
+    selector = expanded(case.selector, place.env, place.args)
+    known, bodies = literal(selector), []
+    for patterns, body, falls in case.arms:
+        words = [expanded(pattern, place.env, place.args) for pattern in patterns]
+        certain = known and all(map(literal, words))
+        if certain and not any(fnmatchcase(selector, word) for word in words):
+            continue
+        bodies.append(body)
+        if certain and not falls:
+            break
+        known = known and not falls
+    return bodies
+
+
+def started(written: list[str], place: Place, depth: int) -> Iterator[list[str]]:
+    words = unwrapped(written, place)
     if not words:
         return
     if words[0] == "cd":
-        place.cwd = place.cwd / Path(words[1]).expanduser() if words[1:] else Path.home()
+        place.cwd = place.at(words[1]) if words[1:] else Path.home()
         return
     if words[0] == "export":
         place.env |= dict(word.split("=", 1) for word in words[1:] if ASSIGNMENT.fullmatch(word))
@@ -449,8 +485,15 @@ def started(words: list[str], place: Place, depth: int) -> Iterator[list[str]]:
     yield words
     if Path(words[0]).name in SHELLS and "-c" in words[:-1]:
         yield from reached(words[words.index("-c") + 1], Place(place.cwd, dict(place.env), place.script, place.seen), depth + 1)
-    elif depth < FOLLOWED_DEPTH and (script := script_file(words, place)):
-        yield from reached(located(script), Place(place.cwd, dict(place.env), script, place.seen | {script}), depth + 1)
+    elif words[0] in place.functions and words[0] not in place.calling:
+        called = replace(place, args=words[1:], calling=place.calling | {words[0]})
+        yield from walked(place.functions[words[0]], called, depth)
+        place.cwd = called.cwd
+    elif depth < FOLLOWED_DEPTH and (followed := script_file(words, place)):
+        script, args = followed
+        fed = "xargs" in {Path(word).name for word in written[: len(written) - len(words)]}
+        functions = place.functions if Path(words[0]).name in SOURCES else {}
+        yield from reached(located(script), Place(place.cwd, dict(place.env), script, place.seen | {script}, None if fed else args, functions), depth + 1)
 
 
 def located(script: Path) -> str:
@@ -460,7 +503,7 @@ def located(script: Path) -> str:
 
 def json_field(value: str, place: Place) -> str:
     """The string a `$(jq -r '.<field>' <file>)` value reads from that JSON file, such as `tools/artifact.sh`'s bucket from `tools/artifacts.json`; any other value, or one the file holds no string for, as written."""
-    if not (found := JSON_FIELD.fullmatch(value)) or not (path := place.cwd / found[2]).is_file():
+    if not (found := JSON_FIELD.fullmatch(value)) or not (path := place.at(found[2])) or not os.path.isfile(path):
         return value
     try:
         read = reduce(lambda node, key: node[key], found[1].split(".")[1:], json.loads(path.read_text()))
@@ -470,7 +513,7 @@ def json_field(value: str, place: Place) -> str:
 
 
 def unwrapped(words: list[str], place: Place) -> list[str]:
-    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`; a variable assigned a command's output, which `templates` splits at `$(` and leaves as `$`, stays as written."""
+    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`; a variable assigned a command's output, which `grouped` splits at `$(` and leaves as `$`, stays as written."""
     while words:
         head = Path(words[0]).name
         if ASSIGNMENT.fullmatch(words[0]):
@@ -501,23 +544,23 @@ def past_options(words: list[str], valued: set[str]) -> list[str]:
     return []
 
 
-def script_file(words: list[str], place: Place) -> Path | None:
-    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script; None when it runs none, as a shell given `-n` only parses its script, it is not on disk or was read on the way here."""
+def script_file(words: list[str], place: Place) -> tuple[Path, list[str] | None] | None:
+    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script, with the arguments it runs it with, a `source` given none keeping its caller's; None when it runs none, as a shell given `-n` only parses its script, it is not on disk or was read on the way here."""
     name = Path(words[0]).name
     if name in SHELLS:
         operands = past_options(words[1:], {"-o"})
-        named = None if any(PARSE_ONLY.fullmatch(word) for word in words[1 : len(words) - len(operands)]) else next(iter(operands), None)
+        given = [] if any(PARSE_ONLY.fullmatch(word) for word in words[1 : len(words) - len(operands)]) else operands
     elif name in SOURCES:
-        named = words[1] if words[1:] else None
+        given = words[1:]
     else:
-        named = words[0] if "/" in words[0] else None
-    if named is None:
+        given = words if "/" in words[0] else []
+    if not given:
         return None
-    path = Path(named).expanduser()
-    found = next((candidate for candidate in (place.cwd / path, place.script and place.script.parent / path.name) if candidate and candidate.is_file()), None)
+    beside = place.script and place.script.parent / Path(given[0]).name
+    found = next((candidate for candidate in (place.at(given[0]), beside) if candidate and os.path.isfile(candidate)), None)
     if found is None or found in place.seen or (name not in SHELLS | SOURCES and not shell_shebang(found)):
         return None
-    return found
+    return found, place.args if name in SOURCES and not given[1:] else given[1:]
 
 
 def shell_shebang(path: Path) -> bool:
