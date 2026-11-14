@@ -468,7 +468,9 @@ The steps, in order:
 6. **Merged.**
 7. **Release started:** the root fix's release, or the default branch's.
 8. **Live:** what is live, its proof on a real machine, and whose runs succeed. Healthy means the
-   affected users' runs succeed, not that a monitor went quiet.
+   affected users' runs succeed, not that a monitor went quiet. An incident whose fix he uses on a
+   surface, the one a job brief's `Native` line names, is live once its proof comes from that
+   surface: a recording of it or the live post, never data fetched from an API.
 
 Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
 the thread and its reporters, if any, have heard, which takes it off the dashboard's top strip, since
@@ -482,7 +484,11 @@ the watch moves to the default branch's head before the read, as each lane's lau
 builder's `DONE`, its own read of a monitor, or one fix
 PR's release never stands for the rest. Every Datadog monitor recorded on the incident
 must read OK too, all of them read in one search a minute; an incident with none, a Sentry issue's
-or his words', closes on its fix alone. Then it:
+or his words', closes on its fix alone. Each order of it that builds something he uses must keep a
+recording or live post from that surface as its proof, the same check `drive order set --state done`
+makes; until one does, the watch says `PROVE o<n>` to you once, naming the builder to add on its
+`fix` part with `--builds-nothing`, whose `DONE` keeps the recording its `CHECK:` names as the proof
+of every order of the incident. Then it:
 
 - moves each open PR of its orders, each part of any of its orders beyond the incident's own not
   yet delivered, a joined order's included, and each live job on one, to a plain build order in the

@@ -29,7 +29,7 @@ DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
 FREED_AGAIN = timedelta(minutes=30)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "REWAIT ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "REWAIT ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", MERGED_DONE, PROOF_FAILED)
@@ -394,7 +394,7 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
 
 
 def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close each open incident the watch hears once its fix is live and every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and this pass's production read has each running on every production stack; a fix PR outside Forge-AI/monorepo has no production read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
+    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and this pass's production read has each running on every production stack; a fix PR outside Forge-AI/monorepo has no production read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
     if not watcher.production:
         return []
     data = state.load(watcher.name)
@@ -411,9 +411,31 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
             watcher.failures.pop("datadog monitors", None)
             ok = {str(monitor["id"]) for monitor in statuses if monitor["status"] == "OK"}
     for head, found in landed.items():
-        if found.keys() <= ok:
-            lines += closed(watcher, head, list(found.values()), f"{', '.join(map(state.pr_url, fixes[head]))} live in production", moment)
+        if not found.keys() <= ok:
+            continue
+        fix = f"{', '.join(map(state.pr_url, fixes[head]))} live in production"
+        group = state.open_incidents(data, state.incident_orders(data, head))
+        if unseen := {order_id: surface for order_id in group if (surface := brief.unseen(data, data["orders"][order_id], data["orders"][order_id]["proof"]))}:
+            lines += proof_owed(watcher, head, unseen, fix, moment)
+            continue
+        lines += closed(watcher, head, list(found.values()), fix, moment)
     return lines
+
+
+def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, moment: datetime) -> list[str]:
+    """Say once that an incident whose fix is live stays open until each order of it that builds something he uses keeps a recording or live post from there, naming the builder that proves it and builds nothing, whose DONE keeps that proof on each order of the incident, as state.take_result does."""
+    with state.edit(watcher.name) as data:
+        if data["orders"][head]["prove_said"]:
+            return []
+        data["orders"][head]["prove_said"] = state.stamp(moment)
+    surfaces = " and ".join(dict.fromkeys(unseen.values()))
+    goal = f"prove {fix.removesuffix(' live in production')} live on {surfaces} with a recording of it"
+    add = shlex.join(["drive", "job", "add", "builder", "--builds-nothing", "--order", head, "--part", state.INCIDENT_FIX, "--goal", goal])
+    return [
+        f"PROVE {head}: {fix}, but {', '.join(unseen)} builds what he uses on {surfaces}, so its Live line waits on a recording or live post"
+        f" from there: add the builder that proves it, {add}, brief it with --native and --interactions for {surfaces} and start it; its DONE"
+        f" keeps that recording as the proof of {', '.join(unseen)}, and the watch then closes {head}"
+    ]
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1278,10 +1300,10 @@ def incident_prs(data: dict, group: list[str], jobs: dict[str, dict], registered
     )
 
 
-def owed_reporters(order: dict, moment: datetime) -> list[dict]:
+def owed_reporters(data: dict, order: dict, moment: datetime) -> list[dict]:
     """Each reporter whose thread is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded."""
     moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
-    if not (state.may_tell(order) and moment - state.parse_time(moved) >= TELL_AFTER):
+    if not (state.may_tell(data, order) and moment - state.parse_time(moved) >= TELL_AFTER):
         return []
     return [held for held in state.untold_reporters(order) if not held["tell_said"]]
 
@@ -1289,12 +1311,12 @@ def owed_reporters(order: dict, moment: datetime) -> list[dict]:
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
     data = state.load(watcher.name)
-    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(order, moment)]):
+    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(data, order, moment)]):
         return []
     lines = []
     with state.edit(watcher.name) as data:
         for order_id in owing:
-            owed = owed_reporters(data["orders"][order_id], moment)
+            owed = owed_reporters(data, data["orders"][order_id], moment)
             for held in owed:
                 held["tell_said"] = state.stamp(moment)
             answered = data["orders"][order_id]["kind"] == "answer"
@@ -2635,7 +2657,7 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
     owed = data["catch_up"]
     amended = agents.amendments(watcher.name, data["held"])
     held = [f"- report {seq} on {mark['order'] or 'no order'}{render.corrected_by(amended['correction'].get(seq, []))}" for seq, mark in data["held"].items() if seq not in amended["withdraw"]]
-    orders = [f"- {render.order_line(order_id, data['orders'][order_id])}" for order_id in owed["orders"]]
+    orders = [f"- {render.order_line(data, order_id, data['orders'][order_id])}" for order_id in owed["orders"]]
     facts = [
         f"His catch-up, owed since he was last heard at {when(owed['since'])}. Read each held report and each correction with cci read: no held report reached him, and a correction's facts replace those it corrects.",
         f"Held for it: {len(held)}",

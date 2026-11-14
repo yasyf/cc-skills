@@ -565,7 +565,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
     link = state.CARD_LINK.search(tool_input.get("url") or "")
     where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
     reported = [(order, held) for order in drive["orders"].values() for held in order["reporters"] if (held["channel"], held["thread"]) == where]
-    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(order) and not held["told"] for order, held in reported):
+    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(drive, order) and not held["told"] for order, held in reported):
         return None
     if any(state.own_thread(order) == where for order in state.open_orders(drive).values()):
         return None
@@ -581,8 +581,9 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
         refused = "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it. It goes once the answer is posted."
     else:
         refused = (
-            "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, so a note now would come before"
-            " the fix. It goes once the coordinator records the proof and sends the report closing the order."
+            "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, from where he uses it when it"
+            " builds something he uses, so a note now would come before the fix. It goes once the coordinator records the proof and sends the"
+            " report closing the order."
         )
     return agents.Ruled(refused, REPORTER_RULE, refused)
 

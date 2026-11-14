@@ -336,25 +336,25 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
     return jobs
 
 
-def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
+def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
     due = f" due {when(order['due'])}" if order.get("due") else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
-    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(order)}: {cut(order['text'], limit)}"
+    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
 
 
-def reporter_said(order: dict) -> str:
+def reporter_said(drive: dict, order: dict) -> str:
     """Each place the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted."""
-    return "".join(reporter_heard(order, reporter) for reporter in order["reporters"])
+    return "".join(reporter_heard(drive, order, reporter) for reporter in order["reporters"])
 
 
-def reporter_heard(order: dict, reporter: dict) -> str:
+def reporter_heard(drive: dict, order: dict, reporter: dict) -> str:
     if order["kind"] == "answer" and reporter["told"]:
         return f", asked in {reporter['link']}, told the answer in {reporter['told']}"
     if order["kind"] == "answer":
-        owed = "owed its answer now, since it is posted" if may_tell(order) else "which hears the answer once it is posted"
+        owed = "owed its answer now, since it is posted" if may_tell(drive, order) else "which hears the answer once it is posted"
         return f", asked in {reporter['link']}, {owed}"
     if reporter["told"] is None:
-        owed = "owed its fix-live note now, since its fix is proven live" if may_tell(order) else "which hears it is fixed once its fix is proven live"
+        owed = "owed its fix-live note now, since its fix is proven live" if may_tell(drive, order) else "which hears it is fixed once its fix is proven live"
         return f", reported in {reporter['link']}, {owed}"
     return f", reported in {reporter['link']}, told it is fixed in {reporter['told']}"
 
@@ -465,7 +465,7 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
 
 
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
-    lines = [f"- {order_line(order_id, order, WHOLE, promise_thread(order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
+    lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
     lines.extend(orphans(order, WHOLE))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
@@ -584,7 +584,7 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Ca
         "catch_up": drive["catch_up"],
     }
     if not named:
-        return data | {"orders": {order_id: order_line(order_id, order, 80, promise_thread(order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
+        return data | {"orders": {order_id: order_line(drive, order_id, order, 80, promise_thread(order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
     job_ids = [job_id for order in drive["orders"].values() for job_id in order["jobs"]]
     return data | {
         "orders": drive["orders"],
@@ -620,7 +620,7 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
         f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"
     )
-    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(order_id, order, 80, promise_thread(order))}", *orphans(order, 80)])
+    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(order))}", *orphans(order, 80)])
     repros = sorted(
         (
             (job["updated"], job_id, job)

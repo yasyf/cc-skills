@@ -905,8 +905,9 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     assert tools.run("record", demo, {"records": [second]}).splitlines()[0] == "1 order add: o3"
     with state.edit(demo) as data:
         data["orders"]["o2"]["proof"] = "https://github.com/acme/app/pull/1 live on the run page"
-    orders = state.load(demo)["orders"]
-    assert [([held["link"] for held in orders[order_id]["reporters"]], state.may_tell(orders[order_id])) for order_id in ("o2", "o3")] == [([first_report], True), ([second_report], False)]
+    data = state.load(demo)
+    orders = data["orders"]
+    assert [([held["link"] for held in orders[order_id]["reporters"]], state.may_tell(data, orders[order_id])) for order_id in ("o2", "o3")] == [([first_report], True), ([second_report], False)]
     assert list(state.load(demo)["jobs"]["j1"]["carries"]) == ["o2", "o3"]
 
 
