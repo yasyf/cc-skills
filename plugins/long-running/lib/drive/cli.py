@@ -1701,7 +1701,9 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question | None, dict, str]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, which leaves its job for this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it. The question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing, among the PRs of jobs working a change they name, only those of the asking job or its design's builder and those they name by link, #N or job id, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Jev reads, in one call, against his words on its order, the words of his the drive quotes in it and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Jev picks for its recommended option, the cited answer the card says that option goes against first, keeps the card unsettled as `<id>: Jev reads the recommended option as breaking it` when no --unsettled names words of his, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose job's brief binds, or whose block cites, a recorded answer of his draws its card with an Already answered option, his words under it, so his tap closes it on those words. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names an open question's file, a question built on that one asking both choices, takes that question's card and waits id and leaves it open, folded into this one, so drawing its card redraws that card and his answer to this one ends both; a question folded so, asked again, stays folded and draws no card. What drive job ask prints: the file, then where his card stands."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it. The question keeps the words of its `Holds:` line, with the parts each PR the drive tracks on the job's orders that they name serves appended, which hold from landing, among the PRs of jobs working a change they name, only those of the asking job or its design's builder and those they name by link, #N or job id, refused when they name no part of the job's orders, unless a design job names the changes its `Change:` lines are about to make parts; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled its kept question with that title carries. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Jev reads, in one call, against his words on its order, the words of his the drive quotes in it and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Jev picks for its recommended option, the cited answer the card says that option goes against first, keeps the card unsettled as `<id>: Jev reads the recommended option as breaking it` when no --unsettled names words of his, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose job's brief binds, or whose block cites, a recorded answer of his draws its card with an Already answered option, his words under it, so his tap closes it on those words. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names an open question's file, a question built on that one asking both choices, takes that question's card and waits id and leaves it open, folded into this one, so drawing its card redraws that card and his answer to this one ends both; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own or in other words Jev reads as asking it again. Asked in other words, Jev reads it in that same call against each open card `repeating` finds, and an ask Jev reads as asking again what some of them ask takes the newest of those cards, by its Slack time, and the others fold into it, their cards shown asked again by `post_ask`; asked again in its own words it is read against none. What drive job ask prints: the file, then where his card stands."""
+    from drive import view
+
     text = f"{limits.ask_block(text).strip()}\n"
     data = state.load(name)
     job = data["jobs"][job_id]
@@ -1713,7 +1715,9 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     asked, holds, recorded = checked_ask(name, job_id, text, unsettled, redraws, state.drive_dir(name) / "pictures")
     cited = [{"id": answer["answer"], "asked": answer["asked"], "said": answer["words"][: settled.BODY_CHARS]} for answer in recorded]
     case = limits.ask_case(text, asked, frozenset(answer["id"] for answer in cited))
-    if (broken := settled.judged(case, asked, [*settled.order_words(data, job["order"]), *settled.matched(text, data["roles"]["coordinator"]["cwd"])], cited)) and not unsettled:
+    cards = {} if any(other == job_id for other, _ in asking(data, asked.title)) else {question["waits"]: question["title"] for question in repeating(data, job_id, asked.title, redraws)}
+    broken, repeated = settled.judged(case, asked, [*settled.order_words(data, job["order"]), *settled.matched(text, data["roles"]["coordinator"]["cwd"])], cited, cards)
+    if broken and not unsettled:
         unsettled = f"{broken['id']}: {settled.MARKED}"
         print(settled.UNSETTLED.format(unsettled=unsettled, id=broken["id"], asked=render.cut(broken["asked"], 200)), file=sys.stderr)
     kept.parent.mkdir(exist_ok=True)
@@ -1726,14 +1730,22 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         if any(target is twin for twin in twins):
             target = None
         stale = asked_before(job, asked.title, kept, generic)
+        own = {id(other) for other in job["questions"]}
         redrawn = superseded.redrawn(data, job_id, redraws) if redraws else []
-        held = target or next((twin for twin in [*redrawn, *twins] if twin["card"]), None) or next((twin for twin in [*redrawn, *twins] if twin["waits"]), None)
+        matched = [(other, question) for other, each in data["jobs"].items() for question in view.open_questions(each) if question["waits"] in repeated and not question["replaced"]]
+        taken = next((question for other, question in [*asking(data, asked.title), *matched] if other != job_id and took(data, job_id, question)), None)
+        newest = max((question for _, question in matched), key=lambda question: view.message_key(question["card"]), default=None)
+        held = taken or target or next((twin for twin in [*redrawn, *twins] if twin["card"]), None) or newest or next((twin for twin in [*redrawn, *twins] if twin["waits"]), None)
         question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, card=held and held["card"], holds=holds)
         question["waits"] = held and held["waits"] or state.new_waits(name, job_id)
-        if folded_into := next((twin["replaced"] for twin in twins if twin["replaced"]), None):
+        if folded_into := next((twin["replaced"] for twin in twins if twin["replaced"]), None) or taken and taken["file"]:
             question.update(waits=held and held["waits"], replaced=folded_into)
         doubled = [] if folded_into else [twin for twin in twins if twin["card"] and twin["waits"] != question["waits"]]
-        replaced = [other for other in [*twins, *redrawn, *stale] if not any(other is twin for twin in doubled)]
+        again = [found for _, found in matched if found is not target]
+        dropped = [*twins, *(other for other in redrawn if id(other) in own), *(other for other in again if other is held and id(other) in own), *stale]
+        replaced = [other for other in dropped if not any(other is twin for twin in doubled)]
+        for other in [] if folded_into else [other for other in [*redrawn, *again] if not any(other is gone for gone in dropped)]:
+            other["replaced"] = str(kept)
         gone = {other["file"] for other in replaced if other["file"]}
         for other in (other for each in data["jobs"].values() for other in each["questions"] if other["replaced"] in gone):
             other["replaced"] = str(kept)
@@ -1817,7 +1829,7 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 
 
 def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
-    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
+    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it; each question folded into this one on another card, as an ask Jev reads as asking it again folds it, shows that card the same way and takes this card and waits id, each wait on that card moving with it. What was done, for drive job ask to print."""
     from drive import talk, tools, view
 
     data = state.load(name)
@@ -1833,12 +1845,18 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
             for other in view.open_questions(data["jobs"][job_id])
             if other is not live and other["card"] and other["waits"] != live["waits"] and state.same_question(other["title"], live["title"])
         ]
-        gone = {key for other in doubled for key in (other["waits"], view.message_key(other["card"]))}
+        riding = {id(other) for other in folded(data, live["file"])}
+        moved = [(owner, other) for owner, each in data["jobs"].items() for other in each["questions"] if id(other) in riding and other["card"] and other["waits"] != live["waits"]]
+        gone = {key for other in [*doubled, *(other for _, other in moved)] for key in (other["waits"], view.message_key(other["card"]))}
         for other in doubled:
             other["closed"] = state.new_close("superseded", ASKED_AGAIN, link, by=live["waits"])
+        ended = [(job_id, other) for other in doubled] + [(owner, other | {"closed": state.new_close("superseded", ASKED_AGAIN, link, by=live["waits"])}) for owner, other in moved]
+        for owner, other in moved:
+            other.update(waits=live["waits"], card=live["card"])
+            state.join_card(data, owner, live["card"])
         for owner in [*data["jobs"].values(), *data["prs"].values()]:
             state.rewait(owner, list(dict.fromkeys(live["waits"] if view.message_key(wait) in gone else wait for wait in owner["waits"])))
-    said = [f"his card {link} asks it under {card['waits']}", *superseded.follow(name, [(job_id, other) for other in doubled])]
+    said = [f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)]
     if where and (incidents or not inside):
         blocks = f", and it blocks incident {', '.join(incidents)}: {job_id} builds its recommended option meanwhile, {card['recommended']}" if incidents else ""
         report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}', "to": [f"communicator@{name}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
@@ -1889,8 +1907,31 @@ def asking(data: dict, title: str) -> list[tuple[str, dict]]:
 
 
 def elsewhere(data: dict, job_id: str, title: str, redraws: str | None) -> tuple[str, dict] | None:
-    """Another job's open question asking him in these same words, whatever their case and spacing, what this title asks, never one `drive job ask` refused, which draws no card, nor the one on the card `--redraws` takes over."""
-    return next(((other, question) for other, question in asking(data, title) if other != job_id and not question["refused"] and question["waits"] != redraws), None)
+    """Another job's open question asking him in these same words, whatever their case and spacing, what this title asks, never one `drive job ask` refused, which draws no card, nor the one on the card `--redraws` takes over, nor one that `took` the job's card, which the job's ask folds into."""
+    return next(
+        ((other, question) for other, question in asking(data, title) if other != job_id and not question["refused"] and question["waits"] != redraws and not took(data, job_id, question)),
+        None,
+    )
+
+
+def took(data: dict, job_id: str, question: dict) -> bool:
+    """Whether another job's question took the job's card: it holds a waits id the job minted, as `--redraws` and a `Replaces:` line take one over, or a question of the job is folded into it."""
+    return (question["waits"] or "").partition(":")[2].partition("-")[0] == job_id or any(other["replaced"] == question["file"] for other in data["jobs"][job_id]["questions"] if other["replaced"])
+
+
+def repeating(data: dict, job_id: str, title: str, redraws: str | None) -> list[dict]:
+    """The open questions on his cards Jev reads an ask against for asking one of them again in other words, at most settled.CANDIDATES: each drawn, never one folded into another, refused, asking in these same words or on the card `--redraws` takes over, those of the job's orders first, then those sharing the most rare words with it."""
+    from drive import view
+
+    orders = {data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]}
+    said = settled.rare(title)
+    drawn = [
+        (job["order"] in orders, len(said & settled.rare(question["title"])), question)
+        for job in data["jobs"].values()
+        for question in view.open_questions(job)
+        if question["title"] and question["card"] and question["waits"] not in (None, redraws) and not question["replaced"] and not question["refused"] and not state.same_question(question["title"], title)
+    ]
+    return [question for *_, question in sorted(drawn, key=lambda found: found[:2], reverse=True)[: settled.CANDIDATES]]
 
 
 def replacing(data: dict, file: str) -> tuple[str, dict]:
@@ -2148,7 +2189,7 @@ def asks(file: Path, title: str) -> bool:
 
 
 def keep_waits(data: dict, job_id: str, file: Path, waits: str, card: str | None = None) -> None:
-    """Give the waits id to the newest question kept in the file, with the card drawn under it, read from the question of the job that held it before or given for one another job held, and the same to each question a `Replaces:` line folded into it, so his card wakes every job asking it; the question that held it before, which this card redraws, hands over its card and leaves the job, and what was folded into that one folds into this one."""
+    """Give the waits id to the newest question kept in the file, with the card drawn under it, read from the question of the job that held it before or given for one another job held, and the same to each question a `Replaces:` line folded into it, so his card wakes every job asking it, but one still on another card of his, which `post_ask` closes once this card is up; the question that held it before, which this card redraws, hands over its card and leaves the job, and what was folded into that one folds into this one."""
     job = data["jobs"][job_id]
     question = state.kept_in(job, file)
     if question is None:
@@ -2160,7 +2201,8 @@ def keep_waits(data: dict, job_id: str, file: Path, waits: str, card: str | None
     for other in (other for each in data["jobs"].values() for other in each["questions"] if other["replaced"] in gone):
         other["replaced"] = question["file"]
     for other in folded(data, question["file"]):
-        other.update(waits=waits, card=question["card"])
+        if not other["card"] or other["card"] == question["card"]:
+            other.update(waits=waits, card=question["card"])
 
 
 def folded(data: dict, file: str) -> list[dict]:
@@ -4893,8 +4935,8 @@ def parser() -> argparse.ArgumentParser:
         metavar="WAITS",
         help=(
             "the waits id of the card this block asks again in new words, which it redraws in place: an open or withdrawn card of"
-            " the job, or of another job on one of its orders whose work it carries on, whose question leaves that job for this"
-            " one; refused for a card his answer ended and for any card of another order"
+            " the job, or of another job on one of its orders whose work it carries on, whose question stays on that job folded into"
+            " this one, so that job asking it again draws no card; refused for a card his answer ended and for any card of another order"
         ),
     )
     verb.add_argument(

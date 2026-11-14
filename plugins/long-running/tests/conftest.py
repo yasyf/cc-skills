@@ -889,6 +889,7 @@ class Jev:
     illustrated: list[str] = field(default_factory=list)
     looks: float = 0.0
     looked: list[dict] = field(default_factory=list)
+    again: set[str] = field(default_factory=set)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
@@ -897,7 +898,8 @@ class Jev:
         self.ruled[part] = word_id
 
     def judges(self, questions: dict) -> dict:
-        return dict.fromkeys(questions, self.answer) | {part: label(word_id, {"none": 0.1, word_id: 0.9}) for part, word_id in self.ruled.items()}
+        read = dict.fromkeys(questions, self.answer) | {part: label(word_id, {"none": 0.1, word_id: 0.9}) for part, word_id in self.ruled.items()}
+        return read | {key: {"type": "binary", "p_yes": 0.95 if any(title in spec["binary"]["instructions"] for title in self.again) else 0.05, "confidence": 0.9} for key, spec in questions.items() if "binary" in spec}
 
 
 def label(choice: str, probabilities: dict[str, float]) -> dict:
