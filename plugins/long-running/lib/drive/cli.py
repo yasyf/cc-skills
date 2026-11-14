@@ -1440,7 +1440,7 @@ def refuse_a_crossed_order(name: str, data: dict, own: str, other: str, acting: 
 
 
 def told_him(name: str, args: argparse.Namespace) -> None:
-    """An incident's job waits on his card only once the incident's thread says so: the drive's post there linking each card, with what it blocks and the default the job builds on meanwhile."""
+    """An incident's job waits on his card only once the incident's thread says so: the drive's post there linking each card, with what it blocks and each job building its recommended option meanwhile, or that nothing is built before his pick."""
     from drive import view
 
     if not (args.card or args.waits):
@@ -1454,7 +1454,7 @@ def told_him(name: str, args: argparse.Namespace) -> None:
     if not args.told:
         raise DriveError(
             f"{args.id} works on incident {', '.join(incidents)}: a card that blocks it is said in the incident's thread at once, a line"
-            " linking the card with what it blocks and the recommended option the job builds on meanwhile; post that line, then pass --told <its link>."
+            " linking the card with what it blocks and each job building its recommended option meanwhile, or that nothing is built before his pick; post that line, then pass --told <its link>."
             f" {TOLD_LINK}"
         )
     posted, _ = slack.message_and_root(args.told)
@@ -1774,7 +1774,7 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 
 
 def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
-    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, what it blocks for an incident, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
+    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, for an incident each unfinished builder or codex job the drive's records hold building its recommended option, the asker when it is one, each whose waits name the card and each whose work `state.part_cards` finds it holding, else that nothing is built before his pick, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it. What was done, for drive job ask to print."""
     from drive import talk, tools, view
 
     data = state.load(name)
@@ -1795,9 +1795,18 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
             other["closed"] = state.new_close("superseded", ASKED_AGAIN, link, by=live["waits"])
         for owner in [*data["jobs"].values(), *data["prs"].values()]:
             state.rewait(owner, list(dict.fromkeys(live["waits"] if view.message_key(wait) in gone else wait for wait in owner["waits"])))
+        drawn = {card["waits"], view.message_key(link)}
+        held = [
+            other_id
+            for other_id, other in data["jobs"].items()
+            if other["kind"] in state.CHANGE_KINDS
+            and other["state"] not in state.FINISHED_JOB_STATES
+            and (other_id == job_id or drawn & {view.message_key(wait) for wait in [*other["waits"], *state.part_cards(data, other_id)]})
+        ]
     said = [f"his card {link} asks it under {card['waits']}", *superseded.follow(name, [(job_id, other) for other in doubled])]
     if where and (incidents or not inside):
-        blocks = f", and it blocks incident {', '.join(incidents)}: {job_id} builds its recommended option meanwhile, {card['recommended']}" if incidents else ""
+        builds = f"{', '.join(held)} {'builds' if len(held) == 1 else 'build'} its recommended option meanwhile, {card['recommended']}" if held else "nothing is built before his pick"
+        blocks = f", on incident {', '.join(incidents)}: {builds}" if incidents else ""
         report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}', "to": [f"communicator@{name}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
         report["id"] = f"card-line:{card['waits']}:{state.ask_hash(json.dumps(report, sort_keys=True))}"
         try:
@@ -4784,8 +4793,8 @@ def parser() -> argparse.ArgumentParser:
         "--told",
         metavar="LINK",
         help=(
-            "the drive's post in an incident's thread linking each card --card or --waits names, what it blocks and the default the job"
-            " builds on meanwhile; a job on an open incident order takes a card only with it"
+            "the drive's post in an incident's thread linking each card --card or --waits names, what it blocks and each job building its"
+            " recommended option meanwhile, or that nothing is built before his pick; a job on an open incident order takes a card only with it"
         ),
     )
     verb.set_defaults(run=job_set)

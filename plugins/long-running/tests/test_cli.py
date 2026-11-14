@@ -2300,7 +2300,32 @@ def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_
     [(lane, [report])] = sent
     assert (lane, report["kind"], report["to"], report["attr"]) == ("root", "report", ["communicator@demo"], {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"})
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
-    assert report["text"].startswith(f'POST his card {slack_card(1)} asks him "{title}" for j1, and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run')
+    assert report["text"].startswith(f'POST his card {slack_card(1)} asks him "{title}" for j1, on incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run')
+
+
+@pytest.mark.parametrize(
+    ("holds", "builds"),
+    [
+        ("Holds: none: no option changes code any job builds", "nothing is built before his pick"),
+        ("Holds: fix", "j3 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"),
+    ],
+)
+def test_job_ask_by_a_finished_reader_on_an_open_incident_names_in_its_line_only_the_builders_the_drives_records_hold_on_his_card(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]], holds: str, builds: str
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--thread", "1794200000.000100", "--parts", "fix", "first check")
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "copy forks from the snapshot")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the fork copy path")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["researched"] = ["j4"]
+        data["jobs"]["j4"]["state"] = "done"
+    sent: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or ["672400"])
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", holds) + "Interim fix: j2 checks the fork copies first\n")
+    assert run("job", "ask", "j4", str(block))[0] == 0
+    [(_, [report])] = sent
+    assert report["text"] == f'POST his card {slack_card(1)} asks him "{SHORT_ASK.splitlines()[0].removeprefix("ASK ")}" for j4, on incident o1: {builds}'
 
 
 @pytest.mark.parametrize(("kept", "card_thread"), [([], None), ([["D123", "1794200050.000200", "2026-11-13T10:00:00-08:00", "question"]], "1794200050.000200")])
@@ -2339,7 +2364,7 @@ def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_fo
     ):
         block.write_text(text + "Interim fix: j2 checks the fork copies first\n")
         assert run("job", "ask", asking, str(block), *redraws)[0] == 0
-    blocks = ", and it blocks incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    blocks = ", on incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
     assert [report["text"] for report in kept.values()] == [
         f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1{blocks}' for text in (SHORT_ASK, retitled)
     ]
