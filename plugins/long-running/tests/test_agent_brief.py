@@ -190,10 +190,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
 
 
-def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_start_on_a_sprite(
-    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
+def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_start_on_a_sprite(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
     for number in range(1, 9):
         run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
@@ -207,10 +204,7 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
     assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(briefed("long-running:builder", f"{order}order o1, job j9"))
 
 
-def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_starts_here_at_once_past_a_full_cap_and_its_line_and_holds_no_slot(
-    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
+def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_starts_here_at_once_past_a_full_cap_and_its_line_and_holds_no_slot(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
     for number in range(1, 9):
         run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
