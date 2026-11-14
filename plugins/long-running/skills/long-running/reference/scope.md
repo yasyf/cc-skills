@@ -112,8 +112,10 @@ root cause, the recommended one.
 A card whose summary sentence recommending an option cites a recorded answer of his asks again what
 that answer chose, so `drive job ask` refuses it and names that option to build with no card, unless
 `--unsettled` names that answer as words the card asks him to lift. A card's Already answered option
-carries only the recorded answers its summary cites, his words above the `Options:` line its recorder
-lists the choices under, so his one tap gives its job one answer's words.
+carries only the recorded answers its summary cites that Jev reads as deciding its question or making
+it moot, his words above the `Options:` line its recorder lists the choices under, so his one tap
+gives its job one answer's words; the card draws no Already answered option when Jev reads none so
+or gives no reading.
 
 It reads no answer he gave another question, by his pick "Settle only on your answer to that same
 question, copies only in the same words: no wrong skips; each skip below becomes a card." A question

@@ -3861,7 +3861,7 @@ TAPPED = "https://acme.slack.com/archives/D123/p1794300000000100"
 SNAPSHOT_PICK = "One snapshot file per finished run\nOptions: One snapshot file per finished run | A map file beside each journal file"
 
 
-def test_already_answered_carries_only_the_answer_its_summary_cites_his_words_above_its_options_line_never_one_its_brief_binds_or_its_findings_cite(
+def test_already_answered_carries_only_the_answer_its_summary_cites_and_jev_reads_as_deciding_it_his_words_above_its_options_line_never_one_its_brief_binds_or_its_findings_cite(
     run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     recorded.shown["631afc4"] = {"id": "631afc4", "title": "Where does a run's page map live?", "body": "At the end of each file\nNotes: cci owner 2", "tags": []}
@@ -3872,11 +3872,52 @@ def test_already_answered_carries_only_the_answer_its_summary_cites_his_words_ab
         "Meanwhile nothing is built on either layout.",
         "Your {answer:c952dbb|Nov 5 answer} asked for snapshots before old runs needed one. Meanwhile nothing is built on either layout.",
     ) + "(3) His 44de4c2 kept old runs.\n"
+    jev.picks("c952dbb")
     drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, text, "c952dbb", "How are a finished run's files kept?", SNAPSHOT_PICK)
     assert (drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED]) == (limits.ALREADY_ANSWERED, '"One snapshot file per finished run"')
     assert [record["text"] for record in posted] == ["One snapshot file per finished run"]
     assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"]) == ("answered", "One snapshot file per finished run")
-    assert jev.asked == []
+    assert [{key: list(spec["label"]["options"]) for key, spec in request["questions"].items()} for request in jev.asked] == [{"decides1": ["none", "c952dbb"]}]
+
+
+LANE_DEATH_ASK = """ASK How should the watch say each lane death, orphan and dropped answer once, when it finds it?
+For {order:o1|the watch's line bursts}: your pick decides how the watch says each lane death, orphan and dropped answer.
+Your {answer:6f2587a|stack pick}, {answer:dd40f2b|idle-tooling ruling} and {answer:fc22c18|fundamental-fix ruling} bear on it.
+Recommended: finish merged builders and say each line once, as found.
+- Finish merged work and say each line once, as found: meta gets each fact once (recommended)
+  A builder whose PRs all merged takes DONE once installed and proven, else BLOCKED; ORPHAN is said when a gap appears or changes.
+- Only stop repeating the three lines: smallest change; merged builders still wait
+  Delete the 30-minute ORPHAN repeat, the LANE line for a waiting job and the READ dropped line.
+Findings:
+Root cause: the watch re-makes lines that ask for no step and posts a pass's lines only when the pass ends.
+First principles: Finish merged work and say each line once, as found
+Simplest: Only stop repeating the three lines
+Interim fix: none: nobody is hurt now
+Holds: none: no PR is up
+Researched:
+rulings: ccn answer match on the order's whole words returned only 6f2587a, about PR stacks; dd40f2b, which the ORPHAN check serves; fc22c18, on fundamental tooling fixes.
+"""
+LANE_DEATH_RULINGS = {
+    "6f2587a": ("Stacking these risks killing them. How do you want the single review surface?", "I will land them, just put them in a stack. get rid of those memories they are all stale. do 2"),
+    "dd40f2b": (
+        "Orders never sit with a dead lane: relaunch at once, refuse posts to retired lanes, page on a root gap, sweep for lost orders (9:22 PM Nov 6)",
+        "So fix your tooling something can't sit idle for an hour when ur supposed to be working on it, and find any other things lost this way",
+    ),
+    "fc22c18": ("Owner 3:05 PM Oct 30 (chat): tooling fixes are fundamental, once and for all; no more bandaids", "I told you 4 hours ago to do fundamental fixes for this and you have still been ignoring it or doing bandaids"),
+}
+
+
+@pytest.mark.parametrize("read", [None, ("dd40f2b", 0.6), "unheard"], ids=["Jev reads none as deciding it", "Jev reads one under the bar", "Jev gives no reading"])
+def test_a_card_whose_summary_cites_his_rulings_on_other_questions_draws_no_already_answered_unless_jev_reads_one_as_deciding_its_question(
+    run: Run, asking: str, recorded: Answers, jev: Jev, read: tuple[str, float] | str | None
+) -> None:
+    if read == "unheard":
+        jev.answer = None
+    elif read:
+        jev.picks(*read)
+    drawn = drawn_citing(run, recorded, LANE_DEATH_ASK, LANE_DEATH_RULINGS)
+    assert (limits.ALREADY_ANSWERED in drawn["options"], state.load("demo")["jobs"]["j1"]["questions"][-1]["recorded"]) == (False, [])
+    assert [list(request["questions"]) for request in jev.asked] == [["decides1", "decides2", "decides3"]]
 
 
 def test_a_card_citing_a_pick_a_lane_made_provisionally_draws_no_already_answered_since_he_never_said_it(run: Run, asking: str, recorded: Answers) -> None:
@@ -3925,27 +3966,42 @@ def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_word
     with state.edit("demo") as data:
         data["answers"]["320b7a7"] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     cited = ADVISORY_ASK.replace("your advisory-judge pick says", "your {answer:320b7a7|advisory-judge pick} says")
+    jev.picks("320b7a7", 0.84)
     drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, cited, "320b7a7", title, words)
     assert (drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED], len(drawn["options"])) == (limits.ALREADY_ANSWERED, f'"{words}" (<{link}|your answer>)', 4)
     assert [record["text"] for record in posted] == [words]
     assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"], [f'verbatim: "{words}"' in answer["words"] for answer in job["undelivered"]]) == ("answered", words, [True])
-    assert jev.asked == []
+    [request] = jev.asked
+    assert (list(request["questions"]), request["state"]["card"]["question"], words in request["questions"]["decides1"]["label"]["instructions"]) == (["decides1"], cited.splitlines()[0].removeprefix("ASK "), True)
 
 
-def tapped_already_answered(run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch, text: str, answer_id: str, title: str, words: str) -> tuple[dict, dict, list[dict]]:
-    """j1's card drawn from this ASK, kept as the drive kept it and asking him under demo:j1-7, with his answer recorded under its id, and his tap on its Already answered option: the card, j1 after the tap, and the records the tap posted."""
+def test_a_card_rebuilt_from_his_stored_card_drops_its_already_answered_option_once_jev_reads_no_answer_of_his_as_deciding_it() -> None:
+    rebuilt = limits.Question("Which store?", [], [], ["Team", "Run", limits.ALREADY_ANSWERED], "Team", {"Team": "One store per team.", limits.ALREADY_ANSWERED: '"put them in a stack"'}, None)
+    drawn = cli.already_answered(rebuilt, [])
+    assert (drawn.options, drawn.hints) == (["Team", "Run"], {"Team": "One store per team."})
+
+
+def drawn_citing(run: Run, recorded: Answers, text: str, answers: dict[str, tuple[str, str]]) -> dict:
+    """j1's card drawn from this ASK, kept as the drive kept it and asking him under demo:j1-7, with each answer recorded under its id by the question it answered and his words."""
     kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
-    recorded.shown[answer_id] = {"id": answer_id, "title": title, "body": f"{words}\nNotes: cci owner 1", "tags": [], "created_at": "2026-11-05T11:33:00Z"}
+    for answer_id, (title, words) in answers.items():
+        recorded.shown[answer_id] = {"id": answer_id, "title": title, "body": f"{words}\nNotes: cci owner 1", "tags": [], "created_at": "2026-11-05T11:33:00Z"}
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), text.splitlines()[0].removeprefix("ASK "), state.stamp()) | {"waits": "demo:j1-7"}]
     code, printed = run("job", "card", "j1")
     assert code == 0
+    return json.loads(printed)
+
+
+def tapped_already_answered(run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch, text: str, answer_id: str, title: str, words: str) -> tuple[dict, dict, list[dict]]:
+    """j1's card drawn from this ASK by `drawn_citing` with his answer, and his tap on its Already answered option: the card, j1 after the tap, and the records the tap posted."""
+    drawn = drawn_citing(run, recorded, text, {answer_id: (title, words)})
     posted: list[dict] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
     card.question_answered({"waits": "demo:j1-7", "label": limits.ALREADY_ANSWERED, "url": TAPPED})
-    return json.loads(printed), state.load("demo")["jobs"]["j1"], posted
+    return drawn, state.load("demo")["jobs"]["j1"], posted
 
 
 def test_job_ask_asked_again_replaces_its_question_once_kept_settled_with_no_card_so_his_card_draws(run: Run, asking: str, tmp_path: Path) -> None:
