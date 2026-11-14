@@ -311,6 +311,15 @@ def test_a_report_whose_thread_is_none_goes_without_it_and_one_naming_no_slack_t
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, attrs={"close": "o1"})) is None
 
 
+def test_a_report_naming_an_end_with_no_offset_is_refused_every_time(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging")
+    for until in ("1:30 PM", "2026-11-14T13:30:00"):
+        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST claiming staging", to=TO, attrs={"order": "o1", "progress": "true", "until": until})))
+        assert reason == f"refused: until {until} is no time with its offset; name the end of the post it goes with in RFC 3339, such as 2026-11-14T13:30:00-08:00"
+        assert agents.ruled(reason) == {"judged": False}
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST claiming staging", to=TO, attrs={"order": "o1", "progress": "true", "until": "2026-11-14T13:30:00-08:00"})) is None
+
+
 def test_a_part_whose_name_a_cut_or_its_writer_left_spaces_around_is_saved_trimmed_so_a_part_attr_names_it(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:

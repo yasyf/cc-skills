@@ -1149,7 +1149,7 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None, named: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, each only for a line to him, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, each only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
@@ -1168,6 +1168,8 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
             order["thread"] = list(gained)
         elif gained:
             state.join_thread(order, gained, line, "posted" if ours else "members")
+        if until := None if ours else report.get("until"):
+            state.claim(data, order, (state.CARD_LINK.search(link)[1], posted.get("thread_ts") or posted["ts"]), link, until, posted["ts"])
         if ours:
             if state.owed(order) and closing:
                 state.keep_closing(order, [at], state.parse_time(report["written"]))
@@ -1184,7 +1186,8 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him and keeps no promised time"
     joined = f", in thread {gained[1]}, now {'its own thread' if rooted else 'one of its threads'}" if gained else ""
-    return f"{order_id} {said} {link}{away}{joined}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
+    ends = f", and its thread owes its closing line from {render.when(until)}" if until else ""
+    return f"{order_id} {said} {link}{away}{joined}{ends}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:

@@ -157,6 +157,23 @@ WHOLE = (
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word or by its"
     " permalink, one per line."
 )
+MEMBERS_SAID = (
+    "this thread message saying we're done and what the result is was is good, we should always do that. Also those root messages should be a tad"
+    " more compact and plain English, formatting is good but jsut describe in plain words (not eli5 but not citing random files) what we are doing"
+)
+MEMBERS_READING = f'the coordinator\'s reading of his words on the drive\'s staging claims "{MEMBERS_SAID}"'
+MEMBERS_REST = "Say in a few plain sentences what the work does and until when, as a teammate would; the code stays in the PR it links."
+MEMBERS_RULE = (
+    "A post at the root of a channel outside his DM, such as a staging claim, and each line in its thread speak to that channel's members, never to"
+    f" him: the root is a few plain sentences, at most {limits.SUMMARY_WORDS} words, a line in its thread at most {limits.LINE_WORDS}, and each says in"
+    f' plain words what the work does, naming no file or function, by his words on those posts: "{MEMBERS_SAID}".'
+)
+MEMBERS_WORDS = {
+    "id": "ruling:1e8a8d5",
+    "source": "his feedback on the drive's staging claims",
+    "quote": MEMBERS_SAID,
+    "detail": "his words on a post at the root of a channel outside his DM, such as a staging claim, and on each line in its thread, which speak to that channel's members",
+}
 RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
 LINE_NUMBERS = re.compile(r":\d[\d-]*(?=[\s:]|$)")
@@ -432,7 +449,11 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 def his_words(payload: dict) -> list[dict]:
     """What Jev judges a post by besides the transcripts: only the words of his in his DM it answers, so his share of Jev's prompt grows with the post, never with his threads: his messages in the thread it goes to since the bot's last post there, his answers on the card that thread is under, each message of his its asked links by permalink, each older word of his in that thread its asked or a quote in its text holds, and the words of his the order it is on keeps, read from the drive; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
-    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, drive, dm := slack.dm()):
+    if (drive := his_drive(payload.get("session_id") or "")) is None:
+        return []
+    if payload["tool_name"] == SAY and talk.to_members(drive, payload["tool_input"]):
+        return [MEMBERS_WORDS]
+    if not posts_to(payload, drive, dm := slack.dm()):
         return []
     tool_input = payload["tool_input"]
     text = tool_input.get("text") or ""
@@ -550,6 +571,8 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         )
     if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive):
         return refusal
+    if payload["tool_name"] == SAY and talk.to_members(drive, tool_input):
+        return unread(payload, dm) or members_findings(payload, dm)
     if not posts_to(payload, drive, dm):
         return unread(payload, dm) if payload["tool_name"] == SAY else None
     report, order_id = said_order(payload, drive)
@@ -585,6 +608,38 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unbacked_start(payload, drive, said, order_id),
             agents.typed_time(said, drive),
             None if tool_input.get("tap_prs") else limits.kind_refusal(tool_input.get("text") or "", said, drive),
+        ]
+    )
+
+
+def members_findings(payload: dict, dm: str) -> str | None:
+    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root keeps to a summary's words and a line in its thread to a line's, an edit rewording its post at that post's length, and it names no file or function, each finding judged by Jev against his words on those posts."""
+    tool_input = payload["tool_input"]
+    text = tool_input.get("text") or ""
+    shape, limit = ("a line in the thread of a post to a channel's members", limits.LINE_WORDS) if talk.place(tool_input)[1] else ("a post at the root of a channel outside his DM", limits.SUMMARY_WORDS)
+    try:
+        findings = slack.post_findings(text, False)
+        long = limits.word_refusal(tool_input, limit, shape, edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
+    except slack.SlackError as error:
+        return f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}."
+    named = ", ".join(limits.code_names(text))
+    return every(
+        [
+            long and agents.Ruled(long, MEMBERS_RULE, long, found=long.found),
+            agents.Ruled(
+                "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings),
+                agents.PLAIN_WORDS_RULE,
+                found=f"`cc-slack check-post` finds this in the post's exact words: {' | '.join(findings)}",
+            )
+            if findings
+            else None,
+            agents.Ruled(
+                f"refused: this post names {named}; say in plain words what the work does, which the channel's members read, and leave the code to the PR it links",
+                MEMBERS_RULE,
+                found=f"this post names {named}",
+            )
+            if named
+            else None,
         ]
     )
 

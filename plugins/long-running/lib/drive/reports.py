@@ -1,6 +1,7 @@
 import json
 import re
 from collections.abc import Iterator
+from datetime import datetime
 
 from drive import agents, limits, refs, slack, state
 
@@ -28,6 +29,7 @@ UNPOSTED_PART = (
 )
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
+NOT_UNTIL = "refused: until {until} is no time with its offset; name the end of the post it goes with in RFC 3339, such as 2026-11-14T13:30:00-08:00"
 SECOND_REPORT = (
     "refused: the coordinator and the meta session send one report per thread per turn, and this turn, which runs from a wake"
     " to the end of its response, already sent one for thread {thread}; what did not fit in it waits for the next wake."
@@ -98,6 +100,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield misnamed_part(drive, record)
     yield unfinished(drive, record) if posting else None
     yield not_thread(record)
+    yield not_until(record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
@@ -179,6 +182,18 @@ def not_thread(record: dict) -> str | None:
     if (thread := attrs(record).get("thread")) and not THREAD_TS.fullmatch(thread):
         return agents.Unjudged(NOT_THREAD.format(thread=thread))
     return None
+
+
+def not_until(record: dict) -> str | None:
+    """Why a report names an end that is no time with its offset, refused by its shape alone, so every time."""
+    if not (until := attrs(record).get("until")):
+        return None
+    try:
+        if datetime.fromisoformat(until).tzinfo:
+            return None
+    except ValueError:
+        pass
+    return agents.Unjudged(NOT_UNTIL.format(until=until))
 
 
 def report_threads(tool_input: dict) -> set[str]:

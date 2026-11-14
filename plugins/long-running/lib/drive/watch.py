@@ -1153,6 +1153,42 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Owe the thread of each claim whose end passed, such as a staging claim's in #platform-internal, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order's lane gets a DUE line naming the claim, again every ten minutes until one is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    due = [
+        (order_id, ts, held)
+        for order_id, order in data["orders"].items()
+        if order["claims"] and hears(watcher, data, order_id)
+        for ts, held in order["claims"].items()
+        if state.parse_time(held["until"]) <= moment and (held["said"] is None or moment - state.parse_time(held["said"]) >= DUE_EVERY)
+    ]
+    lines = []
+    for order_id, ts, held in due:
+        source = f"claim read {ts}"
+        try:
+            messages = slack.thread("--channel", held["channel"], "--thread", ts, "--since-ts", held["since"], "--limit", str(slack.WHOLE_THREAD))
+        except slack.SlackError as error:
+            lines += failed(watcher, source, f"read of the thread of claim {held['link']}", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+        closed = any(message.get("from_claude") for message in messages)
+        with state.edit(watcher.name) as data:
+            claims = data["orders"][order_id]["claims"]
+            if claims.get(ts, {}).get("since") != held["since"]:
+                continue
+            if closed:
+                claims.pop(ts)
+                continue
+            claims[ts]["said"] = state.stamp(moment)
+        lines.append(
+            f"DUE {order_id} claim {held['link']} ended {when(held['until'])} with no closing line in its thread: once the work ends, free what it"
+            f" claimed and send a POST report with --attr thread={ts} saying it is done, what is free again and the result, as the repository's"
+            " staging-claim rule says, or one with --attr until=<the new end> while it runs on"
+        )
+    return lines
+
+
 def last_line(data: dict, group: list[str]) -> datetime:
     """When he last had a line on an open order or incident, by the orders state.incident_orders names for it: the newest drive post on any of them, else when the first was opened."""
     lined = [data["orders"][order_id]["last_line"] for order_id in group if data["orders"][order_id]["last_line"]]
@@ -3022,6 +3058,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield github_lines(watcher, moment)
     yield catch_up_lines(watcher, moment)
     yield due_lines(watcher, moment)
+    yield claim_lines(watcher, moment)
     yield quiet_lines(watcher, moment)
     yield clock_lines(watcher, moment)
     yield undelivered_lines(watcher, moment)
