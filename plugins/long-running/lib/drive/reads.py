@@ -45,6 +45,7 @@ LANE_VERBS = (
     ("pr", "add"),
     ("pr", "set"),
     ("plan", "search"),
+    ("datadog",),
     ("manual",),
     ("status",),
 )

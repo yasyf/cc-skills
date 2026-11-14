@@ -105,7 +105,8 @@ DATADOG_READ = (
     " API, never the `pup` command, whose OAuth grant keeps the scopes its `pup auth login` was granted while later pup"
     " releases add commands needing more, such as profiling's `continuous_profiler_read`. Load them with ToolSearch"
     " `select:mcp__plugin_datadog_mcp__execute_code,mcp__plugin_datadog_mcp__search_datadog_sdk` and make the same read"
-    " through `execute_code`"
+    " through `execute_code`, or on a Sprite lane, which has none of them, through `drive datadog execute_code -` with its"
+    " JSON arguments on stdin"
 )
 
 
