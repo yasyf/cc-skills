@@ -442,8 +442,10 @@ the patch.
   While it stands, a release runs only on his exception, an answer of his recorded after the hold
   that approves that one release. `drive job add --release` refuses any other start, and the
   `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
-  release resume`, `approve` and `rollback`, `tools/ci bk rerun release`, and a `tools/ci bk api`
-  write to a release build. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
+  release resume`, `approve` and `rollback`, and a `tools/ci bk rerun release` or `tools/ci bk api`
+  write to a release cut, a forge/release build whose env holds `RELEASE_START`, or creating one. A
+  cluster job's build, such as a team's memory move from `tools/ci cluster-job`, is no release, so
+  any drive session opens its gate on no exception. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
   nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
   with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
   `drive job launch` keeps in `~/.codex/hooks.json`.
@@ -456,7 +458,7 @@ the patch.
 - A sub-coordinator, the coordinator session for one project, lands and installs its project's
   changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
   since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,
-  `resume`, `approve` and `rollback` and a release build's rerun or unblock from a sub-coordinator's
+  `resume`, `approve` and `rollback` and a release cut's rerun or unblock from a sub-coordinator's
   session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `status` and
   `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
