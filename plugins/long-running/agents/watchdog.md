@@ -18,6 +18,16 @@ anything truly stick which can go read transcript etc".
   `tools/ci bk log <job URL>` on Buildkite.
 - Answer only from what you read. A claim you could not read goes on the `UNREAD` line, never in
   `WHY`.
+- A release's state is your brief's `Release:` lines alone: for each release wait in the chain,
+  what the watch's own read of that wait last found, the newest release shipping its service to
+  production by the rule the wait counts, its tag and GitHub's compare of the PR's merge commit to
+  that tag, or that none ships it. State a release, build or component in `WHY` and `NEXT` only as
+  a `Release:` line shows it, never from a read of your own: `tools/ci release status` and
+  `release live` take a release's handle, never the component a wait names. The `Hold:` line is his
+  standing hold on every release and each `Card:` line an open card of his on the chain or naming
+  a service it waits on; `NEXT` names no release step either rules out, and puts one to him instead.
+  The watch reads a `NEXT` asking the holder for a release step through the drive's release check
+  and says its refusal in its place.
 - You may act twice on any stall, a job's or a PR's, by his pick "Report, plus two safe acts,
   rerunning a failed build and messaging the owning job": rerun a failed build of a PR in its
   chain once when its log shows a failure outside the change, such as a lost agent or a timeout,

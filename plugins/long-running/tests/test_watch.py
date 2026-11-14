@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
+from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -6759,6 +6759,7 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
         data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[release])}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
     watching = watcher(demo)
     watching.cards = NO_CARDS
     watch.stall_lines(watching, T0)
@@ -6775,6 +6776,50 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
     assert len(watchdogs) == 2
     watch.stall_lines(watching, T0 + timedelta(minutes=68))
     assert [brief.splitlines()[0] for brief, _ in watchdogs] == ["Stall: j3, unmoved 65 minutes", "Stall: j1, unmoved 60 minutes", "Stall: j2, unmoved 63 minutes"]
+
+
+def test_a_stalls_watchdog_is_handed_the_watchs_own_read_of_each_release_wait_his_hold_and_his_cards_naming_the_service_it_waits_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], recorded: Answers
+) -> None:
+    wait = f"release:sand-next:{KEY}"
+    published = [release(2, "2026-11-13T10:18:15Z", "api", day="2026-11-13"), unlined(release(60, "2026-11-13T03:37:06Z", "sand-next, api", day="2026-11-12"))]
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published))
+    recorded.listed = [{"id": "15c4de1aa", "title": "Are releases frozen?", "body": "no releases until I say we can again", "tags": ["release-hold"], "created_at": "2026-11-13T19:10:39Z"}]
+    asked = "When should dashboard, sand-next and sand ship?"
+    on_it = {"question": asked, "options": ["Now", "Later"], "recommended": "Now", "asked": state.stamp(T0), "url": CARD, "card": {"title": asked, "body": ""}}
+    elsewhere = {"question": "Which store should the sand CLI read?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD[:-3]}200", "card": {"title": "Which store?", "body": "sandsql"}}
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="bd434a0f1b2c3d4e")
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [wait]}
+    watching = watcher(demo)
+    watching.cards = NO_CARDS | {"questions": [on_it, elsewhere]}
+    assert watch.shipped(watching, state.load(demo), T0) == ({}, [])
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(brief, _)] = watchdogs
+    assert [line for line in brief.splitlines() if line.startswith(("Release:", "Hold:", "Card:"))] == [
+        f"Release: {wait}: the watch's read at {watch.when(state.stamp(T0))} of the 100 newest releases of Forge-AI/monorepo found none with sand-next"
+        f" named on the Production line of its notes, so none holds {KEY}'s merge commit bd434a0f1b2c",
+        'Hold: he holds every release, by his words "no releases until I say we can again" (15c4de1): a release runs only on an answer of his recorded since that approves that one release',
+        f'Card: "{asked}" {CARD}, asked by no job of the drive',
+    ]
+
+
+def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check_refuses_reaches_the_stuck_line_and_him_as_that_refusal(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], jev: Jev
+) -> None:
+    watching = stalling(demo)
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(_, out)] = watchdogs
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("WHY: no sand-next release carries it\nWHO: the holder\nNEXT: start a sand-next production release now\nUNREAD: nothing\n")
+    jev.picks("asks")
+    [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
+    assert f"; NEXT: {watch.cut(watch.brief.RELEASE_UNNAMED, 200)}; its whole answer" in stuck
+    watch.stall_lines(watching, T0 + timedelta(minutes=98))
+    [[report]] = ready_records
+    assert f"NEXT: {watch.brief.RELEASE_UNNAMED}" in report["body"].splitlines()
 
 
 def test_watchdog_agents_count_those_still_searching_and_those_started_within_the_hour() -> None:
