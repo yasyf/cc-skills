@@ -480,6 +480,13 @@ def landed_words(pr: dict) -> str:
     return f" (the lander {outcome.partition('; ')[0]})"
 
 
+def pr_item(key: str, pr: dict) -> str:
+    """A PR on one line among the items of a report: its state and checks as the watch last read them from GitHub, his tap, his card on it as with_cards marked it, and an open one's stage; the rest drive status prints by its key."""
+    tap = f", {pr['tap']['label']}" if pr.get("tap") else ""
+    card = f", {pr['card_state']}" if pr.get("card_state") else ""
+    return f"{key} {pr['state']}, checks {pr['checks']}{tap}{card}{stage_words(pr)}"
+
+
 def design_words(pr: dict) -> str:
     """The answers of his the PR cites for its design, as the check reads them, each by its id or link, or what the PR cites while the check has read none of it; never one cc-notes only ranked near the words of a card it cites."""
     if pr.get("answers"):

@@ -670,7 +670,8 @@ nothing waits there it reads "No open cards".
   fail as before, nor a release or answer ending one wait of a job that still waits on another. Once
   five minutes have passed since the thread's last line or the watch's last report on it, the watch
   sends one `report` carrying `quiet=true` and the thread,
-  naming every step that moved in that time and each order and incident that owes the line, never an
+  naming every step that moved in that time on one line each, by its key, and each order and incident
+  that owes the line, never an
   order with nothing moved and no job at work unless he asked a line of it every so many minutes, filed with
   `--every`, which owes one that long after the thread's last line, or called it top priority, marked with `drive order set <o> --priority`, by his words
   "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it", and starts one handler, which posts what changed in that thread, so no
@@ -697,8 +698,8 @@ nothing waits there it reads "No open cards".
   so the ack under his ask leaves it open. Only an ask in his DM is followed, since the watch rewrites
   its own post there with no ticket.
 - An incident shares that rule with a clock: until its fix is live he hears each step the moment it
-  happens, and until its users are unblocked a line five quiet minutes after the last while a job
-  works on it or something it names moved, while he is away too, which the watch owes and has a
+  happens, and until its users are unblocked a line five quiet minutes after the last while a job's
+  lane writes on it or something it names moved, while he is away too, which the watch owes and has a
   handler post. A report on it goes out even when its thread already had one that turn, by
   [incidents.md](incidents.md).
 - He is away from the moment the owner row's away holds: when he says he is going to sleep or

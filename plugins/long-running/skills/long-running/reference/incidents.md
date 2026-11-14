@@ -316,20 +316,27 @@ check's verdict, or from the order when none ran.
   jobs; costs one handler session each". Five minutes after the newest drive post on any order of
   the open incidents in one thread, or after the newest of them opened, the watch's `quiet_lines`
   sends the communicator one `report` carrying `quiet=true` and that thread, naming each incident
-  there that owes it with its orders, each job and each PR as the watch last read it from GitHub, never as an
-  order's note says it stands, so two incidents in one thread get one line, not one each. It
-  starts one handler on that report, which reads the jobs and posts where each incident stands in
-  that thread; a handler already at work in the thread takes the report at its next step.
+  there that owes it with its orders, then one line per item that needs the line: each order, job
+  and PR that moved, each job at work with the steps its lane took since, and each open PR whose
+  stage he owes, with his card on it, each PR as the watch last read it from GitHub, never as an
+  order's note says it stands, so two incidents in one thread get one line, not one each. Every
+  other job and PR of them waits, and the handler reads the rest of an item by its key, with
+  `drive job report <j>` or `drive status <key>`, so the report its post cites leaves `say`'s
+  claims check room for those reads. It starts one handler on that report, which posts where each
+  incident stands in that thread; a handler already at work in the thread takes the report at its
+  next step.
   - It owes that line only on news, by his pick "Owe a line only on news: while a job works or
-    something it names changed; silent while all waits.": while a job of the incidents works, or
-    once an order, job or PR of them moved since the thread's last line or the watch's last report on
+    something it names changed; silent while all waits.": while a job of the incidents works, its
+    lane having written since the thread's last line or the watch's last report on it, whatever
+    its state reads, or once an order, job or PR of them moved since the thread's last line or the watch's last report on
     it, a job by its state, whether anything holds it,
     returned line or the cards of his its questions are open on, a PR by its state, head, checks,
     Trunk ejection, card or his tap, a `handoff` the communicator's side sent five minutes before
     with no job of its order made, nor the job it names started, since, never which waits hold a job, so a release ending one of
     several is no news, nor a PR's stage relabelled with none of those changed, such as red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once each
     report reaches a handler, so news a handler did not post goes out once, and the report names what
-    moved and which jobs are at work. An incident whose every job waits, on his
+    moved, which jobs are at work and the steps each took, so the line says what each did, never
+    a running job's kept `WAITING` as where it stands. An incident whose every job waits, on his
     card, a release or a PR, gets no line until one of them moves. Every open order
     shares this rule and its five-minute clock, and a job at work owes a head's line only when it is
     a job of that head's own orders, by [When it goes out](messages.md#when-it-goes-out).

@@ -252,6 +252,7 @@ REAL_FETCH = github.fetch
 REAL_MERGEABILITY = github.mergeability
 REAL_RUN_PASS = watch.run_pass
 REAL_SESSION_ENV = launchd.session_env
+REAL_LANE_WRITE = watch.lane_write
 
 
 def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_stages_each_pr_whose_head_changes_a_dangerous_class(
@@ -1538,7 +1539,7 @@ def test_a_due_report_names_a_job_carrying_orders_joined_to_its_order_once_in_it
     [report, _] = owed(watcher(demo), T0, said)
     lines = report["body"].splitlines()
     assert [line.rpartition(". At work: ")[2] for line in lines if line.startswith("Moved since")] == ["j1."]
-    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
+    assert [line for line in lines if line.startswith("- j")] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'], 80)}"]
     assert lines[0] == "Order o1, o2: ship the watch"
 
 
@@ -1554,7 +1555,7 @@ def test_replaying_720284_a_due_report_names_no_order_joined_to_its_order_whose_
     [report, _] = owed(watcher(demo), T0, said)
     lines = report["body"].splitlines()
     assert (report["topic"], report["attr"]["thread"], lines[0]) == ("watch-due-o1", O1114_THREAD, "Order o1: ship the watch")
-    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
+    assert [line for line in lines if line.startswith("- j")] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'], 80)}"]
 
 
 @pytest.mark.parametrize(
@@ -1750,6 +1751,11 @@ def shown_pr(demo: str, key: str) -> str:
     return f"- {render.pr_line(data, key, data['prs'][key]['card_state'])}"
 
 
+def shown_item(demo: str, key: str) -> str:
+    """The PR's line as a quiet report names it among its items: its stored row, with his card and its stage on it."""
+    return f"- {render.pr_item(key, cli.with_cards(demo, state.load(demo))['prs'][key])}"
+
+
 def quiet_incident(demo: str) -> None:
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
@@ -1770,7 +1776,8 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     [(report, body), (start, _)] = calls
     assert (report["text"], report["topic"], report["to"]) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", [f"communicator@{demo}"])
     assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
-    assert {f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'])}", "PRs, as the watch last read them from GitHub: 1", shown_pr(demo, KEY)} <= set(body.splitlines())
+    assert f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'], 80)}" in body.splitlines()
+    assert shown_pr(demo, KEY) not in body.splitlines()
     assert "674295" not in body
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}" + UNFROZEN
     quiet = state.load(demo)["orders"]["o1"]["quiet"]
@@ -2254,14 +2261,18 @@ def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refre
         data["orders"]["o4"] = order(text="the writer change", jobs=["j4"])
         data["jobs"]["j1"]["prs"] = [state.pr_url(fix)]
         data["jobs"]["j4"] = job(order="o4")
-        data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, order_id) | {"state": "merged", "checks": "pass", "review": "approved"} for key, job_id, order_id in ((fix, "j1", "o1"), (writer, "j4", "o4"))}
+        data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, order_id) for key, job_id, order_id in ((fix, "j1", "o1"), (writer, "j4", "o4"))}
     calls = catching_up(monkeypatch, demo)
-    assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=7)) == []
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        for key in (fix, writer):
+            data["prs"][key] |= {"state": "merged", "checks": "pass", "review": "approved"}
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
     [(_, body), _] = calls
     lines = body.splitlines()
-    now = state.load(demo)
-    assert lines[1:4] == ["PRs, as the watch last read them from GitHub: 2", *(f"- {render.pr_line(now, key, None)}" for key in (fix, writer))]
-    assert " merged, checks pass, review approved" in lines[2]
+    assert f"Moved since the thread's last line or the watch's last report on it: {fix}, {writer}. At work: j1, j2." in lines
+    assert [line for line in lines if line.startswith("- Forge-AI/")] == [f"- {fix} merged, checks pass", f"- {writer} merged, checks pass"]
     assert [line for line in lines if "waiting on his tap" in line or "green and approved" in line] == []
 
 
@@ -2333,13 +2344,8 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
     [(report, body), (start, _)] = calls
     assert (report["text"], report["topic"]) == ("POST incidents o1, o3 have had no line to him in 5 minutes: post where each stands now in its thread", "watch-quiet-o1")
     lines = body.splitlines()
-    assert lines[:4] == [
-        "Incident o1, o2: ship the watch",
-        "Incident o3: checkout is down too",
-        "PRs, as the watch last read them from GitHub: 1",
-        shown_pr(demo, KEY),
-    ]
-    assert f"- {render.job_line(state.load(demo), 'j3', state.load(demo)['jobs']['j3'])}" in lines
+    assert lines[:2] == ["Incident o1, o2: ship the watch", "Incident o3: checkout is down too"]
+    assert f"- {render.job_line(state.load(demo), 'j3', state.load(demo)['jobs']['j3'], 80)}" in lines
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}" + UNFROZEN
     orders = state.load(demo)["orders"]
     assert [{key: orders[head]["quiet"][key] for key in ("record", "at", "handler")} for head in ("o1", "o3")] == 2 * [{"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}]
@@ -2365,14 +2371,70 @@ def test_a_quiet_report_names_each_job_and_pr_of_its_thread_once_however_many_of
     [(_, body), _] = calls
     lines = body.splitlines()
     jobs = state.load(demo)["jobs"]
-    assert lines[:4] == [
-        "Incident o1, o2: ship the watch",
-        f"Incident o3: checkout is down too, since {KEY}",
-        "PRs, as the watch last read them from GitHub: 1",
-        shown_pr(demo, KEY),
-    ]
+    assert lines[:2] == ["Incident o1, o2: ship the watch", f"Incident o3: checkout is down too, since {KEY}"]
     assert f"Moved since the thread's last line or the watch's last report on it: {KEY}. At work: j1, j2, j3." in lines
-    assert lines[lines.index("Jobs: 3") + 1 :] == [f"- {render.job_line(state.load(demo), job_id, jobs[job_id])}" for job_id in ("j1", "j2", "j3")]
+    items = lines[lines.index("Needs the line, each PR as the watch last read it from GitHub: 4") + 1 :]
+    assert [item for item in items if item.startswith("- ")] == [*(f"- {render.job_line(state.load(demo), job_id, jobs[job_id], 80)}" for job_id in ("j1", "j2", "j3")), shown_item(demo, KEY)]
+
+
+def test_a_quiet_incident_owes_no_line_while_its_running_jobs_lanes_write_nothing_and_names_the_steps_a_local_agent_took_once_it_writes(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(watch, "lane_write", REAL_LANE_WRITE)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    quiet_incident(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(session="session-under-test", agent="a1")
+    called = [
+        {"type": "assistant", "timestamp": state.stamp(T0 + timedelta(minutes=minute)), "message": {"content": [{"type": "tool_use", "name": "mcp__plugin_long-running_drive__status", "input": {"description": f"Read step {minute}"}}]}}
+        for minute in range(1, 10)
+    ]
+    write_transcript(tmp_path / "config", called, timedelta(0))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=10)) == []
+    [(_, body), _] = calls
+    lines = body.splitlines()
+    assert "Moved since the thread's last line or the watch's last report on it: nothing. At work: j1." in lines
+    at = lines.index(f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'], 80)}")
+    assert lines[at + 1 : at + 7] == [f"  - 8 steps since {render.when(state.stamp(T0 + timedelta(minutes=2)))}, the newest 5:", *(f"  - status Read step {minute}" for minute in range(5, 10))]
+    assert not any(line.startswith("- j2 ") for line in lines)
+
+
+def test_a_job_at_work_names_the_commands_its_codex_run_started_and_the_reads_its_sprite_lane_relayed_since_the_threads_last_line(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(watch, "lane_write", REAL_LANE_WRITE)
+    quiet_incident(demo)
+    run = tmp_path / "codex"
+    run.mkdir()
+    started = [{"type": "item.started", "item": {"id": f"item_{n}", "type": "command_execution", "command": f"/bin/zsh -lc 'git status {n}'"}} for n in (1, 2)]
+    (run / "codex-q-1.log").write_text("".join(json.dumps(row, separators=(",", ":")) + "\n" for row in started))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="ctx_1")
+        data["jobs"]["j2"]["codex_run"] = str(run)
+    relayed = [
+        {"id": "q1", "type": "question", "created_at": state.stamp(T0 + timedelta(minutes=1)), "subject": "Question", "body": "DRIVE status\n{}"},
+        {"id": "q2", "type": "question", "created_at": state.stamp(T0 + timedelta(minutes=3)), "subject": "Question", "body": "DRIVE datadog execute_code -\n{}"},
+        {"id": "s1", "type": "status", "created_at": state.stamp(T0 + timedelta(minutes=4)), "subject": "Status", "body": "re-proving on staging"},
+    ]
+    for row in relayed:
+        state.keep_reply(demo, "j1", row)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    wrote = T0 + timedelta(minutes=4)
+    watching.lanes["j1"] = watch.lane_wrote(state.load(demo)["jobs"]["j1"], {"terminal": {"lastOutputAt": int(wrote.timestamp() * 1000)}})
+    assert watching.lanes["j1"] == (wrote, None)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    [(_, body), _] = calls
+    lines = body.splitlines()
+    jobs = state.load(demo)["jobs"]
+    assert "Moved since the thread's last line or the watch's last report on it: nothing. At work: j1, j2." in lines
+    remote, codex = (lines.index(f"- {render.job_line(state.load(demo), job_id, jobs[job_id], 80)}") for job_id in ("j1", "j2"))
+    assert lines[remote + 1 : remote + 2] == ["  - DRIVE datadog execute_code -"]
+    assert lines[codex + 1 : codex + 3] == ["  - git status 1", "  - git status 2"]
 
 
 O1114_THREAD = "1794562114.050739"
@@ -2404,7 +2466,7 @@ def test_replaying_720284_the_news_of_an_order_joined_to_another_whose_lines_go_
     assert (report["text"], report["topic"], report["attr"]["thread"]) == ("POST order o2 has news since the thread's last line: post what changed there", "watch-quiet-o2", O768_THREAD)
     assert lines[0] == f"Order o2: {O768_WORDS}"
     assert "Moved since the thread's last line or the watch's last report on it: j2. At work: no job." in lines
-    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'])}"]
+    assert [line for line in lines if line.startswith("- j")] == [f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'], 80)}"]
     assert reports[O1114_THREAD][0]["topic"] == "watch-quiet-o1"
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
     assert [record["attr"]["thread"] for record, _ in calls if isinstance(record, dict)].count(O768_THREAD) == 1
@@ -2425,7 +2487,7 @@ def test_a_line_in_the_own_thread_of_an_order_joined_to_another_leaves_the_clock
     lines = body.splitlines()
     assert (report["topic"], report["attr"]["thread"], lines[0]) == ("watch-quiet-o1", O1114_THREAD, "Order o1: ship the watch")
     assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in lines
-    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
+    assert [line for line in lines if line.startswith("- j")] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'], 80)}"]
 
 
 def test_the_news_of_an_order_joined_to_another_keeping_no_thread_of_his_dm_goes_in_that_others_thread_never_his_dm_root(
@@ -2463,7 +2525,7 @@ def test_replaying_o1357_an_incident_joined_to_an_order_that_is_no_incident_owes
     assert (report["text"], report["topic"], report["attr"]["thread"]) == ("POST incident o2 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o2", INCIDENT_THREAD)
     assert lines[0] == "Incident o2: the same alert again"
     assert "Moved since the thread's last line or the watch's last report on it: nothing. At work: j2." in lines
-    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'])}"]
+    assert [line for line in lines if line.startswith("- j")] == [f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'], 80)}"]
     assert KEY not in body
 
 
