@@ -3663,7 +3663,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
         return None
     data = state.load(name)
     for wait in waits:
-        pr = release["pr"] if (release := state.RELEASE_WAIT.fullmatch(wait)) else wait
+        pr = state.waited_pr(wait)
         if state.PR_KEY.fullmatch(pr) and pr not in data["prs"]:
             raise DriveError(f"--waits {wait}: the drive tracks no PR {pr}; drive pr add it to its job first")
         if (named := state.ORDER_PART.fullmatch(wait)) and named[1] in data["orders"] and not (state.part_wait(data, wait) and view.holds(data, wait, None)):
@@ -3679,8 +3679,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges, or once it closes unmerged on the job that opened it, or release:<service>:<owner>/<repo>#<n>, the release of"
-                " that service carrying that PR"
+                " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, held until the release of that service carrying"
+                " that PR is out, either one moving to the change of the job that opened the PR once it closes unmerged"
             )
     if refused := unreached(name, data, waits):
         raise DriveError(f"--waits {refused}")
@@ -4677,8 +4677,9 @@ def parser() -> argparse.ArgumentParser:
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
             " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
-            " stops or fails, each part it carries is delivered, or tools/ci release pull reads every production cluster of that"
-            " service serving the PR with no release running there, and says FREE once when the last is gone, which wakes the"
+            " stops or fails, each part it carries is delivered, or every cluster tools/ci release live reads running that service,"
+            " production or not, one at least, serves the PR and tools/ci release pull reads no production cluster of it behind"
+            " the PR, with no release running there, and says FREE once when the last is gone, which wakes the"
             " coordinator; a job keeps a release wait it was freed of until it finishes and says REWAIT once a cluster goes behind."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"
         ),

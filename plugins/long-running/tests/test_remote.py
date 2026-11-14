@@ -5882,8 +5882,9 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
     assert watching.agent_gaps == {"j1": "j1 never started on its Sprite"}
     with state.edit(demo) as data:
         data["prs"][key].update(state="merged", merged_sha="abc123")
-    shipped = f"every production cluster of api serves {key} with no release running there"
+    shipped = f"every cluster of api, plat-usw2-prod, serves {key} with no release running there"
     watching.production = {key: {"number": 7, "liveInProduction": True, "productionBehind": []}}
+    watching.serving = {shipping: {"plat-usw2-prod": True}}
     assert watch.waits_lines(watching, T0) == [
         f"FREE j2 o1: {key} answered or done, {shipped}, nothing else holds it, not started yet: drive job launch j2 starts it",
         f"FREE j3 o1: {key} answered or done, nothing else holds it, not started yet: drive job launch j3 starts it",
