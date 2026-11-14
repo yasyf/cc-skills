@@ -2668,9 +2668,17 @@ def test_the_watch_takes_a_codex_jobs_result_from_the_state_line_and_report_its_
 ) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "two of three findings hold", "Finding 1\n")))
-    assert watch.run_pass(watcher(demo), state.now()) == []
+    assert watch.run_pass(watcher(demo), state.now()) == ["JOB j1 o1 DONE two of three findings hold"]
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["said"], state.report_text(demo, "j1")) == ("done", "DONE two of three findings hold", "DONE two of three findings hold\nFinding 1\n")
+
+
+def test_the_watch_tells_the_coordinator_of_a_codex_run_that_died_before_its_first_turn(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    died = "Error: thread/start: thread/start failed: error creating thread: Fatal error: Failed to initialize session: required MCP servers failed to initialize: datadog: MCP client startup timed out after 30s (code -32603)"
+    codex_running(demo, codex_ask.run("failed", log=f"Reading prompt from stdin...\n{died}\n"))
+    assert watch.run_pass(watcher(demo), state.now()) == [f"JOB j1 o1 BLOCKED codex-ask failed: {died}"]
+    assert state.load(demo)["jobs"]["j1"]["state"] == "failed"
 
 
 def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_named_kept_as_its_run_is_taken_so_his_card_goes_up_as_it_returns(
@@ -2725,8 +2733,9 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
 def test_an_incident_codex_jobs_return_on_a_part_other_than_its_fix_adds_no_builder(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     incident_codex_running(demo, codex_ask.run("completed", codex_reply("HANDOFF", "the first check is left on branch first-check")), "first check")
-    assert staged(watch.agent_lines, watcher(demo), state.now()) == []
-    assert list(state.load(demo)["jobs"]) == ["j1"]
+    lines = staged(watch.agent_lines, watcher(demo), state.now())
+    data = state.load(demo)
+    assert (lines, list(data["jobs"])) == ([f"JOB j1 o1 {data['jobs']['j1']['said']}"], ["j1"])
 
 
 def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_under_that_session(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

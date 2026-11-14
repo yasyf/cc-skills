@@ -300,9 +300,12 @@ command/url/env/headers. A name missing from `codex
 mcp list --json`, or present but disabled, exits 2. `node_repl` (120s
 browser-REPL startup) never mounts implicitly. Each mounted server runs with
 `-c mcp_servers.<name>.required=true`, so `codex exec` holds the first turn
-until every one has started, and a server that cannot start fails the run:
-codex-ask exits 1 with codex's `required MCP servers failed to initialize:
-<name>: <error>` in the log tail, naming the credential or command to fix. The
+until every one has started. When one cannot start, codex exits on
+`required MCP servers failed to initialize: <name>: <error>` before its thread
+starts, and codex-ask reruns the question once, at once, in the same run folder
+with no server required: the lane starts, and a slow server's tools join once it
+is up. The first try's error stays in the log, naming the credential or command
+to fix. The
 dispatcher appends a `## MCP` section to `developer_instructions` naming what's
 mounted; codex may not list those tools up front, so the lane calls them by
 full name. Use it to
