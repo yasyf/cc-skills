@@ -417,13 +417,13 @@ def live(group: int) -> bool:
 
 
 @contextlib.contextmanager
-def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator[Grant]:
-    """The forge/break-glass grant for the stack, started in the asker's name and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile, or a Mac with no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
+def break_glass(stack: str, reason: str, asker: str, checkout: Path, started: Callable[[str], None]) -> Iterator[Grant]:
+    """The forge/break-glass grant for the stack, started in the asker's name, its link handed to `started` as grant says, and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile, or a Mac with no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
     if not (named := STACK.fullmatch(stack)):
         raise ReadError(f'"{stack}" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod')
     profile = machine_profile(named[1], checkout)
     window = window_profile()
-    link, ends = grant(stack, f"{asker}: {reason}", checkout)
+    link, ends = grant(stack, f"{asker}: {reason}", checkout, started)
     minted = [(profile, mint(profile, SESSION_NAME.sub("-", asker)[:64], link, ends, checkout)), (window, opened(window, link, ends, checkout))]
     name = profile.name.removeprefix("profile ")
     with stop_signals() as stops, tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
@@ -442,8 +442,8 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path) -> Iterator
         yield Grant(link, name, ends, {**isolated, "AWS_CONFIG_FILE": str(path), "AWS_SHARED_CREDENTIALS_FILE": os.devnull, "AWS_PROFILE": name}, stops)
 
 
-def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
-    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted. The build runs at the commit Pulumi last applied identity at on core-gbl-identity: that stack's IAM is what the grantor role may do, so a grant never runs go/ci code ahead of it, as a grant at dev's newest commit does once a change to the roles a grant opens merges before its identity release."""
+def grant(stack: str, why: str, checkout: Path, started: Callable[[str], None]) -> tuple[str, datetime]:
+    """The link of the forge/break-glass grant started with the reason once it passed, and the end its build records, an hour after it granted; the link goes to `started` the moment bk build create prints it, before the build grants and Platy posts the grant to #releases. The build runs at the commit Pulumi last applied identity at on core-gbl-identity: that stack's IAM is what the grantor role may do, so a grant never runs go/ci code ahead of it, as a grant at dev's newest commit does once a change to the roles a grant opens merges before its identity release."""
     created = run(
         ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-c", applied_commit(*GRANTOR, checkout), "-m", why]
         + ["-e", f"BREAK_GLASS_REASON={why}", "-e", f"BREAK_GLASS_STACK={stack}", "--no-input", "-y"],
@@ -451,6 +451,7 @@ def grant(stack: str, why: str, checkout: Path) -> tuple[str, datetime]:
     )
     if not (build := BUILD_NUMBER.search(created)):
         raise ReadError(f"bk build create printed no build link: {created.strip()}")
+    started(build[0])
     run(["bk", "build", "watch", build[1], "-p", BREAK_GLASS_PIPELINE, "--interval", "2"], checkout, bounded=False)
     viewed = json.loads(run(["bk", "build", "view", build[1], "-p", BREAK_GLASS_PIPELINE, "-o", "json"], checkout))
     if viewed["state"] != "passed":
