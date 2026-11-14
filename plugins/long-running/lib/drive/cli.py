@@ -606,6 +606,12 @@ def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
     return list(dict.fromkeys(named))
 
 
+def pick_job_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
+    """The parts a job takes on the order, each `port of #N` it names added to the order when missing, so each old-tree port is a change of its own: its builder starts beside the builders of other ports, and its part is delivered, or flagged once its builder stops, on its own."""
+    order["parts"] |= {part: state.new_part() for part in named if state.PORT_PART.fullmatch(part) and part not in order["parts"]}
+    return pick_parts(order_id, order, named)
+
+
 def apart_from_filing(order: dict) -> str:
     """The order apart from its project, workstream and title, so filing or titling it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
@@ -1143,7 +1149,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, state.load(name)))
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
-        parts = pick_parts(args.order, order, args.part)
+        parts = pick_job_parts(args.order, order, args.part)
         refuse_a_shared_at_once_part(parts)
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         live = sharing(data, args.order, parts)
@@ -1351,12 +1357,12 @@ def job_set(args: argparse.Namespace) -> int:
                 if order_id == job["order"]:
                     raise DriveError(f"{args.id} is {order_id}'s own job; add its parts with --part")
                 carried = find(data["orders"], order_id, "order")
-                parts = pick_parts(order_id, carried, args.part)
+                parts = pick_job_parts(order_id, carried, args.part)
                 if refused := second_carrier(carried, job["kind"], False, job["waits"], sharing(data, order_id, parts, args.id)):
                     raise DriveError(f"{args.id}: refused, nothing changed: {refused}")
                 state.carry(data, args.id, order_id, parts)
         elif args.part or args.parts:
-            named = pick_parts(job["order"], data["orders"][job["order"]], args.parts or args.part)
+            named = pick_job_parts(job["order"], data["orders"][job["order"]], args.parts or args.part)
             job["parts"] = named if args.parts else list(dict.fromkeys([*job["parts"], *named]))
             refuse_a_shared_at_once_part(job["parts"])
         if job["state"] in ("done", "failed") and any(set(state.job_parts(job, order_id)) - parts for order_id, parts in held.items()):
@@ -2267,7 +2273,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line, when neither names one, each `port of #N` part the job takes, else drive tooling on a tooling order and his order on any other."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
@@ -2276,7 +2282,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     bound = [answer_id for other in order["jobs"] for answer_id in (data["jobs"][other].get("brief_flags") or {}).get("ruling") or []]
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
     flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
-    flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
+    flags["serves"] = flags["serves"] or " and ".join(part for part in job["parts"] if state.PORT_PART.fullmatch(part)) or ("drive tooling" if tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
@@ -4719,7 +4725,7 @@ def parser() -> argparse.ArgumentParser:
         choices=codex.MODELS,
         help="the model a codex job's codex-ask run takes as -m, default codex-ask's own, sol; astra only on an order whose words name astra",
     )
-    verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
+    verb.add_argument("--part", action="append", default=[], help='a part of the order this job delivers, a "port of #N" the order lacks added to it; default: its only part')
     verb.add_argument(
         "--lands",
         action="append",
@@ -4764,7 +4770,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
     verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one")
     named = verb.add_mutually_exclusive_group()
-    named.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
+    named.add_argument("--part", action="append", default=[], help='another part of the order this job delivers, or of the one order --carries names, a "port of #N" that order lacks added to it')
     named.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the parts of its own order this job delivers, replacing its list")
     verb.add_argument(
         "--carries",
@@ -4928,13 +4934,13 @@ def parser() -> argparse.ArgumentParser:
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept;"
-            " a brief naming no --serves serves drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
+            " a brief naming no --serves serves each port of #N part its job takes, else drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
             " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
         ),
     )
     verb.add_argument("id", help="the job")
-    verb.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default drive tooling on a tooling order, else his order')
+    verb.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default each "port of #N" part the job takes, else drive tooling on a tooling order, else his order')
     verb.add_argument("--done-when", help="the check that proves it done")
     verb.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt")
     verb.add_argument(

@@ -80,6 +80,8 @@ Contents:
 
 1. Add the job and write its brief in one `job` call:
    `[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", native: "<his surface, with links, or none>", interactions: "<his user stories on it, one per ;>", ruling: ["<answer id>"]}}]`.
+   An old-tree port takes the part `port of #N`, which the `add` gives its order when missing, so
+   ports named together each start a builder, and its brief's `Serves:` line reads that part.
 2. Start it with the Agent tool: `subagent_type` `long-running:builder` or `long-running:reader`,
    `run_in_background: true`, a short `description`, and the line the `brief` op printed as the
    whole `prompt`. The agent reads its brief file itself, so the brief never passes through your

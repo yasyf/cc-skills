@@ -3974,6 +3974,25 @@ def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_
     assert run("job", "add", "design", "--order", "o1", "--part", "follow-up", "--goal", "design the follow-up") == (0, "j3")
 
 
+def test_ports_named_together_each_start_a_builder_on_a_part_of_their_own_and_a_second_builder_on_one_port_is_refused(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Ports", "make sure ports from old tree haven't stopped", "--parts", "the ports", "the cutover runs")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "port of #101", "--goal", "port the first") == (0, "j1")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "port of #102", "--goal", "port the second") == (0, "j2")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "port of #101", "--goal", "port the first again"]) == 2
+    assert capsys.readouterr().err.strip().endswith(
+        'refused, no job added: j1 builder running carries "port of #101" already, so a second builder would race it on one change: send it the event with'
+        " the brief it starts on, drive job launch j1 <brief>, or stop it with drive job set j1 --state stopped before adding the job that replaces it"
+    )
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the cutover", "--goal", "run the cutover"]) == 2
+    assert "o1 has no part the cutover;" in capsys.readouterr().err
+    assert run("job", "set", "j2", "--part", "port of #103")[0] == 0
+    assert list(state.load("demo")["orders"]["o1"]["parts"]) == ["the ports", "the cutover runs", "port of #101", "port of #102", "port of #103"]
+    briefs = [Path(run("job", "brief", job_id)[1].splitlines()[0].removeprefix("Read your brief first: ")).read_text() for job_id in ("j1", "j2")]
+    assert ["\nServes: port of #101\n" in briefs[0], "\nServes: port of #102 and port of #103\n" in briefs[1]] == [True, True]
+
+
 def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_while_he_picks(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

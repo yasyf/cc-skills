@@ -56,6 +56,7 @@ UNPOSTED_WORK = (
 )
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
+PORT_PART = re.compile(r"port of #\d+")
 INCIDENT_CHOICE = {
     "codex": (
         "a choice never stops it: write the ASK block to a file in your scratch, build its recommended option in the same run,"
