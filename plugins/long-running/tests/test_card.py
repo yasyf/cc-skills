@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Chrome, Jev, Judge, Redraws
+from conftest import Cci, Chrome, Jev, Judge, Redraws
 from drive import card, cli, github, limits, picture, stage, state, superseded, view
 from drive.github import GithubError
 
@@ -776,6 +776,29 @@ def test_his_tap_the_drive_takes_two_hours_late_is_held_on_every_job_it_frees_bu
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     jobs = state.load(drive)["jobs"]
     assert {job_id: [held["seq"] for held in job["undelivered"]] for job_id, job in jobs.items()} == {"j1": ["661500"], "j3": ["661500"], "j4": []}
+
+
+def test_his_tap_ends_its_question_before_cci_takes_its_answer_record_so_a_refusal_holds_no_builder_and_cc_slacks_run_again_posts_it_once(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(drive) as data:
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
+        data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    cci = Cci(refusal="cci: database is locked")
+    monkeypatch.setattr(subprocess, "run", cci.run)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    with pytest.raises(state.DriveError, match="database is locked"):
+        card.question_answered(tap)
+    [question] = state.load(drive)["jobs"]["j3"]["questions"]
+    assert (closes(question), view.holds(state.load(drive), f"{drive}:j3-661440", view.NO_CARDS)) == (("answered", "Ring", NEWER_CARD, None, None), False)
+    cci.refusal = None
+    assert ask({"answer": tap}) == {"ok": True, "seq": "51"}
+    [question] = state.load(drive)["jobs"]["j3"]["questions"]
+    assert closes(question) == ("answered", "Ring", NEWER_CARD, "51", None)
+    assert [(item["topic"], item["id"]) for batch in cci.posted for item in batch] == [("card:1794200000.000100", f"tap:{drive}:j3-661440:1794200001.000100")] * 2
+    assert [event["kind"] for event in events(drive)] == ["answered"]
 
 
 def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, str, str, bool]], list[list[dict]]]:

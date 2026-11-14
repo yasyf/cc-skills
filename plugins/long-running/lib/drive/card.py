@@ -769,7 +769,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, and post it as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the drive takes it and shows the tap recorded only then. The question ends in the write after the post, dated by his tap as its record id carries it however late the drive takes the tap, each older open question of its job his answer decides, as Jev reads it, ends superseded, and each other card drawn for an ended question follows; cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
     from drive import superseded, tools, view
 
     name, _, _ = ask["waits"].partition(":")
@@ -784,12 +784,9 @@ def question_answered(ask: dict) -> dict:
     item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     item |= {"id": f"tap:{ask['waits']}:{ask['action_ts']}{':undone' if undone else ''}"} if ask.get("action_ts") else {}
-    made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
-    [seq] = tools.sent(name, "communicator", [made])
-    closed = state.new_close("answered", said, ask["url"], seq=seq, at=state.tap_time(item.get("id")))
+    closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")))
     with state.edit(name) as data:
         on_card = view.drawn_on(data, ask["waits"], ask["url"])
-        again = [(job_id, question) for job_id, question in on_card if (question["closed"] or {}).get("seq") == seq]
         if undone:
             fresh = [(job_id, question) for job_id, question in on_card if (question["closed"] or {}).get("how") == "answered" and question["closed"]["link"] == ask["url"]]
             for job_id, question in fresh:
@@ -797,25 +794,25 @@ def question_answered(ask: dict) -> dict:
                 data["jobs"][job_id]["updated"] = state.stamp()
         else:
             fresh = [each for job_id, question in on_card if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
-    ended = again + fresh
     shown = view.stored_cards(name)[0]
-    tools.keep_undelivered(name, [made], [seq], [ended], shown, closed["at"])
     card = view.asked_card(shown, ask["url"])
     if fresh or not on_card:
         state.append_event(name, "undone" if undone else "answered", url=ask["url"], label=ask["label"], question=card and card["question"], undo_until=ask.get("undo_until"))
+    if not undone:
+        data = state.load(name)
+        tapped = [(job_id, question) for job_id, question in view.drawn_on(data, ask["waits"], ask["url"]) if (kept := question["closed"]) and (kept["how"], kept["words"], kept["link"]) == ("answered", said, ask["url"])]
+        if decided := [(job_id, older, question) for job_id, question in tapped for older in superseded.decided_by(data, job_id, question, said, shown)]:
+            with state.edit(name) as data:
+                for job_id, older, question in decided:
+                    if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
+                        superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+    made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
+    [seq] = tools.sent(name, "communicator", [made])
     if undone:
+        tools.keep_undelivered(name, [made], [seq], [fresh], shown, closed["at"])
         return {"ok": True, "seq": seq}
-    data = state.load(name)
-    tapped = [(job_id, state.question_in(data["jobs"][job_id], question)) for job_id, question in ended if question["closed"]["how"] == "answered"]
-    decided = [(job_id, older, question) for job_id, question in tapped for older in superseded.decided_by(data, job_id, question, said, shown)]
-    if decided:
-        with state.edit(name) as data:
-            ended += [
-                each
-                for job_id, older, question in decided
-                if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None
-                for each in superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
-            ]
+    ended = [(job_id, question) for _, job_id, question in tools.stamped(name, [made], [seq])]
+    tools.keep_undelivered(name, [made], [seq], [ended], shown, closed["at"])
     tapped_key = view.message_key(ask["url"])
     superseded.follow(name, [(job_id, question) for job_id, question in ended if question["waits"] != ask["waits"] and not (question["card"] and view.message_key(question["card"]) == tapped_key)])
     return {"ok": True, "seq": seq}

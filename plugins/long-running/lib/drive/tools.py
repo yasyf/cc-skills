@@ -554,13 +554,14 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             if ruling not in data["answers"]
         ]
         return "\n".join(said)
+    keep_closed(name, posts, closes, [superseded_by_answer(data, made, questions, found) for made, questions in zip(posts, closes, strict=True)])
     try:
         seqs = sent(name, lane, posts)
     except DriveError as error:
         raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
     said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
+    ended = stamped(name, posts, seqs)
     keep_undelivered(name, posts, seqs, closes, found)
-    ended = keep_closed(name, posts, seqs, closes, [superseded_by_answer(data, made, questions, found) for made, questions in zip(posts, closes, strict=True)])
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
     said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
     said += keep_rulings(name, posts, found)
@@ -694,19 +695,35 @@ def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict
     return [(job_id, older, question) for job_id, question in questions for older in superseded.decided_by(data, job_id, question, made["text"], found)]
 
 
-def keep_closed(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], decided: list[list[tuple[str, dict, dict]]]) -> list[tuple[int, str, dict]]:
-    """End in one write each job question his words in these records are on, answered by an answer and withdrawn by other words, with his words, their link, the record and the ruling it names, and each older question of its job his answer decides too, superseded; each question ended, by its record's place and its job."""
-    ended = []
+def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]]], decided: list[list[tuple[str, dict, dict]]]) -> None:
+    """End in one write, before any of these records goes out, each job question his words in them are on, answered by an answer and withdrawn by other words, with his words, their link and the ruling it names, and each older question of its job his answer decides too, superseded, so a record cci refuses leaves none of them asking him; stamped names the record once it stores."""
     with state.edit(name) as data:
-        for index, (made, seq, questions, deciding) in enumerate(zip(posts, seqs, closes, decided, strict=True), start=1):
-            closed = state.new_close("answered" if made["kind"] == "answer" else "withdrawn", made["text"], made.get("url"), seq=seq, ruling=(made.get("attr") or {}).get("ruling"))
+        for made, questions, deciding in zip(posts, closes, decided, strict=True):
+            closed = state.new_close("answered" if made["kind"] == "answer" else "withdrawn", made["text"], made.get("url"), ruling=(made.get("attr") or {}).get("ruling"))
             for job_id, question in questions:
                 if (kept := state.question_in(data["jobs"][job_id], question))["closed"] is None:
-                    ended += [(index, *each) for each in superseded.end(data, job_id, kept, closed)]
+                    superseded.end(data, job_id, kept, closed)
             for job_id, older, question in deciding:
                 if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
-                    ended += [(index, *each) for each in superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))]
+                    superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+
+
+def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, str, dict]]:
+    """Name each record's seq on every question his words in it ended before it went out, found by those words and their link, whether this call or one cci refused ended it; each such question, by its record's place and its job."""
+    ended = []
+    with state.edit(name) as data:
+        for index, (made, seq) in enumerate(zip(posts, seqs, strict=True), start=1):
+            for job_id, job in data["jobs"].items():
+                for question in job["questions"]:
+                    if (closed := question["closed"]) and ended_by(closed, made, seq):
+                        closed["seq"] = seq
+                        ended.append((index, job_id, question))
     return ended
+
+
+def ended_by(closed: dict, made: dict, seq: str | None = None) -> bool:
+    """Whether his words in this record ended the question, before cci stored it or as `seq` once it did: its close holds their words and link, no drive answer of his carries them, and no seq or that one."""
+    return (closed["words"], closed["link"], closed["answer"]) == (made["text"], made.get("url"), None) and closed["seq"] in (None, seq)
 
 
 def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], found: dict, since: str | None = None) -> None:
@@ -760,10 +777,10 @@ def his_cards(name: str) -> dict:
 
 
 def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> list[tuple[str, dict]]:
-    """The open job questions this record's words end, each by its job: each its waits id, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names; an answer naming only questions that already ended is refused, posting nothing, since his answer on each is recorded already."""
+    """The open job questions this record's words end, each by its job: each its waits id, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, with each these same words ended on a call cci refused, which this call sends again; an answer naming only questions that already ended otherwise is refused, posting nothing, since his answer on each is recorded already."""
     attrs = made.get("attr") or {}
     named = superseded.closing(data, made["kind"], attrs | {"order": order or attrs.get("order")}, made.get("topic"), made.get("re") or [], made.get("url"))
-    if questions := [(job_id, question) for job_id, question in named if question["closed"] is None]:
+    if questions := [(job_id, question) for job_id, question in named if question["closed"] is None or ended_by(question["closed"], made)]:
         return questions
     if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")):
         return []
