@@ -2545,6 +2545,7 @@ def test_a_part_another_orders_builder_carries_is_delivered_by_that_builders_don
     assert state.load(demo)["orders"]["o2"]["jobs"] == ["j2", "j1"]
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
         state.take_result(data, "j1", "DONE carried it")
         data["orders"]["o2"]["updated"] = state.stamp(T0)
     data = state.load(demo)
@@ -3729,6 +3730,32 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
         ["o2:staging test of #43 before it lands"],
         [(KEY,)],
     )
+
+
+def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_undelivered_while_its_check_delivers_the_prs_staging_test_so_the_pr_lands_as_j1308s_did_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    staging, proof = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
+    with state.edit(demo) as data:
+        [change] = data["orders"]["o1"]["parts"]
+        data["orders"]["o1"]["parts"][staging] = state.new_part()
+        data["jobs"]["j1"]["parts"] = [change, staging]
+    waits_on(demo, f"o1:{staging}")
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    done = f"DONE {proof} passed every staging case of #42 at aaaaaaa111"
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16062\n")
+    data = state.load(demo)
+    builder = data["jobs"]["j1"]
+    assert (builder["state"], builder["said"], builder["waits"]) == ("waiting", f"WAITING {state.pr_url(KEY)} to merge: {done}", [KEY])
+    assert ([state.delivered(data, "o1", part) for part in (change, staging)], data["orders"]["o1"]["parts"][staging]["posted"]) == ([False, True], proof)
+    freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
+    assert (freed, landers) == ([f"FREE {KEY} j1 o1: o1:{staging} answered or done, nothing else holds it"], [(KEY,)])
 
 
 @pytest.mark.parametrize(
