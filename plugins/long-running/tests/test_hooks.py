@@ -1062,8 +1062,14 @@ def test_a_sub_coordinator_lands_a_tapped_pr_of_its_project_and_leaves_starting_
         " the cut must carry"
     )
     assert [reason.split(":")[0] for reason in refused] == ["ci release start", "ci release approve", "ci release rollback"]
-    reads = ("tools/ci release rollback releases/2026-11-11/3 --plan", "tools/ci release status", "tools/ci release watch 4242")
-    assert [landing_guard.deny_reason(bash(command) | sub) for command in reads] == [None, None, None]
+    reads = (
+        "tools/ci release rollback releases/2026-11-11/3 --plan",
+        "tools/ci release status",
+        "tools/ci release watch 4242",
+        "tools/ci release start --help",
+        "tools/ci release approve -h",
+    )
+    assert [landing_guard.deny_reason(bash(command) | session) for session in (sub, top) for command in reads] == [None] * len(reads) * 2
     assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [landing_guard.RELEASE_BY_HAND.format(command=cuts[0]), None, None]
 
 
@@ -1073,8 +1079,8 @@ def test_a_drive_job_cancels_no_release_it_started_and_returns_it_held_for_the_c
     lane = {"session_id": "a-lane-of-its-own", "agent_type": "long-running:builder"}
     assert [landing_guard.deny_reason(bash(cancel) | who) for who in (job, lane)] == [landing_guard.RELEASE_CANCEL] * 2
     assert "return with the release held for the coordinator" in landing_guard.RELEASE_CANCEL
-    reads = ("tools/ci release status electric-racine", "tools/ci release watch electric-racine")
-    assert [landing_guard.deny_reason(bash(command) | job) for command in reads] == [None, None]
+    reads = ("tools/ci release status electric-racine", "tools/ci release watch electric-racine", f"{cancel} --help")
+    assert [landing_guard.deny_reason(bash(command) | job) for command in reads] == [None] * len(reads)
     assert landing_guard.deny_reason(bash(cancel) | {"session_id": "session-under-test"}) is None
 
 

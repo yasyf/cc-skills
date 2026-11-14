@@ -104,7 +104,7 @@ COORDINATOR_WORK = (
     ("make",),
 )
 RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "rerun", "api"})
-PLAN_ONLY = frozenset({"--plan", "--dry-run"})
+READS_ONLY = frozenset({"--plan", "--dry-run", "--help", "-h"})
 RELEASE_PIPELINE = "release"
 RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
 RELEASE_BUILDKITE = f"forge/{RELEASE_PIPELINE}"
@@ -455,7 +455,9 @@ def lane_reason(keys: list[str]) -> str | None:
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not run this release verb: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
+    if READS_ONLY & set(words):
+        return None
     try:
         verb = release_verb(words)
     except github.GithubError as error:
@@ -467,7 +469,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     job = shell.job or bool(lane or codex)
     if verb == "cancel" and job:
         return RELEASE_CANCEL
-    if verb not in RELEASE_CUTS or PLAN_ONLY & set(words):
+    if verb not in RELEASE_CUTS:
         return None
     names = state.session_drives(shell.session)
     for name in names:

@@ -459,8 +459,8 @@ the patch.
   changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
   since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,
   `resume`, `approve` and `rollback` and a release cut's rerun or unblock from a sub-coordinator's
-  session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `status` and
-  `watch` still run. A job of a sub-coordinator returns
+  session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `--help`,
+  `status` and `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
   for the cut with a `release` record at `root@<drive>` naming, in backticks, the one start with the
   `--order` of his answer, or else asking the top to put it to him. The top starts the cut in one call on the
