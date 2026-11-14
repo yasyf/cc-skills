@@ -278,72 +278,107 @@ def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run
     assert bash_guard.deny_reason(bash(typed)) is None
 
 
+PASSED_JOB = "019a7c3e-5b21-4f0d-9c11-2e8f6d4a7b10"
+FAILED_JOB = "01a1d041-9d48-48b3-b392-f4b57b84ee58"
+BUILDS = {
+    "131031": {"state": "passed", "jobs": [{"id": PASSED_JOB, "state": "passed"}]},
+    "128914": {"state": "failed", "jobs": []},
+    "126856": {"state": "failed", "jobs": [{"id": FAILED_JOB, "state": "failed"}]},
+    "131041": {"state": "failing", "jobs": []},
+}
+CONCLUSIONS = {"43473590680": "success", "43473590671": "failure", "132051522191": "failure"}
+
+
 @pytest.fixture
-def builds(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    states = {("forge/test", "131031"): "passed", ("forge/test", "131040"): "failed", ("forge/test", "131041"): "failing"}
-    read = []
+def targets(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    asked: list[str] = []
 
     def build(pipeline: str, number: str) -> dict:
-        read.append((pipeline, number))
-        if (pipeline, number) not in states:
-            raise github.GithubError("HTTP 404")
-        return {"state": states[pipeline, number]}
+        asked.append(f"{pipeline} build {number}")
+        if number not in BUILDS:
+            raise github.GithubError(f"could not read {pipeline} build {number} from Buildkite: HTTP 404")
+        return BUILDS[number]
+
+    def job_build(job: str) -> tuple[str, str]:
+        if job not in (PASSED_JOB, FAILED_JOB):
+            raise github.GithubError(f"Buildkite holds no command job {job}")
+        return "forge/test", "131031" if job == PASSED_JOB else "126856"
+
+    def run_conclusion(run: str | None, job: str | None, repo: str | None, cwd: str) -> str:
+        assert cwd == "/work"
+        asked.append(f"{repo} {job or run}")
+        return CONCLUSIONS[job or run]
 
     monkeypatch.setattr(github, "build", build)
-    return read
+    monkeypatch.setattr(github, "finished", lambda pipeline, branch: {"number": 131086, "state": "passed"} if (pipeline, branch) == ("forge/test", "dev") else {})
+    monkeypatch.setattr(github, "job_build", job_build)
+    monkeypatch.setattr(github, "run_conclusion", run_conclusion)
+    return asked
 
 
-def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_read(demo: str, builds: list[tuple[str, str]]) -> None:
-    for command, step in (
-        ("cd /work && .agents/skills/submit-pr/scripts/stack-enqueue 4244 --flake", "stack-enqueue --flake"),
-        ("tools/ci bk rerun 0190a1b2-job", "ci bk rerun"),
-        ("gh run rerun 123 --failed -R yasyf/cc-skills", "gh run rerun"),
-    ):
+def test_a_drive_session_reruns_only_a_build_job_or_run_that_passed_and_a_call_naming_none_runs(demo: str, targets: list[str]) -> None:
+    passed = (
+        "tools/ci bk rerun test 131031 --unit go-sand --count 3",
+        "cd /work && tools/ci bk rerun --unit sand --unit=go-sand --count 3 test dev",
+        f"bk job retry {PASSED_JOB}",
+        "bk build rebuild 131031 -p forge/test",
+        f"tools/ci bk api -X PUT /pipelines/test/builds/131031/jobs/{PASSED_JOB}/retry",
+        "bk api --method=PUT /pipelines/test/builds/131031/rebuild",
+        "gh run rerun 43473590680 -R yasyf/cc-skills",
+    )
+    assert [bash_guard.deny_reason(bash(command)) for command in passed] == [None] * len(passed)
+    assert targets == ["forge/test build 131031", "forge/test build 131031", "forge/test build 131031", "forge/test build 131031", "test build 131031", "yasyf/cc-skills 43473590680"]
+    unnamed = ("tools/ci bk rerun --help", "gh run rerun -h", "bk job retry --help", "tools/ci bk rerun test", "tools/ci bk api /pipelines/test/builds/126856/rebuild")
+    assert [bash_guard.deny_reason(bash(command)) for command in unnamed] == [None] * len(unnamed)
+    failed = {
+        "tools/ci bk rerun test 128914 --unit go-sand": ("ci bk rerun", "forge/test build 128914", "failed"),
+        "tools/ci bk rerun test 131041 --unit go-sand --count 3": ("ci bk rerun", "forge/test build 131041", "failing"),
+        f"bk job retry {FAILED_JOB}": ("bk job retry", f"job {FAILED_JOB} of forge/test build 126856", "failed"),
+        f"tools/ci bk api -X PUT organizations/forge/pipelines/test/builds/126856/jobs/{FAILED_JOB}/retry": ("ci bk api", f"job {FAILED_JOB} of forge/test build 126856", "failed"),
+        "gh run rerun --job 132051522191 -R yasyf/cc-skills": ("gh run rerun", "GitHub Actions job 132051522191 of yasyf/cc-skills", "failure"),
+        "gh run rerun 43473590671 --failed": ("gh run rerun", "GitHub Actions run 43473590671", "failure"),
+    }
+    for command, (step, target, reads) in failed.items():
         reason = bash_guard.deny_reason(bash(command))
-        assert reason.startswith(f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause")
+        assert reason == bash_guard.RERUN_PASSED.format(step=step, target=target, state=reads)
         assert "`tools/ci bk log '<job URL>'`" in reason
+    assert bash_guard.deny_reason(bash("bk build rebuild 131031")) == bash_guard.RERUN_UNREAD.format(
+        step="bk build rebuild",
+        error="it names no build number or no pipeline, so the build it rebuilds is unknown; name both, as `bk build rebuild <number> -p <org/pipeline>`",
+    )
+    assert bash_guard.deny_reason(bash("tools/ci bk rerun test 999 --unit go-sand")) == bash_guard.RERUN_UNREAD.format(
+        step="ci bk rerun", error="could not read forge/test build 999 from Buildkite: HTTP 404"
+    )
+    reason = bash_guard.deny_reason(bash("cd /work && .agents/skills/submit-pr/scripts/stack-enqueue 4244 --flake"))
+    assert reason.startswith("refused: `stack-enqueue --flake` retries past a failing check, and a check that fails is fixed at its cause")
     assert bash_guard.deny_reason(bash("tools/ci bk log 0190a1b2-job")) is None
     assert bash_guard.deny_reason(bash(".agents/skills/submit-pr/scripts/stack-enqueue 4244")) is None
-    assert bash_guard.deny_reason(bash("tools/ci bk rerun 0190a1b2-job", session="ordinary")) is None
-    assert builds == []
+    assert bash_guard.deny_reason(bash("tools/ci bk rerun test 128914 --unit go-sand", session="ordinary")) is None
 
 
-def test_a_forced_rerun_runs_only_of_a_build_that_reads_passed(demo: str, builds: list[tuple[str, str]]) -> None:
-    for command in ("tools/ci bk rerun test 131031 --unit sand-next", "cd /work && tools/ci bk rerun --unit sand --unit=sand-next --count 3 test 131031"):
-        assert bash_guard.deny_reason(bash(command)) is None
-    assert builds == [("forge/test", "131031")] * 2
-    green = ". A `tools/ci bk rerun <pipeline> <build>` runs once that build reads passed, a forced uncached regrade of a green build, and"
-    for command, read in (
-        ("tools/ci bk rerun test 131040 --unit sand-next", "forge/test build 131040 reads failed"),
-        ("tools/ci bk rerun test 131041 --unit sand-next --count 3", "forge/test build 131041 reads failing"),
-        ("tools/ci bk rerun test 9 --unit sand-next", "forge/test build 9 could not be read from Buildkite: HTTP 404"),
-        ("tools/ci bk rerun test dev --unit sand-next", "this one names no build number"),
-    ):
-        reason = bash_guard.deny_reason(bash(command))
-        assert reason.startswith("refused: `ci bk rerun` retries past a failing check, and a check that fails is fixed at its cause")
-        assert reason.endswith(f"{green} {read}")
-    for command, step in (("bk job retry 0190a1b2-job", "bk job retry"), ("gh run rerun 123", "gh run rerun")):
-        reason = bash_guard.deny_reason(bash(command))
-        assert reason.startswith(f"refused: `{step}` retries past a failing check")
-        assert reason.endswith("a test that flakes gets a flake fix of its own")
-
-
-def test_the_watchdog_runs_its_reads_and_two_acts_and_nothing_else(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watchdog_runs_its_reads_and_two_acts_and_reruns_only_what_failed(demo: str, targets: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(state.WATCHDOG_ENV, demo)
     url = "https://github.com/Forge-AI/monorepo/pull/42"
     for command in (
         f"drive status o1 j1 --drive {demo}",
         "gh run view 123 --log-failed | tail -n 80",
-        "gh run rerun 123 --failed",
-        "tools/ci bk rerun forge-monorepo 7 --unit test",
+        "gh run rerun 43473590671 --failed",
+        "tools/ci bk rerun test 128914 --unit test",
         f"drive job wake j1 --text 'its build lost an agent, rerun once' --drive {demo}",
     ):
         assert bash_guard.deny_reason(bash(command, session="watchdog")) is None
+    for command, (step, target, reads) in {
+        "tools/ci bk rerun test 131031 --unit test": ("ci bk rerun", "forge/test build 131031", "passed"),
+        "tools/ci bk rerun test dev --unit test": ("ci bk rerun", "forge/test build 131086, its newest dev build to finish", "passed"),
+        "gh run rerun 43473590680 -R yasyf/cc-skills": ("gh run rerun", "GitHub Actions run 43473590680 of yasyf/cc-skills", "success"),
+    }.items():
+        assert bash_guard.deny_reason(bash(command, session="watchdog")) == bash_guard.RERUN_FAILED.format(step=step, target=target, state=reads, command=command)
     for command in (
         "drive job resume j1 'carry on'",
         f"drive pr wake {url} --text 'fix it' --drive {demo}",
         "cd /work && gh pr merge 42 --squash",
         ".agents/skills/submit-pr/scripts/stack-enqueue 42",
+        f"bk job retry {FAILED_JOB}",
         "sh -c 'drive install'",
     ):
         assert bash_guard.deny_reason(bash(command, session="watchdog")).startswith("refused: the watchdog runs only drive status, drive job replies, cc-transcript")

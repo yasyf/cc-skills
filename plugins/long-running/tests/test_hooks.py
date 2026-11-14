@@ -59,12 +59,12 @@ def release_builds(monkeypatch: pytest.MonkeyPatch) -> None:
         CLUSTER_JOB_BUILD: {"CLUSTER_JOB": json.dumps({"cluster": "plat-usw2-prod", "cronJob": "memory-move-poetic", "reason": "move poetic's memories"})},
     }
 
-    def build_env(pipeline: str, number: str) -> dict[str, str]:
+    def build(pipeline: str, number: str) -> dict:
         if pipeline != "forge/release" or number not in started:
-            raise github.GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: HTTP 404")
-        return started[number]
+            raise github.GithubError(f"could not read {pipeline} build {number} from Buildkite: HTTP 404")
+        return {"state": "passed", "env": started[number]}
 
-    monkeypatch.setattr(github, "build_env", build_env)
+    monkeypatch.setattr(github, "build", build)
 
 
 def origin_is(monkeypatch: pytest.MonkeyPatch, remote: str) -> None:
@@ -1417,7 +1417,7 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
     assert landing_guard.deny_reason(bash(f"tools/ci bk cancel release {RELEASE_CUT_BUILD}") | job) == landing_guard.RELEASE_CANCEL
     unread = gate.format("15700")
     assert landing_guard.deny_reason(bash(unread) | top) == landing_guard.CUT_UNREAD.format(
-        command=unread, error="could not read the start of forge/release build 15700 from Buildkite: HTTP 404"
+        command=unread, error="could not read forge/release build 15700 from Buildkite: HTTP 404"
     )
 
 

@@ -410,14 +410,16 @@ inherited one, restack onto a `dev` that has the fix, or fix it forward in its o
 a test flaked, whose cause may be in product code. Waiting on a fix in another PR, return `WAITING`
 naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
-once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
-the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `bk job retry`,
-`bk build rebuild`, `gh run rerun`, and a `tools/ci bk rerun` of a build that does not read passed on Buildkite),
-naming `tools/ci bk log '<job URL>'` instead. A `tools/ci bk rerun <pipeline> <build>` of a build that reads
-passed runs, since it regrades a green build with Go's test cache off, as the buildkite-cli skill's
-"Rerun a Green Unit" does. The
-watchdog's agent alone may rerun a failed build of a PR in a stall's chain once, by his pick "Report, plus two safe
-acts, rerunning a failed build and messaging the owning job".
+once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun. The
+`bash_guard` hook refuses `stack-enqueue --flake` in a drive session or agent, and reads the state of what each
+rerun names, a `tools/ci bk rerun` build or `dev`'s newest finished build, a `bk build rebuild` build, a `bk job
+retry` job, a `tools/ci bk api` or `bk api` retry or rebuild, or a `gh run rerun` run or job: a drive session
+reruns only one that passed, such as a forced uncached regrade of a green build the buildkite-cli skill's "Rerun
+a Green Unit" runs, and is refused a rerun of one that did not, still running included, naming `tools/ci bk log
+'<job URL>'` instead. The watchdog's agent alone reruns a failed build of a PR in a stall's chain once, and only
+one that failed, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning
+job". A rerun whose target cannot be read, such as a `bk build rebuild` naming no number or pipeline, is refused
+until it can be, and a help read runs.
 
 An ejection on a flaky test outside your diff needs no push. Fix the test in its own `flake fix` PR, or
 find the one the drive already tracks, then run `drive pr set <url> --flaky <the test> <its fix PR>`.

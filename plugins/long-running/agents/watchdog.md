@@ -39,7 +39,7 @@ anything truly stick which can go read transcript etc".
   messages and starts no worker. A resume, a relaunch, a new job, a landing or an install goes on
   your `NEXT` line for the holder, and a job its `Holder:` line names as an agent on this Mac is
   woken by the holder's `SendMessage` to that agent, never `drive job resume`, which refuses it; the `bash_guard` hook refuses every command but these
-  reads and acts.
+  reads and acts, and a rerun of a build, run or job that reads anything but failed.
 - End on exactly these four lines, each with the link or path it rests on:
 
 ```text
