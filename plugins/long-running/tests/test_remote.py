@@ -4951,6 +4951,30 @@ def test_every_worker_on_a_jobs_own_run_is_heard_one_it_never_recorded_included_
     assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_unrecorded", "msg_newest"]
 
 
+def test_mail_orca_files_on_a_jobs_own_run_from_another_jobs_worker_enters_neither_its_history_nor_its_said_line_nor_its_state_as_j4507s_status_became_j4841s(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "set", "o1", "--parts", "Short title", "staging test")
+    run("job", "add", "builder", "--order", "o1", "--part", "staging test", "--goal", "staging test", "--remote")
+    with state.edit(remote) as data:
+        data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None, deaths=[{"dispatch": "ctx_e82dd7684e4e", "workspace": "local", "why": "x", "at": "y"}])
+    on_this_mac = {"from_handle": "term_d2dc361e", "payload": json.dumps({"taskId": "task_6d43da286a27", "dispatchId": "ctx_e82dd7684e4e"})}
+    mailboxes = {
+        RUN: [
+            message("status", "WAITING M1's end (build 16039, about 11:08 AM), then C5 to C8", id="msg_018022b210fc", subject="j2: staging SandSQL healthy on all three lanes", **on_this_mac),
+            message("question", "BLOCKED staging's SandSQL", id="msg_foreign_question", **on_this_mac),
+            message("status", "DONE freeze may lift", id="relay_foreign", from_handle="dispatch:ctx_lane0002", payload=json.dumps({"dispatchId": "ctx_lane0002"})),
+            message("status", "step 3 of 5: the handler claim holds", id="msg_own", payload=json.dumps({"dispatchId": DISPATCH})),
+        ],
+    }
+    monkeypatch.setattr(orca, "mail", lambda run_id, after: mailboxes.get(run_id, []))
+    assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    jobs = state.load(remote)["jobs"]
+    assert (jobs["j1"]["said"], jobs["j1"]["state"], jobs["j1"]["ask"]) == ("step 3 of 5: the handler claim holds", "running", None)
+    assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_own"]
+    assert (jobs["j2"]["said"], state.replies(remote, "j2")) == (None, [])
+
+
 def j2914_mail() -> list[dict]:
     """j2914's worker's mail from its first `drive job report j2914 -` to its worker_done, with the ids, times and order Orca kept, its job here j1."""
     sent = f"dispatch:{J2914_WORKER}"
