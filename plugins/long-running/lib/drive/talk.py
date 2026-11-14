@@ -30,7 +30,7 @@ PLAIN_QUESTION = (
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a session that may not record it there, such as a handler's session the drive binds to nothing, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a session that may not record it there, such as a handler's session the drive binds to nothing, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
@@ -41,7 +41,7 @@ def say(name: str, post: dict) -> str:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
-    if refused := (order and (cli.recording_refusal(known, order) or cli.report_refusal(known, order, report))) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report):
+    if refused := (order and (cli.recording_refusal(known, order) or cli.report_refusal(known, order, report))) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report) or unended(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -300,6 +300,16 @@ def unplaced(data: dict, post: dict, report: dict) -> str | None:
     return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
 
 
+def unended(data: dict, post: dict, report: dict) -> str | None:
+    """Why a report naming an end goes nowhere: its until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of a line in that post's thread moving it, from which the watch owes that thread its closing line, so a post anywhere else would keep no end."""
+    if not report.get("until") or to_members(data, post):
+        return None
+    return (
+        f"report {report['seq']}'s until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of"
+        " a line moving it in that post's thread, and this post goes to neither: pass that channel as channel_id, and that post's ts as thread_ts for a line in its thread"
+    )
+
+
 def outside(data: dict, thread: str) -> str | None:
     """The channel outside his DM a thread of an order is in, its own or one it keeps, such as an alert's; None for a thread of his DM."""
     dm = slack.dm()
@@ -434,16 +444,23 @@ def to_him(data: dict, channel: str, thread: str | None) -> bool:
     """Whether a say post in this channel and thread, None at its root, speaks to him, which the drive's checks of a line to him and the line an order owes him both read: one in his DM, one in the group DM of a person, him and the bot, its channel that person's user id as say names it, and one in a thread outside his DM, such as an alert's, unless an order keeps that thread as one whose readers are the channel's members: a reporter's, a teammate's he ordered watched, or the thread under a say post at that channel's root, such as a staging claim's; never one at the root of another channel."""
     if channel == slack.dm() or cli.SLACK_USER.fullmatch(channel):
         return True
-    members = (
+    members = {(kept[0], kept[1]) for order in data["orders"].values() for kept in order["threads"] if kept[3] == "members"}
+    return bool(thread) and (channel, thread) not in members | answered(data)
+
+
+def to_members(data: dict, post: dict) -> bool:
+    """Whether a say post speaks to a channel's members through a post the drive made at that channel's root, such as a staging claim, at that root or in its thread, which the reader's checks read in place of those of a line to him; a line in a reporter's thread or a teammate's he ordered watched answers its people, so it is neither."""
+    channel, thread = place(post)
+    return not to_him(data, channel, thread) and (not thread or (channel, thread) not in answered(data))
+
+
+def answered(data: dict) -> set[tuple[str, str]]:
+    """Each thread outside his DM where the drive answers the people in it, a reporter's or a teammate's he ordered watched."""
+    return {
         where
         for order in data["orders"].values()
-        for where in [
-            *((held["channel"], held["thread"]) for held in order["reporters"]),
-            *([(order["watch"]["channel"], order["watch"]["thread"])] if order["watch"] else []),
-            *((kept[0], kept[1]) for kept in order["threads"] if kept[3] == "members"),
-        ]
-    )
-    return bool(thread) and (channel, thread) not in members
+        for where in [*((held["channel"], held["thread"]) for held in order["reporters"]), *([(order["watch"]["channel"], order["watch"]["thread"])] if order["watch"] else [])]
+    }
 
 
 def shown_at(place: tuple[str, str | None]) -> str:

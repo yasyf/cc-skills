@@ -756,6 +756,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             held = order.pop("reporter", None)
             order["reporters"] = [held] if held else []
         order.setdefault("watch", None)
+        order.setdefault("claims", {})
         order["closed_on"] = bare_seq(order["closed_on"])
         for watched in filter(None, (order["quiet"], order["watch"])):
             watched["record"] = bare_seq(watched["record"])
@@ -1900,6 +1901,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "from": source,
         "thread": list(thread) if thread else None,
         "threads": [],
+        "claims": {},
         "state": "open",
         "due": None,
         "due_said": None,
@@ -2495,6 +2497,13 @@ def join_thread(order: dict, where: tuple[str, str], at: str, kind: str) -> None
     """Keep a thread among the order's from when it joined, once, unless it is the order's own: posted for a thread a post naming the order went in, members for one whose readers are another channel's members, such as the thread under a staging claim say posted at that channel's root, question for a card its jobs drew, pr for a card drawn for a PR it serves."""
     if where != own_thread(order) and all((channel, ts) != where for channel, ts, _, _ in order["threads"]):
         order["threads"].append([*where, at, kind])
+
+
+def claim(data: dict, order: dict, where: tuple[str, str], link: str, until: str, ts: str) -> None:
+    """Keep the end a post at the root of a channel outside his DM names, such as a staging claim's, or a line in its thread moving it names, from which the watch owes that thread its closing line until a drive post lands there after the post at ts: on the order already holding the claim of that thread, else on this order, linking the post that opened it."""
+    holder = next((each for each in data["orders"].values() if where[1] in each["claims"]), order)
+    held = holder["claims"].get(where[1]) or {"channel": where[0], "link": link}
+    holder["claims"][where[1]] = held | {"until": until, "since": ts, "said": None}
 
 
 def join_card(data: dict, job_id: str, card: str) -> None:

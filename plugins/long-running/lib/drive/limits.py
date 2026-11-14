@@ -462,7 +462,7 @@ FACT_WORDS = {
 RECORD_CHARS = 120
 THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b|(?<!\w[ \t])\b(?:He|Him|His|Himself)\b")
 WHOLE_KINDS = {"owner", "answer", "incident"}
-REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<n>", "incident": "true"}
+REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<n>", "incident": "true", "until": "<RFC 3339 time>"}
 UNSPELLED = re.compile(r"[^a-z0-9]")
 MISNAMED = "refused: the drive reads no `{key}` attr on a report, so nothing acts on it; it reads `{attr}`, so post it again with `--attr {attr}={value}` in its place"
 
@@ -504,12 +504,17 @@ def lead_problems(lead: dict) -> list[str]:
             problems.append(f"{flag} is {len(line)} characters; say it in at most {HEADLINE_CHARS}")
         if key != "headline" and (count := words(line)) > LEAD_WORDS:
             problems.append(f"{flag} is {count} words; say it in at most {LEAD_WORDS}")
-        plain = URL.sub(" ", TOKEN.sub(" ", line))
-        if named := [name for name in dict.fromkeys(found.strip("`") for found in (*BACKTICKED.findall(plain), *CALLED.findall(plain), *CODE_NAME.findall(plain))) if len(name) > 3]:
+        if named := code_names(line):
             problems.append(f"{flag} names {', '.join(named)}; say what it does for him in plain words, since the PR's Summary names the code")
     if problems:
         problems.append(f"{LEAD_RULING}: write each as he would say it to a teammate deciding whether to merge it")
     return problems
+
+
+def code_names(text: str) -> list[str]:
+    """Each function, file or other code name a text names, in backticks, as a call or by its shape, such as card.py or add_pr, its links and Slack tokens aside."""
+    plain = URL.sub(" ", TOKEN.sub(" ", text))
+    return [name for name in dict.fromkeys(found.strip("`") for found in (*BACKTICKED.findall(plain), *CALLED.findall(plain), *CODE_NAME.findall(plain))) if len(name) > 3]
 
 
 def block_text(node: object) -> str:
@@ -556,14 +561,19 @@ def post_refusal(post: dict, edited: int = 0) -> str | None:
     if long := next((row for table in tables((post.get("text") or "").splitlines()) for row in table if words(" ".join(row)) > LINE_WORDS), None):
         found = f'the table row "{" | ".join(long)}" is {words(" ".join(long))} words, and each row of a table is a line in his thread, at most {LINE_WORDS} words'
         return Refusal(f"refused: {found} ({READING}). {LINE_REST}", found)
-    count = post_words(post)
     features = len(FEATURE.findall(post.get("text") or ""))
     limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
+    return word_refusal(post, limit, shape, edited, READING, LINE_REST)
+
+
+def word_refusal(post: dict, limit: int, shape: str, edited: int, reading: str, rest: str) -> Refusal | None:
+    """Why a post runs past the words its shape gets, or None when it fits, an edit rewording a post at that post's own length and a few words more, naming whose reading of his words the limit is and what the post keeps."""
+    count = post_words(post)
     if count <= max(limit, edited + REWORDING_WORDS if edited else 0):
         return None
     edit = f", or {REWORDING_WORDS} past the {edited} words of the post it edits" if edited else ""
     found = f"this post is {count} words, and {shape} is at most {limit} words{edit}"
-    return Refusal(f"refused: {found} ({READING}). {LINE_REST}", found)
+    return Refusal(f"refused: {found} ({reading}). {rest}", found)
 
 
 def card_body(summary: list[str], show_me: list[str]) -> str:

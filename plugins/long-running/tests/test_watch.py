@@ -878,6 +878,36 @@ def test_a_promised_time_owes_him_a_report_and_a_handler_every_ten_minutes_until
     ]
 
 
+def test_a_claim_whose_end_passed_owes_its_thread_a_closing_line_every_ten_minutes_until_a_drive_post_is_there(demo: str, slack_thread: "Thread") -> None:
+    claim, moved = "1794200000.000100", "1794203600.000200"
+    link = "https://acme.slack.com/archives/C0STAGING1/p1794200000000100"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="test the batch writer on staging", jobs=[])
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+        state.claim(data, data["orders"]["o1"], ("C0STAGING1", claim), link, state.stamp(T0), claim)
+    watching = watcher(demo)
+    assert watch.claim_lines(watching, T0 - timedelta(minutes=1)) == []
+    [line] = watch.claim_lines(watching, T0)
+    assert line == (
+        f"DUE o1 claim {link} ended {render.when(state.stamp(T0))} with no closing line in its thread: once the work ends, free what it claimed and send a"
+        f" POST report with --attr thread={claim} saying it is done, what is free again and the result, as the repository's staging-claim rule says, or one"
+        " with --attr until=<the new end> while it runs on"
+    )
+    assert watch.ABOUT.match(line)["named"] == "o1"
+    assert watch.claim_lines(watching, T0 + timedelta(minutes=9)) == []
+    slack_thread.post(T0 + timedelta(minutes=9), from_user=True)
+    assert len(watch.claim_lines(watching, T0 + timedelta(minutes=10))) == 1
+    with state.edit(demo) as data:
+        state.claim(data, data["orders"]["o2"], ("C0STAGING1", claim), link, state.stamp(T0 + timedelta(hours=1)), moved)
+    assert state.load(demo)["orders"]["o1"]["claims"] == {claim: {"channel": "C0STAGING1", "link": link, "until": state.stamp(T0 + timedelta(hours=1)), "since": moved, "said": None}}
+    assert watch.claim_lines(watching, T0 + timedelta(minutes=30)) == []
+    slack_thread.post(T0 + timedelta(minutes=70), from_claude=True)
+    assert watch.claim_lines(watching, T0 + timedelta(minutes=71)) == []
+    assert state.load(demo)["orders"]["o1"]["claims"] == {}
+    assert slack_thread.reads == [("--channel", "C0STAGING1", "--thread", claim, "--since-ts", since, "--limit", "1000") for since in (claim, claim, moved)]
+
+
 def test_a_drive_line_keeps_its_promised_time_however_many_of_his_messages_follow_it_in_the_thread(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
