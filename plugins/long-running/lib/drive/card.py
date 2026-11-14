@@ -816,7 +816,7 @@ def answer_question(name: str, ask: dict) -> dict:
             answer_id = next((question["closed"]["noted"] for _, question in tapped if question["closed"]["noted"]), None)
             if answer_id is None:
                 asked = next((question for _, question in tapped if question["waits"] == ask["waits"]), tapped[0][1])
-                answer_id = settled.recorded(name, asked["title"], said, [], data["roles"]["coordinator"]["cwd"])
+                answer_id = settled.recorded(name, asked["title"], said, [], ask["url"], data["roles"]["coordinator"]["cwd"])
                 with state.edit(name) as data:
                     for job_id, question in tapped:
                         state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id

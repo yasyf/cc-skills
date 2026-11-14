@@ -3545,6 +3545,42 @@ def test_his_card_answers_no_recorded_answer_holds_are_recorded_once_and_one_cc_
     assert [(question["closed"]["answer"], question["closed"]["noted"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(None, kept["id"]), (None, f"1c0ffee{'0' * 33}"), (given, None)]
 
 
+def test_a_question_longer_than_a_cc_notes_title_is_recorded_under_it_cut_on_a_word_with_the_whole_question_in_its_notes_once(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the door")
+    run("job", "add", "builder", "--order", "o1", "--goal", "hang the door")
+    asked = "Which door should the bell hang on, " + "the front one with the brass knocker or the side one by the garden gate, " * 6 + "and when?"
+    stored: list[dict] = []
+
+    def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
+        if argv[:3] == ["ccn", "answer", "list"]:
+            return json.dumps(stored)
+        stored.append({"id": f"{len(stored)}c0ffee{'0' * 33}", "title": argv[3].removeprefix("--title="), "body": text, "tags": ["scope:durable"]})
+        return json.dumps({"id": stored[-1]["id"]})
+
+    monkeypatch.setattr(settled, "ccn", ccn)
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
+    for _ in range(2):
+        with state.edit("demo") as data:
+            del data[state.CARDS_NOTED]
+            data["jobs"]["j1"]["questions"] = [state.new_question("asks/j1-door.md", asked, "2026-11-12T08:00:00Z", card=DESIGN_CARD, closed=state.new_close("answered", "Front", DESIGN_CARD))]
+        settled.note_cards("demo")
+    [answer] = stored
+    title = answer["title"]
+    assert (len(asked.encode()) > settled.TITLE_BYTES >= len(title.encode()), title.endswith("…"), asked.startswith(title.removesuffix("…"))) == (True, True, True)
+    assert (settled.his(answer["body"]), answer["body"].endswith(asked)) == ("Front", True)
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"]["noted"] == answer["id"]
+
+    def refused(argv: list[str], text: str, cwd: str, failure: str) -> str:
+        raise state.DriveError(f"{failure}: usage: title is empty")
+
+    monkeypatch.setattr(settled, "ccn", refused)
+    with pytest.raises(state.DriveError, match=re.escape('his answer "Front" to "Which door should the bell hang on,')) as error:
+        settled.recorded("demo", asked, "Front", [], DESIGN_CARD, "/")
+    assert f"on {DESIGN_CARD}: usage: title is empty" in str(error.value)
+
+
 def test_job_ask_prints_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_refuses_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
 ) -> None:

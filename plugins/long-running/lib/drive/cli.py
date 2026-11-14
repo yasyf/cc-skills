@@ -4034,7 +4034,7 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         changes = settled.changed(args.title, args.words, asked)
         tapped = next((closed["noted"] for _, question in view.drawn_on(data, *args.link) if (closed := question["closed"]) and closed["noted"] and [closed["link"]] == args.link and settled.plain(closed["words"] or "") == settled.plain(args.words)), None)
-        args.id = tapped or settled.recorded(name, args.title, args.words, args.label, cwd)
+        args.id = tapped or settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     if args.id not in data["answers"]:
         if marking:

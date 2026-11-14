@@ -1482,11 +1482,13 @@ def hear_sent(name: str, job_ids: set[str]) -> dict:
 
 
 def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Record in cc-notes each card answer of his the drive holds and no recorded answer of his does, as settled.note_cards does once."""
+    """Record in cc-notes each card answer of his the drive holds and no recorded answer of his does, as settled.note_cards does once, on the drive's own watch alone, since a sub-coordinator's watch running it beside it would record each answer again."""
+    if watcher.project:
+        return []
     try:
         settled.note_cards(watcher.name)
     except state.DriveError as error:
-        return read_failed(watcher, "cc-notes", error, moment)
+        return failed(watcher, "cc-notes", "backfill of his older card answers into cc-notes", error, moment)
     watcher.failures.pop("cc-notes", None)
     return []
 

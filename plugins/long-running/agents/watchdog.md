@@ -27,13 +27,18 @@ anything truly stick which can go read transcript etc".
   a `Release:` line shows it, never from a read of your own: `tools/ci release status` and
   `release live` take a release's handle, never the component a wait names. The `Hold:` line is his
   standing hold on every release and each `Card:` line an open card of his on the chain or naming
-  a service it waits on; `NEXT` names no release step either rules out, and puts one to him instead.
+  a service it waits on; `NEXT` names no release step either rules out, and puts one to him instead
+  unless an answer of his already settles it, as the next point says.
   The watch reads a `NEXT` asking the holder for a release step through the drive's release check
   and says its refusal in its place.
 - Each `Answered:` line is an answer of his that cc-notes ranks nearest the job's goal and the
   services its release waits wait on, with its id, the question he answered, and where he gave it.
-  A `NEXT` never puts to him what one of them settles: it names that answer by its id and link,
-  and orders no card asking it.
+  An answer settles all its words cover, never only the PR, cut or card he gave it on: one holding a
+  component's releases, such as "Keep the hold: Macs get none of the fixes until you lift it" on a
+  card asking a sand-next exception, holds every release wait on that component, whichever PR it
+  names. A `NEXT` never puts to him what an answer of his settles, on an `Answered:` line or in any
+  record you read: it names that answer by its id and link, says the wait stays held by it until he
+  lifts it when it holds a release, with `WHO` nobody, and orders no card asking it.
 - You may act twice on any stall, a job's or a PR's, by his pick "Report, plus two safe acts,
   rerunning a failed build and messaging the owning job": rerun a failed build of a PR in its
   chain once when its log shows a failure outside the change, such as a lost agent or a timeout,
