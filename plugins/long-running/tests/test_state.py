@@ -968,6 +968,25 @@ def test_each_seq_an_older_install_saved_with_the_hash_cci_prints_loads_as_its_d
     )
 
 
+WAITS = ["release:api:Forge-AI/monorepo#42", "release:eks:Forge-AI/monorepo#42"]
+
+
+def test_the_news_an_older_install_kept_with_each_jobs_waits_loads_as_the_facts_the_watch_compares_now(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    news = {"j1": ["done", [], [], "DONE it"], "j2": ["waiting", WAITS, [], state.waits_line(WAITS)], "j3": ["waiting", WAITS, [], "WAITING on the api release"]}
+    quiet = {"record": None, "at": None, "handler": None, "heard": None, "news": news}
+    order = state.new_order("fix it", "terminal", None, {"fix it": state.new_part()}, state.stamp())
+    data["orders"] = {"o1": order | {"jobs": ["j1", "j2", "j3"], "quiet": quiet}}
+    data["jobs"] = {job_id: state.new_job("o1", "builder", "fix it", ["fix it"], state.stamp()) for job_id in ("j1", "j2", "j3")}
+    state.create(data)
+    assert state.load("demo")["orders"]["o1"]["quiet"]["news"] == {
+        "j1": ["done", False, [], "DONE it"],
+        "j2": ["waiting", True, [], None],
+        "j3": ["waiting", True, [], "WAITING on the api release"],
+    }
+
+
 def test_a_part_an_older_install_saved_with_a_kind_loads_without_it(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")

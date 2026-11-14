@@ -1250,6 +1250,26 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
     assert len(calls) == 6
 
 
+def test_a_release_ending_one_of_two_waits_of_a_waiting_job_owes_its_thread_no_line_and_its_last_wait_ending_owes_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    threaded(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    hour = T0 + timedelta(hours=1)
+    with state.edit(demo) as data:
+        state.rewait(data["jobs"]["j1"], [f"release:api:{KEY}", f"release:eks:{KEY}"])
+        data["jobs"]["j1"].update(state="waiting", said=state.waits_line(data["jobs"]["j1"]["waits"]))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        state.rewait(data["jobs"]["j1"], [f"release:eks:{KEY}"])
+    assert watch.quiet_lines(watching, hour) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        state.rewait(data["jobs"]["j1"], [])
+    assert watch.quiet_lines(watching, hour + timedelta(seconds=5)) == []
+    [(_, body), _] = calls
+    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
+
+
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])
 def test_an_order_owes_its_thread_no_line_while_he_is_away_until_he_is_back_nor_once_a_report_closing_it_is_kept(demo: str, monkeypatch: pytest.MonkeyPatch, held: str) -> None:
     threaded(demo)

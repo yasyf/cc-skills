@@ -675,6 +675,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             for key in order["quiet"]["news"].keys() & data["prs"].keys():
                 if len(news := order["quiet"]["news"][key]) == 6:
                     del news[4]
+            for key in order["quiet"]["news"].keys() & data["jobs"].keys():
+                if isinstance((news := order["quiet"]["news"][key])[1], list):
+                    news[:] = job_news(*news)
         if "reporters" not in order:
             held = order.pop("reporter", None)
             order["reporters"] = [held] if held else []
@@ -1080,7 +1083,7 @@ def start(job: dict) -> None:
 def hold_unstarted(job: dict) -> None:
     """A job no agent or lane has started waits, rather than runs, while anything it waits on holds it, so the watch reads it waiting, never as not started, and says FREE once the last wait ends."""
     if job["state"] == "running" and job["waits"] and not job.get("agent") and not job.get("dispatch"):
-        job.update(state="waiting", said=f"waits on {', '.join(job['waits'])}")
+        job.update(state="waiting", said=waits_line(job["waits"]))
 
 
 def parts_goal(parts: list[str]) -> str:
@@ -2722,9 +2725,18 @@ def wait_on_change(data: dict, job_id: str, key: str) -> None:
 
 def rewait(owner: dict, waits: list[str]) -> None:
     """Give a job or PR its waits, and a job whose line is still the waits line hold_unstarted gave it that line for the waits left, or none once nothing holds it, so its line never names a wait that ended."""
-    if owner.get("said") == f"waits on {', '.join(owner['waits'])}":
-        owner["said"] = f"waits on {', '.join(waits)}" if waits else None
+    if owner.get("said") == waits_line(owner["waits"]):
+        owner["said"] = waits_line(waits) if waits else None
     owner["waits"] = waits
+
+
+def waits_line(waits: list[str]) -> str:
+    return f"waits on {', '.join(waits)}"
+
+
+def job_news(job_state: str, waits: list[str], cards: list[str], said: str | None) -> list:
+    """What a line tells him of a job that is not running: its state, whether anything holds it, the cards of his its open questions are drawn on and its returned line, never which waits hold it nor the waits line hold_unstarted and rewait give it, which move as one wait of several ends, such as a release going out, while the job still only waits."""
+    return [job_state, bool(waits), cards, None if said == waits_line(waits) else said]
 
 
 def merges_untapped(key: str) -> bool:
