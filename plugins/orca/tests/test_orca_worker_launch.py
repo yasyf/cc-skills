@@ -27,9 +27,16 @@ BASE = "1" * 40
 BRIEF = "# Lane A\n\nWrite the patch and the report beside this brief.\n"
 SHA = hashlib.sha256(BRIEF.encode()).hexdigest()
 BYTES = len(BRIEF.encode())
-LOCAL_WORKTREE = "/w/lane-a"
 LOCAL_NAME = f"{LANE}-{hashlib.sha256(RUN.encode()).hexdigest()[:8]}"
+LOCAL_WORKTREE = f"/w/{LOCAL_NAME}"
 LOCAL_TERMINAL = "term_local_1"
+MAIN = "/repos/main"
+LIST = ["orca", "worktree", "list", "--repo", f"id:{REPO}", "--limit", "10000", "--json"]
+REPO_SHOW = ["orca", "repo", "show", "--repo", f"id:{REPO}", "--json"]
+GIT_LIST = ["git", "-C", MAIN, "worktree", "list", "--porcelain"]
+UNLISTED = {"out": {"ok": True, "result": {"worktrees": []}}}
+SHOWN = {"out": {"ok": True, "result": {"repo": {"id": REPO, "path": MAIN}}}}
+DROPPED = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}}}
 WIDEN = f"git -C {LOCAL_WORKTREE} sparse-checkout add <dir>"
 SPARSE = f"{LOCAL_WORKTREE} is sparse: widen with {WIDEN}"
 TOOLS = ("orca", "cc-remote", "git", "gh", "ccx", "cc-notes", "curl", "ssh")
@@ -556,9 +563,34 @@ class AttemptTest(LaunchTest):
     def test_an_earlier_local_attempt_refuses_instead_of_retrying(self):
         self.launch.local()
         self.launch.attempt.mkdir()
+        (self.launch.attempt / "request.json").write_text(json.dumps({"lane": LANE, "run": RUN, "route": "local", "worktree": LOCAL_NAME}))
         (self.launch.attempt / "worker-start.json").write_text(json.dumps({"ok": True, "result": {"taskId": "task_l", "dispatchId": "ctx_l"}}))
         self.assert_failed(self.launch, self.launch.run(model="fable", WORKER_LOCAL="1"), f"{self.launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [CURRENT])
-        self.assertEqual(self.launch.kept(), ["worker-start.json"])
+        self.assertEqual(self.launch.kept(), ["request.json", "worker-start.json"])
+
+    def test_a_local_attempt_that_never_ran_worker_start_launches_again_under_the_worktree_name_it_kept(self):
+        earlier = "run_0"
+        kept = f"{LANE}-{hashlib.sha256(earlier.encode()).hexdigest()[:8]}"
+        path = f"/w/{kept}"
+        for listed in (True, False):
+            with self.subTest(listed=listed):
+                launch = self.fresh()
+                launch.local()
+                launch.attempt.mkdir()
+                (launch.attempt / "request.json").write_text(json.dumps({"lane": LANE, "run": earlier, "route": "local", "worktree": kept}))
+                if listed:
+                    launch.reply("orca worktree list", {"out": {"ok": True, "result": {"worktrees": [{"displayName": kept, "path": path}]}}})
+                    launch.reply("orca terminal create", {"out": {"ok": True, "result": {"terminal": {"handle": LOCAL_TERMINAL}}}})
+                result = launch.run(model="fable", WORKER_LOCAL="1")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = launch.calls()
+                created = [call for call in calls if call[:3] == ["orca", "worktree", "create"]]
+                self.assertEqual(created, [] if listed else [["orca", "worktree", "create", "--name", kept, "--repo", f"id:{REPO}", "--base-branch", BASE_BRANCH, "--setup", "run", "--json"]])
+                if listed:
+                    self.assertIn(["orca", "terminal", "create", "--worktree", f"path:{path}", "--title", LANE, "--json"], calls)
+                self.assertEqual(json.loads(result.stdout)["worktree"], path if listed else LOCAL_WORKTREE)
+                self.assertEqual({key: json.loads(launch.receipt("request.json"))[key] for key in ("run", "worktree")}, {"run": RUN, "worktree": kept})
+                self.assertEqual(launch.kept(), LOCAL_KEPT)
 
 
 class SpriteTest(LaunchTest):
@@ -1245,6 +1277,35 @@ class LocalTest(LaunchTest):
         line = f"worktree {LOCAL_NAME} was cut for {earlier} and is gone, and a name is never cut twice; launch under a new lane name; nothing launched"
         self.assert_failed(self.launch, result, line, self.launch.local_calls()[:2])
         self.assertEqual(self.launch.kept(), ["request.json"])
+
+    def test_a_create_whose_reply_is_lost_waits_while_git_holds_the_worktree_until_orca_lists_it(self):
+        self.launch.local()
+        self.launch.reply("orca worktree create", DROPPED)
+        self.launch.reply("orca worktree list", UNLISTED, UNLISTED, {"out": {"ok": True, "result": {"worktrees": [{"displayName": LOCAL_NAME, "path": LOCAL_WORKTREE}]}}})
+        self.launch.reply("orca repo show", SHOWN)
+        self.launch.reply("git", {"out": f"worktree {MAIN}\nHEAD {BASE}\nbranch refs/heads/main\n\nworktree {LOCAL_WORKTREE}\nHEAD {BASE}\nlocked initializing\n"}, {"out": ""})
+        result = self.launch.run(model="fable", WORKER_LOCAL="1")
+        self.assertEqual((result.returncode, result.stderr), (0, f"{SPARSE}\n"))
+        self.assertEqual(json.loads(result.stdout)["worktree"], LOCAL_WORKTREE)
+        calls = self.launch.local_calls()
+        self.assertEqual(self.launch.calls(), [*calls[:3], LIST, REPO_SHOW, GIT_LIST, LIST, *calls[3:]])
+        self.assertEqual(self.launch.kept(), LOCAL_KEPT)
+
+    def test_a_create_that_leaves_git_no_worktree_of_its_name_dies_quoting_its_own_error(self):
+        line = f"orca worktree create made no worktree named {LOCAL_NAME} and answered runtime_timeout: Timed out waiting for the Orca runtime to respond, and git lists none under {MAIN}; launching this brief again creates it under that name"
+        other = f"worktree {MAIN}\nHEAD {BASE}\nbranch refs/heads/main\n\nworktree /w/{LOCAL_NAME}-old\nHEAD {BASE}\n"
+        held = f"{other}\nworktree {LOCAL_WORKTREE}\nHEAD {BASE}\nlocked initializing\n"
+        for name, gits, lists in (("never cut", [other], []), ("rolled back", [held, other], [LIST])):
+            with self.subTest(shape=name):
+                launch = self.fresh()
+                launch.local()
+                launch.reply("orca worktree create", DROPPED)
+                launch.reply("orca worktree list", UNLISTED, UNLISTED, UNLISTED)
+                launch.reply("orca repo show", SHOWN)
+                launch.reply("git", *({"out": out} for out in gits))
+                waited = [call for listed in lists for call in (listed, GIT_LIST)]
+                self.assert_failed(launch, launch.run(model="fable", WORKER_LOCAL="1"), line, [*launch.local_calls()[:3], LIST, REPO_SHOW, GIT_LIST, *waited])
+                self.assertEqual(launch.kept(), ["request.json"])
 
     def test_a_name_an_earlier_attempt_only_planned_is_still_free(self):
         earlier = self.launch.briefs / "earlier.worker"

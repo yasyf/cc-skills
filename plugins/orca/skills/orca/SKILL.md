@@ -234,7 +234,11 @@ The local route refuses without a repository and base branch, from
 The local worktree is named `<lane>-<first 8 hex of the Run id's SHA-256>`, so
 two Runs never cut one name. A second launch for that lane in the same Run
 resumes its live worktree; when the worktree an earlier attempt cut is gone,
-the launch refuses, because a name is never cut twice.
+the launch refuses, because a name is never cut twice. `orca worktree create`
+stops waiting for its reply at 60 s while Orca's `git worktree add` can still
+run, so when it answers no path the launch waits while the repository's
+`git worktree list` holds a worktree whose path ends in the name, until Orca
+lists it, and otherwise refuses quoting the create's own error.
 
 A new local worktree is sparse over `sparse` followed by the directories
 `WORKER_SPARSE` names, space-separated, and is a full checkout when both are
@@ -302,6 +306,9 @@ In that last case no task reached any worker, so launching the brief again moves
 the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh.
 On the Sprite route it first runs `cc-remote orca stop <lane>`, since cc-remote
 refuses a lane that already claimed a warm Sprite until a stop releases it.
+A local attempt that never ran `worker-start` is launched again in place, under
+the worktree name its `request.json` kept, so a worktree its earlier create made
+is found rather than cut again under the new Run's name.
 A Sprite attempt whose `prepared.json` names an `environmentId` that
 `orca environment show` answers `Unknown environment` for is moved aside the
 same way, whatever its `worker-start` returned, since nothing Orca started on
