@@ -1594,7 +1594,7 @@ def merge_proven(order: dict) -> bool:
 
 
 def prover(data: dict, order_id: str, keys: list[str], job_id: str | None = None) -> str | None:
-    """The done builder on the order, other than job_id, whose DONE or merge handoff names one of the PRs keys: the job that proved it live."""
+    """The done builder on the order, other than job_id, whose DONE names one of the PRs keys, never the DONE the watch takes at a merge, which proves nothing live: the job that proved it live."""
     return next(
         (
             other
@@ -1602,7 +1602,8 @@ def prover(data: dict, order_id: str, keys: list[str], job_id: str | None = None
             if other != job_id
             and (job := data["jobs"][other])["kind"] == "builder"
             and job["state"] == "done"
-            and set(keys) & set(named_prs(data, order_id, f"{job['said'] or ''} {(job.get('brief_flags') or {}).get('handoff') or ''}"))
+            and not done_at_merge(job)
+            and set(keys) & set(named_prs(data, order_id, job["said"] or ""))
         ),
         None,
     )

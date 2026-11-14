@@ -54,6 +54,7 @@ ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its b
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 WAITS_ARGS = ("waits", "redraws", "card", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
+CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
@@ -1200,7 +1201,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits, bool(args.builds_nothing))
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits)
             or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
         ):
             raise DriveError(f"refused, no job added: {refused}")
@@ -3679,7 +3680,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
 
 
 def unreached(name: str, data: dict, waits: list[str]) -> str | None:
-    """Why a release wait among waits names a service whose release never carries its PR's change, by release_reach: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR release_reach reads nothing for, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
+    """Why a release wait among waits names a service whose release never carries its PR's change, by release_reach: the PR changes only tests or CI config, which no release ships, the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR release_reach reads nothing for, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
     releases = [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]
     if not releases:
         return None
@@ -3692,6 +3693,8 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
         if not (answer := answers.get(found["pr"])):
             continue
         key, service = found["pr"], found["service"]
+        if answer.get("tested"):
+            return f"{found[0]}: {key} changes only tests or CI config, which no release ships, so its proof is its tests passing on dev at or after its merge"
         reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
         if service not in answer["components"]:
             return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
@@ -3701,7 +3704,7 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: its answer's components, every one go/ci releases, and touched, those the paths reach. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
+    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: its answer's components, every one go/ci releases, and touched, those the paths reach; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
     clone = data["roles"]["coordinator"]["cwd"]
     if not (keys and (Path(clone) / GO_CI).is_file()):
         return {}
@@ -3709,10 +3712,14 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
     if not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == repo))):
         return {}
     checkout = orca.checkout(name, clone)
-    return {
-        key: json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": github.files(key)})))
-        for key in ours
-    }
+    reach = {}
+    for key in ours:
+        paths = github.files(key)
+        if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
+            reach[key] = {"components": [], "touched": [], "tested": True}
+            continue
+        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": paths})))
+    return reach
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:
