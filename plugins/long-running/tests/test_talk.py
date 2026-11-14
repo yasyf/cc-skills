@@ -1244,12 +1244,11 @@ def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook
     ("post", "why"),
     [
         ({"channel_id": "D123", "thread_ts": ALERT}, "channel_id D123 is his DM; leave channel_id out"),
-        ({"channel_id": "C0ALERT1"}, "channel_id C0ALERT1 names the channel of a thread outside his DM, so it takes that thread's thread_ts"),
         ({"channel_id": "C0ALERT1", "thread_ts": ALERT, "about": WAITS}, "about names the card a reply in his DM is about"),
         ({"channel_id": "U0REPORTER", "card": {"title": QUESTION}}, "a card goes up in his DM and its line in a thread outside it, so with channel_id U0REPORTER it takes"),
     ],
 )
-def test_a_post_outside_his_dm_takes_a_thread_and_nothing_only_his_dm_draws(demo: str, posts: list[tuple[str, ...]], post: dict, why: str) -> None:
+def test_a_post_outside_his_dm_names_no_dm_of_his_and_takes_nothing_only_his_dm_draws(demo: str, posts: list[tuple[str, ...]], post: dict, why: str) -> None:
     with pytest.raises(DriveError, match=f"nothing posted: {re.escape(why)}"):
         talk.say(demo, {"text": "The release failed on the migration."} | post)
     assert (posts, said(demo)) == ([], [])
@@ -1278,17 +1277,20 @@ def test_a_card_on_an_order_in_an_alerts_thread_goes_up_in_his_dm_and_its_line_g
     assert [(event["channel"], event["card"]) for event in said(demo)] == [(None, POSTED), ("C0ALERT1", POSTED), (None, None), ("C0ALERT1", POSTED)]
 
 
-def test_a_note_to_a_person_with_no_thread_goes_out_through_cc_slack_send_into_their_group_dm_with_him_and_the_bot(demo: str, posts: list[tuple[str, ...]]) -> None:
-    note = {"text": "The run page shows its history again, since 6:40 PM.", "channel_id": "U0REPORTER"}
-    assert talk.say(demo, note | {"dry_run": True}) == f"DRY the group DM of U0REPORTER, him and the bot, 0 pictures: {note['text']}"
+@pytest.mark.parametrize(("channel", "where"), [("U0REPORTER", "the group DM of U0REPORTER, him and the bot"), ("C0STAGING1", "the root of channel C0STAGING1")])
+def test_a_post_with_no_thread_goes_out_through_cc_slack_send_at_a_channels_root_or_in_a_persons_group_dm_with_him_and_the_bot(
+    demo: str, posts: list[tuple[str, ...]], channel: str, where: str
+) -> None:
+    note = {"text": "The run page shows its history again, since 6:40 PM.", "channel_id": channel}
+    assert talk.say(demo, note | {"dry_run": True}) == f"DRY {where}, 0 pictures: {note['text']}"
     assert talk.say(demo, note | TICKET).startswith(f"POSTED {POSTED}")
     assert posts == [
         (
-            "send", "--agent", "claude", "--channel", "U0REPORTER", "--text", note["text"],
+            "send", "--agent", "claude", "--channel", channel, "--text", note["text"],
             "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
         )
     ]
-    assert said(demo)[0]["channel"] == "U0REPORTER"
+    assert said(demo)[0]["channel"] == channel
 
 
 def test_a_report_closing_its_order_in_another_orders_thread_his_message_started_records_there_and_joins_it(

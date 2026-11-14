@@ -197,9 +197,13 @@ def coordinator_post(payload: dict) -> str | None:
 
 
 def posts_to(payload: dict, dm: str) -> bool:
+    """Whether a post is a line to him, which the drive's checks of lines to him read: one in his DM, and a say post in a thread outside it, such as an alert's, or in the group DM of a person, him and the bot, never one at the root of another channel, such as a staging claim to its members."""
+    tool_input = payload["tool_input"]
+    if payload["tool_name"] == SAY:
+        channel, thread = talk.place(tool_input)
+        return channel == dm or bool(thread) or bool(cli.SLACK_USER.fullmatch(channel))
     if payload["tool_name"] in DM_POSTS:
         return True
-    tool_input = payload["tool_input"]
     channel = tool_input.get("channel_id") or next(iter(PERMALINK_CHANNEL.findall(tool_input.get("url") or "")), None)
     return payload["tool_name"] in CHANNEL_POSTS and channel == dm
 

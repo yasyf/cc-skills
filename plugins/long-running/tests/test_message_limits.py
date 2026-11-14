@@ -44,7 +44,7 @@ NOT_HIS = (
     "Copy each message of his this post answers word for word, one per line, with … where you skip words, or pass its permalink"
     " when it is in another thread of his DM, as a share he ordered to another person's DM does."
 )
-TEAMMATE = "U2"
+TEAMMATE = "U0TEAMMATE"
 CCI_READ = "mcp__plugin_cc-inbox_cci__read"
 SHARE_ORDER = f"can you summarize all our findings, the session IDs, the patterns, the fixes we are considering, etc to <@{TEAMMATE}>"
 SHARE_LINK = f"https://acme.slack.com/archives/{DM}/p1794512898040859?thread_ts=1794491173.244549&cid={DM}"
@@ -2737,6 +2737,20 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     assert say(transcript, text=f'The batch writer still prints "{error}", which {{card:demo:j1-7}} asks about.') is None
     assert say(transcript, text=f'The batch writer still prints "{error}".', about="demo:j1-7") is None
     assert say(transcript, text="The batch writer still prints nothing new.") is None
+    claim = f'Claiming staging to test the batch writer, which still prints "{error}". Does anyone object?'
+    assert say(transcript, text=claim, channel_id="C0STAGING1") is None
+    reads(lane_of(transcript), "1.2", channel="C0B75AL4XEW")
+    assert message_limits.KNOWN_RULE in say(transcript, text=claim, channel_id="C0B75AL4XEW", thread_ts="1.2").rule
+
+
+def test_a_say_post_at_a_channels_root_speaks_to_its_members_so_no_check_of_a_line_to_him_holds_it(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+    claim = " ".join(["Claiming staging for 30 minutes to test the batch writer."] * 8) + " Does anyone object?"
+    assert say(transcript, text=claim).startswith("Refused on purpose: he is away")
+    assert say(transcript, text=claim, channel_id="C0STAGING1") is None
+    assert say(transcript, edit="https://acme.slack.com/archives/C0STAGING1/p1794288799000003", text=claim) is None
+    assert message_limits.his_words(call("slack_dm_status", transcript, text=claim, channel_id="C0STAGING1") | {"tool_name": message_limits.SAY}) == []
 
 
 def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_dashboard_shows_it(talker: str, transcript: Path) -> None:

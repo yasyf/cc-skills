@@ -554,7 +554,7 @@ def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, D
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
-        where = f"in the group DM of {post['channel_id']}, him and the bot"
+        where = f"in the group DM of {post['channel_id']}, him and the bot" if post["channel_id"].startswith(("U", "W")) else f"at the root of channel {post['channel_id']}, to its members"
     ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": output.get("found") or reason or "none"}, f"post this line {where}"))
     reads = [item["id"] for item in output.get("reads", [])]
     rules = dedent_text(
