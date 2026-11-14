@@ -125,6 +125,9 @@ THREAD = "1794378983.440769"
 THREAD_WORDS = 100
 OLDEST_WORDS = f"slack:{THREAD[:-6]}{0:06}"
 NEWEST_WORDS = f"slack:{THREAD[:-6]}{THREAD_WORDS - 1:06}"
+LONG_WORDS = f"slack:{THREAD}"
+LONG_CHARS = 240_000
+ACK = "You set the staging-claim rule and want the fuzzing box back; both orders are handed off."
 SAID_LINK = "https://acme.slack.com/archives/D123/p1794288799976279"
 SAID_CALL = "toolu_said"
 RESUMED = "drive job resume now works from a session that did not start the job's agent."
@@ -194,6 +197,7 @@ ANCESTRY_RULES = """
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
 JEV_PROMPT_CHARS = 10_000
+CUT_QUOTE = " […cut to fit]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +264,12 @@ def long_thread(output: dict) -> str:
         for index in range(THREAD_WORDS)
     ]
     return json.dumps(output | {"his_words": words})
+
+
+def long_message(output: dict, said: bool) -> str:
+    """What message_limits.py hands Jev for a post answering one message of his LONG_CHARS characters long: in the thread the post goes to, said at SAID_AT, or as the words of the order the post is on, which the drive keeps with no time."""
+    word = {"id": LONG_WORDS, "source": "slack", "quote": "w" * LONG_CHARS, "detail": "his message this post answers"}
+    return json.dumps(output | {"his_words": [word | {"said_at": SAID_AT.isoformat()} if said else word]})
 
 
 def sent_found(output: dict) -> list[WorkflowState]:
@@ -487,7 +497,7 @@ def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | Non
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
     heard = found.get("additionalContext") or ""
-    ctx, judge, handed = jev_reads(evt, output, reason)
+    ctx, judge, fixed, answered = jev_reads(evt, output, reason)
     if sent and (budget := collect_budget(2 * SYNC_DEADLINE_MARGIN_SECONDS)) is not None:
         judge = replace(judge, deadline=budget)
     shown = f"\n```\n{reason}\n```" if reason else ""
@@ -500,7 +510,7 @@ def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | Non
     )
     stands = "stays as say sent it" if sent else "goes out as written"
     try:
-        if not (items := fitted(ctx, judge, [*judge.items(ctx), *handed])):
+        if not (items := fitted(ctx, judge, fixed, answered, judge.items(ctx))):
             return held(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below{again}.{shown}")
         verdict = judge.verdict(ctx, items)
     except (Undecided, EvidenceIncomplete, TranscriptLoadError) as exc:
@@ -526,8 +536,8 @@ def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | Non
     return held(f"Jev weighed this post by the drive's rules and {holds}: fix what Jev and each finding below name{again}.\n```\nJev: {verdict.explained}\n{reason}\n```")
 
 
-def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, Decide, list[Evidence]]:
-    """The post as Jev weighs it, in its place with what the drive's checks found in it, the judge for its session with only the rules this post can trip, the findings' only when the checks found something, each finding's own rule beside it, and the reads' only on a handler's post, the record rule only beside a record and the ancestry rule only beside a read the claims name, and the evidence the check hands with it: his words, each read the post's claims name and each record it cites or carries, as the handler's own calls read them, and the rule each finding stands for, which the judge reads beside the user's words its own items find."""
+def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, Decide, list[Evidence], list[Evidence]]:
+    """The post as Jev weighs it, in its place with what the drive's checks found in it, the judge for its session with only the rules this post can trip, the findings' only when the checks found something, each finding's own rule beside it, and the reads' only on a handler's post, the record rule only beside a record and the ancestry rule only beside a read the claims name, and the evidence the check hands with it: each read the post's claims name and each record it cites or carries, as the handler's own calls read them, with the rule each finding stands for, and apart from them his words the post answers, quotes or links, which the judge reads beside the user's words its own items find."""
     post = output["post"]
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
@@ -543,26 +553,33 @@ def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, D
         + (ANCESTRY_RULES if any(read.startswith(("read:", "record:")) for read in reads) else "")
     )
     judge = replace(HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE, rules=rules)
-    words = [Evidence.model_validate(item) for item in [*output["his_words"], *output.get("reads", [])]]
+    reads = [Evidence.model_validate(item) for item in output.get("reads", [])]
     found = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if (rule := output.get("rule")) else []
-    return ctx, judge, [*words, *found]
+    return ctx, judge, [*reads, *found], [Evidence.model_validate(item) for item in output["his_words"]]
 
 
-def fitted(ctx: Context, judge: Decide, items: list[Evidence]) -> list[Evidence]:
-    """The evidence Jev's prompt holds within JEV_PROMPT_CHARS: each item said at no time whole, every read, record, finding rule and ruling of his the checks add, and of his words said at a time, the messages and card answers of his the post answers and his prompts in the transcripts, the newest first, each that still fits beside them, in the order they came, since his prompts grow with his sessions and no post could pass otherwise."""
-    kept = [item for item in items if item.said_at is None]
-    for item in sorted((item for item in items if item.said_at), key=lambda item: item.said_at.timestamp(), reverse=True):
-        if len(str(judge.framed(ctx, [*kept, item], DETAIL_SHOWN))) <= JEV_PROMPT_CHARS:
-            kept.append(item)
-    shown = {id(item) for item in kept}
-    return [item for item in items if id(item) in shown]
+def fitted(ctx: Context, judge: Decide, fixed: list[Evidence], answered: list[Evidence], said: list[Evidence]) -> list[Evidence]:
+    """The evidence Jev's prompt holds within JEV_PROMPT_CHARS: every read, record and finding rule the checks add whole, then each of his words cut to what still fits beside the rest, in turn: the rulings of his and words on the post's order the checks add, the messages and card answers of his the post answers, quotes or links, newest first, his prompts in the transcripts, newest first, and those said at no known time last, so a message of his of any length reaches Jev as far as it fits and his own length never refuses a post, by his words "jev should be getting like 10k chars at most for any call"; in the order they came."""
+    kept = {id(item): item for item in fixed}
+    for item in [*(item for item in answered if not item.said_at), *by_newest(answered), *by_newest(said), *(item for item in said if not item.said_at)]:
+        room = JEV_PROMPT_CHARS + len(CUT_QUOTE) - len(str(judge.framed(ctx, [*kept.values(), item.model_copy(update={"quote": CUT_QUOTE})], DETAIL_SHOWN)))
+        if len(item.quote) <= room:
+            kept[id(item)] = item
+        elif room > len(CUT_QUOTE):
+            kept[id(item)] = item.model_copy(update={"quote": item.quote[: room - len(CUT_QUOTE)] + CUT_QUOTE})
+    return [kept[id(item)] for item in [*said, *answered, *fixed] if id(item) in kept]
+
+
+def by_newest(items: list[Evidence]) -> list[Evidence]:
+    """The items said at a known time, newest first."""
+    return sorted((item for item in items if item.said_at), key=lambda item: item.said_at.timestamp(), reverse=True)
 
 
 def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
-    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, with as many of his words said at a time as `fitted` keeps, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules, own words and the rulings of his the checks add already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
-    ctx, judge, handed = jev_reads(evt, output, reason)
+    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, with his words cut to what `fitted` fits, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules and own words already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; his words never refuse one, since `fitted` cuts them to what fits; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
+    ctx, judge, fixed, answered = jev_reads(evt, output, reason)
     try:
-        prompt = str(judge.framed(ctx, fitted(ctx, judge, [*judge.items(ctx), *handed]), DETAIL_SHOWN))
+        prompt = str(judge.framed(ctx, fitted(ctx, judge, fixed, answered, judge.items(ctx)), DETAIL_SHOWN))
     except (EvidenceIncomplete, TranscriptLoadError):
         return None
     reads = sorted(
@@ -573,7 +590,7 @@ def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
         return None
     too_long = f"refused: Jev's prompt for this post would be {len(prompt):,} characters, over the {JEV_PROMPT_CHARS:,} it takes"
     if cut > sum(chars for _, chars in reads):
-        return f"{too_long}, and its rules, the post and his words alone pass that. Say less and name it on a `DEFECT` line."
+        return f"{too_long}, and its rules and the post alone pass that. Say less and name it on a `DEFECT` line."
     sizes = "\n".join(f"{name} {chars:,}" for name, chars in reads)
     return (
         f"{too_long}. Cut your reads by at least {cut:,} with a call showing only what each claim needs, such as a grep, a jq filter or"
@@ -798,8 +815,23 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps(json.loads(handler_reads("x")) | {"his_words": [{"id": "ruling:1", "source": "his words", "quote": "y" * JEV_PROMPT_CHARS}]})},
-        ): Block(pattern=r"(?s)over the 10,000 it takes, and its rules, the post and his words alone pass that\. Say less and name it on a `DEFECT` line"),
+            commands={"python3 -I": json.dumps(json.loads(handler_reads("x")) | {"post": {"text": "y" * JEV_PROMPT_CHARS, "thread_ts": THREAD}})},
+        ): Block(pattern=r"(?s)over the 10,000 it takes, and its rules and the post alone pass that\. Say less and name it on a `DEFECT` line"),
+        Input(
+            tool=SAY,
+            tool_input={"text": ACK, "thread_ts": THREAD},
+            session_id=COMMUNICATOR,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": long_message({"his_words": [], "reads": [], "post": {"text": ACK, "thread_ts": THREAD}}, said=False)},
+        ): Allow(),
+        Input(
+            tool=SAY,
+            tool_input={"text": ACK, "thread_ts": THREAD, "dry_run": True},
+            session_id=COMMUNICATOR,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": long_message(refused_post(ACK, AWAY), said=True)},
+            llm={"reason": "his message asks for this ack", "allow": True, "relied_on": [LONG_WORDS]},
+        ): Warn(pattern="Jev read no finding's rule as holding against this post, so it goes out as written"),
         Input(
             tool=SAY,
             tool_input={"text": "The fix merged.", "dry_run": True},
