@@ -102,15 +102,17 @@ PLAIN_WORDS_RULE = (
 
 
 class Ruled(str):
-    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix; counted holds its findings a count or a mark decides, such as a post's word count or his reading as away, which refuse when Jev cannot finish."""
+    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix; counted holds its findings a count or a mark decides, such as a post's word count or his reading as away, which refuse when Jev cannot finish, and found what its check found, one line naming no fix, which Jev reads as the post's findings in place of its words."""
 
     rule: str
     counted: str
+    found: str
 
-    def __new__(cls, reason: str, rule: str, counted: str = "") -> Self:
+    def __new__(cls, reason: str, rule: str, counted: str = "", found: str = "") -> Self:
         made = super().__new__(cls, reason)
         made.rule = rule
         made.counted = counted
+        made.found = found
         return made
 
 
@@ -119,12 +121,12 @@ class Unjudged(str):
 
 
 def ruled(reason: str) -> dict:
-    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by and the findings that refuse when Jev cannot finish, or that no Jev judges it."""
+    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by, the findings that refuse when Jev cannot finish and what its check found, or that no Jev judges it."""
     if isinstance(reason, Unjudged):
         return {"judged": False}
     if not isinstance(reason, Ruled):
         return {}
-    return {"rule": reason.rule} | ({"counted": reason.counted} if reason.counted else {})
+    return {"rule": reason.rule} | ({"counted": reason.counted} if reason.counted else {}) | ({"found": reason.found} if reason.found else {})
 
 
 def transcript(payload: dict) -> Path:
@@ -193,13 +195,14 @@ def unowned_work(text: str) -> Ruled | None:
         f'refused: "{found[0]}" says work has no one on it and the line names no job: put one on it now, drive job add for a part no job holds or'
         " drive job resume for the one holding it, and name that job in the line, as {started:<j>} in a post to him",
         UNOWNED_RULE,
+        found=f'"{found[0]}" says work has no one on it, and the line names no job',
     )
 
 
 def typed_time(text: str, data: dict) -> Ruled | None:
     """Why a session's record or message types a clock time for work already done, which Jev judges by the rule, so a time to come its words date in another form than "tomorrow" or "Nov 9", such as "Friday 6:54 AM", still passes."""
     refusal = limits.typed_time(text, data)
-    return refusal and Ruled(f"refused: {refusal}", TYPED_TIME_RULE)
+    return refusal and Ruled(f"refused: {refusal}", TYPED_TIME_RULE, found=refusal.found)
 
 
 def seen(payload: dict) -> dict:

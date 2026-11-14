@@ -431,10 +431,12 @@ def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]
                 found.append(f"{key}: the words do not link its open tap card {card['url']}")
     if not found:
         return None
-    return (
-        f"refused: these words say a PR waits on his tap or Approve with nothing for him to tap: {'; '.join(dict.fromkeys(found))}."
+    untapped = f"these words say a PR waits on his tap or Approve with nothing for him to tap: {'; '.join(dict.fromkeys(found))}"
+    return limits.Refusal(
+        f"refused: {untapped}."
         " Say a PR waits on his tap only while its open tap card stands at its head, and link that card where you say it, as <permalink|its tap card>; else say what happened to the PR"
-        f" ({TAP_CLAIM_RULING})"
+        f" ({TAP_CLAIM_RULING})",
+        untapped,
     )
 
 

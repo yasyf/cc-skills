@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from drive import agents, cli, dashboard, install, picture, reads, refs, render, slack, state, view
+from drive import agents, cli, dashboard, install, limits, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -555,7 +555,10 @@ def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:
     for key in stack:
         order = data["orders"].get(state.order_served(data["prs"][key]))
         if order and order["text"].startswith(state.TOOLING) and order["text"] not in text:
-            return f'{key} serves a drive tooling order, so the line above its card quotes that order: put "{order["text"]}" in text'
+            return limits.Refusal(
+                f'{key} serves a drive tooling order, so the line above its card quotes that order: put "{order["text"]}" in text',
+                f'{key} serves a drive tooling order, and the line above its card leaves out its words "{order["text"]}"',
+            )
     return None
 
 

@@ -289,8 +289,18 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
     waits = [finding for finding in findings if slack.WAITS_WITHOUT_CARD.match(finding)]
     plain = [finding for finding in findings if finding not in waits]
     return [
-        *([agents.Ruled(UNCARDED + "\n".join(waits), CARD_RULE)] if waits else []),
-        *([agents.Ruled("refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(plain), agents.PLAIN_WORDS_RULE)] if plain else []),
+        *([agents.Ruled(UNCARDED + "\n".join(waits), CARD_RULE, found=f"these lines say something waits on him, and no open card they link asks it: {' | '.join(waits)}")] if waits else []),
+        *(
+            [
+                agents.Ruled(
+                    "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(plain),
+                    agents.PLAIN_WORDS_RULE,
+                    found=f"`cc-slack check-post` finds this in the post's exact words: {' | '.join(plain)}",
+                )
+            ]
+            if plain
+            else []
+        ),
     ]
 
 
@@ -368,6 +378,7 @@ def unbacked(payload: dict, said: str) -> str | None:
         "refused: a line naming a cause or telling him a state of work carries {record:<seq>} of the read that measured it, on that line, or, in a"
         f" handler's post, sits in claims beside the read behind it; a state no read of this turn measured says unverified: {' | '.join(lines)}",
         CAUSE_RULE,
+        found=f"these lines name a cause or tell him a state of work with no {{record:<seq>}} of the read that measured it: {' | '.join(lines)}",
     )
 
 
@@ -395,6 +406,7 @@ def unordered(said: str) -> str | None:
         " are read only so he is never asked again. Do what his words ask, or name what stands in the way of doing it. His ruling"
         f" 9769307: \"Who cares if you have a record if they or not I'm telling you to do it\". The lines: {' | '.join(lines)}",
         ORDERED_RULE,
+        found=f"these lines answer his order by a plan, record or answer of his that is missing: {' | '.join(lines)}",
     )
 
 
@@ -402,7 +414,7 @@ def corrected(tool_input: dict, drive: dict) -> str | None:
     """Why a post calls a thing by a word he corrected, which `drive term` keeps beside its proper term."""
     if (refusal := limits.stand_in_refusal(tool_input, drive["stand_ins"])) is None:
         return None
-    return agents.Ruled(f"refused: {refusal}", TERM_RULE)
+    return agents.Ruled(f"refused: {refusal}", TERM_RULE, found=refusal.found)
 
 
 def untooled(payload: dict, drive: dict, said: str) -> str | None:
@@ -412,7 +424,7 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
     stack = [key for each in payload["tool_input"].get("tap_prs") or [] if (key := state.pr_key(each)) in drive["prs"]]
     if (refusal := talk.unquoted_tooling(drive, stack, said)) is None:
         return None
-    return agents.Ruled(f"refused: {refusal}", TOOLING_RULE)
+    return agents.Ruled(f"refused: {refusal}", TOOLING_RULE, found=refusal.found)
 
 
 def his_words(payload: dict) -> list[dict]:
@@ -550,7 +562,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         long += TITLED.format(limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found, talk.shown_in(drive["name"], tool_input))))
     return every(
         [
-            long and agents.Ruled(long, LENGTH_RULE, long),
+            long and agents.Ruled(long, LENGTH_RULE, long, found=long.found),
             long_ack(payload),
             unlinked(payload, drive, order_id),
             uncarded_known(payload, drive, found),
@@ -581,12 +593,16 @@ def unbacked_start(payload: dict, drive: dict, said: str, order_id: str | None) 
     posted = posted_order(drive, payload["tool_input"], order_id)
     if posted and state.owed_handoffs(drive, state.incident_orders(drive, posted)):
         return None
+    unstarted = (
+        f'"{found[0]}" says a job is being started, and the line names no job as {{started:<j>}} and no handoff asking for one is kept on'
+        f" {f'order {posted}' if posted else 'the order it goes to'}"
+    )
     return agents.Ruled(
-        f'refused: "{found[0]}" says a job is being started, and the line names no job as {{started:<j>}} and no handoff asking for one is kept on'
-        f" {f'order {posted}' if posted else 'the order it goes to'}: name the job that started as {{started:<j>}}, or first send the coordinator a"
+        f"refused: {unstarted}: name the job that started as {{started:<j>}}, or first send the coordinator a"
         " `handoff` with the `record` tool naming the step as its text and `attrs.order` the order this line goes to, so the watch owes this"
         " thread a line five quiet minutes on until a job of that order starts",
         PROMISE_RULE,
+        found=unstarted,
     )
 
 
@@ -601,6 +617,7 @@ def reported_down(drive: dict, said: str) -> str | None:
         f" {held['session']} in {held['cwd']}, or a sub-coordinator's session in the folder its `drive status` line names, then tell"
         " him it was restarted",
         DOWN_RULE,
+        found="this post tells him a coordinator is down, and says nothing of its restart",
     )
 
 
@@ -618,21 +635,19 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
         return None
     told_order, told = next(((order, held["told"]) for order, held in reported if held["told"]), (None, None))
     if told and told_order["kind"] == "answer":
-        refused = f"Refused on purpose: this thread already heard the answer to its question, in {told}, and hears it once. Post nothing more there."
+        found, then = f"this thread already heard the answer to its question, in {told}, and hears it once", "Post nothing more there."
     elif told:
-        refused = (
-            f"Refused on purpose: this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once."
-            " Post nothing more there."
-        )
+        found, then = f"this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once", "Post nothing more there."
     elif any(order["kind"] == "answer" for order, _ in reported):
-        refused = "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it. It goes once the answer is posted."
+        found, then = "the answer to the question asked in this thread is not posted to him yet, so a note now would come before it", "It goes once the answer is posted."
     else:
-        refused = (
-            "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, from where he uses it when it"
-            " builds something he uses, so a note now would come before the fix. It goes once the coordinator records the proof and sends the"
-            " report closing the order."
+        found = (
+            "the fix for the bug reported in this thread keeps no proof that it is live, from where he uses it when it"
+            " builds something he uses, so a note now would come before the fix"
         )
-    return agents.Ruled(refused, REPORTER_RULE, refused)
+        then = "It goes once the coordinator records the proof and sends the report closing the order."
+    refused = f"Refused on purpose: {found}. {then}"
+    return agents.Ruled(refused, REPORTER_RULE, refused, found=found)
 
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:
@@ -644,6 +659,7 @@ def unsaid_post(payload: dict, drive: dict) -> str | None:
             " leaves the dashboard showing the post's old words. Reword it with say(edit=<its permalink>, text=<the new words>),"
             " which links each reference as a new post's are and rewords the post on the dashboard too.",
             SAY_RULE,
+            found="this rewords a post with slack_edit, which sends each drive reference to him as raw text and leaves the dashboard showing the post's old words",
         )
     if payload["tool_name"] in (SAY, EDIT) or not posts_to(payload, dm):
         return None
@@ -659,6 +675,7 @@ def unsaid_post(payload: dict, drive: dict) -> str | None:
         f"Refused on purpose: {raw[0]} would reach him as raw text, since only say links a drive reference. Post it with"
         " say(text=…), which links it as he reads it and shows the post on the dashboard too.",
         SAY_RULE,
+        found=f"{raw[0]} would reach him as raw text, since only say links a drive reference",
     )
 
 
@@ -714,13 +731,10 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
         return None
-    away = (
-        "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
-        " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"
-        " when he is back."
-    )
+    gone = "he is away, since he said so or has written nothing for an hour, and while he is away only cards, incident lines and answers to his messages go out"
+    away = f"Refused on purpose: {gone}. Post nothing: this news joins the catch-up the drive posts when he is back."
     if not (seq := report.get("seq")):
-        return agents.Ruled(away, AWAY_RULE, away)
+        return agents.Ruled(away, AWAY_RULE, away, found=gone)
     if due := report.get("due"):
         return agents.Unjudged(
             f"Refused on purpose: he is away, since he said so or has written nothing for an hour, and report {seq} owes the line promised"
@@ -743,6 +757,7 @@ def long_ack(payload: dict) -> str | None:
         f"refused: this ack is {len(sentences)} sentences, and an ack is one: what he asked, in his words, and what happens next."
         " Post that one sentence and put the rest in the handler's brief; the handler answers him in this thread.",
         ACK_RULE,
+        found=f"this ack is {len(sentences)} sentences, and an ack is one",
     )
 
 
@@ -756,11 +771,12 @@ def raw_visuals(tool_input: dict) -> str | None:
     if not raw:
         return None
     source, what = raw[0]
+    shown = f'the code visual holding "{render.cut(" ".join(source.split()), 60)}" is {what}, raw data or tool output'
     return agents.Ruled(
-        f'refused: the code visual holding "{render.cut(" ".join(source.split()), 60)}" is {what}, raw data or tool output, and a'
-        f" picture of it shows him nothing: say what it means in words, show a short snippet of real code, or {picture.INSTEAD}"
+        f"refused: {shown}, and a picture of it shows him nothing: say what it means in words, show a short snippet of real code, or {picture.INSTEAD}"
         f" ({limits.RAW_RULING})",
         f"A picture shows him what words cannot, never raw data or tool output, by {limits.RAW_RULING}.",
+        found=shown,
     )
 
 
@@ -773,6 +789,7 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
         f"refused: `orca terminal switch --terminal {wrong[0]}` names a terminal no session of this drive runs in. Give him a switch"
         " command only as the role's line `drive status` prints it, word for word, and none when that line carries none.",
         SWITCH_RULE,
+        found=f"`orca terminal switch --terminal {wrong[0]}` names a terminal no session of this drive runs in",
     )
 
 
@@ -787,7 +804,8 @@ def every(refusals: list[str | None]) -> str | None:
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
     rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
     counted = "\n".join(f"{index}. {refusal.counted.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled) and refusal.counted)
-    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, counted)
+    facts = "\n".join(f"{index}. {getattr(refusal, 'found', '') or refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
+    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, counted, found=facts)
 
 
 def untapped(payload: dict) -> str | None:
@@ -796,7 +814,7 @@ def untapped(payload: dict) -> str | None:
         return None
     prs = {key: pr for name in state.session_drives(payload["session_id"]) for key, pr in state.load(name)["prs"].items()}
     refusal = limits.tap_refusal("\n".join(tap_prs), prs)
-    return refusal and agents.Ruled(refusal, OWED_TAP_RULE)
+    return refusal and agents.Ruled(refusal, OWED_TAP_RULE, found=refusal.found)
 
 
 def claimed_tap(tool_input: dict, drive: dict, order_id: str | None) -> str | None:
@@ -806,7 +824,7 @@ def claimed_tap(tool_input: dict, drive: dict, order_id: str | None) -> str | No
     card = tool_input.get("card") or {}
     words = "\n".join([tool_input.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])])
     refusal = view.tap_claim_refusal(drive, order_id or "", words, (view.live_cards(drive["name"]) or view.NO_CARDS)["pr_cards"])
-    return refusal and agents.Ruled(f"{refusal}. A PR the drive owes his tap on and no open card asks gets its tap card from tap_prs on the post.", CARD_RULE)
+    return refusal and agents.Ruled(f"{refusal}. A PR the drive owes his tap on and no open card asks gets its tap card from tap_prs on the post.", CARD_RULE, found=refusal.found)
 
 
 def unlinked(payload: dict, drive: dict, order_id: str | None) -> str | None:
@@ -814,7 +832,7 @@ def unlinked(payload: dict, drive: dict, order_id: str | None) -> str | None:
     if not payload.get("agent_id") or payload["tool_input"].get("tap_prs"):
         return None
     refusal = limits.link_refusal(payload["tool_input"], limits.held(drive, order_id))
-    return refusal and agents.Ruled(refusal, LINK_RULE)
+    return refusal and agents.Ruled(refusal, LINK_RULE, found=refusal.found)
 
 
 def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | None:
@@ -827,7 +845,8 @@ def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | 
     if not (known := [(question, what) for question, what in state.asking_cards(drive, tool_input.get("text") or "") if view.message_key(question["card"]) not in linked and question["waits"] != about]):
         return None
     named = "; ".join(f"{state.asked_line(question, what)}, so link it as {{card:{question['waits']}}}" for question, what in known)
-    return agents.Ruled(f"refused: {named}. Name it beside what it asks about, and tell him the news as that card's.", KNOWN_RULE)
+    asked = "; ".join(f"{state.asked_line(question, what)}, and this post names it without {{card:{question['waits']}}}" for question, what in known)
+    return agents.Ruled(f"refused: {named}. Name it beside what it asks about, and tell him the news as that card's.", KNOWN_RULE, found=asked)
 
 
 def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
