@@ -52,9 +52,8 @@ FIX_RULE = (
     " or FIX none when no fix of ours is owed: drive job report refuses it without one, and the order it names reads as a live bug's fix from then on"
 )
 UNPOSTED_WORK = (
-    '"{part}" of {order} is work he ordered, which no post delivers: a builder or codex job on it returning DONE does, or a merged PR the'
-    ' {holder} session records with drive order posted {order} <its link> --part "{part}"; when it asks only for an answer,'
-    ' drive order set {order} --kind answer --part "{part}" sorts it as one'
+    '"{part}" of {order} is work he ordered, which no post delivers: drive job prove does, once the proof file a builder or codex job on it'
+    ' keeps exits 0; when it asks only for an answer, drive order set {order} --kind answer --part "{part}" sorts it as one'
 )
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
@@ -118,6 +117,7 @@ DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
+PROVEN_LINE = re.compile(r"DONE (?P<proof>.+? live: \S+ exits 0 on .+)")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 SLOT_WAIT = "builder-slot"
@@ -526,6 +526,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "taps_dated": True,
         "holds_owed": True,
         "builder_goals_named": True,
+        "proofs_posted": True,
     }
 
 
@@ -799,7 +800,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named")) and bool(data.get("proofs_posted"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -842,6 +843,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         date_taps(data)
     if not data.get("holds_owed"):
         owe_holds(data)
+    if not data.get("proofs_posted"):
+        post_proofs(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     return data, keep and not unkept
@@ -982,6 +985,18 @@ def date_taps(data: dict) -> None:
         if pr["state"] == "open" and pr["answers"] and any(old in line for line in pr["answers"] for old in stale):
             pr.update(answers=None, checker=None)
     data["taps_dated"] = True
+
+
+def post_proofs(data: dict) -> None:
+    """Deliver work he ordered only by the proofs drive job prove ran: each work part's posted field, the merged PR link or post an older install wrote there, is cleared, and each part a job whose said line is a passing proof's DONE owes takes that proof, since an older install read a part delivered from its job's state or a PR link; marked so this runs once."""
+    for order_id, order in data["orders"].items():
+        for part, fields in order["parts"].items():
+            if work(data, order_id, part):
+                fields["posted"] = None
+    for job_id, job in data["jobs"].items():
+        if job["state"] == "done" and (proven := PROVEN_LINE.match(job["said"] or "")):
+            deliver_proven(data, job_id, proven["proof"])
+    data["proofs_posted"] = True
 
 
 def owe_holds(data: dict) -> None:
@@ -1167,7 +1182,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, and a WAITING names something the watch frees it on."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, a builder's DONE on work he ordered keeps the proof file drive job prove runs to deliver it, and a WAITING names something the watch frees it on."""
     job = data["jobs"][job_id]
     if job["state"] == "stopped":
         return (
@@ -1177,12 +1192,19 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if not result_state(job, line):
         return "its first line sets no state: it opens DONE, READY, PUSHED, `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
     if job["kind"] == "builder" and REPORTED_LINE.match(line) and (merging := [pr_key(found[0]) for found in PR_URL.finditer(line) if merges_untapped(pr_key(found[0]))]):
-        if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
+        if not runnable(job):
             return (
                 f"it names {', '.join(merging)}, which merges once this is taken and the watch proves by running {job_id}'s proof file, and {job_id}"
                 f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
+    if job["kind"] == "builder" and re.match(r"DONE\b", line) and (owed := owed_work(data, job_id)) and not runnable(job):
+        named = ", ".join(f'{order_id} "{part}"' for order_id, part in owed)
+        return (
+            f"its DONE delivers {named} only once drive job prove runs {job_id}'s proof file and it exits 0, and {job_id} keeps none it can run:"
+            " keep an executable, read-only script exiting 0 once what its brief's Done when names holds where it is used, printing a line for each check it passed,"
+            f" with drive job set {job_id} --repro <file>, then send this report again"
+        )
     if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
         return (
             "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n>, a PR the drive"
@@ -1540,12 +1562,25 @@ def done_at_merge(job: dict) -> bool:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
-    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not done_at_merge(job)}
-    posted = data["orders"][order_id]["parts"][part]["posted"]
-    if work(data, order_id, part):
-        return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
-    return "builder" in done or bool(posted)
+    """Whether a part is delivered: its posted field holds what delivered it, on work he ordered the passing proof drive job prove ran, by deliver_proven, and on words he reads the post that answered it; no job's state, merge or PR link delivers a part."""
+    return bool(data["orders"][order_id]["parts"][part]["posted"])
+
+
+def owed_work(data: dict, job_id: str) -> list[tuple[str, str]]:
+    """Each order and part of work he ordered that a job works on, on its own order and each it carries, that no proof delivered yet."""
+    job = data["jobs"][job_id]
+    return [(order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) if work(data, order_id, part) and not delivered(data, order_id, part)]
+
+
+def deliver_proven(data: dict, job_id: str, proof: str) -> None:
+    """Deliver each part of work he ordered that a job owes by the proof drive job prove ran on it and saw exit 0, the one writer of a work part's posted field."""
+    for order_id, part in owed_work(data, job_id):
+        data["orders"][order_id]["parts"][part]["posted"] = proof
+
+
+def runnable(job: dict) -> bool:
+    """Whether a job keeps a proof file drive job prove can run."""
+    return bool(job.get("repro") and os.access(job["repro"], os.X_OK))
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:

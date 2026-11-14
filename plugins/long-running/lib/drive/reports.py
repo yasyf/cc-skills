@@ -147,8 +147,7 @@ def misnamed_part(drive: dict, record: dict) -> str | None:
         if part not in (held := drive["orders"][order_id]["parts"]):
             return agents.Unjudged(UNKNOWN_PART.format(order=order_id, part=part, parts=", ".join(json.dumps(each, ensure_ascii=False) for each in held)))
         if order_id not in closed and state.work(drive, order_id, part):
-            holder = f"{state.holding_lane(drive, drive['orders'][order_id])}@{drive['name']}"
-            return agents.Unjudged(UNPOSTED_PART.format(work=state.UNPOSTED_WORK.format(order=order_id, part=part, holder=holder), order=order_id, part=part))
+            return agents.Unjudged(UNPOSTED_PART.format(work=state.UNPOSTED_WORK.format(order=order_id, part=part), order=order_id, part=part))
     return None
 
 

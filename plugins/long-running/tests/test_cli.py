@@ -781,7 +781,7 @@ def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: s
     assert state.load("demo")["jobs"]["j1"]["waits"] == [wait]
 
 
-def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_builder_on_it_returns_done(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_the_proof_of_its_builders_done_delivers_it(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("order", "add", "--title", "Memory moves", "--project", "The drive", "--workstream", "Drive tooling", "move every team", "--parts", "move every team")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
@@ -797,6 +797,9 @@ def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_builder
     assert view.holding(state.load("demo"), [wait], None) == [wait]
     with state.edit("demo") as data:
         state.take_result(data, "j2", "DONE every team moved, its Job succeeded on each cluster")
+    assert view.holding(state.load("demo"), [wait], None) == [wait]
+    with state.edit("demo") as data:
+        state.deliver_proven(data, "j2", "j2 live: repro/j2.sh exits 0 on no plugin of this Mac")
     assert view.holding(state.load("demo"), [wait], None) == []
     assert cli.main(["job", "set", "j1", "--waits", wait]) == 2
     assert f"--waits {wait}: name a part of o2 still to be delivered, word for word, as o2:<part>: none is left" in capsys.readouterr().err
@@ -3799,6 +3802,7 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    kept_proof(tmp_path, "j1")
     fetched = tmp_path / "view.json"
     fetched.write_text("{}")
     recording = tmp_path / "queue-click.mov"
@@ -3900,6 +3904,7 @@ def test_a_proof_naming_the_demos_placeholder_slack_link_is_refused_on_a_done_an
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "post one card line")
     run("job", "add", "builder", "--order", "o1", "--goal", "post it")
+    kept_proof(tmp_path, "j1")
     unopened_links[STAND_IN] = OFF_WORKSPACE
     output = tmp_path / "j1.proof.txt"
     output.write_text("ok ask 1 posts one card line\n")
@@ -3999,6 +4004,23 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
     assert keep(monkeypatch, capsys, "j1", ready)[0] == 2
     kept_proof(tmp_path, "j1")
     assert keep(monkeypatch, capsys, "j1", ready) == (0, "")
+
+
+def test_a_builders_done_on_work_he_ordered_is_refused_until_it_keeps_a_proof_file_it_can_run_and_delivers_nothing_itself(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    output = tmp_path / "j1.proof.txt"
+    output.write_text("ok it ships\n")
+    done = f"DONE shipped it\nCHECK: {output}\n"
+    code, err = keep(monkeypatch, capsys, "j1", done)
+    assert (code, state.load("demo")["jobs"]["j1"]["state"]) == (2, "running")
+    assert 'its DONE delivers o1 "Short title" only once drive job prove runs j1\'s proof file and it exits 0, and j1 keeps none it can run' in err
+    kept_proof(tmp_path, "j1")
+    assert keep(monkeypatch, capsys, "j1", done) == (0, "")
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", "Short title")) == ("done", False)
 
 
 def test_a_builder_proving_a_merged_pr_live_on_a_done_order_is_refused_naming_the_job_that_proved_it(run: Run, communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -4749,10 +4771,11 @@ def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options
 
 
 def test_a_done_or_ready_leaves_no_step_for_someone_else(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "backfill the copies")
     run("job", "add", "builder", "--order", "o1", "--goal", "backfill")
+    kept_proof(tmp_path, "j1")
     done = "DONE the copies page lists every store\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     for left in ("NEXT: coordinator runs the backfill once it ships", "UNPROVEN: the old stores, until the coordinator runs the backfill"):
         code, err = keep(monkeypatch, capsys, "j1", f"{done}{left}\n")
@@ -4763,10 +4786,11 @@ def test_a_done_or_ready_leaves_no_step_for_someone_else(
 
 
 def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it", "--agent", "a1")
+    kept_proof(tmp_path, "j1")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     for finding in (
         "the bucket caps at 5k objects/s, left as is",
@@ -4790,6 +4814,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     design = "DESIGN the bucket caps at 5k objects/s, left as is\n- shard the copy across buckets (recommended)\n- copy at 5k objects/s\n"
     assert keep(monkeypatch, capsys, "j1", design) == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
+    kept_proof(tmp_path, "j2")
     assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
@@ -4802,10 +4827,11 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
 
 
 def test_a_job_report_quoting_when_past_work_happened_is_kept_since_it_goes_between_sessions(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
+    kept_proof(tmp_path, "j1")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     assert keep(monkeypatch, capsys, "j1", f"DONE j1 started at 4:55 AM and GitHub went green at 3:47:52 PM\n{check}") == (0, "")
 
@@ -5076,10 +5102,11 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
 
 
 def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing_until_a_fresh_worker_runs_it(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    kept_proof(tmp_path, "j1")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     built = f"BUILT lr-move, waits on demo:j1-3\n{check}"
     assert keep(monkeypatch, capsys, "j1", built) == (0, "")
@@ -6411,7 +6438,7 @@ def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Ru
     assert lines == [
         "demo: 0 open of 1 orders",
         f"- o1 done: {' '.join(words.split())}",
-        f"  parts: \"{state.load('demo')['orders']['o1']['parts'].popitem()[0]}\": delivered",
+        f"  parts: \"{state.load('demo')['orders']['o1']['parts'].popitem()[0]}\": builder j1 done",
         f"  - j1 builder done: {' '.join(('one restore code path ' * 8).split())}",
         f"    said: {' '.join(said.split())}",
     ]
@@ -7115,8 +7142,8 @@ def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_tol
     assert (
         "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
         " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
-        " a part a post of the drive already answered, or work a merged PR delivered, is marked from the root@demo session, the one its ORPHAN lines reach,"
-        ' with drive order posted o1 <that post\'s or PR\'s link> --part "<part>"'
+        " a part a post of the drive already answered is marked from the root@demo session, the one its ORPHAN lines reach,"
+        ' with drive order posted o1 <that post\'s link> --part "<part>"'
     ) in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["Short title"]["posted"] is None
 
@@ -7152,7 +7179,7 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
 
 
-def test_a_post_delivers_an_incidents_first_check_and_its_close_delivers_its_fix(
+def test_a_post_delivers_an_incidents_first_check_and_its_close_never_its_fix_which_only_a_proof_delivers(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "the journal will not open", "--thread", "1794200000.000100", "--kind", "build", "--parts", "fix", "first check")
@@ -7171,7 +7198,8 @@ def test_a_post_delivers_an_incidents_first_check_and_its_close_delivers_its_fix
         data["orders"]["o1"]["recovered"] = state.stamp()
     assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}')
     assert [part["posted"] for part in state.load("demo")["orders"]["o1"]["parts"].values()] == [None, line]
-    assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')
+    assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "first check": posted {line}')
+    assert [part["posted"] for part in state.load("demo")["orders"]["o1"]["parts"].values()] == [None, line]
 
 
 def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_already_answered_it(
@@ -7276,28 +7304,20 @@ def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_given
     assert (data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["state"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], "running", False, False)
 
 
-def test_pr_set_part_on_a_done_builders_merged_pr_delivers_a_part_its_job_never_held(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_pr_set_part_refuses_a_part_its_job_never_held_and_delivers_none_on_a_done_builders_merged_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     main = "an incident never goes five quiet minutes without a line"
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", main, "--parts", main, state.IMMEDIATE_FIX)
     run("job", "add", "builder", "--order", "o1", "--part", state.IMMEDIATE_FIX, "--goal", "the line every five minutes", "--agent", "a")
     url = "https://github.com/yasyf/cc-skills/pull/4582"
     run("pr", "add", url, "--job", "j1", *LEAD)
-    assert cli.main(["pr", "set", url, "--part", main]) == 2
-    assert f"yasyf/cc-skills#4582: refused, nothing set: its job j1 delivers no part {main}" in capsys.readouterr().err
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
         data["prs"]["yasyf/cc-skills#4582"]["state"] = "merged"
-    assert not state.delivered(state.load("demo"), "o1", main)
-    assert cli.main(["pr", "set", url, "--part", "the copy"]) == 2
-    assert "yasyf/cc-skills#4582: refused, nothing set: its order o1 has no part the copy" in capsys.readouterr().err
-    assert run("pr", "set", url, "--part", state.IMMEDIATE_FIX, "--part", main)[0] == 0
+    assert cli.main(["pr", "set", url, "--part", main]) == 2
+    assert f"yasyf/cc-skills#4582: refused, nothing set: its job j1 delivers no part {main}" in capsys.readouterr().err
+    assert run("pr", "set", url, "--part", state.IMMEDIATE_FIX)[0] == 0
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["parts"], data["orders"]["o1"]["parts"][main]["posted"], state.delivered(data, "o1", main)) == (
-        "done",
-        [state.IMMEDIATE_FIX],
-        url,
-        True,
-    )
+    assert [state.delivered(data, "o1", part) for part in (main, state.IMMEDIATE_FIX)] == [False, False]
 
 
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(

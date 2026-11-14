@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -18,6 +19,7 @@ LOG_TAIL = 4096
 COLLECT_SECONDS = 60
 DISPATCH_SECONDS = 120
 SCHEMA_FILE = "codex-result.json"
+REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+)", re.MULTILINE)
 GUARD = Path(__file__).resolve().parents[2] / "hooks" / "landing_guard.py"
 GUARD_MATCHER = "^Bash$"
 GUARD_SECONDS = 60
@@ -45,7 +47,9 @@ RESULT = {
             "type": "string",
             "description": (
                 "Your whole return below the result line, one fact a line, such as its PR:, CHECK:, CHANGE:, UNPROVEN: and NEXT: lines, an"
-                " `ASK: <file>` line for a choice's block, and the FIX line an Incident: line asks for; the drive keeps it as your job's report."
+                " `ASK: <file>` line for a choice's block, the FIX line an Incident: line asks for, and on a DONE a `REPRO: <path>` line naming"
+                " an executable, read-only proof file that exits 0 once the work holds where it is used, printing a line for each check it passed,"
+                " which the drive keeps and runs, since only its exit 0 delivers the work; the drive keeps it as your job's report."
             ),
         },
     },
@@ -155,6 +159,10 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
             line, report = "", text
         state.keep_report(name, job_id, line or state.opening(text), report)
         job = data["jobs"][job_id]
+        if line.startswith("DONE") and (repro := REPRO.search(report)) and Path(repro["path"]).expanduser().is_file():
+            from drive import cli
+
+            job["repro"] = cli.keep_repro(name, job_id, repro["path"])
         refused = (
             "it is not the JSON its schema requires, a state, line and report"
             if not line

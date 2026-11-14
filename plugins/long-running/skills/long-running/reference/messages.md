@@ -119,14 +119,14 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind
   that a builder, codex or design job holds or held or a design lists, unless
   `drive order set <o> --kind answer --part "<part>"` sorted it as an answer, since only a
-  builder or codex job returning `DONE`, or a merged PR, does, so `record_lines` refuses a report naming one
+  proof file a builder or codex job keeps on it exiting 0 under `drive job prove` does, so `record_lines` refuses a report naming one
   on an order it does not close. A progress
   line's report names neither, whatever job it names, and carries `progress=true`, since
   `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
   on an order of one part as on one of several. An incident and every alert's order joined to it
   with `--joins` share their threads both ways, whichever job carries the alert.
   `drive order posted <o> <link> --record <the report's seq>` records a post already made. Only the communicator's side records a post, except that the session the order's `ORPHAN` lines reach marks a part a post
-  of the drive already answered, or work a merged PR delivered, with `drive order posted <o> <that post's or PR's link> --part "<part>"`, with or without
+  of the drive already answered with `drive order posted <o> <that post's link> --part "<part>"`, with or without
   `--record`, posting nothing.
 
 ## The shapes

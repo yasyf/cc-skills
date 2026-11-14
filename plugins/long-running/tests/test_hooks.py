@@ -602,8 +602,12 @@ def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\necho ok fixed\n")
+    proof.chmod(0o755)
     with state.edit("demo") as data:
         place.queue(data["jobs"]["j1"], state.now())
+        data["jobs"]["j1"]["repro"] = str(proof)
     run("job", "set", "j1", "--state", "stopped")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Handoff: 681835\nDrive: demo, order o1, job j1")))
     job = state.load("demo")["jobs"]["j1"]

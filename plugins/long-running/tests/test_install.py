@@ -1094,6 +1094,7 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
     assert data["orders"]["o1"]["proof"] == str(kept)
+    assert data["orders"]["o1"]["parts"]["Drive tooling: prove each install"]["posted"] == f"{URL} live: {script} exits 0 on long-running@skills 1.0.3"
     assert data["orders"]["o1"]["close_report"] == {
         "id": "install-proved-j1",
         "kind": "report",
@@ -1105,6 +1106,23 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
     }
     assert [call for call in git.other_calls() if call[:1] == ["cci"]] == []
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
+
+
+@pytest.mark.parametrize(("exits", "delivered"), [(0, True), (1, False)])
+def test_a_lanes_own_done_on_work_delivers_its_part_only_once_drive_job_prove_runs_its_proof_file_and_it_exits_0(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], exits: int, delivered: bool
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, exits)
+    part = "Drive tooling: prove each install"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="done", said="DONE checked it by hand", prs=[])
+        del data["prs"]["yasyf/cc-skills#7"]
+    assert install.done_unproven(state.load("demo"), "j1")
+    install.prove("demo", "j1", 900)
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", part), git.claude_calls()) == ("done" if delivered else "failed", delivered, [])
+    assert data["orders"]["o1"]["parts"][part]["posted"] == (f"j1 live: {script} exits 0 on no plugin of this Mac" if delivered else None)
 
 
 @pytest.mark.parametrize("session", [None, "other-coordinator"])
@@ -1333,7 +1351,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert (builder_id, builder["kind"], builder["state"], builder["goal"], builder["session"]) == ("j2", "builder", "waiting", "prove Forge-AI/monorepo#9 live", "s-1")
     assert (builder["parts"], builder["carries"]) == ([shipped], {"o2": [carried]})
     assert builder["waits"] == ["release:api:Forge-AI/monorepo#9", "release:sandsql:Forge-AI/monorepo#9"]
-    assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set {builder_id} --repro <file> and return DONE: drive job prove runs that file, and its exit 0 delivers the part"
     assert (builder["brief_flags"]["native"], builder["brief_flags"]["interactions"]) == (page, "open a run's page")
     assert ("j2" in data["orders"]["o1"]["jobs"], "j2" in data["orders"]["o2"]["jobs"]) == (True, True)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
@@ -1369,7 +1387,7 @@ def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_star
     )
     assert asked == f'{head}: it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
     assert "to prove it there, its DONE giving o1 its proof: it waits on no release go/ci makes" in merged
-    assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it and prove it live" in Path(data["jobs"]["j3"]["brief"]).read_text()
+    assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it by the INSTALL: line of j2's return" in Path(data["jobs"]["j3"]["brief"]).read_text()
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "running", "running"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
@@ -1733,7 +1751,7 @@ def test_a_proof_file_exiting_0_that_prints_the_demos_placeholder_slack_link_tak
     [
         ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
         ({"said": "PUSHED https://github.com/Forge-AI/monorepo/pull/9", "prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
-        ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
+        ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged and owes no proof of a DONE of its own, so there is nothing to prove"),
     ],
 )
 def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_only_merges_outside_yasyf_or_no_merged_ready(
@@ -1767,9 +1785,9 @@ def test_a_proof_that_failed_runs_again_on_the_job_that_owns_it_once_its_cause_i
 @pytest.mark.parametrize(
     ("taken", "kept", "repro", "refusal"),
     [
-        ("stopped", f"PUSHED {URL}", True, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
-        ("failed", "BLOCKED no PR opened", True, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
-        ("failed", f"PUSHED {URL}", False, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, written from its PROVE: line, then drive job prove j1"),
+        ("stopped", f"PUSHED {URL}", True, "j1 waits on no READY or PUSHED whose PRs all merged and owes no proof of a DONE of its own, so there is nothing to prove"),
+        ("failed", "BLOCKED no PR opened", True, "j1 waits on no READY or PUSHED whose PRs all merged and owes no proof of a DONE of its own, so there is nothing to prove"),
+        ("failed", f"PUSHED {URL}", False, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>, written from its PROVE: line or its brief's Done when, then drive job prove j1 runs it"),
     ],
 )
 def test_a_proof_refused_on_a_job_that_took_blocked_leaves_it_as_it_was(

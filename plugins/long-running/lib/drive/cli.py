@@ -816,7 +816,7 @@ def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> 
         ]
         working += [key for key, pr in data["prs"].items() if pr["job"] in jobs and pr["state"] == "open"]
         if working:
-            raise DriveError(f'--part "{part}": refused, {", ".join(working)} works on it, so it is work under way, never an answer: its builder\'s DONE or a merged PR delivers it')
+            raise DriveError(f'--part "{part}": refused, {", ".join(working)} works on it, so it is work under way, never an answer: drive job prove delivers it once the proof file its job keeps exits 0')
     return parts
 
 
@@ -944,28 +944,16 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
+    """Deliver a part of the order he reads from the session its watch lines reach, posting nothing, by the drive's post that already answered it, wherever it was made; refused for work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, which only drive job prove's passing proof delivers."""
     data = state.load(name)
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])
-    if not (work := state.work(data, order_id, part)):
-        drive_post_at(link, data, order_id)
-    elif not state.PR_URL.search(link):
-        raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part, holder=f"{state.holding_lane(data, order)}@{name}"))
-    elif (read := merged_read(link))["state"] != "MERGED":
-        raise DriveError(f'--part "{part}": refused, GitHub reads {state.pr_key(link)} {read["state"].lower()}, and only a merged PR delivers work he ordered')
+    if state.work(data, order_id, part):
+        raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part))
+    drive_post_at(link, data, order_id)
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
-    how = "the merged PR that delivered it" if work else "the post that answered it"
-    return f'{order_id} "{part}": posted {link}, {how}', {"id": order_id, "parts": [part], "posted": link}
-
-
-def merged_read(link: str) -> dict:
-    key = state.pr_key(link)
-    reads, refused = github.fetch([key])
-    if refused:
-        raise DriveError(f"{key}: could not read it from GitHub to check it merged: {refused}")
-    return reads[key]
+    return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
 
 
 def order_told(args: argparse.Namespace) -> int:
@@ -1033,8 +1021,8 @@ def communicators_order(data: dict, order_id: str) -> dict:
         raise DriveError(
             "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
             f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
-            f" a part a post of the drive already answered, or work a merged PR delivered, is marked from the {state.holding_lane(data, order)}@{data['name']} session,"
-            f' the one its ORPHAN lines reach, with drive order posted {order_id} <that post\'s or PR\'s link> --part "<part>", with or without --record, posting nothing'
+            f" a part a post of the drive already answered is marked from the {state.holding_lane(data, order)}@{data['name']} session,"
+            f' the one its ORPHAN lines reach, with drive order posted {order_id} <that post\'s link> --part "<part>", with or without --record, posting nothing'
         )
     return order
 
@@ -1090,11 +1078,10 @@ def unclaim_close(name: str, closes: list[str]) -> None:
 
 
 def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
-    """The parts of the order a post delivers: each item of its report's part attr names on this order when it is words he reads, never work he ordered, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
-    closing = order_id in state.closed_orders(report)
-    if named := [part for on, part in items if on == order_id]:
-        return [part for part in pick_parts(order_id, order, named) if closing or not state.work(data, order_id, part)]
-    return list(order["parts"]) if closing else []
+    """The parts of the order a post delivers: each item of its report's part attr names on this order, or each part of an order its report closes, when it is words he reads, never work he ordered, which only drive job prove delivers. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
+    named = [part for on, part in items if on == order_id]
+    parts = pick_parts(order_id, order, named) if named else list(order["parts"]) if order_id in state.closed_orders(report) else []
+    return [part for part in parts if not state.work(data, order_id, part)]
 
 
 def delivering(name: str, order_id: str, report: dict) -> str:
@@ -3461,9 +3448,8 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)
     order = known["prs"][key]["order"]
-    delivers = before["state"] == "merged" and known["jobs"][before["job"]]["state"] == "done"
     if args.part:
-        refuse_a_part_its_job_lacks(known, key, args.part, delivers)
+        refuse_a_part_its_job_lacks(known, key, args.part)
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
@@ -3502,8 +3488,6 @@ def pr_set(args: argparse.Namespace) -> int:
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
-        for part in args.part if delivers else []:
-            data["orders"][order]["parts"][part]["posted"] = pr["url"]
     untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}" if args.no_tapped else ""
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
@@ -3531,15 +3515,14 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
     return [*(f"\nwithdrew his card {card}: {why}" for card in withdrawn), corrected]
 
 
-def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool) -> None:
-    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name; a merged PR whose job returned DONE names any part of its order, which it then delivers, since it shipped work its job was never given."""
+def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str]) -> None:
+    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name."""
     pr = data["prs"][key]
     job = data["jobs"][pr["job"]]
-    delivered = list(data["orders"][pr["order"]]["parts"]) if delivers else [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
+    delivered = [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
     if unknown := [part for part in parts if part not in delivered]:
         listed = ", ".join(f'"{part}"' for part in delivered)
-        lacks = f"its order {pr['order']} has" if delivers else f"its job {pr['job']} delivers"
-        raise DriveError(f"{key}: refused, nothing set: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
+        raise DriveError(f"{key}: refused, nothing set: its job {pr['job']} delivers no part {', '.join(unknown)}; its parts are {listed}")
 
 
 def refuse_an_unwritten_rule(data: dict, key: str) -> None:
@@ -4799,7 +4782,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "with --undo, the part whose mark it takes back; from the communicator with --record, only a part its part attr names;"
             " from the session the order's ORPHAN lines reach, with or without --record, or the communicator holding it with none, the part the drive's post at the link already answered,"
-            " or the work part the merged PR at the link delivered, posting nothing"
+            " posting nothing, never work he ordered, which only drive job prove's passing proof delivers"
         ),
     )
     verb.add_argument(
@@ -5359,7 +5342,7 @@ def parser() -> argparse.ArgumentParser:
         "--part",
         action="append",
         default=[],
-        help="a part of its job's orders this PR delivers, replacing the parts it named, or on a merged PR whose job returned DONE any part of its order, which it then delivers; the watch judges the PR against the parts it names, every part its job delivers when it names none",
+        help="a part of its job's orders this PR delivers, replacing the parts it named; the watch judges the PR against the parts it names, every part its job delivers when it names none",
     )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)

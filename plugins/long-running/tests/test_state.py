@@ -415,6 +415,33 @@ def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_
     )
 
 
+def test_a_drive_saved_before_proofs_posted_keeps_work_delivered_only_where_drive_job_prove_proved_it(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["proofs_posted"]
+    proven, merged, ended, answered = "the proven fix", "the merged fix", "the ended fix", "why it broke"
+    link = "https://github.com/yasyf/cc-skills/pull/7"
+    post = "https://acme.slack.com/archives/D123/p1794200040000500"
+    parts = {proven: state.new_part(), merged: state.new_part() | {"posted": link}, ended: state.new_part()}
+    data["orders"] = {
+        "o1": state.new_order("fix it", "slack", None, parts, state.stamp()) | {"kind": "build", "jobs": ["j1", "j2", "j3"]},
+        "o2": state.new_order(answered, "slack", None, {answered: state.new_part() | {"posted": post}}, state.stamp()) | {"kind": "answer", "jobs": []},
+    }
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "prove it", [proven], state.stamp()) | {"state": "done", "said": f"DONE {link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"},
+        "j2": state.new_job("o1", "builder", "merge it", [merged], state.stamp()) | {"state": "done", "said": f"DONE {link} merged: yasyf/cc-skills#7 at abc123"},
+        "j3": state.new_job("o1", "codex", "end it", [ended], state.stamp()) | {"state": "done", "said": "DONE checked by hand"},
+    }
+    state.create(data)
+    loaded = state.load("demo")
+    assert {part: loaded["orders"]["o1"]["parts"][part]["posted"] for part in parts} == {
+        proven: f"{link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3",
+        merged: None,
+        ended: None,
+    }
+    assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["proofs_posted"]) == (post, True)
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

@@ -4091,6 +4091,14 @@ def test_a_lane_questions_job_line_posts_the_question_whole_as_its_records_body(
     assert posted == [([*(["--path", "-"] if whole else []), "--text", line], question if whole else None)]
 
 
+def kept_proof(name: str, tmp_path: Path) -> None:
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\necho ok it holds\n")
+    proof.chmod(0o755)
+    with state.edit(name) as data:
+        data["jobs"]["j1"]["repro"] = str(proof)
+
+
 @pytest.mark.parametrize(
     ("sent", "asked", "taken"),
     [
@@ -4100,8 +4108,9 @@ def test_a_lane_questions_job_line_posts_the_question_whole_as_its_records_body(
     ],
 )
 def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and_never_unanswered(
-    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch
+    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    kept_proof(remote, tmp_path)
     deliver(monkeypatch, [message("question", sent)])
     monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
     watching = watch.Watcher(remote, offset=state.events_end(remote))
@@ -4842,7 +4851,8 @@ def test_a_built_job_relaunched_on_his_answer_runs_none_of_the_mail_its_finished
     assert [reply["body"] for reply in history if reply["id"].startswith(state.REPORT_REPLY)] == [J2914_REPORT]
 
 
-def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(remote: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    kept_proof(remote, tmp_path)
     kept = [
         message("question", ASK_IN_SHAPE, id="msg_ask"),
         message("question", "READ ccn answer search x", id="msg_read"),
