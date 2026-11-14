@@ -683,7 +683,11 @@ restating it.
   words as written beside it, so it needs no read, and so is one whose words after its `|` quote that title or question word for
   word, with … where they skip words, and a claim copying those words, such as a claim that the PR merged, claims only that
   PR's state; any other words after its `|` are the handler's own claim. The say hook hands Jev every call those
-  words name with its whole result, and each record the post cites or carries, whole, and Jev holds
+  words name with its whole result, each call once, and each record the post cites or carries as the handler's newest call
+  naming its seq, never the record's whole body. Jev's prompt takes at most 10,000 characters, by his words "jev should be
+  getting like 10k chars at most for any call": a post whose reads push it past that is refused before say runs, naming each
+  read's size, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and names those; a post whose
+  rules, own words and his alone pass it is refused too, naming a `DEFECT` line. Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
   checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,

@@ -44,6 +44,7 @@ NOT_HIS = (
     " when it is in another thread of his DM, as a share he ordered to another person's DM does."
 )
 TEAMMATE = "U2"
+CCI_READ = "mcp__plugin_cc-inbox_cci__read"
 SHARE_ORDER = f"can you summarize all our findings, the session IDs, the patterns, the fixes we are considering, etc to <@{TEAMMATE}>"
 SHARE_LINK = f"https://acme.slack.com/archives/{DM}/p1794512898040859?thread_ts=1794491173.244549&cid={DM}"
 SHARE = "*What happened*\n" + " ".join(["word"] * 70) + "\n*Fixes being built*\n" + " ".join(["word"] * 70)
@@ -888,7 +889,7 @@ def evidence(transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
 
 
 @pytest.mark.parametrize("as_text", [False, True])
-def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
+def test_jev_gets_each_call_a_claims_read_names_whole_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], as_text: bool
 ) -> None:
     lane = lane_of(transcript)
@@ -902,11 +903,11 @@ def test_jev_gets_each_call_a_claims_read_names_whole_beside_its_claims_a_read_n
     ]
     backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
     assert (backed["id"], backed["quote"]) == ("read:1", f"{shown(*SHADOW)}\n\n{shown(*SHADOWED)}")
-    assert '"lower.rs:295-305" behind its claims ["Each table has a `<table>__history` shadow table", "its columns plus the run"]' in backed["source"]
+    assert backed["source"] == message_limits.NAMED_SOURCE.format(read='"lower.rs:295-305"')
     assert "is a doc" not in backed["source"]
     assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
     assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
-    assert doc["source"].endswith('; ["/drive/reports/j1880.md"] this read opens is a doc, which backs a line telling what that doc says and no line on what code does, even word for word')
+    assert doc["source"].endswith(message_limits.DOC_SOURCE.format(docs='["/drive/reports/j1880.md"]'))
 
 
 @pytest.mark.parametrize(
@@ -961,23 +962,30 @@ def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
     assert backed["quote"] == shown(*read)
 
 
-def test_a_record_a_claim_names_or_the_post_cites_and_the_report_it_carries_reach_jev_whole_and_a_post_naming_no_claim_says_so(
-    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], records: dict[str, str]
+def test_a_record_the_post_cites_a_claim_names_or_it_carries_reaches_jev_as_the_handlers_newest_read_of_it_never_its_whole_body(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    records |= {"673870": "DONE a pack deletes the run's values in its range", "675192": " ".join(["measured"] * 400), "675300": "DONE lower.rs:300 reads"}
+    bodies = {seq: " ".join(["measured"] * 400) for seq in ("673870", "675111", "675192", "675300")}
     monkeypatch.setattr(
         refs.reads,
         "run",
-        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "text": records[argv[2]], "refs": {}, "fields": {"attrs": {}}}),
+        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "text": bodies[argv[2]], "refs": {}, "fields": {"attrs": {}}}),
     )
-    text = "A pack deletes the run's values in its range ({record:675192})."
+    both = (CCI_READ, {"seqs": [675192, 673870], "budget": 9000}, "675192 report root>communicator 2,723 refusals across 11 teams\n673870 report root>communicator DONE a pack deletes the run's values")
+    narrower = ("Bash", {"command": "cci show 675192 | grep refusals"}, "675192 report root>communicator 2,723 refusals across 11 teams")
+    one = ("Bash", {"command": "cci show 675300"}, "675300 report root>communicator DONE lower.rs:300 reads")
+    for each in (both, narrower, one):
+        tool(lane_of(transcript), *each)
+    text = "2,723 refusals across 11 teams ({record:675192}), as {record:675111} found."
     claims = [{"claim": "A pack deletes the run's values in its range", "read": "record:675300"}]
     reads = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="673870", claims=claims)
     assert [(read["id"], read["source"], read["quote"]) for read in reads] == [
-        ("record:675192", message_limits.CITED_SOURCE, records["675192"]),
-        ("record:675300", message_limits.CITED_SOURCE, records["675300"]),
-        ("record:673870", message_limits.CARRIED_SOURCE, records["673870"]),
+        ("record:675192", message_limits.CITED_SOURCE, shown(*narrower)),
+        ("record:675111", message_limits.CITED_SOURCE, 'none: no call of the handler\'s own holds "675111"'),
+        ("record:675300", message_limits.CITED_SOURCE, shown(*one)),
+        ("record:673870", message_limits.CARRIED_SOURCE, shown(*both)),
     ]
+    assert bodies["675192"] not in json.dumps(reads)
     assert evidence(transcript, monkeypatch, capsys, text="On it; next line by 5:40 AM.", thread_ts="1.2") == [message_limits.UNCLAIMED]
 
 
