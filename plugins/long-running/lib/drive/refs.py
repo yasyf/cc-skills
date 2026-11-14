@@ -255,7 +255,7 @@ def answered(answer_id: str, data: dict) -> bool:
 
 
 def started(data: dict, job_id: str, label: str) -> dict:
-    """When a job started, the stamp the drive wrote as it added the job, so no session types the time, labelled as the job's start so it never reads as when anything the job did started, such as a release; words after a | would replace that label, and refuse the post."""
+    """When a job started, the stamp the drive wrote as it added the job, so no session types the time, labelled as the job's start so it never reads as when anything the job did started, such as a release, beside what it stamps for Jev; words after a | would replace that label, and refuse the post."""
     if job_id not in data["jobs"]:
         raise DriveError(f"{{started:{job_id}}} names no job of the drive's; drive status lists them")
     if label:
@@ -263,13 +263,13 @@ def started(data: dict, job_id: str, label: str) -> dict:
             f"{{started:{job_id}|{label}}} would draw its words in place of the job's start: {{started:{job_id}}} draws only when that job"
             " started, labelled so, and takes no words after a |"
         )
-    return {"kind": "started", "title": f"{render.when(data['jobs'][job_id]['created'])} {JOB_START}", "url": None, "board": None}
+    return {"kind": "started", "title": f"{render.when(data['jobs'][job_id]['created'])} {JOB_START}", "url": None, "board": None, "stamps": f"when the drive added job {job_id}"}
 
 
 def posted_at(name: str, seq: str) -> dict:
-    """When a cci record went out, its own stamp read in local time, so no session types the time."""
+    """When a cci record went out, its own stamp read in local time, so no session types the time, beside what it stamps for Jev."""
     moment = state.parse_time(shown(name, "at", seq)["at"]).astimezone()
-    return {"kind": "at", "title": render.when(state.stamp(moment)), "url": None, "board": None}
+    return {"kind": "at", "title": render.when(state.stamp(moment)), "url": None, "board": None, "stamps": f"when cci record {seq} went out"}
 
 
 def shown(name: str, kind: str, seq: str) -> dict:

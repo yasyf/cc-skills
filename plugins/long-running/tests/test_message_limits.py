@@ -1643,6 +1643,24 @@ def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its
     assert say(transcript, text="The fix job's log printed `4:55:02 AM` for its first write.") is None
 
 
+def test_jev_reads_each_stamp_say_fills_beside_the_words_it_drew_and_what_it_stamps(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit("demo") as data:
+        data["jobs"]["j4750"] = state.new_job("o1", "reader", "name the runs the stop alert counted", [], state.stamp())
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "text": "j4750 named the runs", "refs": {}, "at": state.stamp()}))
+    said = "The stop alert fired a third time; a reader, {started:j4750}, is naming the runs it counted, and its first count went out {at:705577}."
+    reason, sent = message_limits.checked(call("slack_dm_status", transcript, text=said, thread_ts="1.2") | {"tool_name": message_limits.SAY})
+    assert reason is None
+    assert sent["written"] == said
+    assert [(stamp["written"], stamp["stamps"]) for stamp in sent["stamps"]] == [
+        ("{started:j4750}", "when the drive added job j4750"),
+        ("{at:705577}", "when cci record 705577 went out"),
+    ]
+    assert sent["stamps"][0]["drawn"].endswith(refs.JOB_START)
+    assert all(stamp["drawn"] in sent["text"] and stamp["written"] not in sent["text"] for stamp in sent["stamps"])
+    unstamped = message_limits.checked(call("slack_dm_status", transcript, text="The stop alert fired a third time.", thread_ts="1.2") | {"tool_name": message_limits.SAY})[1]
+    assert "stamps" not in unstamped
+
+
 def test_say_passes_a_past_window_typed_in_pacific_on_the_line_linking_the_read_that_measured_it(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
