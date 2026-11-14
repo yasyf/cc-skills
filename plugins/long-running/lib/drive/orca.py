@@ -43,10 +43,8 @@ FINISHED = ("succeeded", "failed", "stopped", "abandoned")
 START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
 TAKING_OVER = "## Taking over from "
-REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
 TRANSCRIPTS_FIELD = re.compile(r"^Transcripts:\n(?:- .*(?:\n|$))+", re.MULTILINE)
 TRANSCRIPT_PATH = re.compile(r"^- (j\d+) (\w+)[^:\n]*: ([/~]\S*)$", re.MULTILINE)
-REPORT_JOB = re.compile(r"\bj\d+\b")
 REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
 REPRO_FILE = re.compile(r"repro/(j\d+)(?:\.\w+)?")
 CARRIED = "reports|asks|repro|scratch|jobs"
@@ -353,7 +351,6 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
         f"worker {running}.\n\n"
         f"{builder_body()}\n\n"
         f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n"
-        f"{carried(drive, brief)}"
         f"{BRIEF_HEADING}{(brief if on_mac else sprite_transcripts(drive, brief)).strip()}\n"
     )
 
@@ -368,12 +365,12 @@ def sprite_transcripts(drive: str, brief: str) -> str:
 
 
 def drive_files(drive: str, brief: str) -> dict[str, str | None]:
-    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: the report of each job its Researched: and Plan: lines name that has returned, every return it took as `drive job report` prints it, and each path under the folder's reports, asks, repro, scratch and jobs folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, carries nothing, and a path resolving outside the folder, through `..` or a symlink, has no text, since a lane's READ names its path."""
+    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: each path under the folder's reports, asks, repro, scratch and jobs folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report as `drive job report` prints it and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, carries nothing, a file that is not UTF-8 text or holds NUL, such as a screen recording, is a line naming its path and size, and a path resolving outside the folder, through `..` or a symlink, has no text, since a lane's READ names its path."""
     folder = state.drive_dir(drive)
     roots = [folder, *([Path("~") / folder.relative_to(Path.home())] if folder.is_relative_to(Path.home()) else [])]
     prefix = "|".join(re.escape(f"{root}/") for root in roots)
     named = [PATH_END.sub("", found) for found in re.findall(rf"(?<![\w./~-])(?:{prefix})?((?:{CARRIED})/{PATH_CHARS})", brief)]
-    files = {f"Report of {job_id}": text for job_id in REPORT_JOB.findall("\n".join(REPORT_LINE.findall(brief))) if (text := state.report_text(drive, job_id))}
+    files: dict[str, str | None] = {}
     for name in named:
         if report := REPORT_FILE.fullmatch(name):
             files[f"Report of {report[1]}"] = state.report_text(drive, report[1]) or None
@@ -381,15 +378,16 @@ def drive_files(drive: str, brief: str) -> dict[str, str | None]:
         if (repro := REPRO_FILE.fullmatch(name)) and (kept := state.load(drive)["jobs"].get(repro[1], {}).get("repro")):
             name = f"repro/{Path(kept).name}"
         if not (file := folder / name).is_dir():
-            files[f"Drive file {name}"] = file.read_text(errors="replace") if file.is_file() and file.resolve().is_relative_to(folder.resolve()) else None
+            files[f"Drive file {name}"] = file_text(file) if file.is_file() and file.resolve().is_relative_to(folder.resolve()) else None
     return files
 
 
-def carried(drive: str, brief: str) -> str:
-    """Each drive file the brief names, whole under its heading, since a Sprite holds no copy of the drive to read one from, but a lane's transcript keep_transcripts kept, which runs to megabytes and the lane reads with READ."""
-    return "".join(
-        f"\n# {heading}, which your brief names\n\n{text.strip()}\n" for heading, text in drive_files(drive, brief).items() if text is not None and f"{TRANSCRIPTS}/" not in heading
-    )
+def file_text(file: Path) -> str:
+    data = file.read_bytes()
+    with contextlib.suppress(UnicodeDecodeError):
+        if "\0" not in (text := data.decode()):
+            return text
+    return f"{file} is {len(data):,} bytes that are not UTF-8 text, so no read shows them"
 
 
 def uncarried(drive: str, job_id: str, brief: str) -> str | None:
