@@ -13,7 +13,7 @@ from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
 
 import pytest
-from conftest import commit_files, git_in
+from conftest import commit_files, git_in, Jev
 from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, watch
 
 SHA = "abc123def4567890"
@@ -1475,6 +1475,28 @@ def test_a_proof_of_something_he_sees_takes_done_only_once_its_output_pictures_e
         assert job["said"].startswith(
             f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: its brief names 2 user stories"
             " and its proof shows 0 of them"
+        )
+
+
+@pytest.mark.parametrize(("pick", "taken"), [("undone", "failed"), ("none", "done")])
+def test_a_proof_of_a_brief_naming_a_mac_step_takes_done_only_once_jev_reads_it_taking_and_reading_back_that_step(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], jev: Jev, pick: str, taken: str
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    script.write_text("#!/bin/sh\necho 'ok the installed redraw reads the kept card'\n")
+    step = "redraw j961's card once the install holds the fix"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"mac": step}
+    jev.picks(pick)
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    assert job["state"] == taken
+    [asked] = [asked for asked in jev.asked if "step" in asked["questions"]]
+    assert (asked["state"]["proof_file"], step in asked["questions"]["step"]["label"]["instructions"]) == (script.read_text(), True)
+    if taken == "failed":
+        assert job["said"].startswith(
+            f"BLOCKED {URL}: {script} exits 0 but leaves its Mac: step undone on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}:"
+            f' its brief\'s Mac: line names "{step}", and Jev reads its proof file as leaving that step undone or unread'
         )
 
 
