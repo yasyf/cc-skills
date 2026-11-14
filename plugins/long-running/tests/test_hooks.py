@@ -1245,7 +1245,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
         f"Read your brief first: {written}",
     ]
     assert jev.asked[-1]["state"] == {
-        "action": f"start this production release: `{J2666_START}`",
+        "action": f"start this release on {settled.PRODUCTION}: `{J2666_START}`",
         "answers": [{"id": "5419ffd", "asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]}],
     }
     assert run("job", "brief", "j2", "--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")[0] == 0
@@ -1328,7 +1328,7 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     assert brief.approval_refusal(start.format("5d0c4a1"), state.load("demo")) is None
     [asked] = jev.asked
     assert asked["state"] == {
-        "action": f"start this production release: `{start.format('5d0c4a1')}`",
+        "action": f"start this release on {settled.PRODUCTION}: `{start.format('5d0c4a1')}`",
         "answers": [{"id": "5d0c4a1", "asked": RELEASE_PICK["title"], "said": "Release now (Recommended)"}],
     }
     assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", "5d0c4a1"]
@@ -1396,7 +1396,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     jev.picks("8b2e4f7")
     assert brief.approval_refusal(start.format("8b2e4f7"), data) is None
     assert jev.asked[-1]["state"] == {
-        "action": f"start this production release: `{start.format('8b2e4f7')}`",
+        "action": f"start this release on {settled.PRODUCTION}: `{start.format('8b2e4f7')}`",
         "answers": [{"id": "8b2e4f7", "asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]}],
     }
     asked = len(jev.asked)
@@ -1530,7 +1530,7 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
     own = ("tools/ci release approve releases/2026-11-13/2 --via codex", "tools/ci release resume 15495", "tools/ci bk api -X PUT organizations/forge/pipelines/release/builds/15495/jobs/0190a1b2/unblock")
     assert [landing_guard.deny_reason(bash(command) | step) for command in own] == [None] * len(own)
     assert landing_guard.deny_reason(bash(release) | step) == landing_guard.RELEASE_BY_HAND.format(command=release)
-    assert {asked["state"]["action"] for asked in jev.asked} == {f"start this production release: `{release}`"}
+    assert {asked["state"]["action"] for asked in jev.asked} == {f"start this release on {settled.PRODUCTION}: `{release}`"}
     jev.picks("none")
     assert landing_guard.deny_reason(bash(own[0]) | step) == brief.RELEASE_HELD.format(
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Jev does not read it as approving this release'
@@ -1566,7 +1566,7 @@ def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_br
     kept.write_text(f"Release: {release}\nDrive: demo, order o1, job j1\n")
     jev.picks("8b2e4f7")
     assert landing_guard.deny_reason(lane) is None
-    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this production release: `{release}`"]
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on {settled.PRODUCTION}: `{release}`"]
 
 
 def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1651,7 +1651,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
         f'refused: `--order 3c0ffee` names his answer to "{unread["title"]}", "{unread["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
     )
     [asked] = jev.asked
-    assert (asked["state"]["action"], asked["state"]["answers"]) == ("start this production release: `tools/ci release start --order 3c0ffee`", [{"id": "3c0ffee", "asked": unread["title"], "said": unread["body"]}])
+    assert (asked["state"]["action"], asked["state"]["answers"]) == (f"start this release on {settled.PRODUCTION}: `tools/ci release start --order 3c0ffee`", [{"id": "3c0ffee", "asked": unread["title"], "said": unread["body"]}])
     assert asked["state"]["card"].splitlines()[:3] == [f"Question: {CUT_PICK['title']}", "Drive tooling: your pick decides which cut ships the api hotfix.", "Option 1 (recommended): Api alone everywhere but Acme's cluster -- Starts `release start --hotfix 101 --only api --without tnt-usw2-acme`, the hotfix's api change on every place but Acme's cluster."]
     recorded.listed = [RELEASE_HOLD, CUT_PICK]
     assert brief.approval_refusal(ACME_CUT.format("5d17d9c"), data) is None
@@ -1704,7 +1704,74 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_in_prose_
     )
     refused = f'refused: `--order 0a09bcc` names his answer to "{SOAK_PICK["title"]}", "{SOAK_PICK["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
     assert [brief.approval_refusal(release, data) for release in read] == [refused] * len(read)
-    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this production release: `{release}`" for release in read]
+    staging = "plat-usw2-staging (stage staging)"
+    places = ("plat-usw2-prod (stage prod)", staging, settled.PRODUCTION, staging, f"{staging}, tnt-usw2-acme")
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on {where}: `{release}`" for where, release in zip(places, read, strict=True)]
+
+
+STANDING_SOAK_CARD = """ASK May the drive soak each dangerous branch on frozen staging under your playbook unasked, or is each soak your exception?
+Drive tooling: your pick decides whether a staging-only soak waits for your word each time.
+- A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word (recommended)
+  The session holding a dangerous branch freezes its component's staging stacks, starts it there with `tools/ci release start --emergency --env plat-usw2-staging`, runs its cases, then unfreezes.
+- Each soak is your exception: every staging deploy of a branch waits on its own card
+  Before each staging deploy, its job draws a card naming the branch and its start command, and nothing deploys until you tap it.
+
+Findings:
+Root cause: none: a pick of who approves a staging soak
+Simplest: A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word
+Holds: none: no option changes code any job builds
+"""
+STANDING_SOAK = {
+    "id": "23eefb9" + "0" * 33,
+    "title": "May the drive soak each dangerous branch on frozen staging under your playbook unasked, or is each soak your exception?",
+    "body": "A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-14T15:39:29Z",
+}
+SOAK_CASES = {
+    "id": "3bfcce8" + "0" * 33,
+    "title": "What must each staging soak of a dangerous branch involve beyond its own cases?",
+    "body": "Each one should also involve some manual agent-led testing the truly tests all scenarios that could break on prod",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-14T16:02:00Z",
+}
+STAGING_SOAKS = (
+    "tools/ci release start runtime-api-next cloudrunner-next --from e299550554d12e3ad79acb5b736f9d998734f7be --emergency --env plat-usw2-staging --order 23eefb9",
+    "tools/ci release start db platform restate runtime-api-next cloudrunner-next executor dashboard --from 044e8552b6941d1b184aca11b8e201fd0ade2e31 --emergency --env plat-usw2-staging --order 23eefb9",
+    "tools/ci release start restate --only rsw-search --from 28f00bc3506ef72c80cbe879b21182da80c0a71b --emergency --env plat-usw2-staging --order 23eefb9",
+    "tools/ci release start platform --only api --from d28a1ecb7a48 --emergency --env plat-usw2-staging --order 23eefb9",
+)
+
+
+def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_ships_and_no_release_past_staging_with_no_jev_read(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
+    with state.edit(demo) as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, STANDING_SOAK, SOAK_CASES]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load(demo)
+    assert [brief.approval_refusal(release, data) for release in STAGING_SOAKS] == [None] * len(STAGING_SOAKS)
+    first, narrowed = STAGING_SOAKS[0], STAGING_SOAKS[2]
+    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
+    refused = {
+        first.replace("plat-usw2-staging", "plat-usw2-prod"): "and this release ships another change",
+        first.replace("plat-usw2-staging", "plat-usw2-staging,plat-usw2-prod"): "and this release ships another change",
+        first.replace(" --env plat-usw2-staging", ""): "and this release ships another change",
+        narrowed.replace("--emergency", "--emergency --hotfix 55865"): "and this release ships another change",
+        first.replace("plat-usw2-staging", "plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
+    }
+    assert {release: brief.approval_refusal(release, data) for release in refused} == {release: held(release, f"{picks}, {why}") for release, why in refused.items()}
+    assert jev.asked == []
+    jev.picks("asks")
+    ready = f"ready for the freeze: a staging soak of #55264, runtime-api-next and cloudrunner-next on plat-usw2-staging; wake me at the start. Your start: `{first}`"
+    assert brief.release_ask_refusal("handoff", ["root@demo"], ready, data) is None
+    assert len(jev.asked) == 1
+    unapproved = narrowed.replace("23eefb9", "3bfcce8")
+    jev.picks("none")
+    assert brief.approval_refusal(unapproved, data) == held(unapproved, f'`--order 3bfcce8` names his answer to "{SOAK_CASES["title"]}", and Jev does not read it as approving this release')
+    assert jev.asked[-1]["state"]["action"] == f"start this release on plat-usw2-staging (stage staging): `{unapproved}`"
 
 
 def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:

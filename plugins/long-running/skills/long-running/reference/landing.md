@@ -518,12 +518,17 @@ the patch.
   option number or tap on a kept card whose option names a release in backticks orders a release
   shipping that option's change, on that option's places and on those his words past the number name,
   by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the
-  same" orders option 1's hotfix on Acme's env. On an option naming no release in backticks, his number
+  same" orders option 1's hotfix on Acme's env. When that option's release and this one both run on
+  staging alone, each `--env` place one its `infra/envs` file marks `stage: staging`, as go/ci's
+  `StagingOnly` reads it, the release picks its own targets and `--only` where the option's names
+  none, so his standing yes to soak any dangerous branch on staging, whose option starts
+  `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start there and
+  none past staging. On an option naming no release in backticks, his number
   or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from`, `--order` and
   `--emergency`, with a target and a place, when the option's words name each target and they or his
   words past the number name each place it runs on, so his "1" on a card whose option deploys the
-  branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers,
-  ordering only what his words name. The top starts it with `--order <his answer id>` in the
+  branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers
+  and the places the release runs on with each one's stage, ordering only what his words name. The top starts it with `--order <his answer id>` in the
   `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
   top reads the release's plan and asks him with `drive job ask` whether to start that exact command,
   and his go is the answer it names. A resume or re-plan of a release he ordered passes the same

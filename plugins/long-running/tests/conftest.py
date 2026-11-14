@@ -333,13 +333,15 @@ def drawn_card(n: int) -> str:
 
 
 def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[dict], card: str = ANSWERED_CUT) -> None:
-    """His answers to a kept card, by default one whose first option names the api hotfix everywhere but Acme's cluster, each kept by `drive answer` at that card's link, and Acme's env file in the drive's checkout naming its team."""
+    """His answers to a kept card, by default one whose first option names the api hotfix everywhere but Acme's cluster, each kept by `drive answer` at that card's link, Acme's env file in the drive's checkout naming its team, and the env files of two staging places and a production one giving their stages."""
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the api hotfix")
     run("job", "add", "builder", "--order", "o1", "--goal", "pick the cut")
     data = state.load(demo)
     envs = Path(data["roles"]["coordinator"]["cwd"]) / "infra" / "envs"
     envs.mkdir(parents=True, exist_ok=True)
     (envs / "tnt-usw2-acme.yaml").write_text("env: tnt-usw2-acme\ntenants:\n- stage: acme\n  name: acme\n  displayName: Acme\nsandsql:\n  name: northwind\n")
+    for place, marked in (("plat-usw2-staging", "staging"), ("plat-gbl-staging", "staging"), ("plat-usw2-prod", "prod\nprod: true")):
+        (envs / f"{place}.yaml").write_text(f"id: {place}\ntier: plat\nstage: {marked}\ncloud:\n  kind: aws\n")
     kept = state.drive_dir(demo) / "asks" / "j1-cut.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(card)

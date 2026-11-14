@@ -126,9 +126,13 @@ ORDERED = (
 )
 LEADING_NUMBER = re.compile(r"\s*(\d+)\b(?![.,]\d)")
 UNCHANGED = frozenset({"env", "without", "from", "order"})
+SOAKED = frozenset({"targets", "only"})
 PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
+STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
+STAGING = "staging"
+PRODUCTION = "production, every environment except staging"
 REPEATS_QUESTION = (
     "A drive tooling order is being added in the words below. Does it ask for what one of these open drive tooling orders already"
     " asks, the same fault or the same change in other words, so it joins that order and the job building it instead of starting a"
@@ -489,17 +493,17 @@ def repeats(data: dict, words: str) -> str | None:
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads once, his words beside that card, ordering only what they name, at the DECIDES bar; Unheard when Jev gave no answer."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets and `--only`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads once, his words beside that card and the places the release runs on with their stages, ordering only what they name, at the DECIDES bar; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
     asked = answered_card(data, answer["id"])
+    [flags] = brief.started(release)
+    cwd = data["roles"]["coordinator"]["cwd"]
     if asked and (pick := picked_option(asked, said)):
         number, rest = pick
         option = asked.options[number - 1]
         words = f"{option}\n{asked.hints.get(option, '')}"
-        [flags] = brief.started(release)
-        cwd = data["roles"]["coordinator"]["cwd"]
         if commands := brief.card_releases(words):
             whys = [placed(flags, brief.started(command)[0], rest, cwd) for command in commands]
             if None in whys:
@@ -508,7 +512,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
         if named(flags, words, rest, cwd):
             return None
     card = {"card": "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])} if asked else {}
-    found = picked(ORDERS_QUESTION, "His words order no such release.", {"action": f"start this production release: `{release}`"} | card, [{"id": answer["id"][:7], "asked": answer["title"], "said": said}])
+    found = picked(ORDERS_QUESTION, "His words order no such release.", {"action": f"start this release on {runs_on(flags, cwd)}: `{release}`"} | card, [{"id": answer["id"][:7], "asked": answer["title"], "said": said}])
     return None if found else UNORDERED
 
 
@@ -529,8 +533,9 @@ def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
 
 
 def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
-    """Why a release does not ship what a card option's release ships, on the option's places and those his words past its number name; None when it does."""
-    if {name: values for name, values in release.items() if name not in UNCHANGED} != {name: values for name, values in option.items() if name not in UNCHANGED}:
+    """Why a release does not ship what a card option's release ships, on the option's places and those his words past its number name; None when it does. A release on staging alone under an option's release on staging alone ships it with targets and `--only` of its own wherever the option's names none, so his standing yes 23eefb9, whose option starts `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start: "A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word"."""
+    free = UNCHANGED | (SOAKED - set(option) if staging_only(release, cwd) and staging_only(option, cwd) else frozenset())
+    if {name: values for name, values in release.items() if name not in free} != {name: values for name, values in option.items() if name not in free}:
         return "and this release ships another change"
     if (added := beyond(release, option)) is None:
         return "and this release runs on every place it does not leave out, where that option names its own"
@@ -561,9 +566,31 @@ def beyond(release: dict, option: dict) -> set[str] | None:
 
 def team_names(place: str, cwd: str) -> list[str]:
     """The names of a place's team, each tenant's name and displayName in the place's infra/envs file of the drive's checkout; none for a place with no such file."""
-    env = Path(cwd) / "infra" / "envs" / f"{place}.yaml"
-    block = TENANTS.search(env.read_text()) if env.is_file() else None
+    block = TENANTS.search(env_file(place, cwd))
     return TEAM_NAME.findall(block[1]) if block else []
+
+
+def stage(place: str, cwd: str) -> str | None:
+    """A place's stage, such as staging or prod, as the place's infra/envs file of the drive's checkout gives it; None for a place with no such file."""
+    found = STAGE.search(env_file(place, cwd))
+    return found[1] if found else None
+
+
+def env_file(place: str, cwd: str) -> str:
+    """A place's infra/envs file in the drive's checkout, empty for a place with none."""
+    env = Path(cwd) / "infra" / "envs" / f"{place}.yaml"
+    return env.read_text() if env.is_file() else ""
+
+
+def staging_only(release: dict, cwd: str) -> bool:
+    """Whether a release runs on staging alone, by go/ci's StagingOnly: its --env names places, and each one's infra/envs file marks it `stage: staging`."""
+    return bool(places := release.get("env")) and all(stage(place, cwd) == STAGING for place in places)
+
+
+def runs_on(release: dict, cwd: str) -> str:
+    """Where a release runs, as go/ci's release wizard says it: each place its --env names, beside the stage its infra/envs file gives it, else production, every environment except staging, and each place its --without leaves out."""
+    places = ", ".join(f"{place} (stage {found})" if (found := stage(place, cwd)) else place for place in release.get("env", ())) or PRODUCTION
+    return f"{places}, leaving out {', '.join(release['without'])}" if release.get("without") else places
 
 
 def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> dict | None:
