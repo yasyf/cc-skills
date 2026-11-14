@@ -23,8 +23,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 
 - The coordinator starts you with a brief, or the meta session for drive tooling (Tooling below). Its
   `Order` line is his words; its `Serves` line says whether the change ports an old PR, is drive
-  tooling under its own order, or carries out that order; its `Decisions that bind` are his rulings.
-- His words in `Order` and `Decisions that bind` win over anything else you read, this file next,
+  tooling under its own order, or carries out that order; its `Decisions that bind` are his rulings;
+  its `Repo rules` are the rules the repository's own `.claude/long-running.toml` sets for every drive
+  working in it.
+- His words in `Order` and `Decisions that bind`, and the `Repo rules`, win over anything else you read, this file next,
   and the brief's other lines last, since they are the starting session's reading of his words. When
   a brief line asks for what his words or this file rule out, follow his words and this file and name the conflict on
   `UNPROVEN:`.

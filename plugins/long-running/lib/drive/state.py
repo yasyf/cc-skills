@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 import traceback
 import uuid
 from calendar import monthrange
@@ -104,6 +105,7 @@ NO_TAP_OWNER = HIS_LOGIN
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
+REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
@@ -2373,6 +2375,12 @@ def session_project(data: dict, session: str | None) -> str | None:
 def bound_sessions(data: dict) -> dict[str, dict]:
     """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`."""
     return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
+
+
+def repo_rules(data: dict) -> list[str]:
+    """Each rule the repository the drive works in sets for every drive working in it, as `<id>: <text>`, from the .claude/long-running.toml in the drive's checkout, which the drive moves to its default branch's head before each launch; none when the repository holds no such file."""
+    path = Path(next(iter(bound_sessions(data).values()))["cwd"], REPO_RULES)
+    return [f"{rule['id']}: {rule['text']}" for rule in tomllib.loads(path.read_text())["rule"]] if path.is_file() else []
 
 
 def seat(data: dict, session: str) -> dict | None:
