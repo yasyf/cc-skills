@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -214,6 +214,7 @@ JOB = {
 REPROS_SHOWN = 5
 FILED = "The projects and workstreams in use, which a new order reuses where it fits, one home a subject, since drive order add and set refuse a name other orders file only as the other of the two: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
+REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as handler or job, is one an install added"
     " since its drive MCP server last listed its tools: pipe the tool's fields as JSON to drive tool <name> in Bash"
@@ -531,7 +532,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
     lines = [
         *opening(drive, role, project),
         f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
-        *rules(role),
+        *rules(drive, role),
     ]
     lines += [
         (
@@ -547,14 +548,20 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def rules(role: str) -> list[str]:
-    """The role's rules as its block draws them, numbered under their heading, with the filing line that closes them."""
-    return [f"{title(role).capitalize()} rules:", *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)), FILED]
+def rules(drive: dict, role: str) -> list[str]:
+    """The role's rules as its block draws them, numbered under their heading, with the filing line that closes them, then the rules of the repository the drive works in."""
+    repo = repo_rules(drive)
+    return [
+        f"{title(role).capitalize()} rules:",
+        *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
+        FILED,
+        *([REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []),
+    ]
 
 
-def rules_digest(role: str) -> str:
-    """What a seat keeps of the rules its session holds, so a check before each call can tell when an install changed them."""
-    return hashlib.sha256("\n".join(rules(role)).encode()).hexdigest()
+def rules_digest(drive: dict, role: str) -> str:
+    """What a seat keeps of the rules its session holds, so a check before each call can tell when an install or a change to the repository's rules changed them."""
+    return hashlib.sha256("\n".join(rules(drive, role)).encode()).hexdigest()
 
 
 def compact_instructions(drive: dict, role: str) -> str:

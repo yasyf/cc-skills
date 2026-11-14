@@ -124,7 +124,7 @@ def start(args: argparse.Namespace) -> int:
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, str(kept), orca.own_terminal())
-    fresh["roles"][args.role]["rules"] = render.rules_digest(args.role)
+    fresh["roles"][args.role]["rules"] = render.rules_digest(fresh, args.role)
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
@@ -2595,6 +2595,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Mac": flags["mac"],
         "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
+        "Repo rules": state.repo_rules(data),
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
         "Researched": found and found[0],
         "Answer": order["kind"] == "answer" and job["kind"] == "reader" and answer_first(name, order, job["order"], job_id),
@@ -5307,7 +5308,7 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
             " holds, verbatim; From, where the order came from, its --from; Goal from the job; Decisions that bind from each --ruling's recorded answer, each one the brief of any job on its order binds, and each one that"
-            " settled a question of the reader or design its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
+            " settled a question of the reader or design its Researched: line names, its title and his words above the drive's Notes:; Repo rules from the .claude/long-running.toml in the drive's checkout; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, a flag given an empty value, such as --mac \"\", drops the earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept and each dropped;"

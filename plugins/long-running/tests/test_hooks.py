@@ -165,8 +165,21 @@ def test_a_session_gets_its_roles_rules_whole_once_at_its_next_call_after_an_ins
     monkeypatch.setitem(render.RULES, "communicator", changed)
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
     assert context.startswith(f"Your communicator rules changed since this session's block drew them: long-running {state.VERSION}'s replace them whole")
-    assert context.endswith("\n".join(render.rules("communicator")))
+    assert context.endswith("\n".join(render.rules(state.load("demo"), "communicator")))
     assert "\n4. Pass answer alone.\n" in context
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+
+
+def test_a_session_gets_its_rules_whole_once_at_its_next_call_after_its_repositorys_rules_change(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / state.REPO_RULES).write_text('[[rule]]\nid = "staging-claim"\ntext = "Post in the staging channel before you freeze it."\n')
+    context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
+    assert context.endswith(f"{render.REPO_RULES_HEADING}\n- staging-claim: Post in the staging channel before you freeze it.")
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
 
 

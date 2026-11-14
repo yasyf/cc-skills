@@ -1,4 +1,5 @@
 from datetime import timedelta
+from pathlib import Path
 
 import re
 
@@ -134,6 +135,17 @@ def test_the_meta_session_and_communicator_read_one_definition_of_drive_tooling(
     assert sum(state.DRIVE_TOOLING in rule for rule in render.COMMUNICATOR_RULES) == 1
     drive["roles"]["meta"] = {"session": "s3", "cwd": "/work", "started": "2026-11-11T12:40:00-08:00"}
     assert "The meta session: session s3." in render.context(drive, "coordinator").splitlines()[0]
+
+
+def test_every_role_block_carries_the_rules_its_repositorys_long_running_toml_sets(tmp_path: Path) -> None:
+    drive = state.new_drive("demo", "coordinator", "s1", str(tmp_path))
+    bare = render.rules_digest(drive, "coordinator")
+    assert render.REPO_RULES_HEADING not in render.context(drive, "coordinator")
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / state.REPO_RULES).write_text('[[rule]]\nid = "staging-claim"\ntext = "Post in the staging channel before you freeze it."\n')
+    drawn = f"{render.REPO_RULES_HEADING}\n- staging-claim: Post in the staging channel before you freeze it."
+    assert [role for role in state.ROLES if drawn not in render.context(drive, role)] == []
+    assert render.rules_digest(drive, "coordinator") != bare
 
 
 def test_every_role_reads_a_question_proposing_a_way_as_his_order_and_meta_reads_his_ruling_to_keep_simplifying() -> None:

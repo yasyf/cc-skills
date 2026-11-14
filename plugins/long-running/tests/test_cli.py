@@ -148,7 +148,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "terminal": None,
             "cwd": str(tmp_path),
             "started": data["roles"]["communicator"]["started"],
-            "rules": render.rules_digest("communicator"),
+            "rules": render.rules_digest(data, "communicator"),
         }
     }
     assert data["slack"] == {"page": None, "watch": []}
@@ -6370,6 +6370,16 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert "Serves: his order\n" in written.read_text()
     assert "Native: the dashboard's run page\n" in written.read_text()
     assert "Plan: the steps section\n" in written.read_text()
+
+
+def test_job_brief_carries_each_rule_the_drive_checkouts_long_running_toml_sets(run: Run, demo: str, tmp_path: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
+    run("job", "add", "builder", "--order", "o1", "--goal", "draw the steps")
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / state.REPO_RULES).write_text('[[rule]]\nid = "staging-claim"\ntext = "Post in the staging channel before you freeze it."\n')
+    code, out = run("job", "brief", "j1")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, "\nRepo rules:\n- staging-claim: Post in the staging channel before you freeze it.\n" in written) == (0, True)
 
 
 def test_a_brief_naming_no_flag_written_as_drive_job_brief_types_a_plan_is_written_again_keeping_that_plan(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

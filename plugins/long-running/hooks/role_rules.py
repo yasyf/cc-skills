@@ -14,7 +14,7 @@ def main() -> None:
         return
     if role := agents.hold_rules(names[0], session):
         changed = f"Your {state.title(role)} rules changed since this session's block drew them: long-running {state.VERSION}'s replace them whole, and win where any older text disagrees."
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join([changed, *render.rules(role)])}}))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join([changed, *render.rules(state.saved(names[0]), role)])}}))
 
 
 if __name__ == "__main__":

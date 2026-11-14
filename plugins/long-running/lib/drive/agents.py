@@ -628,14 +628,14 @@ def hold_rules(name: str, session: str) -> str | None:
         return None
     with state.edit(name) as data:
         if role := due_rules(data, session):
-            state.seat(data, session)["rules"] = render.rules_digest(role)
+            state.seat(data, session)["rules"] = render.rules_digest(data, role)
     return role
 
 
 def due_rules(data: dict, session: str) -> str | None:
     """The role whose rules in this install the session's seat does not hold, or None."""
     held = state.seat(data, session)
-    if held is None or held.get("rules") == render.rules_digest(role := state.session_role(data, session)):
+    if held is None or held.get("rules") == render.rules_digest(data, role := state.session_role(data, session)):
         return None
     return role
 
