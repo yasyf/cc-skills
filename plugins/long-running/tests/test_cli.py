@@ -6873,7 +6873,7 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
 
 
-def test_no_post_delivers_an_incidents_parts_but_the_incidents_close(
+def test_a_post_delivers_an_incidents_first_check_and_its_close_delivers_its_fix(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "the journal will not open", "--thread", "1794200000.000100", "--kind", "build", "--parts", "fix", "first check")
@@ -6890,8 +6890,8 @@ def test_no_post_delivers_an_incidents_parts_but_the_incidents_close(
     assert run("order", "posted", "o1", line, "--record", "674088") == (0, f"o1 progress line, no part delivered: {line}")
     with state.edit("demo") as data:
         data["orders"]["o1"]["recovered"] = state.stamp()
-    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f"o1 progress line, no part delivered: {line}")
-    assert [part["posted"] for part in state.load("demo")["orders"]["o1"]["parts"].values()] == [None, None]
+    assert run("order", "posted", "o1", line, "--record", "674089") == (0, f'o1 "first check": posted {line}')
+    assert [part["posted"] for part in state.load("demo")["orders"]["o1"]["parts"].values()] == [None, line]
     assert run("order", "posted", "o1", line, "--record", "674090") == (0, f'o1 "fix", "first check": posted {line}')
 
 

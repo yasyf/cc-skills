@@ -683,7 +683,7 @@ CAUSE_REPORT = (
 )
 
 
-def test_a_report_naming_an_incidents_parts_delivers_none_since_each_is_work_he_ordered_and_asks_no_judge(
+def test_a_report_naming_an_incidents_fix_and_cause_delivers_the_cause_its_stopped_diagnosis_job_found_never_the_fix_and_asks_no_judge(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, jev: Jev
 ) -> None:
     thread = "1794200000.000100"
@@ -692,14 +692,18 @@ def test_a_report_naming_an_incidents_parts_delivers_none_since_each_is_work_he_
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["jobs"]["j3"].update(state="stopped", said="HANDOFF the shared pod's load filled the write queues")
+    later = state.now() + timedelta(minutes=30)
+    assert watch.part_gaps(watch.Watcher(demo, offset=0), state.load(demo), later)[("o1", "cause")] == "j3 stopped"
     answer = slack_thread.post(state.now(), from_claude=True, text=CAUSE_REPORT)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:fix;o1:cause"})
     dry = talk.say(demo, {"text": CAUSE_REPORT, "thread_ts": thread, "record": "682974", "dry_run": True})
-    assert dry.endswith("; o1 progress line, no part delivered")
+    assert dry.endswith('; o1 "cause": would be delivered')
     line = talk.say(demo, {"text": CAUSE_REPORT, "thread_ts": thread, "record": "682974"})
-    assert line.startswith(f"POSTED {answer}; o1 progress line, no part delivered: {answer}")
-    assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
+    assert line.startswith(f'POSTED {answer}; o1 "cause": posted {answer}')
+    assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": None, "fix": None, "cause": answer}
+    assert watch.part_gaps(watch.Watcher(demo, offset=0), state.load(demo), later)[("o1", "cause")] is None
     assert jev.asked == []
 
 

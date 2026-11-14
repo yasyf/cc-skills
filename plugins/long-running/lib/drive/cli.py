@@ -798,7 +798,7 @@ def order_set(args: argparse.Namespace) -> int:
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
-    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while a builder, codex or design job or a drive PR is on one, since that part is work under way, but for a builder still waiting on research with no agent, which the answer stops, and one stopped before any agent took it that holds no PR, since nothing of its work is under way."""
+    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while work is under way on one: an unfinished builder, codex or design job on it, but a builder still waiting on research with no agent, which the answer stops; a builder stopped before any agent took it while the PRs the drive does not track that it holds carry the part; or an open drive PR of a job on it. A job that finished holding none carries nothing under way."""
     if not named:
         return []
     if not kind:
@@ -809,9 +809,9 @@ def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> 
         working = [
             f"{job['kind']} {job_id}"
             for job_id, job in jobs.items()
-            if job["kind"] in state.WORK_KINDS and not state.unstarted_builder(data, job) and not (state.stopped_untaken(job) and not job["prs"])
+            if job["kind"] in state.WORK_KINDS and not state.unstarted_builder(data, job) and (job["state"] not in state.FINISHED_JOB_STATES or state.untracked_carriers(data, job))
         ]
-        working += [key for key, pr in data["prs"].items() if pr["job"] in jobs]
+        working += [key for key, pr in data["prs"].items() if pr["job"] in jobs and pr["state"] == "open"]
         if working:
             raise DriveError(f'--part "{part}": refused, {", ".join(working)} works on it, so it is work under way, never an answer: its builder\'s DONE or a merged PR delivers it')
     return parts
@@ -941,7 +941,7 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
+    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
     data = state.load(name)
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])

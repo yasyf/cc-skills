@@ -43,6 +43,7 @@ INCIDENT_CHECK = "first check"
 INCIDENT_CAUSE = "cause"
 INCIDENT_ROLLBACK = "rollback"
 INCIDENT_PARTS = {"release": [INCIDENT_CHECK], "rollback": [INCIDENT_ROLLBACK, INCIDENT_CAUSE], "none": [INCIDENT_STOP, INCIDENT_CAUSE]}
+INCIDENT_DIAGNOSIS = (INCIDENT_CHECK, INCIDENT_CAUSE)
 FIX_LINE = re.compile(r"^[*_`]*FIX[*_`]*:?[*_`]*[ \t]+(?P<fix>\S.*?)[ \t]*$", re.MULTILINE)
 NO_FIX = "none"
 UNTRACED = ("ASK", "BLOCKED", "HANDOFF")
@@ -1189,7 +1190,7 @@ def traced(data: dict, job_id: str, line: str) -> str | None:
             order_id
             for order_id in [job["order"], *job["carries"]]
             if (order := data["orders"][order_id])["incident"] or reported_bug(order)
-            if {INCIDENT_CHECK, INCIDENT_CAUSE} & set(job_parts(job, order_id)) or (job["kind"] == "reader" and reported_bug(order))
+            if set(INCIDENT_DIAGNOSIS) & set(job_parts(job, order_id)) or (job["kind"] == "reader" and reported_bug(order))
         ),
         None,
     )
@@ -1468,9 +1469,9 @@ def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
 
 
 def work(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is work he ordered, which only a builder carries: every part of a build order or an incident, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since a part only research ever held is his question; never a part of an answer order, of one limited to options, or one drive order set --kind answer --part sorted as an answer."""
+    """Whether a part is work he ordered, which only a builder carries: every part of a build order or an incident, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since a part only research ever held is his question; never a part of an answer order, of one limited to options, one drive order set --kind answer --part sorted as an answer, or an incident's first check or cause, the answers its diagnosis finds, which the report telling him delivers."""
     order = data["orders"][order_id]
-    if order["kind"] == "answer" or order["options_only"] or order["parts"][part]["answer"]:
+    if order["kind"] == "answer" or order["options_only"] or order["parts"][part]["answer"] or order["incident"] and part in INCIDENT_DIAGNOSIS:
         return False
     return order["kind"] == "build" or order["incident"] or bool(order["parts"][part]["design"]) or any(job["kind"] in WORK_KINDS for _, job in part_jobs(data, order_id, part))
 
