@@ -290,7 +290,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by this pass's production read or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once that read names a production cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by this pass's production read, a process on this Mac ended or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once that read names a production cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
@@ -315,6 +315,9 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
             waited = job["waits"]
             ended = released(data, job, job_id, watcher.cards, out | slot if turn else out)
+            exited = [wait for wait in waited if state.PID_WAIT.fullmatch(wait) and wait not in job["waits"]] if job["kind"] == "codex" else []
+            if exited:
+                state.hold_text(job, exited_text(watcher.name, job_id, exited))
             job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out)]))
             if ended and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
                 job["updated"] = state.stamp(moment)
@@ -328,7 +331,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 unlaunched = f", not started yet: drive job launch {job_id} starts it" if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch")) else ""
                 unstarted = f"; Read your brief first: {job['brief']}" if job["kind"] != "codex" and job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
                 if job["undelivered"] and carrier(job_id, job, data, watcher.cards):
-                    unlaunched, unstarted = ", and the watch now carries it the texts it holds, his answers among them", ""
+                    unlaunched, unstarted = ", and the watch now starts its next codex-ask run carrying its last report" if exited else ", and the watch now carries it the texts it holds, his answers among them", ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         redraws = []
         for key, pr in data["prs"].items():
@@ -345,6 +348,13 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except slack.SlackError as error:
             lines.append(f"WATCH his open card for {url} still names the waits that ended, since its redraw failed: {error}")
     return lines
+
+
+def exited_text(name: str, job_id: str, exited: list[str]) -> str:
+    """The text a codex job holds once a process it waited on ended, which carry_held's launch of its next codex-ask run carries under His answers since:, since that run reads only its brief: which process ended and the job's last report."""
+    ended = f"The process on this Mac {job_id} waited on ended, crashed or finished: {', '.join(wait.partition('@')[0] for wait in exited)}."
+    report = state.report_text(name, job_id, every=False).strip()
+    return f"{ended} Your last report:\n{report}" if report else ended
 
 
 def monitors(data: dict, order_id: str) -> dict[str, str]:
@@ -702,15 +712,22 @@ def release_owners(data: dict) -> list[tuple[str, dict]]:
 
 
 def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[str, str]) -> str:
-    """Drop the waits of a job or PR that ended, a wait on a PR of a job other than own that closed unmerged taking that job's change in its place by state.change_wait; what ended, when nothing else holds it."""
+    """Drop the waits of a job or PR that ended, a wait on a PR of a job other than own that closed unmerged taking that job's change in its place by state.change_wait; what ended, when nothing else holds it, a process by its number."""
     waits = list(dict.fromkeys(state.change_wait(data, pr["job"]) if (pr := data["prs"].get(wait)) and pr["state"] == "closed" and pr["job"] != own else wait for wait in owner["waits"]))
     holds = [wait for wait in view.holding(data, waits, cards) if wait not in out]
     ended = [wait for wait in waits if wait not in holds]
     state.rewait(owner, holds)
     if holds or not ended:
         return ""
-    answered = [bare(wait) for wait in ended if wait not in out]
-    return ", ".join([*([f"{', '.join(answered)} answered or done"] if answered else []), *(out[wait] for wait in ended if wait in out)])
+    answered = [bare(wait) for wait in ended if wait not in out and not state.PID_WAIT.fullmatch(wait)]
+    exited = [process["pid"] for wait in ended if (process := state.PID_WAIT.fullmatch(wait))]
+    return ", ".join(
+        [
+            *([f"{', '.join(answered)} answered or done"] if answered else []),
+            *([f"process {', '.join(exited)} on this Mac ended"] if exited else []),
+            *(out[wait] for wait in ended if wait in out),
+        ]
+    )
 
 
 def minutes(span: timedelta) -> int:

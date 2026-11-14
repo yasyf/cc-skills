@@ -2119,6 +2119,40 @@ def test_the_watch_starts_no_launch_of_a_codex_job_while_its_codex_ask_run_goes_
     assert detached == [["job", "launch", "j2"]]
 
 
+def test_a_codex_job_waiting_on_a_process_it_started_on_this_mac_holds_while_it_runs_and_its_end_starts_its_next_run_with_its_last_report(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    detached = []
+
+    def detach(name: str, args: list[str], log: str) -> int:
+        detached.append(args)
+        done = subprocess.Popen(["true"])
+        done.wait()
+        return done.pid
+
+    monkeypatch.setattr(state, "detach", detach)
+    observer = subprocess.Popen(["sleep", "600"])
+    report = f"WAITING the checkpoint pass runs, waits on pid:{observer.pid}\nCHECK: /drive/scratch/j2/checkpoint.log\n"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(kind="codex", codex_run="/drive/scratch/j2/codex", state="waiting", said=state.opening(report), waits=state.pid_waits(report))
+    state.keep_report(demo, "j2", state.opening(report), report)
+    watching = watcher(demo)
+    try:
+        assert watch.waits_lines(watching, T0) == []
+        watch.carry_held(watching, T0)
+        assert detached == []
+    finally:
+        observer.kill()
+        observer.wait()
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == [
+        f"FREE j2 o1: process {observer.pid} on this Mac ended, nothing else holds it, and the watch now starts its next codex-ask run carrying its last report"
+    ]
+    [held] = state.load(demo)["jobs"]["j2"]["undelivered"]
+    assert held["words"] == f"The process on this Mac j2 waited on ended, crashed or finished: pid:{observer.pid}. Your last report:\n{report.strip()}"
+    watch.carry_held(watching, T0 + timedelta(minutes=1))
+    assert detached == [["job", "launch", "j2"]]
+
+
 def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)

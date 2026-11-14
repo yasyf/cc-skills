@@ -131,8 +131,9 @@ every state but `stopped`, and `drive job report` refuses, naming the fix, a job
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>` and `<order>:<part>` a
-`READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
-the PR merges, the job's own PR closes, the release is out or a builder or codex job on the part returns `DONE`, while another job's PR closing unmerged
+`READY`, `PUSHED` or `WAITING` line names, and each `pid:<n>` a `WAITING`'s first line names of a
+process on this Mac that still runs, becomes a wait, which the watch's `FREE` line ends once
+the PR merges, the job's own PR closes, the release is out, the process ends or a builder or codex job on the part returns `DONE`, while another job's PR closing unmerged
 moves the wait to that job's newest open PR, else to that job until its work is done; a release wait whose service `tools/ci release select
 --pr` finds the PR's changed paths never reach is refused, naming the components they reach:
 
@@ -167,6 +168,12 @@ sets failed on `BLOCKED codex-ask completed, its reply refused:` and why, with t
 failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
 going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
 `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
+A codex job waiting on a long run it started on this Mac, such as a pass-box command's observer,
+returns `WAITING … waits on pid:<n>`, naming that process; the drive keeps the wait as
+`pid:<n>@<the second it started>`, so the number taken by another process once it ends holds
+nothing. Once the process ends, crashed or finished, the watch's `FREE` line says so and the same
+pass starts the job's next codex-ask run, its brief carrying under `His answers since:` which process
+ended and the job's last report, so nobody launches it.
 On an open incident's `fix` whose fix is not live, the watch adds that builder at each return of
 the codex job and names it on a `JOB` line for the coordinator to start in that turn.
 

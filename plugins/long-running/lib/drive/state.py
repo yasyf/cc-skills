@@ -121,6 +121,7 @@ PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
+PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 SLOT_WAIT = "builder-slot"
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -1128,6 +1129,12 @@ def hold_unstarted(job: dict) -> None:
         job.update(state="waiting", said=waits_line(job["waits"]))
 
 
+def hold_text(job: dict, text: str) -> None:
+    """Keep a text on the job's undelivered list under a fresh Orca request id, which its next worker or codex-ask run carries, unless the job already holds it."""
+    if all(held["words"] != text for held in job["undelivered"]):
+        job["undelivered"].append({"seq": None, "words": text, "at": stamp(), "said": None, "request": str(uuid.uuid4())})
+
+
 def parts_goal(parts: list[str]) -> str:
     """The goal of the builder drive job add records beside a reader: the parts of his order it builds, never the reader's question, whose limits, such as read-only, bind the reader alone."""
     return f"build {'; '.join(parts)}"
@@ -1215,7 +1222,8 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
         return (
             "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n>, a PR the drive"
-            f" tracks or a part of an order as <order>:<part>, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
+            " tracks, a part of an order as <order>:<part> or, on its first line, a process you started on this Mac that still runs as pid:<n>,"
+            f" which wakes {job_id} once it ends, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
     return fix_refusal(data, job_id, line, report)
 
@@ -1272,9 +1280,20 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each other drive PR it names, and each part it names as <order>:<part>."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each other drive PR it names, each part it names as <order>:<part>, and each process its first line names by pid_waits, since a report's body may name a process that ended, whose number another process holds now."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
-    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line)]))
+    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *pid_waits(opening(line))]))
+
+
+def pid_waits(words: str) -> list[str]:
+    """Each process on this Mac the words name as pid:<n> that runs now, as the wait on it, pid:<n>@<the second it started>, so once it ends its number taken by another process holds nothing."""
+    return [f"pid:{pid}@{started}" for pid in dict.fromkeys(int(found["pid"]) for found in re.finditer(rf"\b{PID_WAIT.pattern}\b", words)) if (started := procs.started(pid)) is not None]
+
+
+def pid_runs(wait: str) -> bool:
+    """Whether the process a wait from pid_waits names still runs: a process holds its number and started at its second, its end crashed or finished alike."""
+    found = PID_WAIT.fullmatch(wait)
+    return procs.started(int(found["pid"])) == int(found["started"])
 
 
 def named_parts(data: dict, words: str) -> list[str]:
@@ -2873,8 +2892,8 @@ def open_prs(data: dict) -> list[dict]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive, a process on this Mac or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

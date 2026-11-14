@@ -221,12 +221,14 @@ def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
 
 
 def stored_waits(drive: dict, waits: list[str], found: dict | None = None) -> list[str]:
-    """The waits as a job or PR stores them: each once, and a card of his named by its Slack link under its waits id, the one the drive's question drawn on that link holds or else the one cc-slack keeps on its open card there, so one card is one wait whichever way it is named; every other wait as given."""
+    """The waits as a job or PR stores them: each once, a card of his named by its Slack link under its waits id, the one the drive's question drawn on that link holds or else the one cc-slack keeps on its open card there, so one card is one wait whichever way it is named, and a process named as pid:<n> pinned to the second it started by state.pid_waits; every other wait as given."""
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     return list(dict.fromkeys(waits_id(drive, listed, wait) for wait in waits))
 
 
 def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
+    if (process := state.PID_WAIT.fullmatch(wait)) and not process["started"]:
+        return state.pid_waits(wait)[0]
     if not wait.startswith("https://"):
         return wait
     named = [*(question["waits"] for _, question in drawn_on(drive, wait)), *(card["card"].get("waits") for card in listed if names_card(card, wait))]
@@ -234,7 +236,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out, each process on this Mac until it ends, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -245,6 +247,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["prs"][wait]["state"] == "open"
     if part := state.part_wait(drive, wait):
         return drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
+    if state.PID_WAIT.fullmatch(wait):
+        return state.pid_runs(wait)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
     return bool(state.RELEASE_WAIT.fullmatch(wait)) or wait == state.SLOT_WAIT or card_open(wait, found)
@@ -278,6 +282,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
     if part := state.part_wait(drive, wait):
         return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
+    if process := state.PID_WAIT.fullmatch(wait):
+        return f"process {process['pid']} on this Mac, which its job started, ends"
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
@@ -706,6 +712,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
+    if process := state.PID_WAIT.fullmatch(wait):
+        return {"title": f"process {process['pid']} on this Mac ending", "url": None}
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}

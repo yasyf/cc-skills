@@ -5226,6 +5226,27 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
     assert (job["state"], job["waits"]) == ("waiting", ["release:api:Forge-AI/monorepo#42"])
 
 
+def test_a_waiting_line_naming_a_process_that_runs_on_this_mac_waits_on_it_pinned_to_its_start_and_one_that_ended_frees_nothing(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "run the checkpoint pass")
+    run("job", "add", "builder", "--order", "o1", "--goal", "run it")
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    assert cli.main(["job", "set", "j1", "--waits", f"pid:{ended.pid}"]) == 2
+    assert f"--waits pid:{ended.pid}: no process on this Mac holds that number now, so nothing is left to wait on" in capsys.readouterr().err
+    code, err = keep(monkeypatch, capsys, "j1", f"WAITING the checkpoint pass runs, waits on pid:{ended.pid}\n")
+    assert (code, "a process you started on this Mac that still runs as pid:<n>, which wakes j1 once it ends" in err) == (2, True)
+    observer = subprocess.Popen(["sleep", "600"])
+    try:
+        assert keep(monkeypatch, capsys, "j1", f"WAITING the checkpoint pass runs, waits on pid:{observer.pid}\n") == (0, "")
+        job = state.load("demo")["jobs"]["j1"]
+        assert (job["state"], job["waits"]) == ("waiting", [f"pid:{observer.pid}@{state.procs.started(observer.pid)}"])
+    finally:
+        observer.kill()
+        observer.wait()
+
+
 def test_a_waiting_whose_first_line_names_no_link_waits_on_each_pr_and_release_its_body_names_as_j1485s_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
