@@ -161,8 +161,8 @@ RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
 LINE_NUMBERS = re.compile(r":\d[\d-]*(?=[\s:]|$)")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
-NAMED_SOURCE = "the read the posting handler names as {read}, as its own calls whose tool name and input hold its words"
-GIVEN = "its calls that {read} holds are given there once"
+NAMED_SOURCE = "the read the posting handler names as {read}, as its newest call whose tool name and input hold its words"
+GIVEN = "the newest call it names is given once, under {read}"
 DOC_SOURCE = "; {docs} is a doc, which backs what that doc says and nothing about what code does"
 CITED_SOURCE = "a record the post cites or a claim names, as the posting handler's newest call naming its seq"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
@@ -861,7 +861,7 @@ def denial(reason: str) -> dict:
 
 
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, all with their whole results, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads a record again narrower hands Jev only that read; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
         return []
@@ -877,7 +877,7 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
             called(f"read:{index}", read, NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False)), calls, given)
             for index, read in enumerate(named, 1)
         ),
-        *(called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given, newest=True) for seq in seqs),
+        *(called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given) for seq in seqs),
         *([] if claims else [UNCLAIMED]),
     ]
 
@@ -898,19 +898,19 @@ def own_calls(payload: dict) -> dict[str, str]:
     return results
 
 
-def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str], newest: bool = False) -> dict:
-    """Jev's item for one read the claims name, or one record by its seq: each call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, or with newest only the last such call, so a narrower read again stands in for a wide one, since each call's result goes whole; each call whole under the first item holding it, and a later item naming that item's id in its place, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, a call of it opens."""
+def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str]) -> dict:
+    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's prompt; that call whole under the first item holding it, and a later item naming that item's id in its place, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, that call opens."""
     words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
-    held = [call for call in calls if words and all(word in call.casefold() for word in words)][-1 if newest else 0 :]
-    docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
-    first = {call: given.setdefault(call, item) for call in held}
-    earlier = ", ".join(dict.fromkeys(first[call] for call in held if first[call] != item))
+    held = next((call for call in reversed(calls) if words and all(word in call.casefold() for word in words)), None)
+    if held is None:
+        return {"id": item, "read": read, "source": source, "quote": f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}"}
+    docs = list(dict.fromkeys(DOC_PATH.findall(held)))
+    first = given.setdefault(held, item)
     return {
         "id": item,
         "read": read,
         "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
-        "quote": "\n\n".join([*(f"{call}\n{calls[call]}" for call in held if first[call] == item), *([GIVEN.format(read=earlier)] if earlier else [])])
-        or f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}",
+        "quote": f"{held}\n{calls[held]}" if first == item else GIVEN.format(read=first),
     }
 
 

@@ -163,8 +163,8 @@ FINDINGS_RULES = """
 """
 READS_RULES = """
     Reads, by his words "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
-    evakuate them". Each claim in <action> names the id of its read in <evidence>, which holds the handler's own calls
-    whose words that read names, each whole once, under the first item holding it. Check each claim against its reads
+    evakuate them". Each claim in <action> names the id of its read in <evidence>, which holds the handler's newest call
+    whose words that read names, whole once, under the first item holding it. Check each claim against its reads
     together:
     - A line about code, where it lives, what it does or why, stands only on a read of that code: its lines, a grep or
       a diff. A doc, report, brief, PR body, earlier answer, or a comment, panic, error or log message is a claim to
@@ -234,7 +234,7 @@ class SentPosts(WorkflowState):
 
 
 def handler_reads(read: str) -> str:
-    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results, and the claim naming that read by its id."""
+    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as its newest call that read names with its whole result, and the claim naming that read by its id."""
     named = {"id": "read:1", "read": "cloudrunner/inbox.go", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": [{"claim": GUESSED, "read": "read:1"}]}})
 
