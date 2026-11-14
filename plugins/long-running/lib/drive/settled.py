@@ -105,6 +105,9 @@ APPROVES_QUESTION = (
     " them. Pick none when his pick has no release run: his Approve or tap on a pull request, or a pick to land, merge or"
     " enqueue one, lands it and releases nothing, and so does a pick of which code or data layout to build, how to repair"
     " something, or whether a check holds. Pick none when unsure."
+    ' His words past the option number he picks are part of his pick: "1 and then bring <a team> to the same" picks option 1'
+    " and orders the release that next brings that team to where option 1 put the others, such as the same service's hotfix"
+    " with every target but that team's left out."
 )
 REPEATS_QUESTION = (
     "A drive tooling order is being added in the words below. Does it ask for what one of these open drive tooling orders already"
