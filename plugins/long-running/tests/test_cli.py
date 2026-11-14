@@ -3378,7 +3378,7 @@ def test_job_ask_hands_jev_his_order_from_his_slack_message_and_his_thread_words
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block))[0] == 0
-    assert [(word["id"], word["said"]) for word in jev.asked[0]["state"]["his_words"] if "ruling" not in word["id"]] == [("p1794200000000100", his)]
+    assert [(word["id"], word["said"]) for word in jev.asked[0]["state"]["his_words"] if not word["id"].startswith(("ruling:", "words:"))] == [("p1794200000000100", his)]
 def test_job_ask_keeps_a_card_whose_option_his_words_rule_out_and_prints_jevs_finding_to_the_agent(
     run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
