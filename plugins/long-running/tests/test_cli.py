@@ -9125,6 +9125,41 @@ def test_cards_withdraw_settles_a_card_an_event_overtook_showing_what_happened_a
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
 
 
+def test_j4738_cards_withdraw_via_another_open_card_of_the_drive_settles_it_as_asked_again_there_and_moves_each_wait_on_it_to_that_cards_waits_id(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for goal in ("release api alone", "release rsw-go alone"):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal)
+    live = open_card(1, {"title": "Ship api, rsw-go and runtime-api-next in one exception release?", "options": ["Ship all three", "Wait"], "recommended": "Ship all three", "waits": "demo:j1-1"})
+    stale = open_card(2, {"title": "Hotfix api alone tonight?", "options": ["Hotfix", "Wait"], "recommended": "Hotfix", "waits": "demo:j2-2"})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [live, stale], "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    with state.edit("demo") as data:
+        for job_id, shown in (("j1", live), ("j2", stale)):
+            data["jobs"][job_id]["questions"].append(state.new_question(None, shown["question"], state.stamp(), None, shown["url"]) | {"waits": shown["card"]["waits"]})
+        data["jobs"]["j2"]["waits"] = ["demo:j2-2", PR]
+        data["jobs"]["j3"]["waits"] = [stale["url"]]
+    calls: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
+    assert cli.main(["cards", "withdraw", "j2-2", "--words", "This question moved to the one exception-release card", "--via", "j1-1"]) == 2
+    assert f'demo:j2-2: refused, not withdrawn: --via demo:j1-1 is the drive\'s open card {live["url"]}, so the card shows "{cli.ASKED_AGAIN}" linking it, never --words' in capsys.readouterr().err
+    assert cli.main(["cards", "withdraw", "j2-2", "--via", "j2-2"]) == 2
+    assert "demo:j2-2: refused, not withdrawn: --words is needed unless --via is another open question card of this drive" in capsys.readouterr().err
+    assert calls == []
+    code, line = run("cards", "withdraw", "j2-2", "--via", "j1-1")
+    assert (code, calls) == (0, [("card-answer", "--card", stale["url"], "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", live["url"])])
+    assert line.splitlines() == [
+        f"settled 1 question(s) drawn on his card demo:j2-2 as asked again on his card {live['url']}",
+        f'demo:j2-2: his card {stale["url"]} now shows "{cli.ASKED_AGAIN}" and a link to {live["url"]} with no buttons, its question superseded',
+        "each wait on demo:j2-2 now waits on demo:j1-1",
+    ]
+    data = state.load("demo")
+    closed = data["jobs"]["j2"]["questions"][-1]["closed"]
+    assert (closed["how"], closed["words"], closed["link"], closed["by"]) == ("superseded", cli.ASKED_AGAIN, live["url"], "demo:j1-1")
+    assert data["jobs"]["j1"]["questions"][-1]["closed"] is None
+    assert [data["jobs"][job_id]["waits"] for job_id in ("j2", "j3")] == [["demo:j1-1", PR], ["demo:j1-1"]]
+
+
 def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_or_a_teammate_or_another_bot_wrote(
     slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
