@@ -510,16 +510,32 @@ def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_i
     assert said(demo)[0]["visuals"][0]["picture"] == str(sent)
 
 
-def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, posts: list[tuple[str, ...]], unrecorded: list[str]
+@pytest.mark.parametrize(
+    ("handler", "refusal"),
+    [
+        (
+            "demo/31957310",
+            "nothing posted: this session runs handler 31957310 and is unbound: the drive binds no handler 31957310 to it, so it is bound to the drive as nothing,"
+            " while only the communicator and a handler bound to it record a post on an order or take back a part's mark; post no copy, and return a DEFECT line quoting this",
+        ),
+        (None, "nothing posted: only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record to communicator@demo"),
+    ],
+)
+def test_705235_a_post_its_session_may_not_record_on_its_order_goes_nowhere_and_names_an_unbound_handlers_session(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, posts: list[tuple[str, ...]], unrecorded: list[str], handler: str | None, refusal: str
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail")
-    report(monkeypatch, {"order": "o1"})
-    line = talk.say(demo, {"text": "done", "record": "683592"})
-    assert line.startswith(f"POSTED {POSTED}; not recorded on o1: only the communicator records a post")
-    assert len(posts) == 1
-    [defect] = unrecorded
-    assert defect.startswith(f"say posted {POSTED} but it was not recorded on o1")
+    thread = "1794261099.160079"
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread)
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    if handler:
+        monkeypatch.setenv(state.HANDLER_ENV, handler)
+    report(monkeypatch, {"order": "o1", "stall": "true", "thread": thread}, lane="watch")
+    post = {"text": "The copy still stalls on the lock.", "thread_ts": thread, "record": "705228"}
+    for each in (post | {"dry_run": True}, post):
+        with pytest.raises(DriveError, match=f"^{re.escape(refusal)}"):
+            talk.say(demo, each)
+    assert (posts, said(demo), unrecorded, state.load(demo)["orders"]["o1"]["last_line"]) == ([], [], [], None)
 
 
 @pytest.mark.parametrize(
@@ -910,9 +926,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     thread = "1794200000.000100"
     for words in ("one fix-live post per order", "one fix-live post per order, again"):
         run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words, "--thread", thread, "--owner", "meta")
-    run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+    communicating(run, demo)
     sent: list[tuple[str, ...]] = []
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": answer, "thread_ts": thread})
@@ -1167,10 +1181,17 @@ def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> No
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check")
 
 
+def communicating(run: Callable[..., tuple[int, str]], name: str) -> None:
+    run("start", name, "--role", "communicator")
+    with state.edit(name) as data:
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+
+
 def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_ticket_its_hook_named(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
+    communicating(run, demo)
     report(monkeypatch, {"order": "o1"})
     line = {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "record": "683597"}
     assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {ALERT} of channel C0ALERT1, 0 pictures: The release failed on the migration.; o1 progress line, no part delivered"
@@ -1191,6 +1212,7 @@ def test_a_reports_post_naming_no_place_goes_nowhere_when_its_line_has_a_thread_
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
+    communicating(run, demo)
     report(monkeypatch, {"order": "o1", "thread": ALERT})
     line = {"text": "The release failed on the migration.", "record": "683597"}
     with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {ALERT} of channel C0ALERT1, never his DM root: pass channel_id C0ALERT1 and thread_ts {ALERT}, "):

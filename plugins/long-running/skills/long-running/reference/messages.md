@@ -125,8 +125,9 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
   on an order of one part as on one of several. An incident and every alert's order joined to it
   with `--joins` share their threads both ways, whichever job carries the alert.
-  `drive order posted <o> <link> --record <the report's seq>` records a post already made. Only the communicator's side records a post, except that the session the order's `ORPHAN` lines reach marks a part a post
-  of the drive already answered, or work a merged PR delivered, with `drive order posted <o> <that post's or PR's link> --part "<part>"`, with or without
+  `drive order posted <o> <link> --record <the report's seq>` records a post already made. Only the communicator's side records a post, the communicator and each handler the drive binds to it, so `say`
+  posts nothing on an order from any other session and says why, naming a handler's session the drive binds to nothing unbound; the session the
+  order's `ORPHAN` lines reach still marks a part a post of the drive already answered, or work a merged PR delivered, with `drive order posted <o> <that post's or PR's link> --part "<part>"`, with or without
   `--record`, posting nothing.
 
 ## The shapes
