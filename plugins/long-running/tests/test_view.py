@@ -1020,6 +1020,7 @@ UNLISTED = "https://acme.slack.com/archives/D123/p1794200000000900"
         ("j3", "the build of prove the real run finishes"),
         ("Forge-AI/monorepo#7", "[retry (flaky) uploads](https://github.com/Forge-AI/monorepo/pull/7) lands"),
         ("release:dashboard:Forge-AI/monorepo#7", "the dashboard release carrying [retry (flaky) uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"),
+        ("https://buildkite.com/forge/release/builds/14769", "[Buildkite build 14769 of forge/release](https://buildkite.com/forge/release/builds/14769) finishes or stops at an approve step"),
         ("demo:j1-7-a", f"you answer [Pick a store?]({QUESTION}?thread_ts=1.2)"),
         (UNLISTED, f"you answer [your question card]({UNLISTED})"),
         ("demo:j1-9", "you answer your question card"),

@@ -17,6 +17,7 @@ REAL_HOOK = receiver.hook
 REAL_UNHOOKED = receiver.unhooked
 OPEN = {42: {"head": "aaa", "base": "main", "branch": "fix-it"}, 43: {"head": "bbb", "base": "fix-it", "branch": "stacked"}}
 SECRET = b"the webhook secret"
+BUILD = "https://buildkite.com/forge/release/builds/14769"
 
 
 @pytest.fixture
@@ -31,6 +32,10 @@ def demo(state_root: Path) -> str:
 
 def delivered(name: str, offset: int = 0) -> list[dict]:
     return [{field: event[field] for field in ("repo", "numbers", "event", "guid")} for event, _ in state.read_events(name, offset) if event["kind"] == receiver.DELIVERY]
+
+
+def builds_delivered(name: str) -> list[tuple[str, list[str]]]:
+    return [(event["event"], event["builds"]) for event, _ in state.read_events(name, 0) if event["kind"] == receiver.BUILD_DELIVERY]
 
 
 @pytest.mark.parametrize(
@@ -127,9 +132,8 @@ def listening(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, list[tuple
     server.server_close()
 
 
-def post(address: str, body: bytes, signature: str | None) -> int:
-    headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "g1", "X-GitHub-Hook-ID": "9", "Content-Type": "application/json"}
-    request = urllib.request.Request(address, body, headers | ({"X-Hub-Signature-256": signature} if signature else {}), method="POST")
+def post(address: str, body: bytes, headers: dict[str, str]) -> int:
+    request = urllib.request.Request(address, body, headers | {"Content-Type": "application/json"}, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=10) as answer:
             return answer.status
@@ -143,8 +147,43 @@ def test_the_receiver_takes_only_deliveries_signed_with_the_webhook_secret(liste
     body = json.dumps(payload).encode()
     signed = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
     forged = "sha256=" + hmac.new(b"another secret", body, hashlib.sha256).hexdigest()
-    assert [post(address, body, signature) for signature in (None, forged, signed)] == [401, 401, 200]
+    github_headers = {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": "g1", "X-GitHub-Hook-ID": "9"}
+    assert [post(address, body, github_headers | ({"X-Hub-Signature-256": signature} if signature else {})) for signature in (None, forged, signed)] == [401, 401, 200]
     assert taken == [(REPO, 9, "g1", "pull_request", payload)]
+
+
+def test_the_receiver_takes_only_buildkite_deliveries_signed_with_the_webhook_secret_over_their_timestamp_and_body(
+    listening: tuple[str, list[tuple]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    address, _ = listening
+    taken: list[tuple] = []
+    monkeypatch.setattr(receiver, "took_builds", lambda event, links: taken.append((event, links)))
+    body = json.dumps({"event": "build.finished", "build": {"web_url": BUILD, "state": "blocked"}}).encode()
+    made = hmac.new(SECRET, b"1794640000." + body, hashlib.sha256).hexdigest()
+    forged = hmac.new(b"another secret", b"1794640000." + body, hashlib.sha256).hexdigest()
+    signatures = [None, f"timestamp=1794640000,signature={forged}", f"timestamp=1794649999,signature={made}", f"timestamp=1794640000,signature={made}"]
+    assert [post(address, body, {"X-Buildkite-Event": "build.finished"} | ({"X-Buildkite-Signature": signature} if signature else {})) for signature in signatures] == [401, 401, 401, 200]
+    assert taken == [("build.finished", [BUILD])]
+
+
+def test_a_buildkite_delivery_is_written_only_to_each_drive_waiting_on_a_build_it_names_and_a_missed_one_owes_each_drive_every_build_it_waits_on(
+    demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    other = "https://buildkite.com/forge/monorepo/builds/7"
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "release", [], state.stamp()) | {"state": "waiting", "waits": [BUILD]}
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "release", [], state.stamp()) | {"state": "done", "waits": ["https://buildkite.com/forge/release/builds/1"]}
+        data["prs"][KEY]["waits"] = [other]
+        data["prs"][MERGED]["waits"] = ["https://buildkite.com/forge/release/builds/2"]
+    receiver.took_builds("build.finished", [BUILD])
+    receiver.took_builds("build.finished", ["https://buildkite.com/forge/release/builds/1", "https://buildkite.com/forge/release/builds/2"])
+    receiver.took_builds("missed", None)
+    assert (builds_delivered(demo), builds_delivered("quiet")) == ([("build.finished", [BUILD]), ("missed", sorted([BUILD, other]))], [])
+    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [
+        f"buildkite build.finished: demo {BUILD}",
+        "buildkite build.finished: no build a drive waits on",
+        f"buildkite missed: demo {' '.join(sorted([BUILD, other]))}",
+    ]
 
 
 def answers(monkeypatch: pytest.MonkeyPatch, answered: dict[str, object]) -> list[list[str]]:

@@ -830,6 +830,21 @@ def test_a_waiting_line_puts_each_card_it_names_on_each_pr_of_its_order_it_names
     assert data["prs"]["yasyf/cc-skills#4289"]["waits"] == []
 
 
+def test_a_waiting_naming_a_buildkite_build_waits_on_it_as_no_card_and_a_release_jobs_waiting_waits_on_the_build_its_release_started() -> None:
+    data = kept_prs()
+    build, started = "https://buildkite.com/forge/release/builds/14769", "https://buildkite.com/forge/release/builds/15020"
+    data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
+    data["jobs"]["j10"] = state.new_job("o226", "builder", "release", [], state.stamp(REFERENCE)) | {"release_build": started}
+    data["jobs"]["j11"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
+    line = f"WAITING {build} stops at its approve step"
+    assert [state.result_refusal(data, job_id, said, said) is None for job_id, said in (("j9", line), ("j10", "WAITING release"), ("j11", "WAITING release"))] == [True, True, False]
+    state.take_result(data, "j9", line, line)
+    state.take_result(data, "j10", "WAITING release", "WAITING release")
+    assert (data["jobs"]["j9"]["waits"], data["jobs"]["j10"]["waits"], state.card_wait(data, build), state.held_builds(data)) == ([build], [started], False, {build, started})
+    data["jobs"]["j9"]["state"] = "done"
+    assert state.held_builds(data) == {started}
+
+
 def test_a_waiting_report_naming_his_open_card_only_below_its_first_line_waits_on_no_card() -> None:
     data = kept_prs()
     asked = state.new_question(None, "Which option?", state.stamp(REFERENCE), card="https://acme.slack.com/archives/D123/p1794300000000200") | {"waits": "demo:j8-1"}

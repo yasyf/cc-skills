@@ -48,7 +48,7 @@ from functools import cache, lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from drive import artifacts, limits, slack, state
+from drive import artifacts, github, limits, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut, when
 
@@ -234,7 +234,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out, each Buildkite build until the watch reads it finished or stopped at an approve step, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -247,7 +247,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return bool(state.RELEASE_WAIT.fullmatch(wait)) or wait == state.SLOT_WAIT or card_open(wait, found)
+    return bool(state.RELEASE_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait)) or wait == state.SLOT_WAIT or card_open(wait, found)
 
 
 def coming(drive: dict, job_id: str) -> bool:
@@ -278,6 +278,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
     if part := state.part_wait(drive, wait):
         return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
+    if build := github.BUILD.fullmatch(wait):
+        return f"{link(build_title(build), wait)} finishes or stops at an approve step"
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
@@ -702,11 +704,17 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
     if part := state.part_wait(drive, wait):
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
+    if build := github.BUILD.fullmatch(wait):
+        return {"title": build_title(build), "url": wait}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}
+
+
+def build_title(build: re.Match) -> str:
+    return f"Buildkite build {build['number']} of {build['pipeline']}"
 
 
 def waiting_on_him(drive: dict, found: dict) -> list[dict]:

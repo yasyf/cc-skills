@@ -22,10 +22,12 @@ from drive.install import upgraded
 PORT = 40990
 FUNNEL_PORT = 8443
 FUNNEL_PATH = "/github"
+BUILDKITE_PATH = "/buildkite"
 EVENTS = ["pull_request", "pull_request_review", "check_run", "status", "push", "workflow_run", "release"]
 CARRYING = ("pull_request", "missed")
 MARKS = ("ci", "release")
 DELIVERY = "delivery"
+BUILD_DELIVERY = "build delivery"
 LABEL = f"{launchd.LABEL}.receiver"
 WAIT_SECONDS = 5
 SLEPT_SECONDS = 60
@@ -34,7 +36,7 @@ MOST_BYTES = 25 * 1024 * 1024
 
 
 def home() -> Path:
-    """The receiver's folder, one for every drive on this Mac: its webhook secret, the hooks it made and its log."""
+    """The receiver's folder, one for every drive on this Mac: the webhook secret GitHub's hooks and Buildkite's notification service sign with, the hooks it made and its log."""
     return state.root() / "receiver"
 
 
@@ -80,11 +82,11 @@ def unhooked(repos: set[str]) -> list[str]:
     return sorted(repo for repo in repos if (kept.get(repo) or {}).get("events") != EVENTS)
 
 
-def url() -> str:
-    """The one public address of the receiver: its Tailscale Funnel path on this Mac's tailnet name."""
+def url(path: str = FUNNEL_PATH) -> str:
+    """A public address of the receiver: its Tailscale Funnel path on this Mac's tailnet name, /github for GitHub's hooks and /buildkite for Buildkite's notification service."""
     if not (net := dashboard.tailnet()):
-        raise state.DriveError("tailscale does not run on this Mac, so GitHub has no address to deliver to")
-    return f"https://{net.name}:{FUNNEL_PORT}{FUNNEL_PATH}"
+        raise state.DriveError("tailscale does not run on this Mac, so GitHub and Buildkite have no address to deliver to")
+    return f"https://{net.name}:{FUNNEL_PORT}{path}"
 
 
 def asked(cmd: list[str], stdin: str | None = None) -> str:
@@ -193,6 +195,24 @@ def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -
     print(f"{moment()} {event} {guid} {repo}: {'; '.join([*said, *(f'marks {kind}' for kind in marks)]) or 'no unmerged PR a drive tracks'}", flush=True)
 
 
+def took_builds(event: str, links: list[str] | None) -> None:
+    """Append one build delivery line to each drive with a live job or open PR waiting on a Buildkite build a delivery of Buildkite's names, for its watch to read that build from Buildkite, and log it; a missed delivery, links None, names every build each drive waits on, since the receiver took none of what Buildkite sent while it was down."""
+    said = []
+    for name in state.names():
+        held = state.held_builds(state.stored(name, ("jobs", "prs")))
+        if builds := sorted(held if links is None else held & set(links)):
+            state.append_event(name, BUILD_DELIVERY, builds=builds, event=event)
+            said.append(f"{name} {' '.join(builds)}")
+    print(f"{moment()} buildkite {event}: {'; '.join(said) or 'no build a drive waits on'}", flush=True)
+
+
+def buildkite_signed(key: bytes, header: str, body: bytes) -> bool:
+    """Whether a Buildkite delivery's X-Buildkite-Signature, `timestamp=<t>,signature=<hex>`, is the HMAC-SHA256 the webhook secret makes of `<t>.` and its body."""
+    parts = dict(part.strip().split("=", 1) for part in header.split(",") if "=" in part)
+    made = hmac.new(key, f"{parts.get('timestamp')}.".encode() + body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(made, parts.get("signature", ""))
+
+
 def caught_up() -> None:
     """Ask GitHub for each kept hook's newest delivery, and when it is newer than the last one taken, take every open PR the drives track in its repository as delivered, since the receiver took none of what GitHub sent meanwhile: one read of those PRs in place of one call per missed delivery. A hook whose deliveries GitHub does not list, one deleted or a network not up yet, is forgotten, so the watch makes it again and owes a read of each PR of its repository."""
     for repo, kept in hooks().items():
@@ -208,16 +228,17 @@ def caught_up() -> None:
 
 
 def funnel() -> None:
-    """Open the receiver's one public path through Tailscale Funnel, which persists in tailscaled; the rest of this Mac's serve config stays on the tailnet."""
-    done = subprocess.run(
-        ["tailscale", "funnel", "--bg", "--yes", f"--https={FUNNEL_PORT}", f"--set-path={FUNNEL_PATH}", f"http://{dashboard.LOOPBACK}:{PORT}"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    if done.returncode:
-        raise state.DriveError(f"tailscale funnel exited {done.returncode}: {' '.join((done.stderr or done.stdout).split())}")
+    """Open the receiver's public paths through Tailscale Funnel, which persists in tailscaled, each proxied to the receiver's root, which tells GitHub's deliveries from Buildkite's by their headers; the rest of this Mac's serve config stays on the tailnet."""
+    for path in (FUNNEL_PATH, BUILDKITE_PATH):
+        done = subprocess.run(
+            ["tailscale", "funnel", "--bg", "--yes", f"--https={FUNNEL_PORT}", f"--set-path={path}", f"http://{dashboard.LOOPBACK}:{PORT}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if done.returncode:
+            raise state.DriveError(f"tailscale funnel exited {done.returncode}: {' '.join((done.stderr or done.stdout).split())}")
 
 
 def moment() -> str:
@@ -233,6 +254,9 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), MOST_BYTES))
+            if event := self.headers.get("X-Buildkite-Event"):
+                self.buildkite(event, body)
+                return
             signed = b"sha256=" + hmac.new(key, body, hashlib.sha256).hexdigest().encode()
             guid = self.headers.get("X-GitHub-Delivery")
             if not hmac.compare_digest(signed, (self.headers.get("X-Hub-Signature-256") or "").encode()):
@@ -241,6 +265,15 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
                 return
             payload = json.loads(body)
             took(payload["repository"]["full_name"], int(self.headers["X-GitHub-Hook-ID"]), guid, self.headers["X-GitHub-Event"], payload)
+            self.answer(200, "taken")
+
+        def buildkite(self, event: str, body: bytes) -> None:
+            if not buildkite_signed(key, self.headers.get("X-Buildkite-Signature") or "", body):
+                print(f"{moment()} refused buildkite {event}: not signed with the webhook secret", flush=True)
+                self.answer(401, "not signed with the webhook secret")
+                return
+            payload = json.loads(body)
+            took_builds(event, [payload["build"]["web_url"]] if "build" in payload else [])
             self.answer(200, "taken")
 
         def answer(self, code: int, text: str) -> None:
@@ -263,14 +296,15 @@ def rewritten() -> bool:
 
 
 def main() -> int:
-    """Take GitHub's signed deliveries on loopback behind the Funnel path, the process the receiver's launch agent runs. It listens before it opens the path and asks GitHub what it missed, so a delivery landing meanwhile waits in the socket's queue, then serves until the newest long-running installed runs another receiver.py, as rewritten reads it, or the clock jumps past SLEPT_SECONDS, as after this Mac slept, and exits for launchd to start it again, which asks GitHub again."""
+    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. It listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue, then serves until the newest long-running installed runs another receiver.py, as rewritten reads it, or the clock jumps past SLEPT_SECONDS, as after this Mac slept, and exits for launchd to start it again, which asks GitHub again."""
     os.environ.update(launchd.session_env())
     server = ThreadingHTTPServer((dashboard.LOOPBACK, PORT), handler(secret().encode()))
     server.daemon_threads = True
     server.timeout = WAIT_SECONDS
     funnel()
     caught_up()
-    print(f"{moment()} receiving at {url()} on long-running {state.VERSION}", flush=True)
+    took_builds("missed", None)
+    print(f"{moment()} receiving at {url()} and {url(BUILDKITE_PATH)} on long-running {state.VERSION}", flush=True)
     awake = time.time()
     while not rewritten() and time.time() - awake < SLEPT_SECONDS:
         awake = time.time()

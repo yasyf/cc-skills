@@ -3606,8 +3606,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges, or once it closes unmerged on the job that opened it, or release:<service>:<owner>/<repo>#<n>, the release of"
-                " that service carrying that PR"
+                " <owner>/<repo>#<n>, held until it merges, or once it closes unmerged on the job that opened it, release:<service>:<owner>/<repo>#<n>, the release of"
+                " that service carrying that PR, or a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step"
             )
     if refused := unreached(name, data, waits):
         raise DriveError(f"--waits {refused}")
@@ -4580,16 +4580,19 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|JOB|PR|RELEASE|PART",
+        metavar="CARD|JOB|PR|RELEASE|PART|BUILD",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
             " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE, never the DONE the watch takes at a merge,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
-            " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
+            " service is none of them or is no component at all, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
+            " or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
-            " stops or fails, each part it carries is delivered, or tools/ci release pull reads every production cluster of that"
-            " service serving the PR with no release running there, and says FREE once when the last is gone, which wakes the"
+            " stops or fails, each part it carries is delivered, tools/ci release pull reads every production cluster of that"
+            " service serving the PR with no release running there, or the watch's Buildkite read, made as the build is first held and again on each"
+            " delivery of Buildkite's to the receiver's /buildkite route naming it, finds the build passed, failed, canceled or stopped at an approve step,"
+            " and says FREE once when the last is gone, which wakes the"
             " coordinator; a job keeps a release wait it was freed of until it finishes and says REWAIT once a cluster goes behind."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"
         ),
@@ -4913,9 +4916,9 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|PR|RELEASE|JOB|PART",
+        metavar="CARD|PR|RELEASE|BUILD|JOB|PART",
         help=(
-            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a part of an open order as <order>:<part>, or a job"
+            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a Buildkite build by its link, a part of an open order as <order>:<part>, or a job"
             " of this drive still at work, of any kind, a reader that just started included, as job set takes them, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),
