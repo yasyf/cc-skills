@@ -2632,22 +2632,18 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, order_id, part, moment) for job_id, job in jobs}
     if stuck := [gap for job_id, job in jobs if (gap := gaps[job_id]) and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
-    if (
-        jobs
-        and part == state.INCIDENT_FIX
-        and state.open_incidents(data, [order_id])
-        and not any(job["state"] not in state.FINISHED_JOB_STATES or job_id in {pr["job"] for pr in data["prs"].values() if pr["state"] != "closed"} for job_id, job in jobs)
-    ):
-        last, job = jobs[-1]
+    if fixer := no_fix_job(data, order_id, part, jobs):
+        last, job = fixer
+        idle = "" if part == state.INCIDENT_FIX else f", no job of {order_id} is at work or has his card open, and it keeps no proof users are unblocked"
         return (
-            f"no fix job: {last} ended {job['state']} with no open or merged PR; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
-            f" drive job add builder --order {order_id} --part {state.INCIDENT_FIX} --goal {shlex.quote(job['goal'])} (incidents: Clocks)"
+            f"no fix job: {last} ended {job['state']} with no open or merged PR{idle}; start the second fix job now, an Opus 5.5 long-running:builder on {last}'s brief:"
+            f" drive job add builder --order {order_id} --part {shlex.quote(part)} --goal {shlex.quote(job['goal'])} (incidents: Clocks)"
         )
     if state.delivered(data, order_id, part):
         return None
@@ -2662,6 +2658,23 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR or order["options_only"] and order["parts"][part]["design"]:
         return None
     return "no job"
+
+
+def no_fix_job(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> tuple[str, dict] | None:
+    """The newest builder or codex job on a part of an open incident that holds its fix with no one at work on it, whose brief the second fix job starts on, never a reader's or design's, nor a diagnosis job's that a later fix job followed: its fix part once no job on it is live or has an open or merged PR, or, on an incident with no fix part, such as one joined to another, each of its work parts once none of the incident's jobs is live, has an open or merged PR or his card open, and it keeps no proof users are unblocked, since any done job, a read-only one included, delivers such a part; None while one is at work or the part never had a builder or codex job."""
+    order = data["orders"][order_id]
+    if not state.open_incidents(data, [order_id]):
+        return None
+    if part == state.INCIDENT_FIX:
+        held = jobs
+    elif state.INCIDENT_FIX not in order["parts"] and state.work(data, order_id, part) and not order["proof"]:
+        held = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"]]
+    else:
+        return None
+    opened = {pr["job"] for pr in data["prs"].values() if pr["state"] != "closed"}
+    if any(job["state"] not in state.FINISHED_JOB_STATES or job_id in opened or part != state.INCIDENT_FIX and view.open_cards(job) for job_id, job in held):
+        return None
+    return max(((job_id, job) for job_id, job in jobs if job["kind"] in state.CHANGE_KINDS), key=lambda found: state.parse_time(found[1]["created"]), default=None)
 
 
 def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:

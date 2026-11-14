@@ -732,6 +732,8 @@ def order_set(args: argparse.Namespace) -> int:
         aimed = (order["kind"], order["thread"])
         limited = order["options_only"]
         order.update({field: value for field, value in changes.items() if value is not None})
+        if args.proof:
+            order["proof_by"] = None
         designs = [job_id for job_id in order["jobs"] if data["jobs"][job_id]["kind"] == "design" and data["jobs"][job_id]["order"] == args.id] if limited and not order["options_only"] else []
         added = [builder for job_id in designs for builder in state.add_changes(name, data, job_id, next(iter(state.returns(name, job_id)), {"body": ""})["body"])]
         if due and not (where := state.promise_thread(order)):

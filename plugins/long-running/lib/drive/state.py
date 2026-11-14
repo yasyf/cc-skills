@@ -723,6 +723,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.pop("releases", None)
         order.pop("shipped", None)
         order.setdefault("proof", None)
+        order.setdefault("proof_by", None)
         order.setdefault("close_report", None)
         order.setdefault("closed_on", None)
         order.setdefault("alerts", [])
@@ -1375,11 +1376,14 @@ def result_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
     taken, moment = result_state(job, line), stamp()
+    if taken != "done":
+        for order_id in open_incidents(data, [order_id for order_id, order in data["orders"].items() if order["proof_by"] == job_id]):
+            data["orders"][order_id].update(proof=None, proof_by=None)
     job.update(state=taken, updated=moment, returned=moment)
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
@@ -1399,12 +1403,12 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         from drive import brief
 
         for order_id in open_incidents(data, [job["order"], *job["carries"]]):
-            if {INCIDENT_STOP, INCIDENT_ROLLBACK} & set(job_parts(job, order_id)):
-                data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or line.removeprefix("DONE").strip()
+            if {INCIDENT_STOP, INCIDENT_ROLLBACK} & set(job_parts(job, order_id)) and not data["orders"][order_id]["proof"]:
+                data["orders"][order_id].update(proof=line.removeprefix("DONE").strip(), proof_by=job_id)
         if seen := " ".join(found for check in brief.CHECK.findall(report) for found in brief.proofs(check) if brief.SEEN_PROOF.search(found)):
             for order_id in open_incidents(data, list(dict.fromkeys(other for held in [job["order"], *job["carries"]] for other in incident_orders(data, held)))):
                 if brief.unseen(data, order := data["orders"][order_id], order["proof"]):
-                    order["proof"] = "; ".join(filter(None, [order["proof"], seen]))
+                    order.update(proof="; ".join(filter(None, [order["proof"], seen])), proof_by=order["proof_by"] if order["proof"] else job_id)
     if (bug := traced(data, job_id, line)) and (fixes := FIX_LINE.findall(report)):
         head = data["orders"][bug]["joins"] or bug
         for order_id in fix_named(data, job["order"], fixes[-1])[0]:
@@ -1843,6 +1847,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "workstream": None,
         "title": None,
         "proof": None,
+        "proof_by": None,
         "close_report": None,
         "closed_on": None,
         "note": None,
