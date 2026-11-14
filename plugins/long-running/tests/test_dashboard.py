@@ -384,7 +384,7 @@ def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> N
     card = "https://acme.slack.com/archives/D1/p100"
 
     def refused(*args: str) -> dict:
-        raise dashboard.DriveError(f"card {card} shows no answer to take back")
+        raise dashboard.slack.SlackError(f"card {card} shows no answer to take back")
 
     monkeypatch.setattr(dashboard, "cc_slack", refused)
     server, port = serving(dashboard.Board("demo", []))

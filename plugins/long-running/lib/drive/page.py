@@ -1,6 +1,4 @@
-import json
 import re
-import subprocess
 from collections import Counter
 from collections.abc import Callable
 from typing import NamedTuple
@@ -179,14 +177,10 @@ def draw(name: str, markdown: str) -> Drawn:
     if canvas:
         argv += ["--canvas", canvas]
     try:
-        result = subprocess.run([slack.launcher(), *argv], input=markdown, check=False, capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise PageError(str(error)) from None
-    if result.returncode:
-        said = " ".join(result.stderr.split())
-        refused = REFUSAL.search(said)
-        raise PageError(f"Slack refused the redraw ({refused[1]})" if refused else said or f"cc-slack exited {result.returncode}")
-    drawn = json.loads(result.stdout)
+        drawn = slack.cc_slack(*argv, timeout=60, stdin=markdown)
+    except slack.SlackError as error:
+        refused = REFUSAL.search(str(error))
+        raise PageError(f"Slack refused the redraw ({refused[1]})" if refused else str(error)) from None
     if drawn["canvas_id"] != canvas:
         with state.edit(name) as data:
             data["slack"]["page"] = drawn["canvas_id"]

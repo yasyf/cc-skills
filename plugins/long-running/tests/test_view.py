@@ -2,9 +2,10 @@ import json
 import subprocess
 from collections import Counter
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
-from drive import land, page, stage, state, view, watch
+from drive import land, page, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -538,7 +539,7 @@ def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(dem
         canvas_id = next(answers)
         return subprocess.CompletedProcess(argv, 0, json.dumps({"canvas_id": canvas_id, "url": f"https://slack.example/docs/T1/{canvas_id}"}), "")
 
-    monkeypatch.setattr(page.subprocess, "run", canvas)
+    monkeypatch.setattr(subprocess, "run", canvas)
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     assert watch.run_pass(watching, T0) == []
     for text, minutes in (("a new order", 10), ("another order", 20)):
@@ -681,12 +682,22 @@ def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: st
     assert view.stored_cards(demo) == (listed, "live")
 
     def refused(name: str) -> dict:
-        raise view.CardsError("not signed in")
+        raise slack.SlackError("not signed in")
 
     monkeypatch.setattr(view, "cards", refused)
     view.refresh_cards(demo)
     assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")
 
+
+def test_a_cc_slack_answer_that_exits_0_with_no_json_is_a_slack_error_not_a_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    launcher = tmp_path / "cc-slack"
+    monkeypatch.setattr(slack, "launcher", lambda: str(launcher))
+    for printed, starting in (("demo:j1-1  2026-11-12 21:39  https://acme.slack.com/archives/D1/p1\nmore lines\n", "'demo:j1-1  2026-11-12 21:39  https://acme.slack.com/archives/D1/p1'"), ("", "''")):
+        launcher.write_text(f"#!/bin/sh\nprintf '%s' '{printed}'\n")
+        launcher.chmod(0o755)
+        with pytest.raises(slack.SlackError) as refused:
+            slack.cc_slack("drive-cards", "--drive", "demo", "--json")
+        assert str(refused.value) == f"cc-slack drive-cards exited 0 with {len(printed)} bytes that are not JSON, starting {starting}"
 
 def test_cards_an_older_cc_slack_lists_with_no_closed_field_read_as_none_closed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     gone = f"{TEAM}archives/D123/p1794200000000300"

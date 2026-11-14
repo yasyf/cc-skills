@@ -142,10 +142,7 @@ def owner_calling(address: str, net: Tailnet | None) -> bool:
 
 
 def cc_slack(*args: str) -> dict:
-    done = subprocess.run([slack.launcher(), *args], capture_output=True, text=True, timeout=ANSWER_SECONDS, check=False)
-    if done.returncode:
-        raise DriveError(" ".join(done.stderr.split()) or f"cc-slack {args[0]} exited {done.returncode}")
-    return json.loads(done.stdout)
+    return slack.cc_slack(*args, timeout=ANSWER_SECONDS)
 
 
 @functools.cache
@@ -532,7 +529,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             else:
                 try:
                     self.answered(200, cc_slack("thread", "--channel", board.channel, "--thread", ts, "--limit", THREAD_MESSAGES, "--json"))
-                except (DriveError, subprocess.TimeoutExpired) as error:
+                except slack.SlackError as error:
                     self.answered(502, {"error": str(error)})
 
         def picture(self, path: str) -> None:
@@ -615,7 +612,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 return
             try:
                 said = answer_card(card, asked["label"], via)
-            except (DriveError, subprocess.TimeoutExpired) as error:
+            except slack.SlackError as error:
                 self.answered(502, {"error": str(error)})
                 return
             view.refresh_cards(board.name)
@@ -642,7 +639,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             """Take back his sent answer, as his Slack Undo does: cc-slack reopens its card in Slack and the queue while it still shows its Undo, and its card command keeps the undo in History."""
             try:
                 cc_slack("card-reopen", "--card", card)
-            except (DriveError, subprocess.TimeoutExpired) as error:
+            except slack.SlackError as error:
                 self.answered(409, {"error": str(error)})
                 return
             view.refresh_cards(board.name)
@@ -658,7 +655,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 return
             try:
                 sent = relay(text, under)
-            except (DriveError, subprocess.TimeoutExpired) as error:
+            except slack.SlackError as error:
                 self.answered(502, {"error": str(error)})
                 return
             if under:
