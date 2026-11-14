@@ -29,7 +29,7 @@ DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
 FREED_AGAIN = timedelta(minutes=30)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "REWAIT ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", MERGED_DONE, PROOF_FAILED)
@@ -91,8 +91,7 @@ class Watcher:
     dashboard_down: bool = False
     releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
     released: set[str] = field(default_factory=set)
-    release_marks: dict[str, str | None] = field(default_factory=dict)
-    release_reads: dict[str, dict] = field(default_factory=dict)
+    production: dict[str, dict] | None = None
     sending: dict[str, int] = field(default_factory=dict)
     resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
@@ -288,24 +287,33 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by this pass's production read or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once that read names a production cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
     data = state.load(watcher.name)
-    out, lines = shipped(watcher, data, moment)
+    out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
     turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id])}
     owners = [
         *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)),
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
     ]
-    if not out and not turned and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+    if not out and not turned and not any(regained(watcher, job) for job in data["jobs"].values()) and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
-            if not heard_job(watcher, data, job) or view.open_cards(job):
+            if not heard_job(watcher, data, job):
+                continue
+            if again := regained(watcher, job):
+                job["shipped"] = [wait for wait in job["shipped"] if wait not in again]
+                state.rewait(job, list(dict.fromkeys([*job["waits"], *again])))
+                lines += [f"REWAIT {job_id} {job['order']}: {wait} holds again: release pull reads {', '.join(behind(watcher, wait))} behind it" for wait in again]
+            if view.open_cards(job):
                 continue
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
-            if (ended := released(data, job, job_id, watcher.cards, out | slot if turn else out)) and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
+            waited = job["waits"]
+            ended = released(data, job, job_id, watcher.cards, out | slot if turn else out)
+            job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out)]))
+            if ended and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
                 job["updated"] = state.stamp(moment)
                 if turn:
                     job["slot"] = state.stamp(moment)
@@ -342,9 +350,31 @@ def monitors(data: dict, order_id: str) -> dict[str, str]:
     return {found[1]: link for link in links if (found := state.DATADOG_MONITOR.fullmatch(link))}
 
 
-def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close each open incident the watch hears once its fix is live and every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when no job on a fix part of its orders still works, no PR of one is open, one merged and each merged one runs on every production stack, read fresh each pass for them all in one `tools/ci release pull --json`, run in the drive's checkout as orca.checkout moves it to its default branch's head, and never kept, so neither a builder's claim nor a monitor gone quiet stands for a fix that never deployed; a fix PR outside Forge-AI/monorepo has no production read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
+def production_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Read where each merged Forge-AI/monorepo PR the watch follows runs in production, for waits_lines and recovered_lines: the PR of each release wait of a live job, those it was freed of included, or of an open PR, and each fix PR of an open incident. One `tools/ci release pull --json` reads them all each pass, run in the drive's checkout as orca.checkout moves it to its default branch's head, and its answer is kept on the watcher as production until the next pass's read, None while it fails, so neither a builder's claim nor an earlier read stands for the build serving now."""
     data = state.load(watcher.name)
+    waited = [
+        *(wait for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"]),
+        *(wait for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) for wait in job["shipped"]),
+    ]
+    merged = {found["pr"] for wait in waited if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]}
+    pulls = sorted(key for key in merged | {key for keys in incident_fixes(watcher, data).values() for key in keys} if github.repo_of(key).lower() == state.MONOREPO.lower())
+    if not pulls:
+        watcher.production = {}
+        return []
+    watcher.production = None
+    try:
+        checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
+        read = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "pull", *(key.split("#")[1] for key in pulls), "--json"], checkout))
+    except (state.DriveError, reads.ReadError) as error:
+        return read_failed(watcher, "production landing", error, moment)
+    watcher.failures.pop("production landing", None)
+    watcher.production = dict(zip(pulls, read, strict=True))
+    return []
+
+
+def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
+    """The fix PRs of each open incident the watch hears, by its head order, once no job on a fix part of its orders still works, no PR of one is open and each is a merged Forge-AI/monorepo PR."""
     fixes = {}
     for head in state.open_incidents(data, list(data["orders"])):
         if data["orders"][head]["joins"] or data["orders"][head]["recovered"] or not hears(watcher, data, head):
@@ -357,22 +387,22 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
             and all(job["state"] in state.FINISHED_JOB_STATES for job in jobs.values())
         ):
             fixes[head] = prs
-    if not (pulls := sorted({key for keys in fixes.values() for key in keys})):
+    return fixes
+
+
+def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Close each open incident the watch hears once its fix is live and every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and this pass's production read has each running on every production stack; a fix PR outside Forge-AI/monorepo has no production read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
+    if not watcher.production:
         return []
-    try:
-        checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
-        read = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "pull", *(key.split("#")[1] for key in pulls), "--json"], checkout))
-    except (state.DriveError, reads.ReadError) as error:
-        return read_failed(watcher, "fix landing", error, moment)
-    watcher.failures.pop("fix landing", None)
-    live = {key for key, pull in zip(pulls, read, strict=True) if pull["liveInProduction"]}
-    landed = {head: monitors(data, head) for head, keys in fixes.items() if set(keys) <= live}
+    data = state.load(watcher.name)
+    fixes = incident_fixes(watcher, data)
+    landed = {head: monitors(data, head) for head, keys in fixes.items() if all(key in watcher.production and watcher.production[key]["liveInProduction"] for key in keys)}
     lines, ok = [], set()
     if ids := sorted({monitor for found in landed.values() for monitor in found}):
         argv = ["pup", "--no-agent", "monitors", "search", "--query", f"id:({' OR '.join(ids)})", "--per-page", str(len(ids)), "--jq", ".monitors | map({id, status})"]
         try:
-            statuses = json.loads(reads.run(argv, checkout))
-        except reads.ReadError as error:
+            statuses = json.loads(reads.run(argv, orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])))
+        except (state.DriveError, reads.ReadError) as error:
             lines = read_failed(watcher, "datadog monitors", error, moment)
         else:
             watcher.failures.pop("datadog monitors", None)
@@ -614,30 +644,28 @@ def started(pid: int) -> str | None:
     return procs.lstart(seconds) if (seconds := procs.started(pid)) is not None else None
 
 
-def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit. A wait whose PR merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it; what each read found is kept on the watcher with when it ran, which a stall's watchdog brief hands its agent."""
-    waits = {
-        wait: found["pr"]
+def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
+    """Each release wait of a live job or open PR whose release is out, with what says so: this pass's release pull read names no production cluster of its service behind its merged PR."""
+    return {
+        wait: f"every production cluster of {found['service']} serves {found['pr']} with no release running there"
         for order_id, owner in release_owners(data)
         if hears(watcher, data, order_id)
         for wait in owner["waits"]
-        if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]
+        if (found := state.RELEASE_WAIT.fullmatch(wait)) and behind(watcher, wait) == []
     }
-    out, marks = {}, {wait: receiver.heard(github.repo_of(key), "release") for wait, key in waits.items()}
-    for wait in sorted(waits):
-        if (wait, marks[wait]) in watcher.release_marks.items():
-            continue
-        try:
-            read = view.release_read(data, wait)
-        except github.GithubError as error:
-            return {}, read_failed(watcher, "github releases", error, moment)
-        watcher.release_reads[wait] = read | {"at": state.stamp(moment)}
-        if shipping := view.shipping(wait, read):
-            out[wait] = shipping
-    watcher.release_marks = marks
-    watcher.release_reads = {wait: read for wait, read in watcher.release_reads.items() if wait in waits}
-    watcher.failures.pop("github releases", None)
-    return out, []
+
+
+def regained(watcher: Watcher, job: dict) -> list[str]:
+    """The release waits a live job was freed of that hold again, this pass's release pull read naming a production cluster of the wait's service behind its PR, as when a release that failed its Watch puts the build before the fix back."""
+    return [wait for wait in job["shipped"] if job["state"] not in state.FINISHED_JOB_STATES and behind(watcher, wait)]
+
+
+def behind(watcher: Watcher, wait: str) -> list[str] | None:
+    """The production clusters of a release wait's service that this pass's release pull read names behind its PR, each running an older build or one a release still runs on; None when the read failed or holds no line for the PR, unmerged or outside Forge-AI/monorepo."""
+    found = state.RELEASE_WAIT.fullmatch(wait)
+    if watcher.production is None or found["pr"] not in watcher.production:
+        return None
+    return [stack["env"] for stack in watcher.production[found["pr"]]["productionBehind"] if stack["component"] == found["service"]]
 
 
 def release_owners(data: dict) -> list[tuple[str, dict]]:
@@ -1922,29 +1950,25 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
             f"Drive: {watcher.name}",
             "Read:",
             *(f"- {line}" for line in reading),
-            *(f"Release: {release_line(data, link, watcher.release_reads.get(link))}" for link, _ in links if state.RELEASE_WAIT.fullmatch(link)),
+            *(f"Release: {release_line(watcher, data, link)}" for link, _ in links if state.RELEASE_WAIT.fullmatch(link)),
             f"Hold: {hold_line(data)}",
             *(f"Card: {card}" for card in stall_cards(data, links, watcher.cards)),
         ]
     )
 
 
-def release_line(data: dict, wait: str, read: dict | None) -> str:
-    """A release wait as the watch's own read of it last found it, by view.release_read: the newest release shipping its service to production by the rule the read went by, its tag and GitHub's compare of the PR's merge commit to that tag, or that none ships it; or that its PR has not merged, or that this watch kept no read of it."""
+def release_line(watcher: Watcher, data: dict, wait: str) -> str:
+    """A release wait as this pass's release pull read found it: the production clusters of its service behind its PR, or none, or that its PR has not merged, or that the read holds no line for it."""
     found = state.RELEASE_WAIT.fullmatch(wait)
     key, service = found["pr"], found["service"]
     pr = data["prs"][key]
     if not pr["merged_sha"]:
         return f"{wait}: {key} is {pr['state']} and unmerged, so no release holds it yet"
-    if read is None:
-        return f"{wait}: this watch kept no read of it"
-    merged = pr["merged_sha"][:12]
-    rule = "named on the Production line of its notes" if read["lined"] else "named on its Components line with its build started on production, as no release read carries a Production line"
-    head = f"{wait}: the watch's read at {when(read['at'])} of the 100 newest releases of {github.repo_of(key)}"
-    if not read["release"]:
-        return f"{head} found none with {service} {rule}, so none holds {key}'s merge commit {merged}"
-    held = "holds" if read["status"] in github.HOLDS else "does not hold"
-    return f"{head} found {read['release']}, tag {read['tag']}, the newest with {service} {rule}; GitHub compares {merged}...{read['tag']} as {read['status']}, so it {held} {key}'s merge commit"
+    if (clusters := behind(watcher, wait)) is None:
+        return f"{wait}: this pass's tools/ci release pull read holds no line for {key}, as it failed or reads only {state.MONOREPO}"
+    if not clusters:
+        return f"{wait}: tools/ci release pull reads every production cluster of {service} serving {key}'s merge commit {pr['merged_sha'][:12]} with no release running there"
+    return f"{wait}: tools/ci release pull reads {service} on {', '.join(clusters)} behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build or a release still running there"
 
 
 def hold_line(data: dict) -> str:
@@ -2543,7 +2567,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, the waits his answers or a job's end release, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs in production, the waits his answers, a job's end or that read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield read_lines(watcher, state.load(watcher.name), moment)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -2564,6 +2588,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         landed(watcher)
         yield settle_lines(watcher, moment)
         yield follow_lines(watcher, moment)
+        yield production_lines(watcher, moment)
         yield waits_lines(watcher, moment)
         yield finished(watcher, moment)
         yield recovered_lines(watcher, moment)

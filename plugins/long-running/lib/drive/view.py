@@ -48,7 +48,7 @@ from functools import cache, lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from drive import artifacts, github, limits, slack, state
+from drive import artifacts, limits, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut, when
 
@@ -263,27 +263,6 @@ def coming(drive: dict, job_id: str) -> bool:
             for part in order["parts"].keys() & set(state.job_parts(job, order_id))
         )
     )
-
-
-def shipped_by(drive: dict, wait: str) -> str | None:
-    """The release that already ships a release wait's merged PR, read from GitHub: the newest release of its service holds the PR's merge commit."""
-    return shipping(wait, read) if (read := release_read(drive, wait)) else None
-
-
-def release_read(drive: dict, wait: str) -> dict | None:
-    """What github.release_of finds for a release wait whose PR merged, read from GitHub; None for any other wait."""
-    found = state.RELEASE_WAIT.fullmatch(wait)
-    if not (found and (merged := drive["prs"][found["pr"]]["merged_sha"])):
-        return None
-    return github.release_of(found["pr"], found["service"], merged)
-
-
-def shipping(wait: str, read: dict) -> str | None:
-    """The release that ships a release wait's PR by what release_read found: the newest release of its service, when it holds the PR's merge commit."""
-    if read["status"] not in github.HOLDS:
-        return None
-    found = state.RELEASE_WAIT.fullmatch(wait)
-    return f"release {read['release']} ships {found['pr']} on {found['service']}"
 
 
 def wait_words(drive: dict, wait: str, found: dict | None) -> str:
