@@ -823,20 +823,20 @@ def record(seq: str) -> str:
 
 
 def takes(name: str, job_id: str, payload: dict) -> bool:
-    """Whether the job a brief names may take the agent whose step fired the hook, as hold decides it, read from that job's row and the drive's bindings alone, so an agent's every later step reads no whole drive; true for a row an older install saved without a field free reads, which only the whole drive's shaping fills in."""
-    if (job := state.saved_job(name, job_id)) is None:
+    """Whether the job a brief names may take the agent whose step fired the hook, as hold decides it, read from that job's row, its order's and the drive's bindings alone, so an agent's every later step reads no whole drive; true for a row an older install saved without a field free reads, which only the whole drive's shaping fills in."""
+    if (job := state.saved_row(name, "jobs", job_id)) is None:
         return False
     if not {"state", "agent", "where"} <= job.keys():
         return True
-    return free({"jobs": {job_id: job}} | state.saved(name), job_id, payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
+    return free({"jobs": {job_id: job}, "orders": {job["order"]: state.saved_row(name, "orders", job["order"])}} | state.saved(name), job_id, payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
 
 
 def free(data: dict, job_id: str, agent: str) -> bool:
-    """Whether an agent at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more."""
+    """Whether an agent at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, it is no codex job but an incident's, whose codex-ask run is its worker and beside which only an incident's second-lane builder runs, and no agent runs it already but one that ended with its session, which no role holds any more."""
     job = data["jobs"].get(job_id)
-    if not job or (job["state"] == "stopped" and job["agent"] == agent) or (job["where"] == "remote" and job.get("dispatch")):
+    if not job or (job["state"] == "stopped" and job["agent"] == agent) or (job["where"] == "remote" and job.get("dispatch")) or (job["kind"] == "codex" and not data["orders"][job["order"]]["incident"]):
         return False
-    return not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
+    return not (job["state"] == "running" and job["agent"] and state.session_role(data, job.get("session")) is not None)
 
 
 def woken(payload: dict, job: dict) -> datetime | None:

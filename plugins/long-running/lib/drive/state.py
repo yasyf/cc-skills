@@ -596,12 +596,12 @@ def saved(name: str) -> dict:
     return bound(stored(name, BINDINGS))
 
 
-def saved_job(name: str, job_id: str) -> dict | None:
-    """One job as the drive saved it, its row alone read from the database and not brought up to this install's fields, so a hook asking after one job reads none of the rest; None for no such job."""
+def saved_row(name: str, collection: str, key: str) -> dict | None:
+    """One job or order as the drive saved it, its row alone read from the database and not brought up to this install's fields, so a hook asking after one job reads none of the rest; None for no such row."""
     if not (path := database_path(name)).exists():
-        return stored_json(name)["jobs"].get(job_id)
+        return stored_json(name)[collection].get(key)
     with closing(connect(path)) as db:
-        found = db.execute("SELECT body FROM rows WHERE collection = 'jobs' AND key = ?", (job_id,)).fetchone()
+        found = db.execute("SELECT body FROM rows WHERE collection = ? AND key = ?", (collection, key)).fetchone()
     return found and json.loads(found[0])
 
 
@@ -2692,11 +2692,6 @@ def bound_drives(names: list[str]) -> dict[str, dict]:
 def hears(data: dict, order: dict, project: str | None) -> bool:
     """Whether the coordinator session for project hears an order: a sub-coordinator its project's, the top coordinator every other one, unfiled or filed under a project no sub-coordinator is bound for."""
     return order["project"] == project if project else order["project"] not in data["subcoordinators"]
-
-
-def agent_gone(data: dict, job: dict) -> bool:
-    """Whether the job's agent ended with its session, which no role holds any more."""
-    return session_role(data, job.get("session")) is None
 
 
 def runs(data: dict, order: dict, project: str | None) -> bool:
