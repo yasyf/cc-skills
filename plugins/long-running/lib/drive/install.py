@@ -47,7 +47,6 @@ PROVEN = "proven live by drive job prove"
 PROOF_FAILED = "drive job prove failed"
 PROOF_WAITS = "drive job prove waits on his next word"
 PROOF_DEADLINE_ENV = "CLAUDE_LONG_RUNNING_PROOF_DEADLINE"
-MERGED_DONE = "done at its merge"
 SAID_CHARS = 300
 NO_JOB = "j0"
 
@@ -795,9 +794,8 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
         state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
 
 
-def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there, by add_prover, on the job's parts and each part it carries; that builder's id."""
-    job = data["jobs"][job_id]
+def merged_done(name: str, data: dict, job_id: str) -> None:
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, where the builder add_prover adds proves it."""
     merges = merges_of(data, job_id)
     urls = " ".join(map(state.pr_url, merges))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
@@ -806,21 +804,25 @@ def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> s
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
-    return add_prover(data, job_id, reach, {job["order"]: job["parts"], **job["carries"]})
 
 
 def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]]) -> str:
-    """Add the builder that proves live, on the release holding each merge, a builder's PRs that all merged outside yasyf/*: on parts, each list under the order holding it, the first order its own, in the merged job's session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; that builder's id."""
+    """Add the builder that proves live, on the release holding each merge, a builder's PRs that all merged outside yasyf/*, marked as building nothing, so it holds no builder slot: on parts, each list under the order holding it, the first order its own, in the merged job's session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none, its handoff, when every PR changes only tests or CI config, proving them by their tests passing on dev; that builder's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     (order_id, own), *carried = parts.items()
     builder_id = state.next_id(data["jobs"], "j")
-    handoff = f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
+    handoff = (
+        f"{merged} merged, changing only tests or CI config, which no release ships: prove it by its tests passing on dev at or after its merge commit"
+        if all(reach.get(key, {}).get("tested") for key in merges)
+        else f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
+    )
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(merges)} live", own, state.stamp()) | {
         "session": job.get("session"),
         "waits": [f"release:{component}:{key}" for key, answer in reach.items() if key in merges for component in answer["touched"]],
         "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff},
+        "builds_nothing": True,
     }
     state.hold_unstarted(builder)
     data["orders"][order_id]["jobs"].append(builder_id)
@@ -830,26 +832,19 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
 
 
 def merged_said(name: str, job_id: str, builder_id: str) -> str:
-    """What a merge's DONE says on the job's PRs' lines: the release each merge waits on, and the builder add_prover added to prove it live there, at its merge or once the watch found it never proven, on the surface the job's brief names when he sees it, briefed here so its agent starts on the watch's FREE once the last release it waits on is out, or in the turn this line wakes when it waits on none, or why its brief was not written."""
-    from drive import brief, cli
+    """The one line saying the builder add_prover added to prove live the PRs of a builder that took DONE at their merge, whatever their number, counting the releases it waits on, which drive status lists, briefed here so its agent starts on the watch's FREE once the last is out, or in the turn this line wakes when it waits on none, or why its brief was not written."""
+    from drive import cli
 
     data = state.load(name)
-    job, builder = data["jobs"][job_id], data["jobs"][builder_id]
-    merges = merges_of(data, job_id)
-    merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
-    held = ", ".join(sha[:12] for sha in merges.values())
-    seen = f" on {surface}, where he sees it," if (surface := brief.surface(job)) else ""
-    head = (
-        f"{MERGED_DONE}: {merged}; no proof kept, since only a release holding {held} puts it live, so {builder['order']}'s fix-live note waits on {builder_id},"
-        f" the builder the drive added with a merge handoff to prove it there{seen or ','} its DONE giving {builder['order']} its proof"
-    )
+    builder = data["jobs"][builder_id]
+    head = f"JOB {builder_id} {builder['order']} added, proves {', '.join(merges_of(data, job_id))}"
     try:
         started = cli.write_brief(name, builder_id, {})[0].splitlines()[0]
     except cli.VERB_ERRORS as error:
-        return f"{head}; it has no brief: {error}; brief it with drive job brief {builder_id}"
-    if builder["waits"]:
-        return f"{head}: it waits on {', '.join(builder['waits'])}, so start its agent on the watch's FREE once the last is out"
-    return f'{head}: it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "{started}"'
+        return f"{head}, has no brief: {error}; brief it with drive job brief {builder_id}"
+    if waits := len(builder["waits"]):
+        return f"{head}, waits on {waits} release{'s' if waits > 1 else ''}: drive status {builder_id}"
+    return f'{head}, waits on no release: start its agent now, run_in_background, on the prompt "{started}"'
 
 
 def proofless(name: str, data: dict, job_id: str) -> None:

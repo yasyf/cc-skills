@@ -1326,12 +1326,13 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None, parts=[shipped], carries={"o2": [carried]}, brief_flags=flags, session="s-1")
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         reach = {"Forge-AI/monorepo#9": {"components": ["api", "sandsql", "web"], "touched": ["api", "sandsql"]}, "Forge-AI/monorepo#10": {"components": ["web"], "touched": ["web"]}}
-        builder_id = install.merged_done("demo", data, "j1", reach)
+        install.merged_done("demo", data, "j1")
+        builder_id = install.add_prover(data, "j1", reach, {"o1": [shipped], "o2": [carried]})
     merged = "Forge-AI/monorepo#9 at fedcba987654"
     data = state.load("demo")
     builder = data["jobs"][builder_id]
     assert (builder_id, builder["kind"], builder["state"], builder["goal"], builder["session"]) == ("j2", "builder", "waiting", "prove Forge-AI/monorepo#9 live", "s-1")
-    assert (builder["parts"], builder["carries"]) == ([shipped], {"o2": [carried]})
+    assert (builder["parts"], builder["carries"], builder["builds_nothing"]) == ([shipped], {"o2": [carried]}, True)
     assert builder["waits"] == ["release:api:Forge-AI/monorepo#9", "release:sandsql:Forge-AI/monorepo#9"]
     assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
     assert (builder["brief_flags"]["native"], builder["brief_flags"]["interactions"]) == (page, "open a run's page")
@@ -1340,7 +1341,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
 
-def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_start_now_on_the_surface_its_own_brief_names(
+def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_line_briefing_it_to_start_now(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
@@ -1358,17 +1359,16 @@ def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_star
         data["jobs"]["j1"].update(said=f"READY {port}", prs=[port], repro=None, brief_flags={"native": "none"})
         for url, job_id, sha in ((port, "j1", "fedcba9876543210"), (shown, "j2", "0123456789abcdef")):
             data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
-        asking = install.merged_done("demo", data, "j2", {})
-        merging = install.merged_done("demo", data, "j1", {})
+        for job_id in ("j2", "j1"):
+            install.merged_done("demo", data, job_id)
+        asking = install.add_prover(data, "j2", {}, {"o1": data["jobs"]["j2"]["parts"]})
+        merging = install.add_prover(data, "j1", {}, {"o1": data["jobs"]["j1"]["parts"]})
     asked, merged = install.merged_said("demo", "j2", asking), install.merged_said("demo", "j1", merging)
     data = state.load("demo")
     assert (asking, merging, data["jobs"][asking]["waits"], data["jobs"][merging]["waits"]) == ("j3", "j4", [], [])
-    head = (
-        f"{install.MERGED_DONE}: Forge-AI/monorepo#10 at 0123456789ab; no proof kept, since only a release holding 0123456789ab puts it live,"
-        f" so o1's fix-live note waits on j3, the builder the drive added with a merge handoff to prove it there on {page}, where he sees it, its DONE giving o1 its proof"
-    )
-    assert asked == f'{head}: it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
-    assert "to prove it there, its DONE giving o1 its proof: it waits on no release go/ci makes" in merged
+    started = "waits on no release: start its agent now, run_in_background, on the prompt"
+    assert asked == f'JOB j3 o1 added, proves Forge-AI/monorepo#10, {started} "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
+    assert merged == f'JOB j4 o1 added, proves Forge-AI/monorepo#9, {started} "Read your brief first: {data["jobs"]["j4"]["brief"]}"'
     assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it and prove it live" in Path(data["jobs"]["j3"]["brief"]).read_text()
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "running", "running"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)

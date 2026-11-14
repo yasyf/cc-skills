@@ -840,6 +840,9 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming
     answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": []}))
     assert keep(monkeypatch, capsys, "j1", "WAITING release:k8s:Forge-AI/monorepo#7 rides the next k8s release\n") == (0, "")
     assert state.load("demo")["jobs"]["j1"]["waits"] == ["release:cloudrunner-next:Forge-AI/monorepo#7", "release:k8s:Forge-AI/monorepo#7"]
+    monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main_test.go", ".buildkite/pipeline.yml"])
+    assert cli.main(["job", "set", "j1", "--waits", "release:sand-next:Forge-AI/monorepo#7"]) == 2
+    assert "release:sand-next:Forge-AI/monorepo#7: Forge-AI/monorepo#7 changes only tests or CI config, which no release ships" in capsys.readouterr().err
 
 
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
@@ -4038,8 +4041,7 @@ def test_a_builder_proving_a_merged_pr_live_on_a_done_order_is_refused_naming_th
     key = "Forge-AI/monorepo#51852"
     with state.edit("demo") as data:
         data["orders"]["o1"] |= {"state": "done", "jobs": ["j1"]}
-        handoff = f"{key} at 485f9f408150 merged: install it and prove it live"
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove it", list(data["orders"]["o1"]["parts"]), state.stamp()) | {"state": "done", "said": "DONE live on its release", "brief_flags": {"handoff": handoff}}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove it", list(data["orders"]["o1"]["parts"]), state.stamp()) | {"state": "done", "said": f"DONE {state.pr_url(key)} live on its release"}
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "485f9f408150"}
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live"]) == 2
     assert f"refused, no job added: o1 is done and j1 proved {key} live, so no builder proves {key} live on it again" in capsys.readouterr().err
@@ -4068,23 +4070,6 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     assert state.load("demo")["orders"]["o4"]["kind"] == "build"
     for order_id, part in (("o3", []), ("o4", ["--part", "fix"])):
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
-
-
-def test_a_builds_nothing_prover_on_a_build_orders_part_whose_builder_took_done_at_its_merge_starts_with_no_research(
-    run: Run, communicator: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
-    key = "Forge-AI/monorepo#54900"
-    with state.edit("demo") as data:
-        data["orders"]["o1"]["jobs"].append("j1")
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "copy one store", list(data["orders"]["o1"]["parts"]), state.stamp()) | {
-            "state": "done",
-            "said": f"DONE {state.pr_url(key)} merged: {key} at b70dea086d86",
-        }
-        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "b70dea086d86"}
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live"]) == 2
-    assert "o1 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
-    assert run("job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live", "--builds-nothing")[1].splitlines()[0] == "j2"
 
 
 def test_a_build_orders_design_job_waits_on_its_readers_research(

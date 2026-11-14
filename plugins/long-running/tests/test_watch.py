@@ -1653,13 +1653,19 @@ def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_onc
     merged = f"PR {KEY}: merged [o1 j1]"
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
-    assert (posted(sent), state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], "merged", "", False)
+    prover = f'JOB j2 o1 added, proves {KEY}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {state.stored(demo)["jobs"]["j2"]["brief"]}"'
+    assert (posted(sent), state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == (
+        [("evidence", f"root@{demo}", merged), ("handoff", f"root@{demo}", prover)],
+        "merged",
+        "",
+        False,
+    )
     saved_by(demo, state.VERSION)
     monkeypatch.setattr(watch, "upgraded", lambda: None)
     passes = []
     monkeypatch.setattr(watch, "passed", lambda watching, moment: passes.append(moment) or [])
     run_watch(demo, monkeypatch)
-    assert (len(sent), len(passes), state.held_path(demo).exists()) == (1, 1, False)
+    assert (len(sent), len(passes), state.held_path(demo).exists()) == (2, 1, False)
 
 
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
@@ -1690,10 +1696,13 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
     launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
         watch.main(demo)
-    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == ([f"PR {KEY}", "WATCH stopped on long-running " + state.VERSION], "")
+    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (
+        [f"PR {KEY}", f"JOB j2 o1 added, proves {KEY}, waits on no release", "WATCH stopped on long-running " + state.VERSION],
+        "",
+    )
     monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
-    assert len(sent) == 2
+    assert len(sent) == 3
 
 
 def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_with_no_session_or_secret_unless_one_is_loaded(
@@ -5583,10 +5592,9 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ("waiting", f"{install.PROOF_WAITS}: https://github.com/yasyf/cc-skills/pull/7: /p.sh exits 2: WAIT S1 no exchange since the install", False),
         ("waiting", "merged", True),
         ("done", "merged", False),
-        ("done", f"{install.MERGED_DONE}: {KEY} at ccc333ddd444; no proof kept", True),
     ],
 )
-def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_or_a_done_at_its_merge_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
+def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = state_after
         data["prs"][KEY]["state"] = "merged"
@@ -5750,14 +5758,20 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
     lines = watch.run_pass(watching, T0)
-    said = [line for line in lines if line.startswith(f"PR {OTHER}: {install.MERGED_DONE}: {merged}; no proof kept, since only a release holding ccc333ddd444 puts it live")]
-    assert len(said) == 1 and watch.wakes(said[0], state.load(demo), NO_CARDS)
-    assert f"waits on j2, the builder the drive added with a merge handoff to prove it there, its DONE giving o1 its proof: it waits on release:api:{OTHER}, so start its agent on the watch's FREE once the last is out" in said[0]
+    said = [line for line in lines if line.startswith("JOB ")]
+    assert said == [f"JOB j2 o1 added, proves {OTHER}, waits on 1 release: drive status j2"] and watch.wakes(said[0], state.load(demo), NO_CARDS)
     assert asked == [[OTHER]]
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     data = state.load(demo)
     builder = data["jobs"]["j2"]
-    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], "j2" in data["orders"]["o1"]["jobs"]) == ("builder", "waiting", [f"release:api:{OTHER}"], data["jobs"]["j1"]["parts"], True)
+    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["builds_nothing"], "j2" in data["orders"]["o1"]["jobs"]) == (
+        "builder",
+        "waiting",
+        [f"release:api:{OTHER}"],
+        data["jobs"]["j1"]["parts"],
+        True,
+        True,
+    )
     assert f"Handoff: {merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md" in Path(builder["brief"]).read_text()
     assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (f"DONE {state.pr_url(OTHER)} merged: {merged}", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
@@ -5793,8 +5807,8 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {merged}", carries={"o2": [carried]}, updated=earlier)
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
-    said = [line for line in lines if line.startswith(f"PR {KEY}: {install.MERGED_DONE}: {merged}; no proof kept")]
-    assert len(said) == 1 and watch.wakes(said[0], state.load(demo), NO_CARDS) and f"it waits on release:api:{KEY}, so start its agent on the watch's FREE once the last is out" in said[0]
+    said = [line for line in lines if line.startswith("JOB ")]
+    assert said == [f"JOB j2 o1 added, proves {KEY}, waits on 1 release: drive status j2"] and watch.wakes(said[0], state.load(demo), NO_CARDS)
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     data = state.load(demo)
     builder = data["jobs"]["j2"]
@@ -5804,16 +5818,118 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting
     assert (list(state.load(demo)["jobs"]), asked, provers) == (["j1", "j2"], [[KEY]], [])
 
 
+def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_counting_their_releases(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
+    serve(monkeypatch, {})
+    production_reads(monkeypatch, {"42": [{"component": "api", "env": "plat-usw2-prod"}], "43": [{"component": "web", "env": "plat-usw2-prod"}]})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"]}})
+    merged_ready(demo, OTHER, None)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["merged_sha"] = "aaa111bbb222ccc"
+        data["jobs"]["j1"].update(said=f"READY {state.pr_url(KEY)} {state.pr_url(OTHER)}", prs=[state.pr_url(KEY), state.pr_url(OTHER)])
+    lines = watch.run_pass(watcher(demo), T0)
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {KEY}, {OTHER}, waits on 2 releases: drive status j2"]
+    assert (list(state.load(demo)["jobs"]), state.load(demo)["jobs"]["j2"]["waits"], provers) == (["j1", "j2"], [f"release:api:{KEY}", f"release:web:{OTHER}"], [])
+
+
+def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_that_proves_it_by_its_tests_on_dev(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "ci").write_text("")
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
+    monkeypatch.setattr(github, "files", lambda key: ["go/sand/internal/runtime-api/memory/project_test.go", "go/sand/next/internal/runtime-api/memory/project_test.go"])
+    merged_ready(demo, OTHER, None)
+    lines = watch.run_pass(watcher(demo), T0)
+    data = state.load(demo)
+    prover = data["jobs"]["j2"]
+    assert (data["jobs"]["j1"]["state"], prover["waits"], prover["builds_nothing"]) == ("done", [], True)
+    assert prover["brief_flags"]["handoff"] == f"{OTHER} at ccc333ddd444 merged, changing only tests or CI config, which no release ships: prove it by its tests passing on dev at or after its merge commit"
+    assert [line for line in lines if line.startswith("JOB ")] == [
+        f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {prover["brief"]}"'
+    ]
+
+
+def test_a_merged_product_job_whose_own_order_is_done_takes_done_at_its_merge_and_its_prover_goes_on_the_open_order_it_carries(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, None)
+    carried = "ship the dashboard"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+        data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()})
+        data["jobs"]["j1"]["carries"] = {"o2": [carried]}
+    lines = watch.run_pass(watcher(demo), T0)
+    data = state.load(demo)
+    prover = data["jobs"]["j2"]
+    assert (data["jobs"]["j1"]["state"], prover["order"], prover["parts"], prover["carries"], prover["builds_nothing"], "j2" in data["orders"]["o2"]["jobs"]) == (
+        "done",
+        "o2",
+        [carried],
+        {},
+        True,
+        True,
+    )
+    assert [line for line in lines if line.startswith("JOB ")] == [
+        f'JOB j2 o2 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {prover["brief"]}"'
+    ]
+
+
+@pytest.mark.parametrize(
+    "named",
+    [
+        {"said": f"DONE {state.pr_url(OTHER)} merged: {OTHER} at ccc333ddd444"},
+        {"said": "DONE live on release jubilant-heaney", "brief_flags": {"handoff": f"{OTHER} at ccc333ddd444 merged: install it and prove it live"}},
+    ],
+)
+def test_a_merge_done_or_a_merge_handoff_naming_a_merged_pr_proves_nothing_so_its_merged_ready_job_takes_done_at_its_merge_with_a_prover(
+    demo: str, monkeypatch: pytest.MonkeyPatch, named: dict
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, None)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j9")
+        data["jobs"]["j9"] = state.new_job("o1", "builder", "prove it", [], state.stamp()) | {"state": "done"} | named
+    lines = watch.run_pass(watcher(demo), T0)
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], list(data["jobs"]), data["jobs"]["j10"]["parts"]) == ("done", ["j1", "j9", "j10"], data["jobs"]["j1"]["parts"])
+    assert [line for line in lines if line.startswith("JOB ")] == [
+        f'JOB j10 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j10"]["brief"]}"'
+    ]
+
+
+@pytest.mark.parametrize("ended", ["failed", "stopped"])
+def test_an_old_merge_whose_prover_failed_or_stopped_gets_no_second_and_its_part_is_said_orphaned(demo: str, monkeypatch: pytest.MonkeyPatch, ended: str) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    earlier = state.stamp(T0 - timedelta(days=2))
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=earlier)
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", f"prove {KEY} live", data["jobs"]["j1"]["parts"], earlier) | {"state": ended, "builds_nothing": True, "updated": earlier}
+    watching = watcher(demo)
+    lines = [line for minutes in (0, 3) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
+    assert (list(state.load(demo)["jobs"]), [line for line in lines if line.startswith("JOB ")]) == (["j1", "j2"], [])
+    assert [line for line in lines if line.startswith('ORPHAN o1 "ship the watch": ')]
+
+
 def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder_briefed_to_start_in_the_turn_its_line_wakes(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, proof_file(tmp_path))
-    said = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith(f"PR {OTHER}: {install.MERGED_DONE}")]
+    said = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("JOB ")]
     data = state.load(demo)
     assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("running", [])
-    assert len(said) == 1 and f'it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"' in said[0]
+    assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"']
     assert provers == []
 
 
@@ -5832,7 +5948,7 @@ def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_liv
             data["orders"]["o1"]["state"] = "done"
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
-    assert not [line for line in lines if install.MERGED_DONE in line]
+    assert not [line for line in lines if line.startswith("JOB ")]
     assert (data["jobs"]["j1"]["state"], list(data["jobs"])) == ("waiting", ["j1", "j9"] if proved else ["j1"])
 
 
@@ -5847,7 +5963,7 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
         data["orders"]["o1"]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
     lines = [line for minutes in (0, 11, 40) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
-    assert [line for line in lines if line.startswith(f"PR {fix}: {install.MERGED_DONE}: {fix} at {sha}; no proof kept, since only a release holding {sha} puts it live")]
+    assert [line for line in lines if line.startswith(f"JOB j2 o1 added, proves {fix}, waits on ")]
     assert not [line for line in lines if line.startswith("TELL ")]
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporters"][0]["tell_said"]) == ("done", None, None)
