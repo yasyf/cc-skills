@@ -935,14 +935,26 @@ def sender(lanes: dict[str, dict[str | None, str]], recorded: set[str], run: str
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does."""
+    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question of a job outside the live lanes whose worker ended its turn leaves its queue unread and with no line, since that worker's wait ended with its turn and no lane waits on it, so no write it asked runs after its lane gave up on it. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does."""
     running, data = ended_reads(watcher.name, data)
-    for job_id, job in live_lanes(watcher, data).items():
-        for message_id in job.get("reads", {}):
-            if message_id not in job.get("read_answers", {}) and (job_id, message_id) not in running:
-                reader = job.setdefault("readers", {})[message_id] = spawn_reader(watcher.name, job_id, message_id)
-                with state.edit(watcher.name) as fresh:
-                    fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
+    lanes, unowed = live_lanes(watcher, data), {}
+    for job_id, job in data["jobs"].items():
+        unstarted = [message_id for message_id in job.get("reads", {}) if message_id not in job.get("read_answers", {}) and (job_id, message_id) not in running]
+        if not unstarted or not heard_job(watcher, data, job):
+            continue
+        if job_id not in lanes and not job["turn_open"]:
+            unowed[job_id] = unstarted
+            continue
+        for message_id in unstarted:
+            reader = job.setdefault("readers", {})[message_id] = spawn_reader(watcher.name, job_id, message_id)
+            with state.edit(watcher.name) as fresh:
+                fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
+    if unowed:
+        with state.edit(watcher.name) as fresh:
+            for job_id, message_ids in unowed.items():
+                for message_id in message_ids:
+                    fresh["jobs"][job_id]["reads"].pop(message_id, None)
+                    fresh["jobs"][job_id].get("readers", {}).pop(message_id, None)
     lines = []
     running, data = ended_reads(watcher.name, data)
     for job_id, job in data["jobs"].items():
@@ -2394,10 +2406,10 @@ def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
     return state.timed(data, job, moment)
 
 
-def unanswered(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question."""
+def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question. A lane asking no such question may wait on a read it queued, which unread ages."""
     if not job.get("ask"):
-        return None
+        return unread(name, job_id, job, moment)
     asked = state.parse_time(job["ask_at"])
     if moment - asked < QUIET_FOR or carded(job, asked):
         return None
@@ -2407,6 +2419,23 @@ def unanswered(job_id: str, job: dict, data: dict, moment: datetime) -> str | No
     if reads.asks(job["report"] or "") and not state.asked_in(job, reads.opening(job["report"])):
         return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
+
+
+def unread(name: str, job_id: str, job: dict, moment: datetime) -> str | None:
+    """The oldest `READ`, `LOG` or `DRIVE` question a lane queued that no answer reached for 30 minutes, timed from when the lane asked it, as Orca stamped its message in the job's history, with what holds it: its reader still running, its answer kept for a reply Orca has not taken, or no reader on it, which `drive job read` runs here once for the watch to send."""
+    if not job.get("reads"):
+        return None
+    asked = {reply["id"]: state.parse_time(reply["created_at"]) for reply in state.replies(name, job_id) if reply["id"] in job["reads"]}
+    message_id = min(asked, key=asked.__getitem__)
+    if (waited := moment - asked[message_id]) < QUIET_FOR:
+        return None
+    if reading(job, message_id):
+        held = "its reader still runs"
+    elif message_id in job.get("read_answers", {}):
+        held = "its answer is kept and Orca has not taken the reply"
+    else:
+        held = f"no reader runs on it, and drive job read {job_id} {message_id} runs it here for the watch to send"
+    return f'{job_id}\'s lane asked "{cut(first_line(job["reads"][message_id]), 80)}" {minutes(waited)} minutes ago and no answer reached it: {held}, each reader\'s output in the drive\'s {READS_LOG}'
 
 
 def carded(job: dict, asked: datetime) -> bool:
@@ -2423,7 +2452,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
     if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
-        return watcher.agent_gaps.get(job_id)
+        return watcher.agent_gaps.get(job_id) or unanswered(watcher.name, job_id, job, data, moment)
     if job["state"] in ("waiting", "built"):
         if found := unposted_card(job_id, job, data):
             owner, unposted = found
@@ -2434,7 +2463,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
                 f'{job_id} waits on a card never posted: {state.refused_by(unposted)} refused {whose} question "{cut(unposted["title"], 80)}" kept in {unposted["file"]}:'
                 f" {cut(unposted['refused'].removeprefix('refused: '), 160)}"
             )
-        if asked := unanswered(job_id, job, data, moment):
+        if asked := unanswered(watcher.name, job_id, job, data, moment):
             return asked
         if can_wake(job_id, job, data, moment):
             return None

@@ -442,7 +442,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
   `job set --repro`, `pr add` and `pr set --flaky`, act on your own job alone. A verb
   stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
-  it again.
+  it again. Its answer can take minutes, since the watch answers each lane's questions in turn:
+  never wrap a `drive` verb or a `READ` in `timeout` or any other kill, which ends the wait and
+  prints nothing while the watch still runs it, and give its Bash call the 600000 ms timeout the
+  Bash tool allows at most.
 - No Sprite lane runs `drive break-glass`, whose command would run on this Mac as its user, by his
   pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": a step that needs a grant returns `BLOCKED` naming the step and its command, and
   the coordinator moves it to a lane on this Mac.
@@ -463,13 +466,13 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   coordinator's Mac or from the drive's folder, with `READ <its path>`, a lane's Claude Code
   transcript included, which the drive keeps whole under `jobs/<job>.<dispatch>.transcripts/` once
   that lane ends, yours included. A lane on this Mac opens each path itself. Read through the
-  coordinator's Mac with one blocking question that prints the answer within about a minute,
+  coordinator's Mac with one blocking question, as a `drive` verb asks it,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read, which runs its first line alone.
 
 | Read | What it returns |
 | --- | --- |
-| `READ <path> [<path>…]` | For a file under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/` or a brief `jobs/<job>.brief.md`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, a file that is not UTF-8 text or holds NUL, such as a screen recording or a picture, as a line naming its path on the coordinator's Mac and its size, and a path missing or resolving outside the folder answered as none. |
+| `READ <path> [<path>…]` | For a file or folder under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/`, a brief `jobs/<job>.brief.md` or a lane's kept transcripts `jobs/<job>.<dispatch>.transcripts`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, each folder under `# Drive folder <its path>` as a line per file under it at any depth, by its path from the drive's folder and its size, or `an empty folder`, a file that is not UTF-8 text or holds NUL, such as a screen recording or a picture, as a line naming its path on the coordinator's Mac and its size, and a path missing or resolving outside the folder answered as none. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show`, `ccn answer match` or `ccn answer list`, a show naming several IDs in one read and a pattern of several words one query, quoted or not: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
 | `READ cc-slack thread\|history <flags>` | For a Slack card, thread or channel, run by this Mac's cc-slack bot, which reads only conversations it is in: `cc-slack thread --url <permalink>` for a message's thread, a line per message with its text whole, `--since-ts <ts>` for only what is newer, `cc-slack history --channel <id> --limit <n>` for a channel's or DM's newest top-level posts, a line each with its permalink, and `--raw` beside a message's `--url` for that one message as Slack sends it, with its blocks. Its output whole, as a file on your Sprite once past the 64 KiB one Orca relay message carries. |
 

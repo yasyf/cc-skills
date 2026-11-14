@@ -283,7 +283,7 @@ def record_read(argv: list[str], checkout: Path) -> str:
 
 
 def read_drive_files(command: str, drive: str) -> str:
-    """Each file of the drive's folder the read names, as a Sprite brief carries it, whole under its heading or saying the folder holds none; a read naming none is refused with the reads that run."""
+    """Each file of the drive's folder the read names whole under its heading, each folder it names as the list of files under it, or saying the drive keeps none; a read naming none is refused with the reads that run."""
     from drive import orca
 
     if not (files := orca.drive_files(drive, command)):
