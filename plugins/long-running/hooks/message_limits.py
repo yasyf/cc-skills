@@ -81,6 +81,12 @@ LINK_RULE = (
 )
 OWED_TAP_RULE = "Ask for a tap only when one is owed: when he tapped a PR already, or it merged or closed, say what happened to it instead."
 CARD_RULE = 'Anything that says it waits on him carries the card with its buttons, by his words "Anything that says waiting on me you always need to embed the card with the buttons".'
+UNCARDED = (
+    "refused: this line says something waits on him, and no open card it links asks it, where a PR's tap card carries no line"
+    " waiting on his pick, answer, call or decision: link the card that asks it as {card:<its waits id>}; for a pick no card asks yet, send one"
+    " `record` call, kind `handoff`, the pick as `text` and `attrs: {order: <the order it serves>}`, so the session holding that"
+    " order has its job draw the card with `drive job ask`, then post this line linking that card:\n"
+)
 SWITCH_RULE = "A switch command he is given is the role's line `drive status` prints, word for word, naming a terminal a session of the drive runs in."
 ORDERED_RULE = (
     "His message is the order, so no line answers it by a plan, record or answer of his that is missing, since his records are"
@@ -249,25 +255,32 @@ def unread(payload: dict, dm: str) -> str | None:
     return UNREAD.format(why=why, channel=channel, thread=thread)
 
 
-def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], drive: dict, report: dict, order_id: str | None) -> str | None:
-    """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule as a reply to each message of his it answers: those its asked names, word for word or by permalink, and his messages in its thread since the bot's last post there; an order or job id none of them used refuses unjudged, since no reading of his words makes it open anything; a post reporting on an incident keeps its alert's Slack message and Sentry or Datadog issue bare, so Slack unfurls them, as his incident rule asks; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
+def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], drive: dict, report: dict, order_id: str | None) -> list[str]:
+    """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule as a reply to each message of his it answers: those its asked names, word for word or by permalink, and his messages in its thread since the bot's last post there; an order or job id none of them used refuses unjudged, since no reading of his words makes it open anything; a post reporting on an incident keeps its alert's Slack message and Sentry or Datadog issue bare, so Slack unfurls them, as his incident rule asks; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him, and a line waiting on him with no card is judged by his card rule and told how a pick no card asks yet gets its card."""
     if not (text := tool_input.get("text") or ""):
-        return None
+        return []
     asked = [*answered_words(tool_input.get("asked"), linked), *(message["text"] for message in unanswered(messages))]
     try:
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
-        return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
+        return [f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."]
     if any(ALERT_LINK.match(finding) for finding in findings) and incident(tool_input, drive, report, order_id):
         findings = [finding for finding in findings if not ALERT_LINK.match(finding)]
     if not findings:
-        return None
+        return []
     if ids := [finding for finding in findings if DRIVE_ID.match(finding)]:
-        return agents.Unjudged(
-            "refused: an order or job id opens nothing for him, and no message of his this post answers used it: say what that"
-            " order or job does instead, or pass his message naming it as asked:\n" + "\n".join(ids)
-        )
-    return agents.Ruled("refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings), agents.PLAIN_WORDS_RULE)
+        return [
+            agents.Unjudged(
+                "refused: an order or job id opens nothing for him, and no message of his this post answers used it: say what that"
+                " order or job does instead, or pass his message naming it as asked:\n" + "\n".join(ids)
+            )
+        ]
+    waits = [finding for finding in findings if slack.WAITS_WITHOUT_CARD.match(finding)]
+    plain = [finding for finding in findings if finding not in waits]
+    return [
+        *([agents.Ruled(UNCARDED + "\n".join(waits), CARD_RULE)] if waits else []),
+        *([agents.Ruled("refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(plain), agents.PLAIN_WORDS_RULE)] if plain else []),
+    ]
 
 
 def thread_messages(payload: dict, dm: str) -> list[dict]:
@@ -521,7 +534,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             claimed_tap(tool_input, drive, order_id),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
-            unchecked(tool_input, messages, linked, drive, report, order_id),
+            *unchecked(tool_input, messages, linked, drive, report, order_id),
             unbacked(payload, said),
             None if tool_input.get("tap_prs") else unprevented(said, found),
             unordered(said),

@@ -3529,6 +3529,28 @@ def test_already_answered_carries_only_the_answer_its_summary_cites_his_words_ab
     assert jev.asked == []
 
 
+def test_a_card_citing_a_pick_a_lane_made_provisionally_draws_no_already_answered_since_he_never_said_it(run: Run, asking: str, recorded: Answers) -> None:
+    text = SHORT_ASK.replace(
+        "Meanwhile nothing is built on either layout.",
+        "Your {answer:c952dbb|Oct 19 answer} asked for snapshots before old runs needed one. Meanwhile nothing is built on either layout.",
+    )
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(text)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(text)
+    recorded.shown["c952dbb"] = {
+        "id": "c952dbb",
+        "title": "How are a finished run's files kept?",
+        "body": f"PROVISIONAL by the design lane's recommendation (32c72e4)\n{SNAPSHOT_PICK}\nNotes: cci owner 1",
+        "tags": ["provisional"],
+        "created_at": "2026-10-19T11:33:00Z",
+    }
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), text.splitlines()[0].removeprefix("ASK "), state.stamp()) | {"waits": "demo:j1-7"}]
+    code, printed = run("job", "card", "j1")
+    assert code == 0
+    assert limits.ALREADY_ANSWERED not in json.loads(printed)["options"]
+
+
 def test_job_ask_refuses_a_card_whose_sentence_recommending_an_option_cites_his_recorded_answer_naming_the_option_to_build_unless_unsettled_names_it(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
 ) -> None:
