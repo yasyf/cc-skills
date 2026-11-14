@@ -96,7 +96,7 @@ def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts
     assert reason.startswith("Refused on purpose: j1's builder already returned (built)")
     assert "`drive job add builder`" in reason
     assert "`Handoff:` line" in reason
-    assert 'drive job set j1 --state stopped --said "handed to <new>"' in reason
+    assert "which takes each PR j1 opened and stops it" in reason
     fresh = "Handoff: red check on https://github.com/Forge-AI/monorepo/pull/4244 Drive: demo, order o1, job j2"
     assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:builder", prompt=fresh)) is None
     builder(state="waiting")

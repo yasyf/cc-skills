@@ -521,9 +521,9 @@ session started, which `SendMessage` cannot reach: there it prints a handoff bri
 `Read your brief first:` line, and the agent you start on it takes the job as yours. A PR event after a builder
 returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
 `communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
-an incident. Run `drive job add builder` for the same order and parts and `drive pr add <url> --job <new>` for each PR it takes over, write its brief with the
-`Handoff:` line and every earlier job's transcript under `Transcripts:`, then run
-`drive job set <old> --state stopped --said "handed to <new>"`.
+an incident. Run `drive job add builder` for the same order and parts, which takes each PR the old job opened and stops it
+`handed to <new>`, since a part has one change job, then write its brief with the `Handoff:` line and every earlier
+job's transcript under `Transcripts:`.
 
 A built job's `FREE` line is a PR event too: the fresh builder's `Handoff:` names the built branch,
 and `Decisions that bind` carries his answer to each card it waited on, verbatim. An incident's job

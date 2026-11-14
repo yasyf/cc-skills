@@ -1074,6 +1074,15 @@ def carry(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     order["updated"] = stamp()
 
 
+def deliver(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
+    """Give a job these parts of an order: its own order's join its parts, another order's it carries."""
+    job = data["jobs"][job_id]
+    if job["order"] != order_id:
+        carry(data, job_id, order_id, parts)
+        return
+    job["parts"] = list(dict.fromkeys([*job["parts"], *parts]))
+
+
 def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
@@ -1504,6 +1513,24 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     if not work(data, order_id, part):
         return jobs
     return [(job_id, job) for job_id, job in jobs if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or design_builder(data, job_id))]
+
+
+def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None) -> tuple[str, dict, str] | None:
+    """The one unfinished builder or codex job but job_id on any of these parts of the order, beside the parts it holds of them, quoted, since a part has one change job at a time, so one reader's return frees one builder and one PR builds one change; none on an incident, whose second job on a brief whose clock ran out races the first by design, and none that these waits name, by its id or a PR it opened, whose next change waits on its own."""
+    if data["orders"][order_id]["incident"]:
+        return None
+    return next(
+        (
+            (other_id, other, ", ".join(json.dumps(part, ensure_ascii=False) for part in shared))
+            for other_id in data["orders"][order_id]["jobs"]
+            if other_id != job_id
+            and (other := data["jobs"][other_id])["kind"] in CHANGE_KINDS
+            and not {other_id, *map(pr_key, other["prs"])} & set(waits)
+            and other["state"] not in FINISHED_JOB_STATES
+            and (shared := [part for part in parts if part in job_parts(other, order_id)])
+        ),
+        None,
+    )
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
