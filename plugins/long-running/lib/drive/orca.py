@@ -595,6 +595,20 @@ def mail(run: str, after: int) -> list[dict]:
     return sorted((message for message in messages if message["to_handle"] == f"run:{run}" and message["sequence"] > after), key=lambda message: message["sequence"])
 
 
+def unread(dispatch: str) -> list[dict]:
+    """The mail Orca holds for the Dispatch's worker that it never read, oldest first, read without binding or consuming as mail reads a Run's."""
+    messages = call("inbox", "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
+    return sorted((message for message in messages if message["to_handle"] == f"dispatch:{dispatch}" and not message["read"]), key=lambda message: message["sequence"])
+
+
+def unread_notice(message: dict) -> bool:
+    """Whether the message is Orca's notice that it could not continue a reported worker with the mail it never read: an escalation whose payload names a reason and, unlike each of Orca's stop escalations, no stopReason."""
+    if message["type"] != "escalation":
+        return False
+    payload = json.loads(message["payload"] or "{}")
+    return "reason" in payload and "stopReason" not in payload
+
+
 def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
 

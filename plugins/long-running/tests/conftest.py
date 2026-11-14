@@ -602,6 +602,13 @@ def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def unread_mail(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    mail: list[dict] = []
+    monkeypatch.setattr(orca, "unread", lambda dispatch: mail)
+    return mail
+
+
+@pytest.fixture(autouse=True)
 def configured(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every checkout holds the cc-remote config whose SHA-256 is SPRITE_CONFIG, which the drive's checkout in a test holds no file of."""
     monkeypatch.setattr(orca, "sprite_config", lambda checkout: SPRITE_CONFIG)

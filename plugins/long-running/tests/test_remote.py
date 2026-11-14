@@ -128,6 +128,7 @@ def message(kind: str, text: str, **overrides: str | None) -> dict:
         "type": kind,
         "sequence": next(SEQUENCE),
         "read": 0,
+        "payload": None,
         "created_at": "2026-11-10T03:30:00Z",
     }
     return {**base, **overrides}
@@ -4835,11 +4836,64 @@ def test_every_result_and_question_a_lane_sends_stays_readable_after_the_next_on
     assert [reply["id"] for reply in json.loads(run("job", "replies", "j1", "--json")[1])] == ["msg_1", "msg_2"]
 
 
-def test_a_lane_that_stops_without_a_report_names_its_last_output(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = "Worker term_1 ended its turn without sending worker_done.\nLast output:\npushed the fix\nFull output: x"
+def test_a_lane_that_stops_without_a_report_quotes_its_whole_last_output_on_one_line_cause_included(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refused = f"drive job resume j4303: refused, {'nothing sent or held, ' * 8}"
+    body = (
+        "Worker term_1 ended its turn without sending worker_done for task t1.\nThe Dispatch is still open.\n"
+        f"Last output:\n{refused}\n  because j4303 has no lane\nFull output: orchestration worker-read --dispatch {DISPATCH}"
+    )
     deliver(monkeypatch, [message("escalation", body, subject="Worker stopped without reporting")])
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert watch.run_pass(watching, T0) == ["JOB j1 o1 STOPPED without a report, last output: pushed the fix"]
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 STOPPED without a report, last output: {refused.strip()} because j4303 has no lane"]
+
+
+def test_a_lanes_report_holds_each_text_its_worker_never_read_once_and_its_job_line_names_them_as_j4292s_lane_lost_its_second_message(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
+) -> None:
+    sent = "also rebase onto dev before you push"
+    unread_mail.append(message("message", sent, id="msg_unread", from_handle="term_root", to_handle=f"dispatch:{DISPATCH}"))
+    kept = str(state.replies_path(remote, "j1"))
+    said = []
+    for _ in range(2):
+        monkeypatch.setattr("sys.stdin", io.StringIO("ASK should the copy stay lazy?\n"))
+        said.append(run("job", "report", "j1", "-"))
+    assert said == [(0, f'{kept}; it never read 1 text, held for its next worker: "{sent}"'), (0, kept)]
+    assert [held["words"] for held in state.load(remote)["jobs"]["j1"]["undelivered"]] == [sent]
+    line = "DONE merged and installed"
+    deliver(monkeypatch, [message("question", f"DRIVE job report j1 -\n{json.dumps({'stdin': line})}", id="relay_report")])
+
+    def report(question: str, root: Path, drive: str, job_id: str) -> str:
+        state.keep_report(drive, job_id, line, line)
+        with state.edit(drive) as data:
+            state.take_result(data, job_id, line, line)
+        return reads.lane_exit(0, kept)
+
+    monkeypatch.setattr(reads, "answer", report)
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == [f'JOB j1 o1 {line}; it never read 1 text, held for its next worker: "{sent}"']
+
+
+def test_orcas_notice_that_its_mail_missed_the_reported_worker_ends_that_turn_with_no_stopped_and_holds_the_mail_that_came_after_the_report(
+    remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
+) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/8"
+    report = f"PUSHED {url}\nPR: {url}\n"
+    with state.edit(remote) as data:
+        state.keep_report(remote, "j1", f"PUSHED {url}", report)
+        state.take_result(data, "j1", f"PUSHED {url}", report)
+    sent = "the review asked for a test at N"
+    unread_mail.append(message("message", sent, id="msg_late", from_handle="term_root", to_handle=f"dispatch:{DISPATCH}"))
+
+    def notice(id: str) -> dict:
+        body = f"Orca could not continue the worker of {DISPATCH} with the mail it had not read before reporting: consumer_fenced. The mail is kept for your next send to dispatch:{DISPATCH}."
+        return message("escalation", body, id=id, subject="Mail did not reach the finished worker", payload=json.dumps({"dispatchId": DISPATCH, "reason": "consumer_fenced"}))
+
+    deliver(monkeypatch, [message("worker_done", report, id="msg_report"), notice("msg_followup_1")], [notice("msg_followup_2")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert staged(watch.lane_lines, watching, T0) == [f'JOB j1 o1 it never read 1 text, held for its next worker: "{sent}"']
+    assert staged(watch.lane_lines, watching, T0 + timedelta(minutes=1)) == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["report"], job["turn_open"], [held["words"] for held in job["undelivered"]]) == (report, False, [sent])
 
 
 def j3495_prompt(state_now: str, **overrides: str) -> dict:

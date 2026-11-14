@@ -205,6 +205,23 @@ def test_a_codex_jobs_launch_carries_each_text_it_holds_and_each_answer_it_has_n
     assert (Path(data["jobs"]["j1"]["brief"]).read_text(), data["jobs"]["j1"]["undelivered"], data["answers"]["a1"]["jobs"]["j1"]) == (question, [], {"mark": "sent"})
 
 
+def test_a_text_resumed_to_a_codex_job_waits_for_its_next_run_while_one_goes_and_rides_the_run_its_resume_starts_once_it_returned_as_j4303s_answer_did_not(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
+) -> None:
+    codex_job(run)
+    folder = launched(demo, run, tmp_path)
+    answer = "build option 2, the lazy copy"
+    assert run("job", "resume", "j1", answer) == (
+        0,
+        "j1: held for its next codex-ask run under His answers since:, since the run that goes reads no text; the watch starts that run with it once this one returns with the job still open",
+    )
+    assert ([held["words"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]], "His answers since:" in (folder / "question").read_text()) == ([answer], False)
+    codex_ask.end(folder, "completed", codex_reply("ASK", "Should the fix drop the column?"))
+    assert watched(demo)["state"] == "waiting"
+    assert run("job", "resume", "j1") == (0, f"j1: the message went to its next codex-ask run, started in {folder}, under His answers since:")
+    assert ((folder / "question").read_text().endswith(f"His answers since:\n- {answer}\n"), state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, [])
+
+
 def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_bash_calls_trusted_in_its_config(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
     home = tmp_path / "codex-home"
     hooks, config = home / "hooks.json", home / "config.toml"
