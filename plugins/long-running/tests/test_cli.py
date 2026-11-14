@@ -4970,6 +4970,66 @@ def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a
     assert run("job", "brief", "j2", "--plan", "the store copy section")[0] == 0
     assert "\nPlan: the store copy section\n" in Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
 
+
+def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused_until_a_change_line_names_it_which_becomes_a_part_under_that_design_with_its_own_builder(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
+    run("job", "add", "reader", "--order", "o1", "--part", "copy one store", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the copy")
+    owned = DESIGNED_IN_CHANGES.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
+    assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
+    done = "DONE the moved-table interface is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    left = "UNPROVEN: the moved-table index (design change 4) is left out of this PR for a follow-up"
+    jev.picks("line1")
+    code, err = keep(monkeypatch, capsys, "j4", f"{done}{left}\n")
+    assert code == 2
+    assert f'j4: refused, nothing kept: a DONE leaves a piece of its plan to a follow-up, as Jev reads "{left}": name each such piece on a Change: line' in err
+    [read] = [asked["state"] for asked in jev.asked if "left" in asked["questions"]]
+    assert read == {"goal": "build j3's change: the moved-table interface", "lines": [left]}
+    [named] = [asked for asked in jev.asked if "named" in asked["questions"]]
+    assert (named["state"], list(named["questions"]["named"]["label"]["options"].values())[1:]) == (
+        {"line": left},
+        ["copy one store", "the reads through it", "the writes through it"],
+    )
+    code, err = keep(monkeypatch, capsys, "j4", f'{done}{left}\nChange: the "moved-table" index\n')
+    assert (code, "its detail goes on its NEXT: or UNPROVEN: line" in err) == (2, True)
+    jev.breaks("named", "part1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}{left}\nChange: the moved-table index\n"))
+    assert cli.main(["job", "report", "j4", "-"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == 'j7 builder on "the moved-table index": start its agent now'
+    named = [asked for asked in jev.asked if "named" in asked["questions"]][-1]
+    assert list(named["questions"]["named"]["label"]["options"].values())[1:] == ["the moved-table index", "copy one store", "the reads through it", "the writes through it"]
+    jev.ruled.clear()
+    jev.picks("none")
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["parts"]["the moved-table index"]["design"], data["jobs"]["j7"]["parts"]) == ("j3", ["the moved-table index"])
+    code, out = run("job", "brief", "j7", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3\n' in written) == (0, True, True)
+
+
+def test_a_follow_up_piece_a_builder_names_on_a_change_line_of_an_undesigned_order_is_read_by_its_parts_reader_so_its_builder_starts_on_that_research(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    returned = (
+        "DONE the copy runs\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+        "UNPROVEN: retrying each stalled copy is left for a follow-up\nChange: retry each stalled copy\n"
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(returned))
+    assert cli.main(["job", "report", "j2", "-"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == 'j3 builder on "retry each stalled copy": start its agent now'
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["parts"]["retry each stalled copy"]["design"], data["jobs"]["j1"]["parts"]) == (None, ["the copy", "retry each stalled copy"])
+    code, out = run("job", "brief", "j3", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, "\nResearched: j1\n" in written, '\nPlan: j2\'s return, change "retry each stalled copy": drive job report j2\n' in written) == (0, True, True)
+
+
 def test_a_designs_change_waits_on_the_builder_of_the_earlier_change_its_line_names_once_that_builders_pr_closed_unmerged(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
