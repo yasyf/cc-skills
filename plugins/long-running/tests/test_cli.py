@@ -3793,7 +3793,7 @@ def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "the proof")
-    run("job", "add", "reader", "--order", "o1", "--goal", "research: read-only, at once: why the copy stalls")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--part", "the proof", "--goal", "research: read-only, at once: why the copy stalls")
     assert keep(monkeypatch, capsys, "j1", RESEARCH)[0] == 0
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy again")
     assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy it", "--agent", "a1")[1].splitlines()[0] == "j4"
