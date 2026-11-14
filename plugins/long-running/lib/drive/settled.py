@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
 
-from drive import limits, slack, state, view
+from drive import github, limits, slack, state, view
 from drive.install import config_dir
 from drive.render import cut
 from drive.state import DriveError
@@ -107,6 +107,8 @@ ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
 UNWORDED = re.compile(r"[\W_]+")
 TERMINAL = "terminal"
 HUMAN = b'"kind":"human"'
+STEP = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}")
+EVENTS = "a GitHub pull request that merged or closed, a Buildkite build or the job its link names that finished, or a Slack message a teammate or another bot wrote"
 HIS_ANSWER = (
     "a question of his becomes a ruling only with his own answer, so only his words verbatim are recorded as his, at the"
     " permalink of his message or of the card he answered, or at terminal for a prompt he typed into a drive session's terminal,"
@@ -205,6 +207,30 @@ def unsaid(kept: list[str], link: str | None, found: dict | None, data: dict) ->
         if missing := lacking(words, read[0]):
             return f'his words at {link} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
     return None
+
+
+def unhappened(link: str) -> str | None:
+    """Why no event at the link overtook a card, read by its host's reader; None for one of EVENTS. His own message withdraws a card only by his words there, and a post of the drive or of any agent, which share one bot, is no event."""
+    try:
+        if slack.MESSAGE_LINK.search(link):
+            message = slack.message(link)
+            if message.get("from_user"):
+                return "it is his own message, which withdraws a card only by his words there, verbatim"
+            return "it is a post of the drive or of another agent, never an event" if message.get("from_claude") else None
+        if state.PR_URL.match(link):
+            key = state.pr_key(link)
+            read = github.nodes(github.graphql(github.query([key], "state"), f"whether {key} is still open"), [key])[key]
+            return f"{key} is still open" if read["state"] == "OPEN" else None
+        if build := github.BUILD.match(link):
+            read = json.loads(github.run(["bk", "build", "view", build["number"], "-p", build["pipeline"], "-o", "json"]))
+            step = STEP.search(link, build.end())
+            ran = next((job for job in read["jobs"] if job["id"] == step[0]), None) if step else read
+            if ran is None:
+                return f"{build['pipeline']} build {build['number']} has no job {step[0]}"
+            return None if ran["finished_at"] else f"{'that job' if step else 'that build'} has not finished: it reads {ran['state']}"
+    except (slack.SlackError, github.GithubError) as error:
+        return f"it could not be read: {error}"
+    return f"the drive reads no such event; {EVENTS} overtakes a card"
 
 
 def lacking(words: str, said: str) -> str | None:

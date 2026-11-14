@@ -210,7 +210,7 @@ def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
 
 
 def close_card(card: str, closed: dict) -> dict:
-    """Show on his question card how the question it asks ended, his words and a link to them with no buttons: settled for his answer, withdrawn for anything else."""
+    """Show on his question card how the question it asks ended, his words, or what happened for an event that overtook it, and a link to them with no buttons: settled for his answer, withdrawn for anything else."""
     words = closed["words"] or f"settled by his answer {closed['answer'] or closed['ruling'] or closed['seq']}"
     return answer_card(card, words, closed["link"] or card, settled=closed["how"] == "answered")
 
@@ -248,8 +248,8 @@ def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict 
     return [older[int(key.rpartition(":q")[2])] for key in sorted(keys)]
 
 
-def follow(name: str, ended: list[tuple[str, dict]]) -> list[str]:
-    """Show on each card drawn for a question that ended how it ended, his words and a link to them with no buttons, so it no longer asks him: settled for his answer, withdrawn for his other words, a withdraw or an answer superseding it. A card cc-slack does not close now the watch closes on its next pass. What was done, a line each."""
+def follow(name: str, ended: list[tuple[str, dict]], shown: str = "his words") -> list[str]:
+    """Show on each card drawn for a question that ended how it ended, his words, or what happened for an event that overtook it, and a link to them with no buttons, so it no longer asks him: settled for his answer, withdrawn for his other words, a withdraw or an answer superseding it. A card cc-slack does not close now the watch closes on its next pass. What was done, a line each, naming what the card shows."""
     found, _ = view.stored_cards(name)
     done = []
     for _, question in ended:
@@ -262,7 +262,7 @@ def follow(name: str, ended: list[tuple[str, dict]]) -> list[str]:
                 done.append(f"{card}: cc-slack did not close it ({error}); the watch closes it on its next pass")
                 continue
             if not result.get("already_answered"):
-                done.append(f"{question['waits'] or card}: his card {card} now shows his words with no buttons, its question {closed['how']}")
+                done.append(f"{question['waits'] or card}: his card {card} now shows {shown} with no buttons, its question {closed['how']}")
     return done
 
 
