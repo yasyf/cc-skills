@@ -86,7 +86,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `BUILT <branch>, waits on <the card's waits id>`, by his words "build recommended options on
    branches until I select the option then build / turn my option into PRs". When `Decisions that
    bind` names an open card's option to build, build that one the same way. While any open card of
-   his bears on your work, one your job waits on, or one your own job, the design you build or the
+   his bears on your work, one your job waits on unless it reads `Holds: none`, or one your own job, the design you build or the
    reader your brief's `Researched:` line names asked whose `Holds:` line names a change your job
    builds or that was kept with no `Holds:` line, the `bash_guard` hook refuses a `ccx vcs ship`
    that would open your PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since

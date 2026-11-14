@@ -3551,7 +3551,7 @@ def test_a_job_on_an_open_incident_is_held_from_opening_its_pr_only_by_a_card_as
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
         data["prs"].pop(KEY, None)
         data["jobs"]["j1"]["prs"] = []
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0), holds=None) | {"waits": "demo:j1-7-a"}]
     capsys.readouterr()
     assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
     assert capsys.readouterr().out == "j1: no open card of his holds its PR\n"
@@ -4105,7 +4105,7 @@ def test_a_red_pr_waiting_on_his_card_wakes_its_builder_at_once_and_every_thirty
         waits_on(demo, HOLDING_CARD)
     else:
         holding_job(demo, HOLDING_CARD)
-        holding_asks(demo, "")
+        holding_asks(demo, None)
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=RED)})
@@ -4534,6 +4534,21 @@ def test_a_built_line_waits_on_the_cards_holding_its_work_by_the_landers_rule_ne
     assert (state.part_cards(unwaited, "j1"), land.open_cards(unwaited, "j1", unwaited["prs"][KEY], cards)) == (["demo:j2-1-a"], ["demo:j2-1-a"])
 
 
+@pytest.mark.parametrize(("holds", "held"), [("", False), (None, True)])
+def test_a_card_his_built_job_waits_on_holds_its_approved_pr_from_landing_only_while_its_question_has_no_holds_none_line(
+    demo: str, landers: list[tuple[str, ...]], holds: str | None, held: bool
+) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should a long chat open on its turns since the last compaction?", state.stamp(T0), holds=holds) | {"waits": "demo:j1-1-a"}]
+        state.take_result(data, "j1", "BUILT j1-windowed-open, waits on demo:j1-1-a")
+    cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
+    drive = state.load(demo)
+    assert (drive["jobs"]["j1"]["waits"], land.open_cards(drive, "j1", drive["prs"][KEY], cards)) == (["demo:j1-1-a"], ["demo:j1-1-a"] if held else [])
+    assert land.start(demo, [KEY], cards) == ([] if held else [(KEY,)])
+
+
 def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     with state.edit(demo) as data:
@@ -4576,7 +4591,7 @@ def holding_job(name: str, *waits: str) -> None:
         data["jobs"]["j2"] = job(order="o2", goal="change #42", parts=[BUSY_WAIT], carries={}, prs=[state.pr_url(KEY)], waits=[KEY, *waits])
 
 
-def holding_asks(name: str, holds: str) -> None:
+def holding_asks(name: str, holds: str | None) -> None:
     with state.edit(name) as data:
         data["jobs"]["j2"]["questions"].append(state.new_question(None, "Do pause and resume stay in #42?", state.stamp(T0), holds=holds) | {"waits": HOLDING_CARD})
 
@@ -4588,10 +4603,15 @@ def holding_answered(name: str) -> None:
 
 @pytest.mark.parametrize(
     ("waits", "holds", "held"),
-    [((HOLDING_CARD,), "", True), ((), f'"land #42 once #43 is in": each option changes what #42 carries when it lands; {BUSY_WAIT}', True), ((), "the dashboard", False)],
+    [
+        ((HOLDING_CARD,), None, True),
+        ((HOLDING_CARD,), "", False),
+        ((), f'"land #42 once #43 is in": each option changes what #42 carries when it lands; {BUSY_WAIT}', True),
+        ((), "the dashboard", False),
+    ],
 )
 def test_his_open_card_holds_a_pr_from_landing_while_another_job_carrying_it_waits_on_that_card_or_its_holds_line_names_that_jobs_change(
-    demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, waits: tuple[str, ...], holds: str, held: bool
+    demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, waits: tuple[str, ...], holds: str | None, held: bool
 ) -> None:
     approve(demo, KEY)
     holding_job(demo, *waits)
