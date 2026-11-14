@@ -1057,7 +1057,7 @@ def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he
 
 def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_closes_with(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     def unlisted(name: str) -> dict:
-        raise view.CardsError("cc-slack exited 1")
+        raise slack.SlackError("cc-slack exited 1")
 
     monkeypatch.setattr(view, "cards", unlisted)
     report(monkeypatch, {"catch_up": "true"})

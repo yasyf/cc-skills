@@ -221,7 +221,7 @@ def waiting(name: str, data: dict, text: str) -> str:
     """The lines his catch-up closes with: a count of every open card of his the status page queues as waiting on him, linking that queue on the dashboard, then each one asked since he was last heard that the text does not already name, in the queue's order, on its own line, with a blank line after each five, where cc-slack starts its next message since Slack draws five a message. A card asked before he went away stays behind the count, by his words on a catch-up that drew every card: "including all tehse cards each time ^^ is not helpful and is very obtrusive". The say hook counts only the text it was given, so no word limit counts these."""
     try:
         found = view.cards(name)
-    except view.CardsError as error:
+    except slack.SlackError as error:
         raise DriveError(f"nothing posted: his catch-up counts every open card of his, which cc-slack could not list: {error}") from None
     queued = [item for item in view.build(data, found, state.now())["queue"] if "card" in item]
     if not queued:

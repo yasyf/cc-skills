@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from drive import dashboard, picture, reads, render, settled, state, view
+from drive import dashboard, picture, reads, render, settled, slack, state, view
 from drive.limits import REF
 from drive.state import DriveError
 
@@ -157,7 +157,7 @@ def record_excuses(text: str) -> list[str]:
 def drawn_cards(name: str) -> dict:
     try:
         return view.cards(name)
-    except view.CardsError as error:
+    except slack.SlackError as error:
         raise DriveError(f"a {{card:…}} reference needs the drive's cards, which cc-slack could not list: {error}") from None
 
 

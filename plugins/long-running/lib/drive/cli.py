@@ -1503,7 +1503,7 @@ def asked_on(name: str, waits: str) -> set[str]:
 
     try:
         listed = view.cards(name)["questions"]
-    except view.CardsError as error:
+    except slack.SlackError as error:
         raise DriveError(f"nothing posted: a card drawn again under its waits id moves each wait on an older copy of it to the card, which needs his cards, and cc-slack could not list them: {error}") from None
     kept = (question for job in state.load(name)["jobs"].values() for question in job["questions"] if question["waits"] == waits and question["card"])
     return {view.message_key(entry["url"]) for entry in listed if entry["card"].get("waits") == waits} | {view.message_key(question["card"]) for question in kept}

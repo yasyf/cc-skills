@@ -42,7 +42,6 @@ import json
 import math
 import os
 import re
-import subprocess
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from functools import cache, lru_cache
@@ -87,28 +86,16 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
 TAP_CLAIM_RULING = 'his Nov 11 1:51 PM words "Again you fucking told me something waits for my tap and didn\'t give me something to tap"'
 
 
-class CardsError(Exception):
-    pass
-
-
 def cards(name: str) -> dict:
     """His open question cards for the drive and the PR cards waiting on his tap, from cc-slack's stored state."""
-    try:
-        result = subprocess.run(
-            [slack.launcher(), "drive-cards", "--drive", name, "--json"], check=False, capture_output=True, text=True, timeout=30
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise CardsError(str(error)) from None
-    if result.returncode:
-        raise CardsError(" ".join(result.stderr.split()) or f"cc-slack exited {result.returncode}")
-    return json.loads(result.stdout)
+    return slack.cc_slack("drive-cards", "--drive", name, "--json", timeout=30)
 
 
 def refresh_cards(name: str) -> None:
     """Store his cards as cc-slack lists them now, rewriting the drive's cards file only when they changed."""
     try:
         found = {"source": "live", **cards(name)}
-    except CardsError as error:
+    except slack.SlackError as error:
         found = {"source": f"unavailable: {error}", **NO_CARDS}
     path = state.cards_path(name)
     text = json.dumps(found, sort_keys=True, separators=(",", ":")) + "\n"
