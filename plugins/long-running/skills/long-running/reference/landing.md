@@ -490,7 +490,11 @@ the patch.
   option number or tap on a kept card whose option names a release in backticks orders a release
   shipping that option's change, on that option's places and on those his words past the number name,
   by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the
-  same" orders option 1's hotfix on Acme's env; Jev reads any other answer beside the card it answers,
+  same" orders option 1's hotfix on Acme's env. On an option naming no release in backticks, his number
+  or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from`, `--order` and
+  `--emergency`, with a target and a place, when the option's words name each target and they or his
+  words past the number name each place it runs on, so his "1" on a card whose option deploys the
+  branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers,
   ordering only what his words name. The top starts it with `--order <his answer id>` in the
   `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
   top reads the release's plan and asks him with `drive job ask` whether to start that exact command,

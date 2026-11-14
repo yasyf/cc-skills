@@ -313,8 +313,8 @@ def drawn_card(n: int) -> str:
     return f"https://acme.slack.com/archives/D123/p{1794400000000100 + n}"
 
 
-def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[dict]) -> None:
-    """His answers to a kept card whose first option names the api hotfix everywhere but Acme's cluster, each kept by `drive answer` at that card's link, and Acme's env file in the drive's checkout naming its team."""
+def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[dict], card: str = ANSWERED_CUT) -> None:
+    """His answers to a kept card, by default one whose first option names the api hotfix everywhere but Acme's cluster, each kept by `drive answer` at that card's link, and Acme's env file in the drive's checkout naming its team."""
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the api hotfix")
     run("job", "add", "builder", "--order", "o1", "--goal", "pick the cut")
     data = state.load(demo)
@@ -323,11 +323,11 @@ def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[d
     (envs / "tnt-usw2-acme.yaml").write_text("env: tnt-usw2-acme\ntenants:\n- stage: acme\n  name: acme\n  displayName: Acme\nsandsql:\n  name: northwind\n")
     kept = state.drive_dir(demo) / "asks" / "j1-cut.md"
     kept.parent.mkdir(exist_ok=True)
-    kept.write_text(ANSWERED_CUT)
+    kept.write_text(card)
     with state.edit(demo) as data:
         said = state.stamp()
         closed = state.new_close("answered", answers[0]["body"], CUT_LINK, seq="7")
-        data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), CUT_PICK["title"], said, card=CUT_LINK, closed=closed))
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), answers[0]["title"], said, card=CUT_LINK, closed=closed))
         data["answers"] |= {answer["id"]: {"words": answer["body"], "link": CUT_LINK, "at": said, "said": said, "cards": {}, "jobs": {}} for answer in answers}
 
 
