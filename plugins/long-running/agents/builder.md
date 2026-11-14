@@ -248,15 +248,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      is such a PR: its his-words section says none rather than borrow his words for the order it
      unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken and no check fails at its
      head: the lander merges it with `--admin`, while checks still run, and installs each plugin it changes, and once every PR your job names merged the watch's
-     `drive job prove` runs your job's proof file on the installed build, takes `DONE` or `BLOCKED` on
+     `drive job prove` runs your job's proof file on the installed build, then each command your
+     brief's `After install:` line names, takes `DONE` only when each exits 0, else `BLOCKED`, on
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
-     exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only but
-     for the one step your brief's `Mac:` line names to take once the change is installed, which it
-     takes then, once: a Slack post as one `cci post --kind report --to communicator@<drive> --id <your job>-<step>`
-     record, which a handler draws through `say`, and any other write only once a read finds it not yet
-     done; it then reads back what that step changed, such as `cc-slack drive-cards --waits`,
-     `cc-slack thread --url` or `drive status`, printing `WAIT <what>` while it has not shown; run
+     exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
      with each changed plugin's `bin/` first on `PATH` and the drive's own interpreter's folder next, so a
      bare `python3` imports what the drive imports, printing a line for each check it passed and
      `FAIL <check>: <why>` for each that failed, the line the watch quotes:
@@ -382,7 +378,7 @@ event needs. The first four events then return as step 7 says.
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
 | His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, on this Mac and on a Sprite, and return `WAITING <the PR> waits on <the card>`: neither his order nor its recommended option answers it. |
-| A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. The watch takes your job's `DONE` itself at the merge of PRs outside `yasyf/*`, keeping no proof on its order, so this event comes once the release holding the merge is out, or at once for a change whose paths reach no released component: your `DONE` is the order's proof, from the surface your `NATIVE:` line names when he sees it there. A `yasyf/*` merge needs none of this: the watch's `drive job prove` proves it with your proof file and records the result, and no lane follows it, so a step your goal names after its install is your brief's `Mac:` line and your proof file takes it. |
+| A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. The watch takes your job's `DONE` itself at the merge of PRs outside `yasyf/*`, keeping no proof on its order, so this event comes once the release holding the merge is out, or at once for a change whose paths reach no released component: your `DONE` is the order's proof, from the surface your `NATIVE:` line names when he sees it there. A `yasyf/*` merge needs none of this: the watch's `drive job prove` proves it with your proof file and records the result, and no lane follows it, so a step your goal names after its install is a drive command on your brief's `After install:` line, which `drive job prove` runs once your proof file passes. |
 | A failed proof | Fix the cause its `FAIL` line names: a wrong proof file kept fixed on your own job with `drive job set <your job> --repro <file>`, wrong code in a PR of yours. Return `PUSHED` naming the failed job's merged PRs and any you opened: the watch's `drive job prove` proves your job, so run no prove and set no other job's proof file. |
 
 ## Releases
@@ -534,7 +530,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as a signed-in app here, written as `drive job brief --mac` writes it, so the job's next lane starts on this Mac |
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |
-| `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents; a `yasyf/*` merge gets no handoff, so a step after its install is your proof file's, never one left to the lander or a Mac lane, which `drive job report` refuses |
+| `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents; a `yasyf/*` merge gets no handoff, so a step after its install is a drive command on your brief's `After install:` line, which `drive job prove` runs, never one left to the lander or a Mac lane, which `drive job report` refuses |
 
 Finish the step before you return: announcing a next step you could take, offering to carry on, or
 listing decisions that block nothing is not a result.

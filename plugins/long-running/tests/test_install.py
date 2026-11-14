@@ -1478,26 +1478,76 @@ def test_a_proof_of_something_he_sees_takes_done_only_once_its_output_pictures_e
         )
 
 
-@pytest.mark.parametrize(("pick", "taken"), [("undone", "failed"), ("none", "done")])
-def test_a_proof_of_a_brief_naming_a_mac_step_takes_done_only_once_jev_reads_it_taking_and_reading_back_that_step(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], jev: Jev, pick: str, taken: str
+J4506_OUTPUT = """install /Users/yasyf/.local/share/claude-plugins/cache/skills/long-running/1.0.978/lib
+ok every open card's kept ASK file redraws (230 of 230)
+ok durable-agents:j961-664395 is an open question with a kept ASK file
+ok durable-agents:j961-664395 redraws from /Users/yasyf/.local/state/long-running/durable-agents/asks/j961-83c474b7.md: Where should a Sprite lane keep its node_modules store, Rust target and sccache cache, given its 12 GiB home volume?
+ok the post hook passes durable-agents:j961-664395's card with no text beside it
+"""
+REDRAW = "drive cards redraw --waits durable-agents:j961-664395 --post"
+
+
+@pytest.mark.parametrize(
+    ("exits", "printed", "taken"),
+    [
+        (0, "durable-agents:j961-664395 redrawn at https://acme.slack.com/archives/D123/p1794300000000100\n", "done"),
+        (2, "drive: these cards did not redraw:\n- durable-agents:j961-664395: not one of his open cards\n", "failed"),
+    ],
+)
+def test_a_proof_whose_brief_names_a_step_after_the_install_takes_done_only_once_drive_job_prove_ran_that_step_and_it_exited_0(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, exits: int, printed: str, taken: str
 ) -> None:
-    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
-    script.write_text("#!/bin/sh\necho 'ok the installed redraw reads the kept card'\n")
-    step = "redraw j961's card once the install holds the fix"
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{J4506_OUTPUT}EOF\n")
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["brief_flags"] = {"mac": step}
-    jev.picks(pick)
+        data["jobs"]["j1"]["brief_flags"] = {"after": [REDRAW, "drive job resume j9"]}
+    ran: list[tuple[list[str], str]] = []
+
+    def run(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        if cmd[0] != "drive":
+            return git.run(cmd, **options)
+        ran.append((cmd, options["env"][state.DRIVE_ENV]))
+        return subprocess.CompletedProcess(cmd, exits, printed, "")
+
+    monkeypatch.setattr(install.subprocess, "run", run)
     install.prove("demo", "j1", 900)
     job = state.load("demo")["jobs"]["j1"]
+    kept = state.proof_path("demo", "j1")
     assert job["state"] == taken
-    [asked] = [asked for asked in jev.asked if "step" in asked["questions"]]
-    assert (asked["state"]["proof_file"], step in asked["questions"]["step"]["label"]["instructions"]) == (script.read_text(), True)
-    if taken == "failed":
-        assert job["said"].startswith(
-            f"BLOCKED {URL}: {script} exits 0 but leaves its Mac: step undone on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}:"
-            f' its brief\'s Mac: line names "{step}", and Jev reads its proof file as leaving that step undone or unread'
+    assert kept.read_text() == f"{J4506_OUTPUT}$ {REDRAW}\n{printed}" + ("$ drive job resume j9\n" + printed if taken == "done" else "")
+    if taken == "done":
+        assert (ran, job["said"]) == ([(REDRAW.split(), "demo"), (["drive", "job", "resume", "j9"], "demo")], f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
+    else:
+        assert ran == [(REDRAW.split(), "demo")]
+        assert job["said"] == (
+            f"BLOCKED {URL}: {script} exits 0, then its After install: {REDRAW} exits 2 on long-running@skills 1.0.3, its output {kept}:"
+            " - durable-agents:j961-664395: not one of his open cards"
         )
+
+
+def test_a_proof_whose_after_install_step_runs_past_its_timeout_takes_blocked_and_runs_no_step_after_it(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"after": [REDRAW, "drive job resume j9"]}
+    ran: list[list[str]] = []
+
+    def run(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        if cmd[0] != "drive":
+            return git.run(cmd, **options)
+        ran.append(cmd)
+        raise subprocess.TimeoutExpired(cmd, options["timeout"])
+
+    monkeypatch.setattr(install.subprocess, "run", run)
+    install.prove("demo", "j1", 900)
+    assert ran == [REDRAW.split()]
+    assert state.load("demo")["jobs"]["j1"]["said"] == (
+        f"BLOCKED {URL}: {script} exits 0, then its After install: {REDRAW} runs past 900 s on long-running@skills 1.0.3, its output"
+        f" {state.proof_path('demo', 'j1')}: it was stopped there"
+    )
 
 
 def test_a_pr_merged_and_proved_before_the_watch_reads_it_names_its_close_report_by_the_title_drive_pr_add_read(

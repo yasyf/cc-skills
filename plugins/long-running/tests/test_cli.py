@@ -37,6 +37,7 @@ from drive import (
     stage,
     state,
     superseded,
+    talk,
     tools,
     view,
     watch,
@@ -2614,6 +2615,10 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, json.dumps(json.loads(printed[1]) | {"replaces": shown[1]["url"]}))
     assert cli.main(["cards", "redraw", "--waits", "demo:j1-9"]) == 2
     assert "demo:j1-9: not one of his open cards" in capsys.readouterr().err
+    posts: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": "https://acme.slack.com/archives/D123/p1794300000000100"})
+    assert run("cards", "redraw", "--waits", "demo:j1-8", "--post") == (0, "demo:j1-8 redrawn at https://acme.slack.com/archives/D123/p1794300000000100")
+    assert posts == [{"card": json.loads(printed[1]) | {"replaces": shown[1]["url"]}}]
 
 
 def test_cards_redraw_draws_a_card_from_the_ask_a_question_linked_to_it_keeps_when_it_asks_the_cards_question(
@@ -4950,7 +4955,7 @@ def test_a_done_leaves_no_step_after_its_install_to_the_lander_or_a_mac_lane(
         code, err = keep(monkeypatch, capsys, "j1", f"{done}{left}\n")
         assert code == 2
         assert f'j1: refused, nothing kept: a DONE leaves a step for someone else: "{left}".' in err
-    for kept in ("NEXT: once the lander merges it, drive job prove runs the proof file, which redraws the card", "NEXT: no Mac lane runs it; the proof file posts the redraw"):
+    for kept in ("NEXT: once the lander merges it, drive job prove runs the After install: redraw", "NEXT: no Mac lane runs it; drive job prove runs the After install: redraw"):
         assert keep(monkeypatch, capsys, "j1", f"{done}{kept}\n") == (0, "")
 
 
@@ -6310,6 +6315,21 @@ def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_
     assert state.load(demo)["jobs"]["j1"]["brief_flags"]["ruling"] == ["5abdd1a", "c7756f4"]
     assert f"Handoff: {handoff}\n" in written.read_text()
     assert "(c7756f4)" in written.read_text()
+
+
+def test_job_brief_writes_each_after_install_command_in_order_and_refuses_one_that_is_no_drive_command(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "redraw the stale card")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the redraw")
+    redraw = "drive cards redraw --waits demo:j9-7 --post"
+    code, out = run("job", "brief", "j1", "--after", redraw, "--after", "drive job resume j9")
+    assert code == 0
+    assert f"After install:\n- {redraw}\n- drive job resume j9\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert state.load(demo)["jobs"]["j1"]["brief_flags"]["after"] == [redraw, "drive job resume j9"]
+    assert cli.main(["job", "brief", "j1", "--after", "cc-slack post --text redrawn"]) == 2
+    assert 'j1: --after "cc-slack post --text redrawn" is no drive command' in capsys.readouterr().err
+    assert state.load(demo)["jobs"]["j1"]["brief_flags"]["after"] == [redraw, "drive job resume j9"]
 
 
 def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruling_their_readers_name(

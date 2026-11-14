@@ -2201,8 +2201,8 @@ def already_answered(asked: limits.Question, recorded: list[dict]) -> limits.Que
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
-    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, its `replaces` the card's permalink, which cc-slack draws over that card where it sits, posting no new version, whether or not its store still keeps the card: each open question of the drive drawn on a card, from the ASK file it keeps, as drive status reads it open, and each card cc-slack lists open, from the ASK file `ask_source` finds for it; each card that does not redraw is named once the rest are printed."""
-    from drive import view
+    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, its `replaces` the card's permalink, which cc-slack draws over that card where it sits, posting no new version, whether or not its store still keeps the card: each open question of the drive drawn on a card, from the ASK file it keeps, as drive status reads it open, and each card cc-slack lists open, from the ASK file `ask_source` finds for it; with --post, draw each over his card through `talk.posted`, as `post_ask` posts one, and print its waits id and permalink instead; each card that does not redraw is named once the rest are printed."""
+    from drive import talk, view
 
     name = state.resolve(args.drive)
     view.refresh_cards(name)
@@ -2222,11 +2222,15 @@ def cards_redraw(args: argparse.Namespace) -> int:
             continue
         try:
             source, url = (ask_source(name, shown[waits]), shown[waits]["url"]) if waits in shown else (Path(asked[waits]["file"]), asked[waits]["card"])
-            drawn.append(question_card(name, source, waits) | {"replaces": url})
+            drawn.append((waits, question_card(name, source, waits) | {"replaces": url}))
         except DriveError as error:
             missed.append(f"{waits}: {error}")
-    if drawn:
-        emit(args, "\n".join(map(json.dumps, drawn)), drawn)
+    if drawn and args.post:
+        posted = [{"waits": waits, "permalink": talk.posted(name, {"card": card})["permalink"]} for waits, card in drawn]
+        emit(args, "\n".join(f"{each['waits']} redrawn at {each['permalink']}" for each in posted), posted)
+    elif drawn:
+        cards = [card for _, card in drawn]
+        emit(args, "\n".join(map(json.dumps, cards)), cards)
     if missed:
         raise DriveError("these cards did not redraw:\n- " + "\n- ".join(missed))
     return 0
@@ -2506,6 +2510,8 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
             " with --handoff <the PR, its head and the event line verbatim>"
         )
+    if unrun := [step for step in named.get("after") or [] if shlex.split(step)[:1] != ["drive"]]:
+        raise DriveError(f'{job_id}: --after "{unrun[0]}" is no drive command: drive job prove runs each one once the proof file passes and takes DONE only when it exits 0, so each is a drive verb that exits nonzero when its step did not happen')
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     if state.starts_cut(job) and (
@@ -2557,6 +2563,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Release": flags["release"],
         "Release build": job["release_build"],
         "Mac": flags["mac"],
+        "After install": flags["after"],
         "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
@@ -5268,6 +5275,12 @@ def parser() -> argparse.ArgumentParser:
         "--mac",
         help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
     )
+    verb.add_argument(
+        "--after",
+        action="append",
+        metavar="COMMAND",
+        help="a drive command drive job prove runs on this Mac once the job's merges are installed and its proof file passes on them, taking DONE only when it exits 0, such as drive cards redraw --waits <waits id> --post: a step its Goal names after the install; repeatable, run in order, its After install: line",
+    )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted; a builder the drive added for a design's change holds its design's from that add")
@@ -5762,7 +5775,8 @@ def parser() -> argparse.ArgumentParser:
             "Redraw his open question cards in one pass: for each open card, build the JSON `drive job card <its ASK file>"
             " --waits <its waits id>` prints, writing the card's waits id into the drive under its writer lock, and once the"
             " last is built print each, with `replaces` the card's permalink, which cc-slack draws over the card where it"
-            " sits, posting no new version, whether or not its store still keeps the card, one line each, for say(card=…)."
+            " sits, posting no new version, whether or not its store still keeps the card, one line each, for say(card=…);"
+            " with --post it draws each over his card itself, as drive job ask posts one, and prints its waits id and permalink."
             " His open cards are each open question of the drive drawn on a card, as drive status reads it open, and each card"
             " cc-slack lists open. A question's ASK file is the one it keeps; a listed card's is the one a job's question keeps"
             " under its waits id, else the one a question linked to the card keeps when it asks the card's question, else"
@@ -5773,6 +5787,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")
+    verb.add_argument("--post", action="store_true", help="draw each card over his where it sits, as drive job ask posts one, and print its waits id and permalink, so a brief's After install: line can redraw a card")
     verb.set_defaults(run=cards_redraw)
     verb = cards.add_parser(
         "withdraw",
