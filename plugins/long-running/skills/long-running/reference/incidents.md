@@ -149,14 +149,19 @@ changed and when, its findings the suspects, and its root cause the verdict.
     branch is ahead of it on the failing path. Then it installs the newest build of the default
     branch on a test machine and replays the failing action against state the bad build refused,
     such as a record it refused to open.
-  - In the monorepo, `tools/ci release live` names the live build's commit, and the test machine
-    is a test Mac.
+  - In the monorepo, `tools/ci release live` names the live build's commit, `tools/ci release
+    pull <pr> --json` lists each production stack behind a PR, running an older build or one a
+    release still runs on, a hotfix that cherry-picked the PR counting as serving it, and the test
+    machine is a test Mac.
 - With no release or new build before the break, two jobs start beside the fix job:
   - **rollback**, with apply authority. It rolls the release back to the newest build that
-    provably lacks the failing change, however many releases back that is. The proof is that the
-    commit that brought the change is not an ancestor of the target's commit:
-    `git merge-base --is-ancestor <change> <target>` exits 1. While the change is unknown, the
-    proof is the failing action, replayed against the target on a test machine, succeeding. It
+    provably lacks the failing change, however many releases back that is. The proof is GitHub's
+    compare of the squash commit of the PR that brought the change to the target's commit, the
+    read `tools/ci release pull` makes: it reads `behind`, or `diverged` with no listed commit
+    whose subject ends `(#<pr>)`, the subject a hotfix's cherry-pick of that PR carries. An
+    ancestry read, such as `git merge-base --is-ancestor` exiting 1, proves nothing here, since a
+    cherry-pick is no ancestor. While the change is unknown, the proof is the failing action,
+    replayed against the target on a test machine, succeeding. It
     also proves the target opens everything the bad builds wrote since, such as a record in a
     newer format, by opening one on a test machine.
   - When a build passes both, the rollback starts inside its clock. When none does, the job
