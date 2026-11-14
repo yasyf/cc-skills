@@ -1335,6 +1335,39 @@ done({
     }
 
 
+def test_a_task_sheet_lists_each_standing_part_with_its_live_and_last_pass_apart_from_what_it_ships(tmp_path: Path) -> None:
+    last = {"job": "j8", "kind": "codex", "state": "stopped", "said": "HANDOFF round 4 ran on box i-0ee4; staging untested", "at": "2026-11-10T22:00:00-08:00"}
+    box = {"goal": "test runs on the new tree on the codex box", "live": {"job": "j9", "kind": "codex", "state": "running", "said": None, "at": "2026-11-10T23:50:00-08:00"}, "last": last}
+    ports = {"goal": "start a reader on each old-tree port gap", "live": None, "last": None}
+    parts = [
+        {"name": "codex test box", "whole": False, "delivered": False, "posted": False, "job": "j9", "kind": "codex", "state": "running", "at": box["live"]["at"], "standing": box},
+        {"name": "old-tree ports", "whole": False, "delivered": False, "posted": False, "job": None, "kind": None, "state": None, "at": None, "standing": ports},
+        {"name": "receipt copy", "whole": False, "delivered": False, "posted": False, "job": None, "kind": None, "state": None, "at": None, "standing": None},
+    ]
+    entry = FEATURE | {"id": "o2", "title": "Runs on the new tree", "parts": parts}
+    seen = browse(tmp_path, """
+location.hash = '#/now/Platform/SandSQL';
+await wait(300);
+document.querySelector('#main .stream.here a.task-row[href$="/o2"]').click();
+await wait(400);
+const sheet = document.querySelector('#main .task-sheet');
+const text = (el) => el.textContent.replace(/\\s+/g, ' ').trim();
+const ships = [...sheet.querySelectorAll('h2.sec')].find((head) => head.firstChild.textContent.trim() === 'What it ships');
+done({
+  count: ships.querySelector('.count').textContent,
+  rows: [...ships.nextElementSibling.querySelectorAll('li')].map((li) => [...[...li.querySelectorAll('.line-text, small')].map(text), li.dataset.tip ?? null]),
+});
+""", board(status=[{"state": "running", "features": [entry]}]), "1440,900")
+    assert seen == {
+        "count": "0 of 1 delivered, 2 standing",
+        "rows": [
+            ["codex test box standing: pass codex j9 running; last pass codex j8 stopped", "Nov 10 10:00 PM", f"{box['goal']}\n{last['said']}"],
+            ["old-tree ports standing: no pass at work; no pass ended yet", "", ports["goal"]],
+            ["receipt copy", "no job carries it yet", None],
+        ],
+    }
+
+
 def test_a_card_link_opens_that_card_and_the_queue_keeps_its_place_in_the_address(tmp_path: Path) -> None:
     second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
     seen = browse(tmp_path, """

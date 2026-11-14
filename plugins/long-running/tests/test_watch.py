@@ -28,6 +28,7 @@ GREEN = [{"name": "test", "conclusion": "SUCCESS"}]
 RED = [{"name": "test", "conclusion": "FAILURE"}]
 ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session expires?"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
+BOX_GOAL = "test runs on the new tree on the devbox under key o2-codex-box, round after round"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so wake it to pipe its return there"
 WOKEN_BY_ITS_SESSION = ": SendMessage it this line verbatim from root@demo, the session session-under-test that started its agent a1"
@@ -2149,6 +2150,73 @@ def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_ord
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] == state.stamp(T0 + timedelta(minutes=5))
     assert [watch.run_pass(watching, joined + timedelta(minutes=minutes)) for minutes in (0, 2)] == [[], []]
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
+
+
+def standing_order(data: dict, jobs: list[str]) -> None:
+    data["orders"]["o2"] = order(text="keep testing runs on the new tree", jobs=jobs, parts={"codex test box": state.new_part() | {"standing": BOX_GOAL}})
+
+
+def launches(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
+    return detached
+
+
+def test_a_standing_part_its_running_pass_holds_starts_none_and_once_that_pass_ends_the_watch_adds_and_launches_the_next_on_its_goal_quoting_its_return(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    detached = launches(monkeypatch)
+    said = "HANDOFF /drive/scratch/j2/handoff.md: box i-0ee4 under o2-codex-box, round 4 ran, staging untested"
+    with state.edit(demo) as data:
+        standing_order(data, ["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], brief_flags={"where": "this Mac and one EC2 devbox", "handoff": "round 3"})
+    watching = watcher(demo)
+    assert (staged(watch.standing_lines, watching, T0 + timedelta(hours=1)), detached) == ([], [])
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(state="stopped", said=said)
+    assert staged(watch.standing_lines, watching, T0 + timedelta(hours=1)) == [
+        f'STANDING j3 o2 "codex test box": j2 ended stopped: "{said}"; the watch added j3, a codex job on this Mac on its standing goal,'
+        f" and ran drive job launch j3, its output in the drive's {watch.RELAUNCHES_LOG}"
+    ]
+    data = state.load(demo)
+    pass_job = data["jobs"]["j3"]
+    brief_text = Path(pass_job["brief"]).read_text()
+    assert (detached, data["orders"]["o2"]["jobs"], pass_job["kind"], pass_job["goal"], pass_job["parts"]) == ([["job", "launch", "j3"]], ["j2", "j3"], "codex", BOX_GOAL, ["codex test box"])
+    assert "Where: this Mac and one EC2 devbox\n" in brief_text
+    assert f"Handoff: The watch started this pass of o2's standing part \"codex test box\" once its last pass, j2, ended stopped. Its return, verbatim:\n> {said}\n" in brief_text
+    assert render.standings(data, "o2", data["orders"]["o2"]) == [
+        f'  STANDING "codex test box": standing on "{render.cut(BOX_GOAL, 80)}", its live pass codex j3 running, its last pass codex j2 stopped: "{render.cut(said, 80)}"'
+    ]
+    assert (staged(watch.standing_lines, watching, T0 + timedelta(hours=2)), detached) == ([], [["job", "launch", "j3"]])
+
+
+def test_a_standing_pass_that_ended_at_once_starts_the_next_only_thirty_minutes_after_it_was_added_and_its_part_is_never_delivered_nor_an_orphan(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    detached = launches(monkeypatch)
+    with state.edit(demo) as data:
+        standing_order(data, ["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state="done", said="DONE round 1 ran")
+    watching = watcher(demo)
+    early = T0 + state.STANDING_EVERY - timedelta(minutes=1)
+    assert (staged(watch.standing_lines, watching, early), watch.orphan_lines(watching, early), state.delivered(state.load(demo), "o2", "codex test box")) == ([], [], False)
+    assert watch.orphan_lines(watching, T0 + state.STANDING_EVERY) == []
+    assert [line.split(":")[0] for line in staged(watch.standing_lines, watching, T0 + state.STANDING_EVERY)] == ['STANDING j3 o2 "codex test box"']
+    assert detached == [["job", "launch", "j3"]]
+
+
+def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_says_no_pass_ran_before(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = launches(monkeypatch)
+    with state.edit(demo) as data:
+        standing_order(data, [])
+    assert staged(watch.standing_lines, watcher(demo), T0) == [
+        f'STANDING j2 o2 "codex test box": no pass of it ran before; the watch added j2, a codex job on this Mac on its standing goal,'
+        f" and ran drive job launch j2, its output in the drive's {watch.RELAUNCHES_LOG}"
+    ]
+    brief_text = Path(state.load(demo)["jobs"]["j2"]["brief"]).read_text()
+    assert (detached, f"Goal: {BOX_GOAL}\n" in brief_text) == ([["job", "launch", "j2"]], True)
+    assert "Handoff: The watch started the first pass of o2's standing part \"codex test box\": no pass of it ran before.\n" in brief_text
 
 
 def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_another_job_and_the_job_it_names_finished_as_686978_and_686979_missed(

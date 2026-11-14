@@ -985,9 +985,11 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
 
 
 def part_entry(drive: dict, order_id: str, part: str) -> dict:
-    """One part of an order as its task lists it: whether it is the whole order, delivered or not, the post that answered it when it is words he reads, and the newest job carrying it, by state.carriers, with that job's kind, state and when it last moved."""
+    """One part of an order as its task lists it: whether it is the whole order, delivered or not, the post that answered it when it is words he reads, the newest job carrying it, by state.carriers, with that job's kind, state and when it last moved, and on a standing part its goal, live pass and last pass, by state.standing_passes."""
     order = drive["orders"][order_id]
     newest = max(state.carriers(drive, order_id, part), key=lambda pair: state.parse_time(pair[1]["updated"]), default=None)
+    standing = order["parts"][part]["standing"]
+    live, last = state.standing_passes(drive, order_id, part) if standing else (None, None)
     return {
         "name": part,
         "whole": part in (order["title"], state.whole_order(order["text"])),
@@ -997,7 +999,12 @@ def part_entry(drive: dict, order_id: str, part: str) -> dict:
         "kind": newest and newest[1]["kind"],
         "state": newest and newest[1]["state"],
         "at": newest and newest[1]["updated"],
+        "standing": standing and {"goal": standing, "live": live and pass_entry(*live), "last": last and pass_entry(*last)},
     }
+
+
+def pass_entry(job_id: str, job: dict) -> dict:
+    return {"job": job_id, "kind": job["kind"], "state": job["state"], "said": job["said"], "at": job["updated"]}
 
 
 def where_it_is(drive: dict, order: dict) -> dict | None:

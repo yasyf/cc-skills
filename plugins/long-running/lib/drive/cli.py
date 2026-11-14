@@ -667,7 +667,7 @@ def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -690,7 +690,8 @@ def order_set(args: argparse.Namespace) -> int:
     if args.title is not None:
         titled(args.title)
     alerts = alert_links(args.alerts)
-    sorted_parts = sorted_as(data, args.id, args.kind, args.part)
+    standing = standing_parts(name, data, args.id, args.parts, args.part, args.standing) if args.standing is not None else []
+    sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None else [])
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
@@ -770,6 +771,8 @@ def order_set(args: argparse.Namespace) -> int:
             refuse_a_renamed_change(data, args.id, args.parts)
             state.split_research(data, args.id, args.parts)
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
+        for part in standing:
+            order["parts"][part]["standing"] = args.standing.strip() or None
         turning = args.incident and not order["incident"]
         if args.incident is not None:
             order["incident"] = args.incident
@@ -800,9 +803,20 @@ def order_set(args: argparse.Namespace) -> int:
             order["last_line"] = order["updated"]
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
-    parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
+    parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing])]
     turned += state.asked_lines(data, order["text"]) if turning else []
     return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+
+
+def standing_parts(name: str, data: dict, order_id: str, parts: list[str] | None, named: list[str], goal: str) -> list[str]:
+    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --parts leaves them, refused without --part and, kept standing, wherever brief.job_refusal refuses the codex job each pass of it is."""
+    if not named:
+        raise DriveError(f"--standing: refused, name each part of {order_id} it keeps standing with --part")
+    order = data["orders"][order_id]
+    picked = pick_parts(order_id, order | {"parts": dict.fromkeys(parts)} if parts else order, named)
+    if goal.strip() and (refused := brief.job_refusal(name, data, order_id, "codex", picked)):
+        raise DriveError(f"--standing: refused, no part kept standing, since each pass of a standing part is a codex job: {refused}")
+    return picked
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
@@ -4955,7 +4969,16 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         type=str.strip,
-        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left, and a builder stopped before any agent took it that holds no PR; with --kind build, work again, making an answer order a build whose other parts stay answers",
+        help="with --standing, a part it keeps standing; with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left, and a builder stopped before any agent took it that holds no PR; with --kind build, work again, making an answer order a build whose other parts stay answers",
+    )
+    verb.add_argument(
+        "--standing",
+        metavar="GOAL",
+        help=(
+            "keep each --part standing on this goal, the one each pass of it runs on: its order never closes on it, and once no unfinished job holds it,"
+            f" the watch adds and launches its next pass, a codex job on this Mac with a handoff quoting the last pass's return, at most once every {int(state.STANDING_EVERY.total_seconds() // 60)} minutes;"
+            " an empty goal takes it out"
+        ),
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
