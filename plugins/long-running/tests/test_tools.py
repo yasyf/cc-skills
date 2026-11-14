@@ -486,6 +486,25 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
 
 
+def test_the_meta_sessions_owner_record_to_root_at_its_drive_as_705819_named_it_goes_to_root_at_the_drive_once_and_another_drives_lane_is_refused(
+    meta: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        posted.append((argv[argv.index("--lane") + 1], json.loads(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, '{"seq": 46}\n', "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    ruling = {"kind": "owner", "text": "claiming staging posts in the channel first", "about": "drive"}
+    for to in ("root", f"root@{meta}"):
+        assert tools.run("record", meta, {"records": [ruling | {"to": to}]}) == "1 owner 46"
+    for to, named in (("root@other", "other"), (f"root@{meta}@{meta}", f"{meta}@{meta}")):
+        with pytest.raises(DriveError, match=f"refused, nothing posted: to {to} names drive {named}, not {meta}: the record tool posts to this drive's lanes alone"):
+            tools.run("record", meta, {"records": [ruling | {"to": to}]})
+    assert [(lane, [record["to"] for record in records]) for lane, records in posted] == [("meta", [[f"root@{meta}"]]), ("meta", [[f"root@{meta}"]])]
+
+
 def test_a_drive_post_from_a_session_holding_no_lane_posts_as_another_sessions_lane_without_binding_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     envs: list[dict] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: envs.append(kwargs["env"]) or subprocess.CompletedProcess(argv, 0, '{"seq": 41}\n', ""))
