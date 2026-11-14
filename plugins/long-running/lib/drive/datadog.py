@@ -15,6 +15,7 @@ PLACEHOLDER = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
 PROTOCOL = "2025-06-18"
 SECONDS = 240
 LISTING = "tools"
+TOOLSETS = {"DD_MCP_TOOLSETS": "core,dbm"}
 
 
 def run(tool: str, arguments: dict | None) -> tuple[int, str]:
@@ -35,9 +36,9 @@ def run(tool: str, arguments: dict | None) -> tuple[int, str]:
 
 
 def connect() -> Callable[..., dict]:
-    """A request function on a fresh session of the installed Datadog plugin's MCP server, the one agents.datadog_servers gives a lane on this Mac, its `${VAR:-default}` placeholders filled from this process's environment over ai-oncall's Datadog keys, so each call runs as ai-oncall's service account and the keys stay in this process's memory."""
+    """A request function on a fresh session of the installed Datadog plugin's MCP server, the one agents.datadog_servers gives a lane on this Mac, its `${VAR:-default}` placeholders filled from this process's environment over ai-oncall's Datadog keys and the `core` and `dbm` toolsets, so each call runs as ai-oncall's service account, the keys stay in this process's memory, and the server lists Database Monitoring's query sample, plan and performance tools beside its default ones, which no `execute_code` API reaches."""
     server = next(iter(agents.datadog_servers()["mcpServers"].values()))
-    env = os.environ | keys()
+    env = os.environ | keys() | TOOLSETS
     url = filled(server["url"], env)
     headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"} | {name: filled(value, env) for name, value in server["headers"].items()}
     numbers = itertools.count(1)

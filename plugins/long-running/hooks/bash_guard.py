@@ -106,12 +106,15 @@ NO_ROUTE = (
 
 DATADOG_CLI = "pup"
 DATADOG_READ = (
-    "refused: a drive session reads Datadog only through the Datadog MCP's tools, whose `execute_code` reaches any Datadog"
-    " API, never the `pup` command, whose OAuth grant keeps the scopes its `pup auth login` was granted while later pup"
-    " releases add commands needing more, such as profiling's `continuous_profiler_read`. Load them with ToolSearch"
-    " `select:mcp__plugin_datadog_mcp__execute_code,mcp__plugin_datadog_mcp__search_datadog_sdk` and make the same read"
-    " through `execute_code`, or on a Sprite lane, which has none of them, through `drive datadog execute_code -` with its"
-    " JSON arguments on stdin"
+    "refused: a drive session reads Datadog only through the Datadog MCP's tools, whose `execute_code` reaches every "
+    "Datadog API but Database Monitoring's, never the `pup` command, whose OAuth grant keeps the scopes its `pup auth "
+    "login` was granted while later pup releases add commands needing more, such as profiling's "
+    "`continuous_profiler_read`. Load them with ToolSearch "
+    "`select:mcp__plugin_datadog_mcp__execute_code,mcp__plugin_datadog_mcp__search_datadog_sdk` and make the same read "
+    "through `execute_code`, or on a Sprite lane, which has none of them, through `drive datadog execute_code -` with its"
+    " JSON arguments on stdin. Read Database Monitoring's query samples, plans and query performance, such as "
+    "`search_datadog_database_samples`, on this Mac or a Sprite through `drive datadog <tool> -`, since only it asks the "
+    "server for Database Monitoring's tools"
 )
 
 
