@@ -4490,6 +4490,8 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     monkeypatch.setattr(reads, "answer", stopped)
     with pytest.raises(KeyboardInterrupt):
         watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    alive = state.alive
+    monkeypatch.setattr(state, "alive", lambda pid: pid != os.getpid() and alive(pid))
     replies = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"the next watch ran {question} again"))
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
@@ -4585,6 +4587,28 @@ def test_a_reader_that_finishes_as_the_watch_checks_it_starts_no_second_reader_a
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_read"], {}, {}, {})
+
+
+def test_a_reader_the_watch_saved_no_pid_for_reads_as_running_from_the_pid_it_kept_so_only_its_final_answer_goes(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question = "READ ccn answer search repro cut"
+    deliver(monkeypatch, [message("question", question, id="relay_read")])
+    ran, replies = [], []
+    restarted = watch.Watcher(remote, offset=state.events_end(remote))
+
+    def answered_as_the_watch_restarts(question: str, root: Path, drive: str, job_id: str) -> str:
+        ran.append(question)
+        assert staged(watch.lane_lines, restarted, T0 + timedelta(seconds=5)) == []
+        return "m2065 the field facts"
+
+    monkeypatch.setattr(reads, "answer", answered_as_the_watch_restarts)
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    assert (ran, [args for args in replies if args[0] == "reply"]) == (
+        [question],
+        [("reply", "--id", "relay_read", "--run", RUN, "--body", "m2065 the field facts")],
+    )
 
 
 def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_runs_twice(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

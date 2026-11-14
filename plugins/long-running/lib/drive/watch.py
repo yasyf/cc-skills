@@ -972,10 +972,10 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> int:
 
 
 def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
-    """Run a lane's queued read here and keep its answer, and why it is no answer when it failed, under its message id, for the watch to send. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again. An answer past one Orca relay message that the lane's Sprite cannot take yet is kept whole, for the watch to write there as it replies."""
+    """Run a lane's queued read here and keep its answer, and why it is no answer when it failed, under its message id, for the watch to send. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save, so a watch whose own save of that id a newer install's save refused still reads it running. An answer past one Orca relay message that the lane's Sprite cannot take yet is kept whole, for the watch to write there as it replies."""
     data = state.load(name)
     question = data["jobs"][job_id]["reads"][message_id]
-    keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF])
+    keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF], reader=os.getpid())
     try:
         said = reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id)
     except reads.ReadError as error:
@@ -1000,9 +1000,12 @@ def answer_kept(name: str, job_id: str, message_id: str, kept: list[str | None])
     install.handed(newer, name, ["job", "answered", job_id], receipt, {"message": message_id, "answer": kept}, f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS)
 
 
-def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
+def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None], reader: int | None = None) -> None:
     with state.edit(name) as data:
-        data["jobs"][job_id].setdefault("read_answers", {})[message_id] = kept
+        job = data["jobs"][job_id]
+        job.setdefault("read_answers", {})[message_id] = kept
+        if reader:
+            job.setdefault("readers", {})[message_id] = reader
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
