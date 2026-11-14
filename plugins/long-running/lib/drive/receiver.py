@@ -23,6 +23,7 @@ PORT = 40990
 FUNNEL_PORT = 8443
 FUNNEL_PATH = "/github"
 EVENTS = ["pull_request", "pull_request_review", "check_run", "status", "push", "workflow_run", "release"]
+CARRYING = ("pull_request", "missed")
 MARKS = ("ci", "release")
 DELIVERY = "delivery"
 LABEL = f"{launchd.LABEL}.receiver"
@@ -125,7 +126,7 @@ def answering() -> bool:
 
 
 def named(event: str, payload: dict | None, prs: dict[int, dict]) -> list[int]:
-    """The numbers of the unmerged PRs one drive tracks in a delivery's repository, prs, that the delivery names: a PR's or its review's by number, a check run's by its PRs and its head, a commit status's by the head or branch it is on, and a push's by the base it moves, whose PRs GitHub merges again; a missed delivery names them all."""
+    """The numbers of the PRs of one drive in a delivery's repository, prs, that the delivery names, its unmerged PRs and, for a delivery of CARRYING, the PRs it does not track that carry a stopped builder's parts: a PR's or its review's by number, a check run's by its PRs and its head, a commit status's by the head or branch it is on, and a push's by the base it moves, whose PRs GitHub merges again; a missed delivery names them all."""
     match event:
         case "pull_request" | "pull_request_review":
             found = {payload["pull_request"]["number"]}
@@ -176,10 +177,13 @@ def hear(repo: str, kind: str, since: str | None) -> None:
 
 
 def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:
-    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it."""
+    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it. Only a delivery of CARRYING, which a PR's merge, close or reopen is, reads the drive's jobs too, for the PRs it does not track that carry a stopped builder's parts, by state.carrier_keys."""
     said = []
     for name in state.names():
-        prs = {int(key.partition("#")[2]): pr for key, pr in state.stored(name, ("prs",)).get("prs", {}).items() if key.partition("#")[0] == repo and pr["state"] != "merged"}
+        stored = state.stored(name, ("prs", "jobs") if event in CARRYING else ("prs",))
+        prs = {int(key.partition("#")[2]): pr for key, pr in stored.get("prs", {}).items() if key.partition("#")[0] == repo and pr["state"] != "merged"}
+        if event in CARRYING:
+            prs |= {int(key.partition("#")[2]): {} for key in state.carrier_keys(stored) if key.partition("#")[0] == repo}
         if numbers := named(event, payload, prs):
             state.append_event(name, DELIVERY, repo=repo, numbers=numbers, event=event, guid=guid)
             said.append(f"{name} {' '.join(f'#{number}' for number in numbers)}")

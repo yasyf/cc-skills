@@ -2236,6 +2236,50 @@ def test_a_merged_pr_delivers_a_work_part_through_drive_order_posted_which_refus
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
 
 
+@pytest.mark.parametrize(
+    ("now", "said"),
+    [
+        ("MERGED", f"{OTHER} merged, so drive order posted o2 {state.pr_url(OTHER)} --part 'port the fixes' delivers it"),
+        ("CLOSED", f"{OTHER} closed unmerged, carrying nothing of j2's work: start its builder with drive job add builder --order o2 --part 'port the fixes' --goal 'port the fixes'"),
+    ],
+)
+def test_a_pr_the_drive_does_not_track_carries_the_part_of_the_stopped_builder_no_agent_took_that_keeps_it_while_open_and_its_delivery_says_how_it_ended(
+    demo: str, monkeypatch: pytest.MonkeyPatch, now: str, said: str
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    monkeypatch.setattr(state, "now", lambda: T0 - timedelta(minutes=10))
+    calls = serve(monkeypatch, {OTHER: read()})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    port = "port the fixes"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text=port, jobs=["j2"], kind="build", parts={port: state.new_part()}, updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", goal=port, state="stopped", parts=[port], updated=earlier)
+    assert cli.main(["job", "set", "j2", "--pr", state.pr_url(OTHER), "--drive", demo]) == 0
+    watching = watcher(demo)
+    assert (watch.run_pass(watching, T0), watch.run_pass(watching, T0 + timedelta(seconds=5)), calls) == ([], [], [[KEY, OTHER]])
+    assert render.part_line(state.load(demo), "o2", port) == f'"{port}": builder j2 stopped with {state.pr_url(OTHER)} carrying it'
+    calls = serve(monkeypatch, {OTHER: read(state=now)})
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="pull_request", guid="g1")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f'ORPHAN o2 "{port}": {said}']
+    assert (watch.run_pass(watching, T0 + timedelta(seconds=15)), calls) == ([], [[OTHER]])
+
+
+def test_a_stopped_builder_no_agent_took_holds_its_part_as_work_under_way_only_while_it_keeps_a_pr(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0)
+    asked = "is the port already written?"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()})
+        data["jobs"]["j2"] = job(order="o2", state="stopped", prs=[state.pr_url(OTHER)], parts=[asked])
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 2
+    assert f'--part "{asked}": refused, builder j2 works on it, so it is work under way, never an answer' in capsys.readouterr().err
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["prs"] = []
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 0
+    assert state.load(demo)["orders"]["o2"]["parts"][asked]["answer"]
+
+
 def test_only_the_session_an_orders_orphan_lines_reach_runs_drive_order_posted_and_each_refusal_names_that_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

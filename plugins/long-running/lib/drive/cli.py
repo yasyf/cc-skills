@@ -797,7 +797,7 @@ def order_set(args: argparse.Namespace) -> int:
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
-    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while a builder, codex or design job or a drive PR is on one, since that part is work under way, but for a builder still waiting on research with no agent, which the answer stops."""
+    """The parts --part sorts as --kind names, refused without --kind and, as an answer, while a builder, codex or design job or a drive PR is on one, since that part is work under way, but for a builder still waiting on research with no agent, which the answer stops, and one stopped before any agent took it that holds no PR, since nothing of its work is under way."""
     if not named:
         return []
     if not kind:
@@ -805,7 +805,11 @@ def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> 
     parts = pick_parts(order_id, data["orders"][order_id], named)
     for part in parts if kind == "answer" else []:
         jobs = dict(state.part_jobs(data, order_id, part))
-        working = [f"{job['kind']} {job_id}" for job_id, job in jobs.items() if job["kind"] in state.WORK_KINDS and not state.unstarted_builder(data, job)]
+        working = [
+            f"{job['kind']} {job_id}"
+            for job_id, job in jobs.items()
+            if job["kind"] in state.WORK_KINDS and not state.unstarted_builder(data, job) and not (state.stopped_untaken(job) and not job["prs"])
+        ]
         working += [key for key, pr in data["prs"].items() if pr["job"] in jobs]
         if working:
             raise DriveError(f'--part "{part}": refused, {", ".join(working)} works on it, so it is work under way, never an answer: its builder\'s DONE or a merged PR delivers it')
@@ -4612,7 +4616,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         type=str.strip,
-        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left; with --kind build, work again, making an answer order a build whose other parts stay answers",
+        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left, and a builder stopped before any agent took it that holds no PR; with --kind build, work again, making an answer order a build whose other parts stay answers",
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
@@ -4804,7 +4808,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--said", help="its latest line")
     verb.add_argument("--due", help="its clock: when it must have returned, said once as DUE if it still runs then, a time or +10m")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
-    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one")
+    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one; a PR the drive does not track, kept on a builder stopped before any agent took it, such as a teammate's open PR its reader found already doing its work, carries its parts while GitHub reads it open, and once it merged the part's ORPHAN line names the drive order posted that delivers it")
     named = verb.add_mutually_exclusive_group()
     named.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
     named.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the parts of its own order this job delivers, replacing its list")
