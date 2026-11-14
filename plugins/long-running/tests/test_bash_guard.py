@@ -471,9 +471,64 @@ def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass
 
 def test_a_script_a_shell_only_parses_runs_none_of_its_commands(demo: str, tmp_path: Path) -> None:
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(scratch(tmp_path, str(tmp_path / "j2386")))}
-    assert bash_guard.deny_reason(bash("zsh fetch-one.sh x", **builder)).startswith("refused: this reads or writes `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1`")
+    assert bash_guard.deny_reason(bash("zsh fetch-one.sh x", **builder)).startswith("refused: this reads or writes `artifacts-prod/iris/teams/team_01demo/runs/blobs/x`")
     parsed = ["zsh -n fetch-one.sh", "bash -xn fetch-one.sh", "chmod +x fetch-one.sh && zsh -n fetch-one.sh && drive job set j2386 --repro fetch-one.sh"]
     assert [bash_guard.deny_reason(bash(command, **builder)) for command in parsed] == [None] * len(parsed)
+
+
+def sand_scripts(checkout: Path) -> Path:
+    """go/sand's scripts as j4610's `vet.sh generate-next` ran them: vet.sh and build.sh pick a verb with `case "${1:-}"`, and only build.sh's unpack verb reaches release.sh, whose upload writes the team bucket artifacts-prod."""
+    scripts = checkout / "go" / "sand" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "vet.sh").write_text(
+        '#!/usr/bin/env bash\nSCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nSAND_DIR="$(cd "${SCRIPTS_DIR}/.." && pwd)"\ncd "${SAND_DIR}"\n'
+        'prepare() {\n    "${SCRIPTS_DIR}/build.sh" generate "$1"\n    "${SCRIPTS_DIR}/build.sh" unpack-sandsql-server-local\n}\n'
+        'generate_next() {\n    "${SCRIPTS_DIR}/build.sh" generate go/sand/next\n}\n'
+        'vet_remote() {\n    "${SCRIPTS_DIR}/build.sh" "$@"\n}\n'
+        'case "${1:-}" in\n    vet) prepare go/sand ;;\n    generate-next) generate_next ;;\n    vet-remote) vet_remote "${@:2}" ;;\n    *)\n        exit 2\n        ;;\nesac\n'
+    )
+    (scripts / "build.sh").write_text(
+        '#!/usr/bin/env bash\nSCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\nsource "${SCRIPTS_DIR}/helpers.sh"\n'
+        'generate() {\n    sqlc generate --file "$1/sqlc.yaml"\n}\n'
+        'unpack_sandsql_server_local() { "${SCRIPTS_DIR}/release.sh" build-sandsql-server --debug; }\n'
+        'case "${1:-}" in\n    generate) generate "${2:-}" ;;\n    unpack-sandsql-server-local) unpack_sandsql_server_local ;;\n    stage-helpers) stage_helpers ;;\nesac\n'
+    )
+    (scripts / "helpers.sh").write_text('stage_helpers() {\n    aws s3 sync ./helpers s3://artifacts-prod/helpers/\n}\n')
+    (scripts / "release.sh").write_text(
+        '#!/usr/bin/env bash\nupload_release() {\n    aws s3 cp ./sand.tar.gz "s3://artifacts-prod/sand/$1/"\n}\n'
+        'case "$1" in\n    build-sandsql-server) cargo build -p sandsql-server "${@:2}" && upload_release 0.1.2 ;;\n    upload) upload_release "$2" ;;\nesac\n'
+    )
+    return scripts
+
+
+def test_a_followed_script_runs_only_its_top_level_commands_the_functions_they_call_and_the_case_arms_its_arguments_pick(demo: str, monorepo: str) -> None:
+    sand_scripts(Path(monorepo))
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": monorepo}
+    passed = [
+        "cd go/sand && nice -n 10 scripts/vet.sh generate-next",
+        "go/sand/scripts/vet.sh vet-remote generate go/sand",
+        "go/sand/scripts/build.sh generate go/sand",
+        "go/sand/scripts/release.sh build",
+    ]
+    assert [bash_guard.deny_reason(bash(command, **builder)) for command in passed] == [None] * len(passed)
+    refused = {
+        "go/sand/scripts/vet.sh vet": "artifacts-prod/sand/0.1.2/",
+        "go/sand/scripts/vet.sh vet-remote unpack-sandsql-server-local": "artifacts-prod/sand/0.1.2/",
+        'go/sand/scripts/vet.sh "$VERB"': "artifacts-prod/sand/0.1.2/",
+        "go/sand/scripts/release.sh upload 0.1.3": "artifacts-prod/sand/0.1.3/",
+        "go/sand/scripts/build.sh stage-helpers": "artifacts-prod/helpers/",
+    }
+    for command, location in refused.items():
+        assert bash_guard.deny_reason(bash(command, **builder)).startswith(f"refused: this reads or writes `{location}` where the job runs"), command
+
+
+def test_a_cd_to_a_folder_the_guard_cannot_expand_leaves_the_folder_unknown_so_no_path_it_joins_crashes_the_guard(demo: str, tmp_path: Path) -> None:
+    root = tmp_path / "j4610"
+    root.mkdir()
+    (root / "outer.sh").write_text(f'#!/bin/zsh\ncd "$(cd "${{BUILD_ROOT}}/{"x" * 5000}" && pwd)"\n./inner.sh\n')
+    (root / "inner.sh").write_text("#!/bin/zsh\naws s3 cp ./a.ltx s3://artifacts-prod/iris/teams/team_x/runs/a.ltx\n")
+    reason = bash_guard.deny_reason(bash("zsh outer.sh", cwd=str(root), agent_id="a-1", agent_type="long-running:builder"))
+    assert reason.startswith("refused: this reads or writes `artifacts-prod/iris/teams/team_x/runs/a.ltx` where the job runs")
 
 
 def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_box_call_is_not(demo: str, monorepo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -531,7 +586,7 @@ def test_a_script_setting_its_bucket_from_its_own_json_table_is_judged_by_the_bu
     (tools / "artifacts.json").write_text(json.dumps({"bucket": "frg-ci-cache"}))
     assert bash_guard.deny_reason(hashed) is None
     (tools / "artifacts.json").write_text(json.dumps({"bucket": "artifacts-prod"}))
-    assert bash_guard.deny_reason(hashed).startswith("refused: this reads or writes `artifacts-prod/$2/claim` where the job runs")
+    assert bash_guard.deny_reason(hashed).startswith("refused: this reads or writes `artifacts-prod/sandsql-images-linux-amd64/claim` where the job runs")
     (tools / "artifacts.json").write_text(json.dumps({"buckets": ["artifacts-prod"]}))
     assert bash_guard.deny_reason(hashed) is None
 
@@ -562,7 +617,7 @@ def test_the_buckets_the_monorepo_names_as_build_and_release_output_pass_while_t
     (tools / "cc-remote" / "bin").mkdir(parents=True)
     (tools / "cc-remote" / "bin" / "cc-remote").write_text(
         '#!/bin/sh\nroot="$(cd "$(dirname "$0")/../../.." && pwd)"\nvalidate_agents_payload() {\n  "$root/tools/cc-remote/payload-url" validate\n}\n'
-        'exec mise x "cc-remote@$version" -- cc-remote "$@"\n'
+        'if creates_with_agents_payload "$@"; then\n  validate_agents_payload\nfi\nexec mise x "cc-remote@$version" -- cc-remote "$@"\n'
     )
     (tools / "cc-remote" / "payload-url").write_text('#!/bin/sh\nroot="$(cd "$(dirname "$0")/../.." && pwd)"\nexec "$root/tools/artifact.sh" presign cc-remote-agents-tools "$seed"\n')
     (tools / "artifact.sh").write_text(
