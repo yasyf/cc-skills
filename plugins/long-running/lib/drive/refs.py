@@ -175,8 +175,8 @@ def card(cards: dict, data: dict, waits: str) -> dict:
     if closed := view.closed_card(cards, waits):
         return {"kind": "card", "title": closed["title"], "url": closed["url"], "board": closed["url"]}
     raise DriveError(
-        f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive> | grep -i '<words of its title>'` prints each open card's"
-        " waits id, permalink and title on one line, and with `--closed` each settled card's"
+        f"{{card:{waits}}} names no card the drive drew, open or settled; `drive status <job or order>` prints the waits id of each question card its jobs asked on its `asks him:` line,"
+        " and `cc-slack drive-cards --drive <drive> | grep -i '<words of its title>'` each open PR card's waits id, permalink and title on one line, and with `--closed` each settled card's"
     )
 
 

@@ -597,7 +597,7 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
 def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
     return [
         entry
-        for entry in view.waiting_on_him(data, watcher.cards)
+        for entry in view.waiting_on_him(data, view.with_questions(data, watcher.cards))
         if heard_job(watcher, data, data["jobs"][entry["job"]])
         and not any(view.names_card(entry["card"], said) for said in data["jobs"][entry["job"]]["waiting_said"])
         and not ((claimer := data["jobs"][entry["job"]]["waiting_claims"].get(entry["wait"])) and started(claimer["pid"]) == claimer["started"])

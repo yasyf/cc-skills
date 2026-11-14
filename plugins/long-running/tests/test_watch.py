@@ -2334,7 +2334,7 @@ def test_a_built_job_whose_card_did_not_draw_is_said_to_wait_on_a_card_never_pos
     ],
 )
 def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whatever_words_its_line_names_it_in(
-    demo: str, monkeypatch: pytest.MonkeyPatch, builder: str, reader: str, said: str, card: str
+    demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict], builder: str, reader: str, said: str, card: str
 ) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     with state.edit(demo) as data:
@@ -2348,7 +2348,8 @@ def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whateve
         state.take_result(data, builder, said)
         data["jobs"][builder]["updated"] = state.stamp(T0 - timedelta(minutes=10))
     assert state.load(demo)["jobs"][builder]["waits"] == [card]
-    assert watch.run_pass(watcher(demo), T0) == []
+    branch = said.removeprefix("BUILT ").partition(",")[0]
+    assert watch.run_pass(watcher(demo), T0) == [f"WAITING-ON-HIM {card} blocks {builder}, built on {branch}, since {render.when(state.stamp(T0))}, posted {POSTED}"]
 
 
 def test_a_builder_waiting_on_its_readers_card_that_drive_job_card_refused_is_said_to_wait_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
