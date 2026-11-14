@@ -113,7 +113,7 @@ SAY = {
         "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, pictures and screen"
         " recordings included, and"
         " show it on the drive's dashboard, in one call; with channel_id, post a line, or a card's line linking the card it draws in"
-        " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with a person's user id and no thread_ts a new post in the group DM of that person, him and the bot, through cc-slack send; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
+        " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with no thread_ts a new post through cc-slack send, at the root of that channel, such as a staging claim to its members, or with a person's user id in the group DM of that person, him and the bot; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. A post at a channel's root speaks to its members, never him, so none of the checks of a line to him, such as its length, his time away or the card it links, holds it, while Jev still checks each claim of a handler's post against the read it names. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
         " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} links what that record"
         " measured, its url, under the first clause of its own words, at most ten, or under the words after a |. {answer:<id>}"
@@ -157,8 +157,9 @@ SAY = {
             "channel_id": {
                 "type": "string",
                 "description": (
-                    "The channel of a thread outside his DM the post goes in, such as an alert's, with its thread_ts, or a person's user id with no"
-                    " thread_ts for the group DM of that person, him and the bot; none for his DM. With card or tap_prs, the card goes up in his DM"
+                    "The channel of a thread outside his DM the post goes in, such as an alert's, with its thread_ts, with no thread_ts the channel"
+                    " at whose root it posts, such as a staging claim's, or a person's user id with no thread_ts for the group DM of that person, him"
+                    " and the bot; none for his DM. With card or tap_prs, the card goes up in his DM"
                     " and its line, linking it, in this thread. It takes no about, and an edit names its post by its permalink alone"
                 ),
             },
