@@ -475,9 +475,11 @@ def question_item(drive: dict, card: dict, features: list[dict], waiting: list[d
 
 
 def held_up(drive: dict, card: dict) -> list[dict]:
-    """The green approved open PRs and built jobs that wait on his question card, each PR by its title and link and each job by its goal and branch."""
+    """The green approved open PRs his question card holds from landing, by land.pr_cards, and the built jobs that wait on it, each PR by its title and link and each job by its goal and branch."""
+    from drive import land
+
     names = {card["card"].get("waits"), message_key(card["url"])}
-    finished = [pr for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and any(message_key(wait) in names for wait in pr["waits"])]
+    finished = [pr for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and any(message_key(held) in names for held in land.pr_cards(drive, pr))]
     built = [job for job in drive["jobs"].values() if job["state"] == "built" and any(message_key(wait) in names for wait in job["waits"])]
     return [
         *({"kind": "pr", "feature": pr["order"], "title": pr_title(pr), "url": pr["url"]} for pr in finished),

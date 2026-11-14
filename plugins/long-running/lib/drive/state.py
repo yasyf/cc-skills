@@ -743,7 +743,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
                 held["tell_said"] = None
     for pr in data["prs"].values():
         waits = pr.get("waits")
-        pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
+        pr["waits"] = [wait for wait in (waits if isinstance(waits, list) else [waits] if waits else []) if not card_wait(data, wait)]
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
@@ -1266,7 +1266,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card and each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1282,10 +1282,10 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         job["waited"] = stage.waited(data, job_id, wait_words(line, report))
         job["waits"] = list(dict.fromkeys([*job["waits"], *job["waited"]["waits"]]))
         for key in job["waited"]["red"]:
-            data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *job["waited"]["waits"]])
+            data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *(wait for wait in job["waited"]["waits"] if not card_wait(data, wait))])
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
-            data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"]), *named_parts(data, waiting["cards"])])
+            data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *named_parts(data, waiting["cards"])])
     if taken == "done" and job["kind"] == "builder":
         for order_id in open_incidents(data, [job["order"], *job["carries"]]):
             if {INCIDENT_STOP, INCIDENT_ROLLBACK} & set(job_parts(job, order_id)):
@@ -1307,7 +1307,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
 
 
 def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
-    """Each open card of his holding a job's work, its PR when given, by holds_work, by its link or else its waits id: the one rule the lander, the `bash_guard` hook and a BUILT line's waits read, so a builder built beside its reader's card waits on that card from the drive's records, never from how its line words it, and on none whose `Holds:` line reads none."""
+    """Each open card of his holding a job's work, its PR when given, by holds_work, by its link or else its waits id: the one rule by which a card holds work from landing, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
     from drive import view
 
     job = data["jobs"][job_id]

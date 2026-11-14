@@ -8,7 +8,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import SESSION, commit_files, git_in
-from drive import agents, github, install, land, limits, orca, settled, state, view
+from drive import agents, github, install, land, limits, orca, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -54,8 +54,7 @@ def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run:
     with state.edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "a-1"
     cards = ["demo:j2-1-a"]
-    monkeypatch.setattr(view, "live_cards", lambda name: {})
-    monkeypatch.setattr(land, "open_cards", lambda data, job_id, pr, live, exempt=None: cards if job_id == "j1" and exempt != state.FLAKE_FIX else [])
+    monkeypatch.setattr(land, "open_cards", lambda data, job_id, pr, exempt=None: cards if job_id == "j1" and exempt != state.FLAKE_FIX else [])
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     opening = "cd /work && ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
     reason = bash_guard.deny_reason(bash(opening, **builder))

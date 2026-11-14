@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, card, github, land, limits, public_check, reports, settled, slack, state, superseded, view
+from drive import agents, brief, card, github, land, limits, public_check, reports, settled, slack, state, superseded
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.shell import expanded, runnable, templates
@@ -44,7 +44,7 @@ QUEUE_REASON = (
     ' PR of its stack. An incident fix skips the queue only once `drive pr set <url> --exempt "incident fix"` records it'
 )
 CARD_REASON = (
-    "Refused on purpose: {key} waits on his open card {cards}, and its recommended option never stands in for his answer."
+    "Refused on purpose: his open card {cards} holds {key}, and its recommended option never stands in for his answer."
     " Land and enqueue nothing: return `WAITING {cards}`; the watch says FREE once he answers"
 )
 RELEASE_UNASKED = (
@@ -388,7 +388,7 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     if (judged := judged_by(key, shell.session)) is None:
         return None
     name, pr = judged
-    if shell.driving and (cards := land.pr_cards(state.load(name), pr, view.live_cards(name))):
+    if shell.driving and (cards := land.pr_cards(state.load(name), pr)):
         return CARD_REASON.format(key=key, cards=", ".join(cards))
     may_land, why = tap_verdict(pr)
     if not may_land:

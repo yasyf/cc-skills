@@ -86,43 +86,46 @@ def test_a_coordinators_agent_and_another_session_may_ship(demo: str, no_calls: 
     assert landing_guard.deny_reason(bash('ccx vcs ship -m "Fix: x"', session_id="elsewhere")) is None
 
 
-def test_landing_while_his_card_on_it_is_open_is_refused_naming_the_card_to_wait_on(drive_pr: str, no_calls: None) -> None:
-    approve(drive_pr)
+def ask(holds: str | None) -> None:
     with state.edit("demo") as data:
-        data["prs"][drive_pr]["waits"] = [CARD]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Ship it?", state.stamp(), holds=holds) | {"waits": CARD}]
+
+
+def answer() -> None:
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Ship it", None, at=state.stamp())
+
+
+def test_landing_while_his_card_holding_it_is_open_is_refused_naming_the_card_to_wait_on(drive_pr: str, no_calls: None) -> None:
+    approve(drive_pr)
+    ask(None)
     reason = landing_guard.deny_reason(bash("stack-enqueue 42"))
     assert reason == landing_guard.CARD_REASON.format(key=drive_pr, cards=CARD)
     assert f"return `WAITING {CARD}`" in reason
-    with state.edit("demo") as data:
-        data["prs"][drive_pr]["waits"] = []
-        data["jobs"]["j1"]["waits"] = [CARD]
-    assert landing_guard.deny_reason(bash("stack-enqueue 42")) == reason
 
 
-def test_landing_a_pr_whose_job_waits_on_its_own_and_a_sibling_drive_pr_passes_since_no_pr_is_his_card(drive_pr: str, no_calls: None) -> None:
+def test_landing_a_pr_whose_job_waits_on_drive_prs_and_its_own_holds_none_card_passes_since_only_a_holds_line_holds_a_pr(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
+    ask("")
     sibling = state.pr_key(SIBLINGS[1])
     with state.edit("demo") as data:
         data["prs"][sibling] = state.new_pr(SIBLINGS[1], "j1", "o1")
-        data["jobs"]["j1"]["waits"] = [drive_pr, sibling]
+        data["jobs"]["j1"]["waits"] = [drive_pr, sibling, CARD]
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["waits"].append(CARD)
-    assert landing_guard.deny_reason(bash("stack-enqueue 42")) == landing_guard.CARD_REASON.format(key=drive_pr, cards=CARD)
 
 
 def test_the_immediate_fix_lands_while_his_card_on_the_proper_fix_is_open(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
+    ask(None)
     with state.edit("demo") as data:
-        data["jobs"]["j1"] |= {"waits": [CARD], "parts": [state.IMMEDIATE_FIX]}
+        data["jobs"]["j1"]["parts"] = [state.IMMEDIATE_FIX]
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 
 
 def test_landing_once_he_answered_the_card_passes(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
-    with state.edit("demo") as data:
-        data["prs"][drive_pr]["waits"] = [CARD]
-    state.cards_path("demo").write_text(json.dumps({"source": "live", **view.NO_CARDS}))
+    ask(None)
+    answer()
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 
 
@@ -147,8 +150,7 @@ def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_h
     drive_pr: str, sprite: list[list[str]], run: Run, no_calls: None
 ) -> None:
     approve(drive_pr)
-    with state.edit("demo") as data:
-        data["prs"][drive_pr]["waits"] = [CARD]
+    ask(None)
     lane = bash("stack-enqueue 41 42", session_id="sprite")
     assert landing_guard.deny_reason(lane) == landing_guard.CARD_REASON.format(key=drive_pr, cards=CARD)
     assert sprite == [["drive", "job", "held", "--json", "--pr=Forge-AI/monorepo#41", "--pr=Forge-AI/monorepo#42"]]
@@ -156,7 +158,7 @@ def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_h
     assert landing_guard.deny_reason(bash("stack-enqueue --check 41 42", session_id="sprite")) is None
     assert landing_guard.deny_reason(bash("gh pr merge 9 -R yasyf/cc-skills --squash", session_id="sprite")) is None
     assert len(sprite) == 1
-    state.cards_path("demo").write_text(json.dumps({"source": "live", **view.NO_CARDS}))
+    answer()
     assert landing_guard.deny_reason(lane) is None
     assert run("job", "held", "--pr", PR) == (0, f"no open card of his holds {drive_pr}")
 
