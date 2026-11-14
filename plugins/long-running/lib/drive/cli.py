@@ -332,16 +332,16 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             need_thread(order_id, order)
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
         started += [state.INCIDENT_BRIEF] if started else []
-        head = order["joins"]
         repeats = joined and not state.hurts_now(data, order)
-        carriers = [job_id for job_id in data["orders"][head]["jobs"] if data["jobs"][job_id]["order"] == head and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES] if repeats else []
+        group = [other for other in state.incident_orders(data, order_id) if other != order_id] if repeats else []
+        carriers = list(dict.fromkeys(job_id for other in group for job_id in data["orders"][other]["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES))
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
     if joined:
         carried = (
             f"carried by {', '.join(carriers)}, so no job starts on it"
             if carriers
-            else f"no unfinished job on {head} carries it, so its jobs are added on {order_id}"
+            else f"no unfinished job on {', '.join(group)} carries it, so its jobs are added on {order_id}"
             if repeats
             else f"its owner job carries this order with --carries {order_id}"
         )
