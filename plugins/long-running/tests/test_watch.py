@@ -2310,6 +2310,32 @@ def test_a_stopped_builder_no_agent_took_holds_its_part_as_work_under_way_only_w
     assert state.load(demo)["orders"]["o2"]["parts"][asked]["answer"]
 
 
+@pytest.mark.parametrize(("finished", "pr"), [("stopped", "merged"), ("failed", "closed"), ("done", None)])
+def test_a_part_whose_codex_job_finished_with_no_open_pr_sorts_as_an_answer_while_a_running_one_or_an_open_pr_holds_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], finished: str, pr: str | None
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0)
+    asked = "why do old runs fail?"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()})
+        data["jobs"]["j2"] = job(order="o2", kind="codex", parts=[asked])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 2
+    assert f'--part "{asked}": refused, codex j2, {OTHER} works on it, so it is work under way, never an answer' in capsys.readouterr().err
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = finished
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 2
+    assert f'--part "{asked}": refused, {OTHER} works on it, so it is work under way, never an answer' in capsys.readouterr().err
+    with state.edit(demo) as data:
+        if pr:
+            data["prs"][OTHER]["state"] = pr
+        else:
+            del data["prs"][OTHER]
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 0
+    assert state.load(demo)["orders"]["o2"]["parts"][asked]["answer"]
+
+
 def test_only_the_session_an_orders_orphan_lines_reach_runs_drive_order_posted_and_each_refusal_names_that_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

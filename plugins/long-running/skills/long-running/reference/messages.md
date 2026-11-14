@@ -113,7 +113,7 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   `say(record=<the report's seq>)`, on the order the report is about, in whatever thread it goes, which delivers each part
   the report's `part` attr names, or each part of an order its `close` attr names, whatever the
   post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
-  work he ordered, every part of a build order or an incident and a part of an order of no kind
+  work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind
   that a builder, codex or design job holds or held or a design lists, unless
   `drive order set <o> --kind answer --part "<part>"` sorted it as an answer, since only a
   builder or codex job returning `DONE`, or a merged PR, does, so `record_lines` refuses a report naming one

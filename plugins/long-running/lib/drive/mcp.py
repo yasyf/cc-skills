@@ -195,7 +195,7 @@ SAY = {
                     "The seq of the report record this post carries, which puts the post on the order the report is about, where it"
                     " delivers each part its part attr names,"
                     " `<o>:<part>` items separated by `;`, on that order and every other order an item names, or every part when its"
-                    " close attr names the order, but no work he ordered, every part of a build order or an incident and a part of an order of no"
+                    " close attr names the order, but no work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no"
                     " kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted"
                     " it as an answer, which only a builder or codex job's DONE or a merged PR"
                     " delivers; a record naming neither, as one with progress=true, is a progress line"

@@ -328,7 +328,7 @@ def test_a_post_report_naming_one_part_goes_out_while_a_finished_job_holds_anoth
         assert record_lines.decision(coordinator(turn, **post, attrs={"job": "j1", **named})) is None
 
 
-def test_a_report_on_an_open_incident_names_none_of_its_parts_since_each_is_work_he_ordered(
+def test_a_report_on_an_open_incident_names_its_first_check_but_never_its_fix_since_the_fix_is_work_he_ordered(
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Journal", "the journal will not open on two Macs", "--parts", "fix", "first check")
@@ -338,6 +338,7 @@ def test_a_report_on_an_open_incident_names_none_of_its_parts_since_each_is_work
         data["jobs"]["j1"]["state"] = "done"
     mechanism = {"kind": "report", "text": "POST mechanism found: the failing Macs run an older sand, and no release has reached them yet", "to": TO}
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
+    assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:first check"})) is None
     reason = refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
     assert state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", "close": "o1"})) is None
