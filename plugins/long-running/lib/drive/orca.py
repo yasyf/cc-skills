@@ -356,7 +356,7 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
 
 
 def sprite_transcripts(drive: str, brief: str) -> str:
-    """The brief with each Transcripts: item naming a path no READ serves, a transcript on this Mac outside the drive's folder or a codex run's folder, named instead by `drive job replies <j>`, which prints every return that job kept, since a Sprite opens no path on this Mac."""
+    """The brief with each Transcripts: item naming a path no READ serves, a transcript on this Mac outside the drive's folder, named instead by `drive job replies <j>`, which prints every return that job kept, since a Sprite opens no path on this Mac; a path a READ serves stays, a codex run's folder included, which a READ lists file by file."""
 
     def served(item: re.Match) -> str:
         return item[0] if any(text is not None for text in drive_files(drive, item[3]).values()) else f"- {item[1]} {item[2]}: drive job replies {item[1]}"
