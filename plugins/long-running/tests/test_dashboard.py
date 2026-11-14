@@ -637,7 +637,7 @@ def test_a_thread_is_read_only_for_an_ask_of_this_drive(monkeypatch: pytest.Monk
         connection.close()
     server.shutdown()
     assert statuses == {"1794257898.401849": 200, "1794000000.000001": 404}
-    assert read == [("thread", "--channel", "D123", "--thread", "1794257898.401849", "--limit", dashboard.THREAD_MESSAGES)]
+    assert read == [("thread", "--channel", "D123", "--thread", "1794257898.401849", "--limit", dashboard.THREAD_MESSAGES, "--json")]
 
 
 def test_cited_code_is_read_at_its_prs_head_or_the_drives_default_branch_and_only_from_those(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -469,8 +469,9 @@ write-up; only the handler that writes to him writes prose.
 - The job's history, `jobs/<j>.replies.jsonl`, is its report: each `drive job report <j> -` adds
   its return there beside every earlier one, so no return, its own agent's, its lane's or anyone
   else's such as a coordinator restating its result, takes the place of another. Whoever acts on it
-  reads it with `drive job report <j>`, which prints every return the job took, newest first, each
-  earlier one under a line naming when the drive kept it, and an identical return once; an `ASK`
+  reads it with `drive job report <j>`, which prints the returns the job took, newest first, the
+  newest whole, each earlier one as a line naming when the drive kept it and its first line, every
+  one whole under `--all`, and an identical return once; an `ASK`
   keeps its block through `drive job ask` instead. `drive job replies <j>` prints each return
   oldest first, beside each message a remote lane sent.
 

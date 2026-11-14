@@ -60,8 +60,8 @@ TITLED = (
 )
 UNREAD = (
     "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={channel},"
-    " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"
-    " until you open that file and read its newest messages."
+    " thread_ts={thread}, since_ts=<the newest ts you read there>), or limit=1000 in place of since_ts for a thread you never read, then post."
+    " When the tool saves a long thread to a file, the call is not a read until you open that file and read its newest messages."
 )
 DRIVE_ID = re.compile(r"^\d+:\d+ drive-term '[oj]\d+'")
 CAUSE_RULE = (

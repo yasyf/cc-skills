@@ -322,7 +322,7 @@ refused a post he ordered.
 - `Native:`, `Decisions that bind:` and `Would he ask:` are where steps 2 and 5 start, never where
   they end. Read what `From` names yourself: the cci `read` tool for a defect record, his message for a
   ruling, his recorded answers for the decisions that bind.
-- Your order is the one whose `from` in `drive status --json` is your `From`, and your job its newest.
+- Your order and job are the ones the `Drive:` line closing your brief names; `drive status <order>` prints that order whole.
 - A ruling's rewrite changes in place the section of each prompt surface that states the rule: the
   skill's `SKILL.md` and reference pages, `agents/*.md`, the role rules in `lib/drive/render.py` and
   the drive MCP tool descriptions. A rule for one record, event, result or verb goes only in its
@@ -435,7 +435,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | --- | --- |
 | `READ <path> [<path>…]` | For a file under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/` or a brief `jobs/<job>.brief.md`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, and a path missing or resolving outside the folder answered as none. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show`, `ccn answer match` or `ccn answer list`, a show naming several IDs in one read and a pattern of several words one query, quoted or not: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
-| `READ cc-slack thread\|history <flags>` | For a Slack card, thread or channel, run by this Mac's cc-slack bot, which reads only conversations it is in: `cc-slack thread --url <permalink> --raw` for a message and its thread, `cc-slack history --channel <id> --limit <n> --raw` for a channel's or DM's newest top-level posts, `--raw` adding each message's blocks. Its output whole, as a file on your Sprite once past the 64 KiB one Orca relay message carries. |
+| `READ cc-slack thread\|history <flags>` | For a Slack card, thread or channel, run by this Mac's cc-slack bot, which reads only conversations it is in: `cc-slack thread --url <permalink>` for a message's thread, a line per message with its text whole, `--since-ts <ts>` for only what is newer, `cc-slack history --channel <id> --limit <n>` for a channel's or DM's newest top-level posts, a line each with its permalink, and `--raw` beside a message's `--url` for that one message as Slack sends it, with its blocks. Its output whole, as a file on your Sprite once past the 64 KiB one Orca relay message carries. |
 
 - Keep your report with `drive job report` and an `ASK` block with `drive job ask` as on this Mac,
   each refusing what it refuses on this Mac. `kept <your job>'s report: <its first line>` is the

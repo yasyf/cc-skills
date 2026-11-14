@@ -400,7 +400,7 @@ def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackErr
     """cc-slack's reply, read back from Slack, for a new post of words alone it reported failing: the bot's message sent since the call began, in the post's thread or at its channel's root, opening with the post's words, since cc-slack can post and then fail, as dm-status does when its deadline passes after the post went out; the error again when Slack holds no such message."""
     channel = post.get("channel_id") or slack.dm()
     if thread := post.get("thread_ts"):
-        read = slack.cc_slack("thread", "--channel", channel, "--thread", thread, "--since-ts", str(int(began)), "--limit", str(RECENT_POSTS))
+        read = slack.cc_slack("thread", "--channel", channel, "--thread", thread, "--since-ts", str(int(began)), "--limit", str(RECENT_POSTS), "--json")
         team_url = view.stored_cards(name)[0]["team_url"]
         messages = [
             message | {"permalink": f"{team_url}archives/{read['channel_id']}/p{message['ts'].replace('.', '')}?thread_ts={thread}&cid={read['channel_id']}"}

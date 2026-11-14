@@ -2127,7 +2127,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print every return the job took, newest first."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2175,7 +2175,7 @@ def job_report(args: argparse.Namespace) -> int:
         shown = f"{where}\n{said}" if said else where
         shown = "\n".join([shown, *registered, *fixes, *briefed, *render.builder_lines(data, added)])
         return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added})
-    text = state.report_text(name, args.id)
+    text = state.report_text(name, args.id, args.all)
     if not text and not job["said"]:
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
     if not text:
@@ -3961,7 +3961,7 @@ def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
             line
             for other_id, other in state.open_orders(data).items()
             if other_id != order_id and thread in slack.order_threads(data, other_id, other)
-            for line in render.order_block(data, other_id, other, True)
+            for line in render.order_block(data, other_id, other)
         ]
         return "\n".join(
             [args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
@@ -4099,7 +4099,7 @@ def status(args: argparse.Namespace) -> int:
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     project = state.session_project(data, session)
     runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None
-    return emit(args, render.status_text(data, seen, shown, runs), render.status_data(shown or data, seen, shown is not None))
+    return emit(args, render.status_text(data, seen, shown, runs), render.status_data(shown or data, seen, shown is not None, runs))
 
 
 def with_build(place: str, held: dict) -> str:
@@ -4906,16 +4906,17 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "report",
         parents=both,
-        help="keep a job's whole return in the drive, or print every return it took",
+        help="keep a job's whole return in the drive, or print the returns it took",
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
             " is kept here before it returns, piped in on stdin. With -, keep stdin in the job's history, which is its report,"
-            " set its state and said line from its first line, and print where; with nothing, print every return the job took,"
-            " its own agent's, its lane's and anyone else's, newest first."
+            " set its state and said line from its first line, and print where; with nothing, print the returns the job took,"
+            " its own agent's, its lane's and anyone else's, newest first, the newest whole and each earlier one as its first line."
         ),
     )
     verb.add_argument("id")
-    verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print every return it took, newest first")
+    verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print the returns it took, newest first")
+    verb.add_argument("--all", action="store_true", help="print every return the job took whole")
     verb.set_defaults(run=job_report)
     verb = job.add_parser(
         "brief",
@@ -5399,7 +5400,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=term)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
-    verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: a coordinator's own open orders, a line each, any other session's every open order")
+    verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: every open order a line each, a coordinator's only its own")
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")

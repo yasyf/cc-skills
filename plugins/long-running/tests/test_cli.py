@@ -465,7 +465,7 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
     orders, agentless, text = shown()
     assert (orders, agentless) == (["o2"], ["j2"])
     assert "ship the run page" not in text and "fix the watch" not in text
-    assert set(json.loads(run("status", "--json")[1])["orders"]) == {"o1", "o2", "o3"}
+    assert set(json.loads(run("status", "--json")[1])["orders"]) == {"o2"}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bound-to-none")
     assert shown()[:2] == (["o1", "o2", "o3"], ["j1", "j2", "j3"])
 
@@ -3443,7 +3443,10 @@ def test_job_report_prints_every_return_a_job_took_newest_first_whoever_sent_it_
     kept = json.loads(run("job", "replies", "j1", "--json")[1])
     assert [(reply["type"], reply["body"]) for reply in kept] == [("worker_done", blocked), ("worker_done", agents), ("worker_done", restated)]
     earlier = [state.EARLIER_RETURN.format(at=state.stamp(state.parse_time(reply["created_at"]).astimezone())) for reply in kept]
-    assert run("job", "report", "j1") == (0, f"{restated}\n{earlier[1]}\n{agents}\n{earlier[0]}\n{blocked}".rstrip("\n"))
+    assert run("job", "report", "j1", "--all") == (0, f"{restated}\n{earlier[1]}\n{agents}\n{earlier[0]}\n{blocked}".rstrip("\n"))
+    at = [state.stamp(state.parse_time(reply["created_at"]).astimezone()) for reply in kept]
+    lines = [state.EARLIER_LINE.format(at=at[1], line="DONE graded three PRs"), state.EARLIER_LINE.format(at=at[0], line="BLOCKED the diffs are not fetched")]
+    assert run("job", "report", "j1") == (0, "\n".join([restated.rstrip("\n"), *lines]))
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"], list(state_root.rglob("j1.md"))) == ("done", "DONE graded three PRs: two ports", [])
 
@@ -3483,7 +3486,7 @@ def test_a_report_an_older_install_kept_beside_a_job_moves_into_its_history_once
     assert (sorted(path.name for path in folder.iterdir()), [reply["body"] for reply in state.returns("demo", "j1")]) == (["j2.proof.txt"], ["DONE graded three PRs\n"])
     assert [reply["body"] for reply in state.returns("demo", "j2")] == ["DONE the lane's latest\n", "DONE graded two PRs\nCHECK: the diffs\n"]
     earlier = state.EARLIER_RETURN.format(at=state.stamp(older.astimezone()))
-    assert run("job", "report", "j2") == (0, f"DONE the lane's latest\n\n{earlier}\nDONE graded two PRs\nCHECK: the diffs")
+    assert run("job", "report", "j2", "--all") == (0, f"DONE the lane's latest\n\n{earlier}\nDONE graded two PRs\nCHECK: the diffs")
 
 
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
@@ -4849,7 +4852,7 @@ def test_job_report_prints_each_result_a_remote_lane_sent_newest_first_and_none_
     for hour, (kind, subject, body) in enumerate(sent):
         state.keep_reply("demo", "j1", {"created_at": f"2026-11-12T0{hour}:00:00+00:00", "id": f"msg_{hour}", "type": kind, "subject": subject, "body": body})
     earlier = state.EARLIER_RETURN.format(at=state.stamp(state.parse_time("2026-11-12T00:00:00+00:00").astimezone()))
-    assert run("job", "report", "j1") == (0, f"DONE installed 1.0.76\nCHECK: drive --version\n\n{earlier}\nDONE installed 1.0.75\nCHECK: drive --version")
+    assert run("job", "report", "j1", "--all") == (0, f"DONE installed 1.0.76\nCHECK: drive --version\n\n{earlier}\nDONE installed 1.0.75\nCHECK: drive --version")
 
 
 @pytest.fixture
@@ -5615,7 +5618,7 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     )
     assert place.waiting_builders(state.load(demo)) == ["j10"]
     assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1")[1]
-    assert json.loads(run("status", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
+    assert json.loads(run("status", "o1", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
     assert run("job", "add", "reader", "--order", "o1", "--part", "strip 1", "--goal", "read")[0] == 0
 
 
@@ -5913,7 +5916,7 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
     assert code == 0
     assert out.splitlines()[0] == "demo: 1 open of 1 orders"
     assert 'Forge-AI/monorepo#42 "Fix: the watched title" open, checks pass, review approved' in out
-    assert json.loads(run("status", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
+    assert json.loads(run("status", "o1", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
 
 
 def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_cards(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5921,7 +5924,7 @@ def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_c
     code, out = run("status")
     assert code == 0
     assert out.splitlines()[0] == "demo: 1 open of 1 orders"
-    assert json.loads(run("status", "--json")[1])["prs"][with_pr]["card_state"] is None
+    assert json.loads(run("status", "o1", "--json")[1])["prs"][with_pr]["card_state"] is None
 
 
 def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:

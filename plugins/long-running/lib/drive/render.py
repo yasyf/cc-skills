@@ -456,16 +456,13 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
     return f"sub-coordinator {project}: lane {project_lane(project)}, session {held['session']}, {seen[f'sub-coordinator {project}']}; {watching}"
 
 
-def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[str]:
-    limit = WHOLE if whole else 80
-    lines = [f"- {order_line(order_id, order, limit, promise_thread(order))}"]
-    if whole:
-        lines.append(f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}")
-    lines.extend(orphans(order, limit))
+def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
+    lines = [f"- {order_line(order_id, order, WHOLE, promise_thread(order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
+    lines.extend(orphans(order, WHOLE))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
-        lines.append(f"  - {job_line(job_id, job, limit)}")
-        if whole and job["said"]:
+        lines.append(f"  - {job_line(job_id, job, WHOLE)}")
+        if job["said"]:
             lines.append(f"    said: {cut(job['said'], WHOLE)}")
         lines.extend(f"    - {question_line(question)}" for question in job["questions"])
         lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
@@ -574,29 +571,32 @@ def compact_instructions(drive: dict, role: str) -> str:
     )
 
 
-def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
-    orders = drive["orders"] if named else open_orders(drive)
-    job_ids = [job_id for order in orders.values() for job_id in order["jobs"]]
-    return {
+def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Callable[[dict], bool] | None = None) -> dict:
+    data = {
         "name": drive["name"],
         "roles": drive["roles"],
         "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
         "slack": {"channel": slack.dm(), "watch": drive["slack"].get("watch", [])},
-        "orders": orders,
-        "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
-        "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},
         "held": drive["held"],
         "catch_up": drive["catch_up"],
+    }
+    if not named:
+        return data | {"orders": {order_id: order_line(order_id, order, 80, promise_thread(order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
+    job_ids = [job_id for order in drive["orders"].values() for job_id in order["jobs"]]
+    return data | {
+        "orders": drive["orders"],
+        "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
+        "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in drive["orders"]},
     }
 
 
 def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, runs: Callable[[dict], bool] | None = None) -> str:
-    """The drive page; with shown, the drive narrowed to the orders ids name, only those, each whole, open or closed, under one summary line and each of their running jobs with no live agent, who carries each part read on every order and job of the drive; for a coordinator, whose runs says which orders it runs, only those, one line per open order."""
+    """The drive page, one line per open order, a coordinator's, whose runs says which orders it runs, only those; with shown, the drive narrowed to the orders ids name, only those, each whole, open or closed, under one summary line and each of their running jobs with no live agent, who carries each part read on every order and job of the drive."""
     if shown is not None:
         carrying = drive | {"prs": shown["prs"]}
         lines = [f"{drive['name']}: {len(open_orders(shown))} open of {len(shown['orders'])} orders", *agentless_lines(shown)]
-        lines.extend(line for order_id, order in shown["orders"].items() for line in order_block(carrying, order_id, order, True))
+        lines.extend(line for order_id, order in shown["orders"].items() for line in order_block(carrying, order_id, order))
         return "\n".join(lines)
     lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
     lines.extend(role_line(drive, role, seen) for role in ROLES)
@@ -613,13 +613,12 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     if owed := drive["catch_up"]:
         started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
         lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
-    if runs is None:
-        lines.extend(agentless_lines(drive))
-        lines.extend(line for order_id, order in orders.items() for line in order_block(drive, order_id, order, False))
-    else:
-        lines.extend(agentless_lines(drive, orders))
-        lines.append(f"Open orders you run: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals; drive status <id> prints one whole, with its jobs, PRs and questions:")
-        lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(order_id, order, 80, promise_thread(order))}", *orphans(order, 80)])
+    lines.extend(agentless_lines(drive, None if runs is None else orders))
+    lines.append(
+        f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals;"
+        " drive status <id> prints one whole, with its jobs, PRs and questions:"
+    )
+    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(order_id, order, 80, promise_thread(order))}", *orphans(order, 80)])
     repros = sorted(
         (
             (job["updated"], job_id, job)

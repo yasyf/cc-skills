@@ -209,7 +209,7 @@ def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     drive["prs"]["yasyf/cc-skills#11"] = drive["prs"]["yasyf/cc-skills#9"] | {
         "url": "https://github.com/yasyf/cc-skills/pull/11"
     }
-    lines = render.status_text(drive, {}).splitlines()
+    lines = render.status_text(drive, {}, drive).splitlines()
     pr_lines = [line for line in lines if line.startswith("    - ")]
     assert pr_lines == [
         "    - https://github.com/yasyf/cc-skills/pull/10",
@@ -241,8 +241,8 @@ def test_status_data_keeps_only_open_work() -> None:
     data = render.status_data(sample(), {"coordinator": "in no Orca terminal"})
     assert set(data["roles"]) == {"coordinator"}
     assert set(data["orders"]) == {"o1", "o3"}
-    assert set(data["jobs"]) == {"j1"}
-    assert set(data["prs"]) == {"yasyf/cc-skills#9"}
+    assert data["orders"]["o1"].startswith("o1 working")
+    assert "jobs" not in data and "prs" not in data
 
 
 def test_status_lists_each_report_held_for_his_catch_up() -> None:
