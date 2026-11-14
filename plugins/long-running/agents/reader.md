@@ -42,12 +42,15 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   this Mac, a Sprite or under `drive break-glass`, by his words "4, it is never ok to write from
   local or not use a service agent or any things like this" and "it shouldnt be reading iris blobs
   at all locally only with a service account on a pass box", and the `bash_guard` hook refuses
-  such a read or write and prints its route. The one service-account read is
-  `iris/teams/<team>/runs/` of a team the plat-prod cluster serves, on a plat-prod pass box after
-  `eval "$(./ci runs-reader grant --team <team id>)"`; any other prefix, `sessions/` and `blobs/`
-  included, a team's SandSQL rows, a team another cluster serves, staging, or a grant that
-  refuses, has no route: return `BLOCKED` naming the prefix and team, since which service account
-  reads it is his card, never a person's grant such as `tools/ci pass-box-creds`.
+  such a read or write and prints its route: the step runs on a pass box of the team's env with
+  `tools/ci pass-box run` where Forge-AI/monorepo grants that box the step, as
+  `PASS_BOX_OPERATOR_ENVS` and `PASS_BOX_OPERATOR_RULES` do for a SandSQL namespace and
+  `kubectl auth can-i` on the box confirms, a team's `iris/teams/<team>/runs/` under a `runs_read`
+  grant, which a plat-prod box loads with `eval "$(./ci runs-reader grant --team <team id>)"`; a
+  pass no box is granted runs as a Job with `tools/ci cluster-job`, and any other step, a
+  `sessions/` or `blobs/` read or a grant that refuses included, returns `BLOCKED` naming the
+  prefix and team, since which service account reads it is his card, never a person's grant such
+  as `tools/ci pass-box-creds`.
   Any other AWS read, a pass box's key included, runs first under a profile `~/.aws/config` chains
   to the machine certificate, and no card asks him for a sign-in, Touch ID or cc-sudo for one. An
   Iris session's `iris_sessions` row, read with `db-read`, names its team, whose bucket holds its

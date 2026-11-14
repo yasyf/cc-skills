@@ -374,7 +374,7 @@ def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass
     reason = bash_guard.deny_reason(bash(replay, cwd=str(root), **builder))
     assert reason.startswith("refused: this reads or writes `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1` where the job runs")
     assert '"it shouldnt be reading iris blobs at all locally only with a service account on a pass box"' in reason
-    assert "`AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job>" in reason
+    assert "`AWS_PROFILE=<env profile> tools/ci pass-box launch --purpose <job>" in reason
     assert '`eval "$(./ci runs-reader grant --team team_01demo)"`' in reason
     assert bash_guard.deny_reason(bash(f"cd {root} && {replay}", cwd="/work", **builder)) == reason
     assert bash_guard.deny_reason(bash(replay, cwd=str(root), session="ordinary")) is None
@@ -442,10 +442,9 @@ def test_a_script_setting_its_bucket_from_its_own_json_table_is_judged_by_the_bu
 def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_for_every_other_prefix(demo: str) -> None:
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     runs = bash_guard.deny_reason(bash("aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/runs/blobs/x -", **builder))
-    assert "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves" in runs
+    assert "A team's `iris/teams/<team>/runs/` is read on the box under a `runs_read` grant" in runs
     assert '`eval "$(./ci runs-reader grant --team team_01demo)"`' in runs
-    assert "A team another cluster serves, a staging read, or a `./ci runs-reader grant` that refuses" in runs
-    assert "`./ci runs-reader grant` that refuses has no route: return `BLOCKED`" in runs
+    assert "a grant that refuses returns `BLOCKED` naming the prefix, the team and its refusal" in runs
     blocked = {
         "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "iris/teams/team_01demo/sessions/",
         "aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/blobs/team_01demo/x -": "iris/teams/team_01demo/blobs/",
@@ -458,7 +457,7 @@ def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_
         assert f"No service account reads `{prefix}`" in reason, command
         assert "return `BLOCKED` naming the prefix and the team" in reason, command
         assert "never a person's grant such as `tools/ci pass-box-creds`" in reason, command
-        assert "runs-reader grant" not in reason and "pass-box launch" not in reason, command
+        assert "runs-reader grant" not in reason, command
 
 
 TEAM_WRITES = [
@@ -491,13 +490,16 @@ def test_a_drive_job_writes_or_deletes_no_teams_data_where_it_runs_and_reaches_n
         assert isinstance(reason, agents.Unjudged), command
         assert reason.startswith("refused: this reads or writes `"), command
         assert f'"{limits.TEAM_DATA_QUOTE}"' in reason and f'"{limits.IRIS_BLOBS_QUOTE}"' in reason, command
-        assert "No service account writes or deletes a team's data from a pass box yet" in reason, command
+        assert "`AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`" in reason, command
         assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason, command
     for command, (step, namespace) in SANDSQL_STEPS.items():
         reason = bash_guard.deny_reason(bash(command, **reader))
         assert isinstance(reason, agents.Unjudged), command
         assert reason.startswith(f"refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs"), command
         assert f'"{limits.TEAM_DATA_QUOTE}"' in reason, command
+        assert "`PASS_BOX_OPERATOR_RULES` in `infra/rows/sandsql/workload.ts`" in reason, command
+        assert "`AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`" in reason, command
+        assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason, command
     passed = [
         "kubectl -n sandsql get pods",
         "kubectl -n sandsql logs sandsql-primary-0 --tail 50",
