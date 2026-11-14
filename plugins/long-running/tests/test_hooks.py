@@ -989,7 +989,7 @@ def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str
 
 
 def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_the_meta_session_alone(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Messages", "I told him since you never did, fix that", "--kind", "build")
@@ -1035,6 +1035,9 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     metas = drive_agent("long-running:builder", prompt, session="tooler")
     assert agent_brief.deny_reason(metas) is None
     assert scratch_folder.deny_reason(metas) is None
+    assert cli.main(["job", "brief", "j2"]) == 2
+    assert "drive: j2: refused, nothing written, sent or started: o1 is the meta session's order, session tooler" in capsys.readouterr().err
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     assert run("job", "brief", "j2")[1].splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where"
 
 
@@ -1278,7 +1281,7 @@ def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_an
     where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
     assert cli.main(["job", "brief", "j2", *where]) == 2
-    assert capsys.readouterr().err.strip() == f"drive: j2: {held}"
+    assert capsys.readouterr().err.strip() == f"drive: j2: refused, nothing written, sent or started: {held}"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     code, out = run("job", "brief", "j2", *where)
     assert code == 0

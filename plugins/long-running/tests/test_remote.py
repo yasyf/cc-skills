@@ -1010,9 +1010,8 @@ def test_launch_local_from_a_session_that_did_not_start_the_jobs_ended_agent_sta
     assert (job["agent"], job["session"], job["where"], job["route"], job["dispatch"]) == (None, "meta-session", "remote", state.LOCAL_ROUTE, DISPATCH)
 
 
-@pytest.mark.parametrize("caller", ["session-under-test", "orca-lane-session"], ids=["the-top-holding-nothing-of-it", "an-orca-lane-the-drive-does-not-bind"])
 def test_a_resume_from_another_session_posts_the_text_to_the_session_that_started_the_jobs_live_agent_and_a_launch_is_refused(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], caller: str
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
     run("job", "add", "builder", "--order", "o1", "--goal", "watch")
@@ -1020,7 +1019,7 @@ def test_a_resume_from_another_session_posts_the_text_to_the_session_that_starte
         data["orders"]["o1"]["project"] = "Platform"
         data["subcoordinators"]["Platform"] = {"session": "platform-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
         data["jobs"]["j1"].update(agent="a0b74915bac29cf3e", session="platform-1", where="local")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", caller)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "orca-lane-session")
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["7"])
@@ -3213,6 +3212,7 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session
         data["subcoordinators"]["Platform"] = {"session": "platform-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
         data["jobs"]["j1"].update(agent="a8e6e8443b2472bdb", session="platform-1", prs=[url])
         data["prs"][key] = state.new_pr(url, "j1", "o1")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
     line = f'PR {key}: NOT READY: o1 "ship the watch": watch.py stops the watch'
@@ -3224,6 +3224,7 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session
     )
     with state.edit(demo) as data:
         top = data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
     assert [record["text"] for record in posted] == [
@@ -3231,6 +3232,7 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session
     ]
     with state.edit(demo) as data:
         data["jobs"]["j1"]["session"] = "ended-session"
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
     assert [record["text"] for record in posted] == [f"STAGE {line}; its builder j1 takes this line alone: drive job resume j1 with this line verbatim"]

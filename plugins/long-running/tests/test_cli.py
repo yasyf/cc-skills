@@ -6967,11 +6967,44 @@ def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_chang
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "one code path", "--goal", "build it"]) == 2
     assert "o1 is the sub-coordinator for Platform's order, session platform-1: only the sub-coordinator for Platform adds its jobs" in capsys.readouterr().err
-    posted = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["5"])
-    assert run("job", "resume", "j1", "fault the socket")[1].startswith("j1: posted to platform@demo as handoff record 5")
-    assert [post["to"] for post in posted] == [["platform@demo"]]
+    monkeypatch.setattr(tools, "sent", lambda *args: pytest.fail("a refused resume posts no record"))
+    assert cli.main(["job", "resume", "j1", "fault the socket"]) == 2
+    assert "j1: refused, nothing written, sent or started: o1 is the sub-coordinator for Platform's order, session platform-1" in capsys.readouterr().err
     assert list(state.load("demo")["jobs"]) == ["j1"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["job", "brief", "j1"],
+        ["job", "launch", "j1"],
+        ["job", "resume", "j1", "fault the socket"],
+        ["pr", "wake", "https://github.com/acme/app/pull/56", "--text", "PR acme/app#56: NOT READY"],
+    ],
+    ids=["brief", "launch", "resume", "pr-wake"],
+)
+def test_a_sub_coordinator_is_refused_the_brief_start_resume_and_wake_of_the_top_coordinators_job_naming_the_session_holding_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    url = "https://github.com/acme/app/pull/56"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "fault the socket")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the watch")
+    with state.edit("demo") as data:
+        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
+        data["jobs"]["j1"]["prs"].append(url)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Platform")
+    kept = state.load("demo")["jobs"]["j1"]
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a refused verb starts no worker"))
+    monkeypatch.setattr(tools, "sent", lambda *args: pytest.fail("a refused verb posts no record"))
+    assert cli.main(argv) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1: refused, nothing written, sent or started: o1 is the coordinator's order, session session-under-test: only the coordinator adds its jobs,"
+        " starts its agents, checks its PRs and posts its reports; send the coordinator the step as a handoff record on the drive's record tool instead,"
+        ' to "root" and attrs {"order": "o1"}\n'
+    )
+    assert state.load("demo")["jobs"]["j1"] == kept
 
 
 def test_job_add_names_by_id_each_pr_its_goal_names_and_each_other_order_whose_jobs_carry_it(run: Run, demo: str) -> None:
