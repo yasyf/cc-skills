@@ -881,20 +881,22 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (
         0,
-        "j4\nj4 waits on j2: start no agent for it until the watch's FREE line says its last wait ended\nj4 beside j2, j3: drive status <id>",
+        'j3\nj3 carried "the copy" and no worker took it, so this add folded into it, a part having one change job: its goal is this add\'s and its waits gained this add\'s\n'
+        "j3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended",
     )
+    assert state.load("demo")["jobs"]["j3"]["kind"] == "codex"
     bare = "Order: Drive tooling: copy one store\nDrive: demo, order o1, job {}"
     assert scratch_folder.deny_reason(drive_agent("codex:codex-wrapper", bare.format("j1"))) == (
         "refused, no agent started: j1 is a codex job, whose codex-ask run drive job launch j1 starts itself on its brief,"
         " its reply's state a field codex cannot leave out, so no agent relays it"
     )
     assert brief.brief_refusal("demo", state.load("demo"), "j1", bare.format("j1")) is None
-    assert brief.brief_refusal("demo", state.load("demo"), "j4", bare.format("j4")).startswith(
-        "j4 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+    assert brief.brief_refusal("demo", state.load("demo"), "j3", bare.format("j3")).startswith(
+        "j3 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j2", "-")
-    assert brief.brief_refusal("demo", state.load("demo"), "j4", f"Researched: j2\n{bare.format('j4')}") is None
+    assert brief.brief_refusal("demo", state.load("demo"), "j3", f"Researched: j2\n{bare.format('j3')}") is None
 
 
 def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(

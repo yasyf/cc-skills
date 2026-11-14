@@ -86,12 +86,12 @@ def resumed_builder(payload: dict, data: dict, job_id: str) -> str | None:
     job = data["jobs"][job_id]
     if payload["tool_name"] != "SendMessage" or job["kind"] != "builder" or job["state"] not in FRESH_STATES or data["orders"][job["order"]]["incident"]:
         return None
+    takes = f"which takes each PR {job_id} opened and stops it" if job["state"] == "built" else "`drive pr add <url> --job <new>` for each PR it takes over"
     return (
         f"Refused on purpose: {job_id}'s builder already returned ({job['state']}), and a PR event after a builder returns goes"
         " to a fresh builder, since a resumed one re-reads everything it ever did on every event. Run `drive job add builder`"
-        f" for order {job['order']} and its parts, `drive pr add <url> --job <new>` for each PR it takes over, brief it with a"
-        f" `Handoff:` line naming the event and {job_id}'s transcript under `Transcripts:`, then"
-        f' `drive job set {job_id} --state stopped --said "handed to <new>"`. His answers need no message: the drive holds each'
+        f" for order {job['order']} and its parts, {takes}, and brief it with a"
+        f" `Handoff:` line naming the event and {job_id}'s transcript under `Transcripts:`. His answers need no message: the drive holds each"
         " on every builder it frees, and the watch carries it to them."
     )
 
