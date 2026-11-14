@@ -1438,7 +1438,7 @@ def job_set(args: argparse.Namespace) -> int:
                 state.start(job)
             superseded.hear_start(data, args.id)
         if args.repro:
-            job["repro"] = keep_repro(name, args.id, args.repro)
+            job["repro"] = keep_repro(name, args.id, job["kind"], args.repro)
         for url in urls:
             if (key := state.pr_key(url)) in data["prs"]:
                 state.take_pr(data, args.id, key)
@@ -2380,9 +2380,14 @@ def unready(data: dict, job: dict, line: str) -> str | None:
     )
 
 
-def keep_repro(name: str, job_id: str, source: str) -> str:
-    """Where the drive keeps a job's reproduction file, copied there once the write naming it is kept."""
+def keep_repro(name: str, job_id: str, kind: str, source: str) -> str:
+    """Where the drive keeps a job's reproduction file, copied there once the write naming it is kept; refused, nothing kept, for a builder's file with its exec bit set that the kernel cannot exec, as state.unrunnable reads it, since drive job prove runs that file as the job's proof once its PRs merge, while a builder's file with no exec bit, such as the acceptance criteria of a change merging outside yasyf/*, which no drive job prove runs, is kept as it is."""
     path = named_file(source, "reproduction file")
+    if kind == "builder" and os.access(path, os.X_OK) and (why := state.unrunnable(str(path))):
+        raise DriveError(
+            f"{job_id}: refused, nothing kept: drive job prove runs a builder's executable file as its proof once its PRs merge, and {why}:"
+            f" make its first line its #! line, naming a program on this Mac, such as #!/bin/sh, then keep it again with drive job set {job_id} --repro <file>"
+        )
     kept = state.repro_path(name, job_id, path.suffix)
 
     def copied() -> list[str]:

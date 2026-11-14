@@ -1767,6 +1767,18 @@ def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_on
     assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
 
 
+def test_a_proof_file_opening_with_a_blank_line_is_refused_unrun_naming_its_first_bytes(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    script.write_text("\n#!/bin/sh\necho ok\n")
+    refusal = (
+        f"j1 keeps no proof file to run, as {script} opens '\\n#!/bin/sh\\necho ok\\n', with no #! at its first byte, so the kernel cannot exec it as a script:"
+        " keep one with drive job set j1 --repro <file>"
+    )
+    with pytest.raises(state.DriveError, match=re.escape(refusal)):
+        install.prove("demo", "j1", 900)
+    assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
+
+
 def test_a_proof_that_failed_runs_again_on_the_job_that_owns_it_once_its_cause_is_fixed_while_no_watch_starts_a_second(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:

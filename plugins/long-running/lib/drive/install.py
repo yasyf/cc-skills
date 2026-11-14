@@ -658,15 +658,17 @@ def product(data: dict, job_id: str) -> bool:
 
 
 def proof_gap(data: dict, job_id: str) -> str | None:
-    """What keeps `drive job prove` from proving a builder whose PRs merged, naming who proves it instead, or None when it runs on its yasyf/* merges, its others merged at once: a job whose every merge is outside yasyf/* goes live only in its repository's release, and a job keeping no executable proof file leaves nothing to run."""
+    """What keeps `drive job prove` from proving a builder whose PRs merged, naming who proves it instead, or None when it runs on its yasyf/* merges, its others merged at once: a job whose every merge is outside yasyf/* goes live only in its repository's release, and a job keeping no proof file the kernel can exec, as state.unrunnable reads it, leaves nothing to run."""
     job = data["jobs"][job_id]
     if product(data, job_id):
         return (
             f"{', '.join(reported_prs(data, job_id))} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install"
             " puts on this Mac: a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines once that release is out"
         )
-    if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
-        return f"{job_id} keeps no proof file to run: keep one with drive job set {job_id} --repro <file>, written from its PROVE: line, then drive job prove {job_id} runs it on the installed plugins"
+    repro = job.get("repro")
+    why = state.unrunnable(repro) if repro else None
+    if not repro or why:
+        return f"{job_id} keeps no proof file to run{f', as {why}' if why else ''}: keep one with drive job set {job_id} --repro <file>, written from its PROVE: line, then drive job prove {job_id} runs it on the installed plugins"
     return None
 
 
