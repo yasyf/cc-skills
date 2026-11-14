@@ -1564,6 +1564,36 @@ def test_say_refuses_a_line_saying_work_has_no_one_on_it_until_it_names_the_job_
         assert say(transcript, text=text) is None, text
 
 
+def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_names_the_job_or_a_handoff_asking_for_one_no_job_answered_is_kept_on_its_order(
+    talker: str, transcript: Path
+) -> None:
+    part = "milestone reads fail with blob not found"
+    with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order(part, "terminal", (DM, "1.2"), {part: state.new_part()}, state.stamp())
+    promises = (
+        "A job reading why that blob is missing is being started.",
+        "The coordinator is starting a job on why.",
+        "I asked the coordinator to start the design job.",
+        "Its release job is being resumed now.",
+    )
+    for text in promises:
+        refused = say(transcript, text=text, thread_ts="1.2")
+        assert refused is not None and refused.startswith(f'refused: "{message_limits.PROMISED_START.search(text)[0]}" says a job is being started'), text
+        assert " and no handoff asking for one is kept on order o1: name the job that started as {started:<j>}, or first send" in refused
+        assert refused.rule == message_limits.PROMISE_RULE
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["handoffs"].append({"seq": "701640", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2))})
+    for text in promises:
+        assert say(transcript, text=text, thread_ts="1.2") is None, text
+    with state.edit("demo") as data:
+        data["jobs"]["j1"] = state.new_job("o1", "reader", "read why that blob is missing", [part], state.stamp())
+        data["orders"]["o1"]["jobs"].append("j1")
+    assert say(transcript, text=promises[0], thread_ts="1.2") is not None
+    assert say(transcript, text="{started:j1} reads why that blob is missing, and a builder is being put on the fix once it returns.", thread_ts="1.2") is None
+    for text in ("A fix is being written.", "The builder is building this now.", "The release job is finishing the switch.", "A follow-up is starting to go back."):
+        assert say(transcript, text=text, thread_ts="1.2") is None, text
+
+
 @pytest.mark.parametrize(
     ("text", "written", "past"),
     [

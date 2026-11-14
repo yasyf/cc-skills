@@ -985,6 +985,28 @@ def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_ans
     ]
 
 
+def test_a_handoff_the_communicators_side_sends_is_kept_on_the_order_it_serves_by_its_seq_and_text_and_no_other_record_or_lanes_is(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "milestone reads fail with blob not found")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "which alert fired?")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", demo, "--role", "meta")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    seqs = iter(range(701640, 701650))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": next(seqs)}) + "\n" for _ in json.loads(kwargs["input"])), ""))
+    asked = {"kind": "handoff", "text": "start a job reading why that blob is missing", "attrs": {"order": "o1"}}
+    tools.run("record", demo, {"records": [asked, {"kind": "handoff", "text": "redraw its card", "attrs": {"order": "o2"}}, {"kind": "defect", "text": "say drops the thread"}]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    tools.run("record", demo, {"records": [{"kind": "handoff", "text": "start its builder", "to": "communicator", "attrs": {"order": "o1"}}]})
+    orders = state.load(demo)["orders"]
+    assert [[(handoff["seq"], handoff["text"]) for handoff in orders[order_id]["handoffs"]] for order_id in ("o1", "o2")] == [
+        [("701640", "start a job reading why that blob is missing")],
+        [("701641", "redraw its card")],
+    ]
+
+
 def test_the_meta_sessions_handoff_goes_to_the_session_holding_the_order_it_serves_whatever_lane_it_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

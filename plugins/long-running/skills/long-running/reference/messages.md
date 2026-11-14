@@ -538,7 +538,8 @@ restating it.
 - Each later step of an order with a thread is the watch's to say there, by his pick "A handler
   posts each step, started by the watch on news": a job returning its finding, a PR going up with his
   card, getting a new head, its checks settling, Trunk ejecting it from the merge queue or taking his
-  tap, and a card of his opening or closing. A PR's stage relabelled with none of those changed, such
+  tap, a card of his opening or closing, and a `handoff` the communicator's side sent five minutes
+  before with no job of the order made or started since. A PR's stage relabelled with none of those changed, such
   as red to behind once a PR below it in its stack goes red, is no step, nor is a release or answer ending one wait of a job that still
   waits on another. Once five minutes have passed since the thread's last line or the
   watch's last report on it, the watch sends one `report` carrying `quiet=true` and the thread,
@@ -781,6 +782,13 @@ restating it.
   turn, by [The short form](#the-short-form), and its `report` names it. Any other promise, such as
   "from now on…" or "next you get…", goes out only with the order, due time or job that carries it
   out named in the same message, because a promise with nothing behind it is one he cannot believe.
+  A job being started is named as `{started:<j>}` once it started; until then the line goes out
+  only once the `handoff` asking for it is kept on the order it goes to. The `record` tool keeps
+  each `handoff` the communicator's side sends on the order it serves, and five quiet minutes after
+  it the watch owes that order's thread a line naming it and each record re it, whatever the session
+  it went to answered, until a job of that order is made or started, by his words b4b64f5 "fix your
+  toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an
+  agent". `say` refuses a handler's line saying a job is being started with neither.
 - The current time, and any time you estimated: Slack already stamps every post. Compute a promised
   time from `date`, or write it as `+30m` to `--due` and read it back from `drive status`, never from
   your sense of how long the turn has run, which drifts.

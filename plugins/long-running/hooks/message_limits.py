@@ -39,6 +39,14 @@ DOWN = re.compile(
     re.IGNORECASE,
 )
 RESTARTED = re.compile(r"\brestart", re.IGNORECASE)
+PROMISED_START = re.compile(
+    r"\b(?:job|builder|reader|agent|lane|release)\b[^.;\n]*?\bbeing (?:started|restarted|resumed|relaunched|put on)\b"
+    r"|\b(?:is|are) (?:re)?(?:starting|resuming) (?:a|an|the|its) (?:\w+ )?(?:job|builder|reader)\b"
+    r"|\basked (?:the )?(?:\w+ )?(?:coordinator|meta session|session)\b[^.;\n]*?\bto (?:start|restart|resume|rerun)\b"
+    r"|\bwas asked for a (?:job|builder|reader)\b",
+    re.IGNORECASE,
+)
+PROMISE_RULING = 'his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"'
 DOWN_RULING = "his Nov 8 ruling: \"The coordinator is down? Then why the fuck haven't you restarted it?\" and \"It's unacceptable to just say it's down\""
 WAITING = "WAITING-ON-HIM"
 AWAY_RULE = (
@@ -95,6 +103,11 @@ TERM_RULE = (
     ' "use the proper fucking terms for things".'
 )
 TOOLING_RULE = "The line above a PR card quotes the order its PRs serve: his words, or a drive tooling order's \"Drive tooling: …\" words."
+PROMISE_RULE = (
+    "A line telling him a job is being started names that job once it started, or goes out only once the handoff asking for it is kept on the order"
+    f" it goes to, which the watch owes the thread a line on five quiet minutes later until a job of that order starts, by {PROMISE_RULING}; a line"
+    " saying a job already at work goes on, or a release or step that is no job's start, promises no such start."
+)
 DOWN_RULE = f"A coordinator that is down is restarted that minute, and he hears it was restarted, never only that it is down, by {DOWN_RULING}."
 SAY_RULE = (
     "Every message to him in his DM, a new post or an edit of one, goes through say, the one call that links its references"
@@ -543,9 +556,26 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             reported_down(drive, said),
             agents.unread_job(payload, said),
             agents.unowned_work(said),
+            unbacked_start(payload, drive, said, order_id),
             agents.typed_time(said, drive),
             None if tool_input.get("tap_prs") else limits.kind_refusal(tool_input.get("text") or "", said, drive),
         ]
+    )
+
+
+def unbacked_start(payload: dict, drive: dict, said: str, order_id: str | None) -> agents.Ruled | None:
+    """Why a handler's line says a job is being started while it names no job as {started:<j>} and no handoff state.owed_handoffs names is kept on the orders of the incident or order it goes to: the promise then rests on a session's answer alone, which nothing tracks."""
+    if not payload.get("agent_id") or not (found := PROMISED_START.search(said)) or any(match[1] == "started" for match in limits.REF.finditer(said)):
+        return None
+    posted = posted_order(drive, payload["tool_input"], order_id)
+    if posted and state.owed_handoffs(drive, state.incident_orders(drive, posted)):
+        return None
+    return agents.Ruled(
+        f'refused: "{found[0]}" says a job is being started, and the line names no job as {{started:<j>}} and no handoff asking for one is kept on'
+        f" {f'order {posted}' if posted else 'the order it goes to'}: name the job that started as {{started:<j>}}, or first send the coordinator a"
+        " `handoff` with the `record` tool naming the step as its text and `attrs.order` the order this line goes to, so the watch owes this"
+        " thread a line five quiet minutes on until a job of that order starts",
+        PROMISE_RULE,
     )
 
 

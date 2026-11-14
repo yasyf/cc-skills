@@ -313,6 +313,16 @@ def amendments(name: str, seqs: Iterable[str]) -> dict[str, dict[str, list[str]]
     return found
 
 
+def answering(name: str, seq: str) -> list[dict]:
+    """Each record cci holds re seq, oldest first, read in one cci grep from it."""
+    argv = ["cci", "grep", seq, "--drive", name, "--since", seq, "--budget", str(AMENDMENT_BYTES), "--json"]
+    try:
+        lines = reads.run(argv, Path.cwd()).splitlines()
+    except reads.ReadError as error:
+        raise state.DriveError(f"the records re {seq} could not be read: {error}") from None
+    return [record for record in map(json.loads, reversed(lines)) if str(record.get("re")) == seq]
+
+
 def posts(name: str) -> list[str]:
     """The seq of each `POST` report to communicator@<drive> since the watch last read them, oldest first, through cci's POSTS_CURSOR, which cci moves past each record it prints."""
     argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--cursor", POSTS_CURSOR, "--budget", str(AMENDMENT_BYTES), "--json"]

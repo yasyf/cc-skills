@@ -701,6 +701,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
         order.setdefault("prove_said", None)
+        order.setdefault("handoffs", [])
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
         order.setdefault("quiet", None)
@@ -1136,8 +1137,23 @@ def resumed(job: dict) -> str | None:
 
 
 def start(job: dict) -> None:
-    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start."""
-    job.update(state="running", waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp())
+    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started."""
+    job.update(state="running", waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
+
+
+def started_after(job: dict, moment: str) -> bool:
+    """Whether the job was made, or a worker of it started or resumed, after this moment."""
+    return made_after(job, moment) or bool(job["worker_started"]) and parse_time(job["worker_started"]) > parse_time(moment)
+
+
+def owed_handoffs(data: dict, group: list[str]) -> list[dict]:
+    """Each handoff the communicator's side recorded on these orders asking for a step, such as starting a job, after which no job of its order was made or started, so the watch owes its thread a line on it whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
+    return [
+        handoff
+        for order_id in group
+        for handoff in data["orders"][order_id]["handoffs"]
+        if not any(started_after(data["jobs"][job_id], handoff["at"]) for job_id in data["orders"][order_id]["jobs"])
+    ]
 
 
 def hold_unstarted(job: dict) -> None:
@@ -1779,6 +1795,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "recovered": None,
         "prove_said": None,
         "quiet": None,
+        "handoffs": [],
         "reporters": [],
         "watch": None,
         "parts": parts,
@@ -1866,6 +1883,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "updated": created,
         "returned": None,
         "resumed": None,
+        "worker_started": None,
         "stall": None,
     }
 
