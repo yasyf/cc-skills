@@ -157,7 +157,7 @@ that Jev reads as building less or later than his words or answers name with no 
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>`, `staging:<target>/<env>@<commit>` and `<order>:<part>` a
 `READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, never one the lines below it name, so a
 `WAITING` naming only PRs that merged or closed or parts delivered is refused, by the one rule `drive job report` and a codex job's take share; the watch's `FREE` line ends a wait once
-the PR merges, the release is out, `tools/ci release live` reads the staging wait's env running its target at its commit or a builder or codex job on the part returns `DONE`, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
+the PR merges, the release is out, `tools/ci release live` reads the staging wait's env running its target at its commit or a builder or codex job on the part returns `DONE` with no PR of its own unlanded, a `staging test of #N before it lands` part once that `DONE`'s first `CHECK:` proof is kept on it, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
 moves either wait to that job's newest open PR, else to that job until its work is done; a staging test pausing until staging runs
 its soak commit returns one `WAITING staging:<target>/<env>@<commit>` per stack, the target and env as `tools/ci release live` names
 them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a line opening with no result word; a release wait whose service `tools/ci release select
@@ -165,7 +165,7 @@ them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a 
 
 | First line | The job's state |
 |---|---|
-| `DONE`, or a reader's answer | done |
+| `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered by the watch's `DONE` at the merge and the builder proving it live, never before it lands |
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |

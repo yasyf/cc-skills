@@ -267,7 +267,7 @@ def pooled(drive: dict, key: str, wait: str) -> str:
     order_id, number = wait.split(":", 1)[0], key.rsplit("#", 1)[1]
     return (
         f"{', '.join(strangers)}, of other jobs outside {key}'s stack, wait on {wait} already, and that part never frees while they do, since one job's DONE on it"
-        f' proves none of them: give {key} a part of its own, as drive order set {order_id} --parts <its parts> "staging test of #{number} before it lands",'
+        f' proves none of them: give {key} a part of its own, as drive order set {order_id} --parts <its parts> "{state.STAGING_TEST.format(number=number)}",'
         f' carried by the job that proves it, then wait on "{order_id}:<that part>", or wait on the job or PR doing the work by its id or <owner>/<repo>#<n>'
     )
 

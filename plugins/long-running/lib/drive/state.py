@@ -130,6 +130,8 @@ MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
+STAGING_TEST = "staging test of #{number} before it lands"
+STAGING_PART = re.compile(STAGING_TEST.format(number=r"\d+"))
 SLOT_WAIT = "builder-slot"
 PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 FREED = "FREE"
@@ -587,6 +589,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "holds_owed": True,
         "builder_goals_named": True,
         "members_kept": True,
+        "open_dones_held": True,
         CARDS_NOTED: True,
     }
 
@@ -871,7 +874,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -919,6 +922,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         keep_threads(name, data)
     if not data.get("members_kept"):
         keep_members(name, data)
+    if not data.get("open_dones_held"):
+        hold_open_dones(name, data)
     return data, keep and not unkept
 
 
@@ -957,6 +962,15 @@ def keep_members(name: str, data: dict) -> None:
                 kept[3] = "members"
         join_thread(order, (found[0], found[1]), event["at"], "members")
     data["members_kept"] = True
+
+
+def hold_open_dones(name: str, data: dict) -> None:
+    """Put back each builder or codex job an older install took DONE on while a PR it opened had not landed, which delivered its change parts before the change merged: waiting on those PRs by hold_done, as take_result now takes such a DONE, each staging test part it holds delivered by the first CHECK: proof of its newest return, read once from its report; marked so this runs once."""
+    for job_id, job in data["jobs"].items():
+        if held := unlanded_done(data, job_id):
+            post_staging_proof(data, job, "".join(reply["body"] for reply in returns(name, job_id)[:1]))
+            hold_done(job, held)
+    data["open_dones_held"] = True
 
 
 def cite_returned_designs(name: str, data: dict) -> None:
@@ -1419,7 +1433,7 @@ def result_waits(data: dict, order_id: str, line: str) -> list[str]:
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, but a builder's or codex job's DONE while a PR it opened has not landed, which waits on those PRs by hold_done, each staging test part such a DONE holds delivered by its first CHECK: proof by post_staging_proof, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1430,6 +1444,10 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     job.update(state=taken, updated=moment, returned=moment)
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
+    if taken == "done" and job["kind"] in CHANGE_KINDS and not MERGED_LINE.match(line):
+        post_staging_proof(data, job, report)
+    if held := unlanded_done(data, job_id):
+        hold_done(job, held)
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
     if waits := result_waits(data, job["order"], line):
@@ -1765,14 +1783,40 @@ def done_at_merge(job: dict) -> bool:
     return job["state"] == "done" and bool(MERGED_LINE.match(job["said"] or ""))
 
 
+def unlanded_done(data: dict, job_id: str) -> list[str]:
+    """The drive PRs a builder or codex job done on its own DONE opened that have not landed, open or folded into another open PR's branch, by github.UNLANDED, so its DONE waits on their merge; none for the DONE the watch takes at a merge, a job drive job set marked done on another line, or any other job."""
+    job = data["jobs"][job_id]
+    if job["kind"] not in CHANGE_KINDS or job["state"] != "done" or not re.match(r"DONE\b", said := job["said"] or "") or MERGED_LINE.match(said):
+        return []
+    return [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] in github.UNLANDED]
+
+
+def hold_done(job: dict, held: list[str]) -> None:
+    """Hold a change job's DONE until the PRs it opened merge: it waits on them under `WAITING <their links> to merge: <its DONE>`, so its change parts are delivered only by the DONE the watch takes at their merge and the builder proving it live, never while the change is unlanded."""
+    job.update(state="waiting", said=f"WAITING {' '.join(map(pr_url, held))} to merge: {job['said']}", waits=list(dict.fromkeys([*job["waits"], *held])), waited=None)
+
+
+def post_staging_proof(data: dict, job: dict, report: str) -> None:
+    """Deliver each `staging test of #N before it lands` part a change job's DONE holds that no proof delivered yet, by the first proof its CHECK: lines name, so the PR waiting on that part lands while the job's DONE waits on the PR's merge."""
+    from drive import brief
+
+    if not (proof := next((found for check in brief.CHECK.findall(report) for found in brief.proofs(check)), None)):
+        return
+    for order_id in [job["order"], *job["carries"]]:
+        parts = data["orders"][order_id]["parts"]
+        for part in job_parts(job, order_id):
+            if STAGING_PART.fullmatch(part) and part in parts and not parts[part]["posted"]:
+                parts[part]["posted"] = proof
+
+
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; work he ordered once a builder or codex job on it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; work he ordered once a builder or codex job on it returned DONE, which waits on each PR of its own not yet landed by hold_done, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, a staging test of a PR once the proof its builder's DONE names is posted on it, and words he reads once posted to him or built by a builder that returned DONE."""
     if data["orders"][order_id]["parts"][part]["standing"]:
         return False
     done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not done_at_merge(job)}
     posted = data["orders"][order_id]["parts"][part]["posted"]
     if work(data, order_id, part):
-        return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
+        return bool(done & set(CHANGE_KINDS)) or bool(posted and (PR_URL.search(posted) or STAGING_PART.fullmatch(part)))
     return "builder" in done or bool(posted)
 
 

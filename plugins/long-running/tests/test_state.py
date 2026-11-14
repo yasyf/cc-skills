@@ -1008,6 +1008,36 @@ def test_a_drive_saved_keeping_a_staging_claims_thread_as_posted_or_not_at_all_k
     assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
 
 
+def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_waiting_on_that_pr_once_its_staging_test_delivered_by_its_first_check_proof_as_j1308s_was_not(
+    state_root: Path,
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["open_dones_held"]
+    created = "2026-11-14T10:00:00-08:00"
+    change, staging, read_part = "ship the writer", "staging test of #42 before it lands", "the reader"
+    proof, open_url, merged_url = "https://buildkite.com/forge/release/builds/16112", "https://github.com/Forge-AI/monorepo/pull/42", "https://github.com/Forge-AI/monorepo/pull/43"
+    done = f"DONE {proof} refused and https://buildkite.com/forge/release/builds/16121 passed"
+    data["orders"] = {"o1": state.new_order("ship the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {part: state.new_part() for part in (change, staging, read_part)}, created)}
+    data["orders"]["o1"] |= {"kind": "build", "jobs": ["j1", "j2"]}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "ship it", [change, staging], created) | {"state": "done", "said": done, "prs": [open_url]},
+        "j2": state.new_job("o1", "builder", "read it", [read_part], created) | {"state": "done", "said": "DONE the reader ships", "prs": [merged_url]},
+    }
+    data["prs"] = {
+        "Forge-AI/monorepo#42": state.new_pr(open_url, "j1", "o1"),
+        "Forge-AI/monorepo#43": state.new_pr(merged_url, "j2", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210"},
+    }
+    state.create(data)
+    state.keep_report("demo", "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16121\n")
+    data = state.load("demo")
+    held, kept = data["jobs"]["j1"], data["jobs"]["j2"]
+    assert (held["state"], held["said"], held["waits"], kept["state"], kept["said"]) == ("waiting", f"WAITING {open_url} to merge: {done}", ["Forge-AI/monorepo#42"], "done", "DONE the reader ships")
+    assert ([state.delivered(data, "o1", part) for part in (change, staging, read_part)], data["orders"]["o1"]["parts"][staging]["posted"]) == ([False, True, True], proof)
+    with state.edit("demo") as drive:
+        assert drive["open_dones_held"] is True
+
+
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")

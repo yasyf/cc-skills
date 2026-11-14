@@ -4838,7 +4838,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
             " only by its question's Holds: line or the PR's DESIGN: line citing it, and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
-            " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE, never the DONE the watch takes at a merge,"
+            " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE with no PR of its own unlanded, or a staging test part's DONE keeps its first CHECK: proof on it, never the DONE the watch takes at a merge,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
             " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
