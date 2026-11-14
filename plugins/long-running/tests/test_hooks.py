@@ -1310,9 +1310,10 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
 def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_start_his_answer_approves(
     demo: str, run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    reads = {"asks": "asks", "decides": "5d0c4a1"}
+    reads, read_kinds = {"asks": "asks", "decides": "5d0c4a1"}, []
 
     def read(request: dict) -> dict:
+        read_kinds.append(request.get("state", {}).get("record", {}).get("kind"))
         if not reads:
             raise settled.Unheard("no jev decision within 20s")
         return {key: label(reads[key], {"none": 0.1, reads[key]: 0.9}) for key in request["questions"]}
@@ -1324,7 +1325,9 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data) == unordered
     assert brief.release_ask_refusal("release", ["root@demo"], "Start the k8s-only production release at 65dd6d778c26 now", data) == brief.RELEASE_UNNAMED
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order 5d0c4a1"), data) is None
-    assert [brief.release_ask_refusal(kind, ["root@demo"], RELEASE_ASK.format(""), data) for kind in ("owner", "answer")] == [None, None]
+    unread = ("owner", "answer", "report", "note", "evidence")
+    assert [brief.release_ask_refusal(kind, ["root@demo"], RELEASE_ASK.format(""), data) for kind in unread] == [None] * len(unread)
+    assert set(read_kinds).isdisjoint(unread)
     reads["decides"] = "none"
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order ac61348"), data).startswith(
         f"{brief.RELEASE_ASKED}, and `drive job add --release` would refuse `{HANDOFF_START} --order ac61348`: `--order ac61348` names his answer to"
