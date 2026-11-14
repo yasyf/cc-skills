@@ -101,7 +101,13 @@ a `Drive tooling: post feedback:` order, also the `cc-slack check-post` rule, `l
 check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` that passed or drew
 the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to
 them, never to the one post.
-`open:` gives each question the order implies that he has not answered, with any open card's link.
+`open:` gives each question the order implies that he has not answered, with any open card's link:
+the `asks him:` lines of `drive status <the order>` name each card its jobs asked, open or
+answered, with its link and waits id whether or not cc-slack still keeps it, and
+`cc-slack drive-cards --drive <drive> | grep -i '<words of the area>'` each open card of his on
+the area, a line each with its waits id, link and question, both in under a second.
+`drive cards redraw` is no list: it rebuilds every open card, writing the drive under its lock for
+each, and prints nothing until the last.
 Each says `none` when empty. `build:` names in one line the change your research recommends its
 builder make, the deliverable rather than the order's subject, since your kept report makes it that
 builder's `Goal: build <that line>`. `drive job report` refuses your report without that block
