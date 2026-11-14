@@ -91,6 +91,12 @@ def test_a_datadog_read_runs_the_tool_on_one_session_keyed_by_ai_oncalls_keys_an
     assert mcp[-1][1]["params"] == {"name": "execute_code", "arguments": arguments}
 
 
+def test_every_request_asks_for_the_core_and_dbm_toolsets_over_the_sessions_own(mcp: list[tuple[Message, dict]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DD_MCP_TOOLSETS", "core")
+    assert run("datadog", "tools")[0] == 0
+    assert [headers["X-Datadog-MCP-Toolsets"] for headers, _ in mcp] == ["core,dbm"] * len(mcp)
+
+
 def test_a_tool_the_datadog_mcp_marks_as_writing_is_refused_and_never_called(
     mcp: list[tuple[Message, dict]], state_root: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

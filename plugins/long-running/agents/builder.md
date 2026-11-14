@@ -152,16 +152,19 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      no service account can make yet returns `BLOCKED` naming it and the grant it needs, and no
      card offers another way to make it.
    - A Datadog read, for research or a `PROVE:` line, goes through the Datadog MCP's tools, whose
-     `execute_code` reaches any Datadog API, never the `pup` command, whose OAuth grant keeps the
-     scopes its `pup auth login` was granted while later pup releases add commands needing more,
-     such as profiling's `continuous_profiler_read`. On a Sprite, which has no Datadog MCP,
-     `drive datadog <tool> -` makes the same call on the coordinator's Mac with ai-oncall's Datadog
-     keys, its JSON arguments on stdin: `drive datadog tools` lists the read-only tools it runs and
-     `drive datadog <tool>` prints one's input schema. An absence read from one metric, span or log
-     series, such as no calls, zero rows or nothing since, names a second source with no shared
-     emitter showing the same absence, such as the caller's client spans beside the server's trace
-     metric, or goes on `UNPROVEN: <the absence>: <the source that settles it>`, since one series
-     can be sampled or dropped before it is stored.
+     `execute_code` reaches every Datadog API but Database Monitoring's, never the `pup` command,
+     whose OAuth grant keeps the scopes its `pup auth login` was granted while later pup releases
+     add commands needing more, such as profiling's `continuous_profiler_read`. On a Sprite, which
+     has no Datadog MCP, `drive datadog <tool> -` makes the same call on the coordinator's Mac with
+     ai-oncall's Datadog keys, its JSON arguments on stdin: `drive datadog tools` lists the
+     read-only tools it runs and `drive datadog <tool>` prints one's input schema. Database
+     Monitoring's query samples, plans and query performance, such as
+     `search_datadog_database_samples`, are read with `drive datadog <tool> -` on this Mac too,
+     since only it asks the server for Database Monitoring's tools. An absence read from one metric,
+     span or log series, such as no calls, zero rows or nothing since, names a second source with no
+     shared emitter showing the same absence, such as the caller's client spans beside the server's
+     trace metric, or goes on `UNPROVEN: <the absence>: <the source that settles it>`, since one
+     series can be sampled or dropped before it is stored.
    - A Slack read, for research or a `PROVE:` line, goes through cc-slack. Your brief's
      `Linked messages:` already holds each message its orders link; any other message, thread or
      channel reads through cc-slack's `slack_thread`, `slack_history`, `slack_file`,

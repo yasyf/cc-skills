@@ -4505,7 +4505,7 @@ def run_tool(tool: str, given: dict) -> str:
 
 
 def datadog_command(args: argparse.Namespace) -> int:
-    """Run one read-only tool of the Datadog MCP on this Mac with ai-oncall's Datadog keys, its JSON arguments read from stdin after `-`, print what it answered and exit 1 when it says it failed; with no `-`, print its description and input schema; `tools` lists the tools it runs. A Sprite lane, whose Sprite holds no Datadog key, makes its Datadog reads with it through the drive that asks each verb of this Mac."""
+    """Run one read-only tool of the Datadog MCP on this Mac with ai-oncall's Datadog keys, its JSON arguments read from stdin after `-`, print what it answered and exit 1 when it says it failed; with no `-`, print its description and input schema; `tools` lists the tools it runs. A Sprite lane, whose Sprite holds no Datadog key, makes its Datadog reads with it through the drive that asks each verb of this Mac, and every lane its Database Monitoring reads, since it alone asks the server for the `dbm` toolset."""
     from drive import datadog
 
     try:
@@ -5753,7 +5753,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("words", nargs="+", help="each phrase to look for in the plans, matched whole in any case, such as a part, a step or a file")
     verb.set_defaults(run=plan_search)
-    verb = verbs.add_parser("datadog", help="run one read-only Datadog MCP tool on this Mac with ai-oncall's Datadog keys: a Sprite lane's Datadog read")
+    verb = verbs.add_parser("datadog", help="run one read-only Datadog MCP tool on this Mac with ai-oncall's Datadog keys: a Sprite lane's Datadog read and any lane's Database Monitoring read")
     verb.add_argument("tool", help="the Datadog MCP tool, such as execute_code or search_datadog_logs; tools lists the tools it runs")
     verb.add_argument("stdin", nargs="?", choices=["-"], help="read the tool's JSON arguments from stdin and call it; without it, print the tool's description and input schema")
     verb.set_defaults(run=datadog_command)

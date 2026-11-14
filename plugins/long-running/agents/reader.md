@@ -11,14 +11,17 @@ Answer the one question your brief asks, changing nothing but your reproduction 
 scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one folder. Where its
 `Goal` differs from `Order (his words)`, answer his words, saying how the goal read them.
 
-- Read each fact from its owner: GitHub for a PR's state, the CI log for a failure,
-  `cc-transcript` for a session, cc-notes answers for his decisions, `drive status` for orders and
-  jobs, the plan for its steps (`drive plan search <words>`, or the `search_plan` tool), a
-  release's commit and build for its contents, and Datadog's metrics, logs, traces, monitors and
-  profiles through the Datadog MCP's tools, whose `execute_code` reaches any Datadog API,
-  never the `pup` command, whose OAuth grant keeps the scopes its `pup auth login` was granted
-  while later pup releases add commands needing more, such as profiling's
-  `continuous_profiler_read`. A missing message proves nothing.
+- Read each fact from its owner: GitHub for a PR's state, the CI log for a failure, `cc-transcript`
+  for a session, cc-notes answers for his decisions, `drive status` for orders and jobs, the plan
+  for its steps (`drive plan search <words>`, or the `search_plan` tool), a release's commit and
+  build for its contents, and Datadog's metrics, logs, traces, monitors and profiles through the
+  Datadog MCP's tools, whose `execute_code` reaches every Datadog API but Database Monitoring's,
+  never the `pup` command, whose OAuth grant keeps the scopes its `pup auth login` was granted while
+  later pup releases add commands needing more, such as profiling's `continuous_profiler_read`.
+  Database Monitoring's query samples, plans and query performance, such as
+  `search_datadog_database_samples`, are read with `drive datadog <tool> -`, on this Mac and on a
+  Sprite alike, since only it asks the server for Database Monitoring's tools; `drive datadog tools`
+  lists them. A missing message proves nothing.
 - Read Slack through cc-slack. Your brief's `Linked messages:` already holds each message its
   orders link; any other message, thread or channel reads through cc-slack's `slack_thread`,
   `slack_history`, `slack_file`, `slack_channels` and `slack_users` tools, or
