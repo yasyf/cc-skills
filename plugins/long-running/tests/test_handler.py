@@ -14,7 +14,7 @@ import one_line_result
 import pytest
 import session_start
 from conftest import LANE_SPEC, Thread
-from drive import agents, reads, slack, state, talk, tools
+from drive import agents, orca, reads, slack, state, talk, tools
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -210,6 +210,20 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     assert agents.seen(step | {"session_id": "someone-else"})["session_id"] == "someone-else"
     assert agents.transcript(agents.seen(step)) == transcript
     assert agent_brief.deny_reason(agents.seen(step | {"tool_input": {"subagent_type": agents.HANDLER, "prompt": "Record: 1"}})) is None
+
+
+def test_drive_handler_starts_the_handler_in_the_drives_checkout_while_the_communicator_still_runs_in_an_older_one(
+    communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    behind, kept = tmp_path / "durable-agents", tmp_path / "drive-demo"
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["cwd"] = str(behind)
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: kept if (drive, clone) == ("demo", str(behind)) else pytest.fail(clone))
+    ran: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: ran.append((argv, checkout)) or "")
+    start(run, tmp_path)
+    [(argv, checkout)] = ran
+    assert (argv[:4], checkout) == (["claude", "--bg", "--agent", agents.HANDLER], kept)
 
 
 def test_on_a_drive_with_no_communicator_drive_handler_starts_the_handler_beside_the_coordinator_and_its_line_reaches_the_coordinator(

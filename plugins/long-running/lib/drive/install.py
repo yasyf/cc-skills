@@ -1059,24 +1059,46 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
 
 
 def reload_session(drive: str, seat: str, version: str, updated: datetime, deadline: float) -> str:
-    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too. A seat is a role, or `sub-coordinator <project>`."""
+    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install. A seat is a role, or `sub-coordinator <project>`."""
     from drive import orca
 
     who = f"{drive} {seat}"
-    terminal = state.bound_sessions(state.saved(drive)).get(seat, {}).get("terminal")
-    if not terminal:
+    held = state.bound_sessions(state.saved(drive)).get(seat, {})
+    if not (terminal := held.get("terminal")):
         return f"{who}: no terminal recorded, skipped"
     if sent := claim_reload(drive, seat, version, updated):
         return f"{who}: already reloaded onto {sent['version']}"
     wait = max(0.001, min(RELOAD_WAIT_SECONDS, deadline - clock() - orca.SUBMIT_SECONDS))
+    typed = orca.RELOAD
     try:
-        idle = orca.reload_plugins(terminal, int(wait * 1000))
-    except orca.OrcaError as error:
+        moved, ends = homed(drive, seat, held)
+        typed = orca.EXIT if ends else orca.RELOAD
+        idle = orca.typed_when_idle(terminal, typed, int(wait * 1000))
+    except state.DriveError as error:
         unclaim_reload(drive, seat, version)
-        return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal)}"
-    if idle:
-        return f"{who}: reloaded in {terminal}"
-    return f"{who}: busy for {wait:.0f}s, so /reload-plugins is queued in {terminal} and runs when its turn ends"
+        return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal, typed)}"
+    if not idle:
+        return f"{who}: busy for {wait:.0f}s, so {typed} is queued in {terminal} and runs when its turn ends{moved}"
+    return f"{who}: {'reloaded' if typed == orca.RELOAD else f'{typed} typed'} in {terminal}{moved}"
+
+
+def homed(drive: str, seat: str, held: dict) -> tuple[str, bool]:
+    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci resumes it at its next exit, and ended now unless an incident order is open, which drive move refuses too, or no tmux session of cci's runs it, which would leave nothing to resume it; what its reload line adds, and whether it ends now."""
+    from drive import agents, orca
+
+    if not (ran := orca.launch_dir(held["session"])):
+        return "", False
+    if ran.resolve() == (kept := orca.checkout(drive, held["cwd"])).resolve():
+        return "", False
+    project = seat.removeprefix("sub-coordinator ") if seat.startswith("sub-coordinator ") else None
+    agents.register(drive, "coordinator" if project else seat, project, str(kept), held["session"])
+    resumed = f"cci session run resumes it in the drive's checkout {kept}"
+    orders = state.stored(drive, ("orders",))
+    if incidents := state.open_incidents(orders, list(orders["orders"])):
+        return f"; it runs in {ran} until it next exits, when {resumed}, since incident {', '.join(incidents)} is open", False
+    if not orca.in_tmux(state.alias(drive, seat, project), held["session"]):
+        return f"; it runs in {ran} until it next exits, when {resumed}, since no tmux session of cci's runs it", False
+    return f", so {resumed}", True
 
 
 def claim_reload(drive: str, role: str, version: str, updated: datetime) -> dict | None:

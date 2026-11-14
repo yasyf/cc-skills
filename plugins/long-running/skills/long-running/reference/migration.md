@@ -79,7 +79,9 @@ step 5's command shows it, with no restart and no word from him.
 
 - Move a session only on his word naming it, because ending a session is his decision, which `drive move` records. A
   coordinator whose process has already exited is restarted at once by Start or resume, with no
-  word.
+  word, and a session cci runs whose process runs outside the drive's checkout is ended once by an
+  install's reload or `drive reload`, so cci resumes it in the checkout, by his pick "Sessions run in
+  the drive's dev-head checkout; every job inherits it", whose option restarts each role once.
 - A hook refuses ending a role's session (`/exit` to its terminal, `claude stop`) while an
   incident order is open: move it once the fix is live.
 - A hook refuses resuming a session that still runs, and names [Start or resume](start.md)'s
