@@ -64,13 +64,15 @@ def uncarded(pr: dict, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card."""
+    """Every rule of own past the draw of his card; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, f"it is {pr['state']}")
     if land.landing(pr):
         return Stage("landing", LANDER, landing_why(pr))
     if ended := unlanded(data, key, cards):
+        if mine := asked(data, key, [pr["job"]], cards):
+            return Stage("blocked", HIM, f"its builder {pr['job']} waits on {', '.join(fix_words(data, wait, cards) for wait in mine)}")
         return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)

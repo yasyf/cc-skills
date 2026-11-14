@@ -382,6 +382,8 @@ puts the PR on his card, or his tap comes after the try started, the PR reads hi
 `landing` while Trunk holds it, and `unlanded`, a lander's try that ended without queueing it, with
 `UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
 every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
+While the PR's own job waits on his open question cards, it reads `blocked` instead, owed by him and naming
+each card, and wakes no one until he answers them.
 A merge GitHub refused for a conflict, `Pull Request has merge conflicts` or `the merge
 commit cannot be cleanly created`, is never `unlanded`: the PR reads `red`, owed by its builder, "it
 conflicts with its base <branch>", whatever the watch last read of its mergeability, so `drive pr wake` sends its
