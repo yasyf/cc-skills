@@ -184,6 +184,20 @@ def started(command: str) -> list[dict[str, tuple[str, ...]]]:
     return [flags for words in simple_commands(command) if (flags := release_flags(words)) is not None]
 
 
+def card_releases(text: str) -> list[str]:
+    """Each release a card's words name in backticks, one `ci release start` or `hotfix` each, the shorthand `release start …` its options write read as the ci binary's."""
+    named = []
+    for quoted in limits.BACKTICKED.findall(text):
+        command = quoted.strip("`")
+        command = f"ci {command}" if command.startswith("release ") else command
+        try:
+            if len(started(command)) == 1:
+                named.append(command)
+        except ValueError:
+            continue
+    return named
+
+
 def release_refusal(command: str) -> str | None:
     """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on."""
     commands = simple_commands(command)
@@ -195,7 +209,7 @@ def release_refusal(command: str) -> str | None:
 
 
 def approval_refusal(command: str, data: dict) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and Jev does not read it as his order or pick to release, or gave no answer."""
+    """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and `settled.unordered` reads it as ordering another release, or Jev gave no answer."""
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
         return hold_refusal(command, data, hold)
@@ -203,18 +217,18 @@ def approval_refusal(command: str, data: dict) -> str | None:
     answer_id = flags["order"][-1]
     try:
         answer = settled.shown(answer_id, cwd)
-        if settled.INCIDENT in answer["tags"] or settled.approving(f"start this production release: `{command}`", [{"id": answer_id, "asked": answer["title"], "said": answer["body"]}]):
+        if settled.INCIDENT in answer["tags"] or not (why := settled.unordered(answer, command, data)):
             return None
     except state.DriveError as error:
         return f"refused: `--order {answer_id}` names no answer of his that could be read: {error}. {RELEASE_APPROVAL}"
     except settled.Unheard as failure:
         return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(answer["body"], settled.QUOTED_CHARS)
-    return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and Jev does not read it as approving this release. {RELEASE_APPROVAL}'
+    return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
 
 
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
-    """Why a release may not run under his hold on every release: it is not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that Jev reads as approving it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
+    """Why a release may not run under his hold on every release: it is not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
     cwd = data["roles"]["coordinator"]["cwd"]
     said, where = hold_words(hold, data)
     named = started(release)
@@ -224,10 +238,10 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
             why = "it names no `--order`, and neither does a `Release:` line of its job's brief"
         elif (answer := settled.shown(orders[-1], cwd))["created_at"] <= hold["created_at"]:
             why = f'`--order {orders[-1]}` names his answer to "{cut(answer["title"], 200)}", recorded before the hold'
-        elif settled.approving(f"start this production release: `{release}`", [{"id": answer["id"][:7], "asked": answer["title"], "said": answer["body"]}]):
+        elif not (unordered := settled.unordered(answer, release, data)):
             return None
         else:
-            why = f'Jev does not read his answer {orders[-1]} to "{cut(answer["title"], 200)}" as approving it'
+            why = f'`--order {orders[-1]}` names his answer to "{cut(answer["title"], 200)}", and {unordered}'
     except state.DriveError as error:
         why = f"his answers could not be read: {error}"
     except settled.Unheard as failure:

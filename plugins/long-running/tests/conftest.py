@@ -131,6 +131,28 @@ Holds: none: no option changes code any job builds
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
 DESCRIPTION = "  The drive runs it once he picks it and keeps nothing past the run; it changes `lib/drive/cli.py` only.\n"
+ANSWERED_CUT = """ASK Which cut ships the api hotfix: api alone everywhere but Acme's cluster, or the full release?
+Drive tooling: your pick decides which cut ships the api hotfix.
+- Api alone everywhere but Acme's cluster (recommended)
+  Starts `release start --hotfix 101 --only api --without tnt-usw2-acme`, the hotfix's api change on every place but Acme's cluster.
+- The full release
+  Starts `release start`, every merged change on every place.
+
+Findings:
+Root cause: none: a pick of which cut ships
+Simplest: Api alone everywhere but Acme's cluster
+Holds: none: no option changes code any job builds
+"""
+CUT_LINK = "https://acme.slack.com/archives/D123/p1794400000000141"
+CUT_PICK = {
+    "id": "5d17d9c" + "0" * 33,
+    "title": "Which cut ships the api hotfix: api alone everywhere but Acme's cluster, or the full release?",
+    "body": "1 and then get Acme to the same the others are",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-14T06:11:19Z",
+}
+CUT_TAP = CUT_PICK | {"id": "7ab1e20" + "0" * 33, "body": "The full release"}
+ACME_CUT = "tools/ci release start --hotfix 101 --only api --from releases/2026-11-13/29 --without plat-usw2-staging,plat-usw2-prod,tnt-usw2-north --order {}"
 
 
 def explained(block: str) -> str:
@@ -289,6 +311,24 @@ def cards_drawn(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 def drawn_card(n: int) -> str:
     return f"https://acme.slack.com/archives/D123/p{1794400000000100 + n}"
+
+
+def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[dict]) -> None:
+    """His answers to a kept card whose first option names the api hotfix everywhere but Acme's cluster, each kept by `drive answer` at that card's link, and Acme's env file in the drive's checkout naming its team."""
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the api hotfix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "pick the cut")
+    data = state.load(demo)
+    envs = Path(data["roles"]["coordinator"]["cwd"]) / "infra" / "envs"
+    envs.mkdir(parents=True, exist_ok=True)
+    (envs / "tnt-usw2-acme.yaml").write_text("env: tnt-usw2-acme\ntenants:\n- stage: acme\n  name: acme\n  displayName: Acme\nsandsql:\n  name: northwind\n")
+    kept = state.drive_dir(demo) / "asks" / "j1-cut.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(ANSWERED_CUT)
+    with state.edit(demo) as data:
+        said = state.stamp()
+        closed = state.new_close("answered", answers[0]["body"], CUT_LINK, seq="7")
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), CUT_PICK["title"], said, card=CUT_LINK, closed=closed))
+        data["answers"] |= {answer["id"]: {"words": answer["body"], "link": CUT_LINK, "at": said, "said": said, "cards": {}, "jobs": {}} for answer in answers}
 
 
 @pytest.fixture(autouse=True)

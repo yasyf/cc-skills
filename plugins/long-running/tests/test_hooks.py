@@ -18,7 +18,7 @@ import quiet_turn
 import record_lines
 import scratch_folder
 import session_start
-from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, label, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, label, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1322,7 +1322,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     assert len(jev.asked) == asked
     jev.picks("none")
     assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
-        start.format("8b2e4f7"), 'Jev does not read his answer 8b2e4f7 to "Release the SandSQL fix to production?" as approving it'
+        start.format("8b2e4f7"), '`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Jev does not read it as approving this release'
     )
     by_hand = ("tools/ci release hotfix 55960 --only executor", "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- tools/ci release start sandsql")
     assert [landing_guard.deny_reason(bash(command) | top) for command in by_hand] == [
@@ -1449,7 +1449,7 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
     assert {asked["state"]["action"] for asked in jev.asked} == {f"start this production release: `{release}`"}
     jev.picks("none")
     assert landing_guard.deny_reason(bash(own[0]) | step) == brief.RELEASE_HELD.format(
-        said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='Jev does not read his answer 8b2e4f7 to "Release the SandSQL fix to production?" as approving it'
+        said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Jev does not read it as approving this release'
     )
     stale = "tools/ci release start sandsql --order 5d0c4a1"
     briefed = stepped(tmp_path, f"Release: {stale}\nDrive: demo, order o1, job j1")
@@ -1535,6 +1535,66 @@ def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ship
         f'refused: `--order 6881a3a` names his answer to "{QUEUE_PICK["title"]}", "Enqueue it (Recommended)", and Jev does not read it'
         f" as approving this release. {brief.RELEASE_APPROVAL}"
     )
+
+
+def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_places_his_words_past_it_name_and_no_other_release_with_no_jev_read(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    unread = CUT_PICK | {"id": "3c0ffee" + "0" * 33, "body": "Ship whichever is safest"}
+    answered_cut(run, demo, [CUT_PICK, CUT_TAP, unread])
+    with state.edit(demo) as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP, unread)}
+    data = state.load(demo)
+    option = "`ci release start --hotfix 101 --only api --without tnt-usw2-acme`"
+    picks = f'refused: `--order 5d17d9c` names his answer to "{CUT_PICK["title"]}", "{CUT_PICK["body"]}", and it picks option 1 of the card it answers, {option}'
+    releases = {
+        ACME_CUT.format("5d17d9c"): None,
+        "tools/ci release start --hotfix 101 --only api --without tnt-usw2-acme --order 5d17d9c": None,
+        "tools/ci release start --order 5d17d9c": f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
+        "tools/ci release start --hotfix 202 --only sandsql --order 5d17d9c": f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
+        "tools/ci release start --hotfix 101 --only api --env tnt-usw2-acme,tnt-usw2-north --order 5d17d9c": None,
+        "tools/ci release start --hotfix 101 --only api --without plat-usw2-prod,tnt-usw2-north,tnt-usw2-acme --order 7ab1e20": (
+            f'refused: `--order 7ab1e20` names his answer to "{CUT_TAP["title"]}", "The full release", and it picks option 2 of the card it answers,'
+            f" `ci release start`, and this release ships another change. {brief.RELEASE_APPROVAL}"
+        ),
+        "tools/ci release start --order 7ab1e20": None,
+    }
+    assert {release: brief.approval_refusal(release, data) for release in releases} == releases
+    assert jev.asked == []
+    jev.picks("none")
+    assert brief.approval_refusal("tools/ci release start --order 3c0ffee", data) == (
+        f'refused: `--order 3c0ffee` names his answer to "{unread["title"]}", "{unread["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+    )
+    [asked] = jev.asked
+    assert (asked["state"]["action"], asked["state"]["answers"]) == ("start this production release: `tools/ci release start --order 3c0ffee`", [{"id": "3c0ffee", "asked": unread["title"], "said": unread["body"]}])
+    assert asked["state"]["card"].splitlines()[:3] == [f"Question: {CUT_PICK['title']}", "Drive tooling: your pick decides which cut ships the api hotfix.", "Option 1 (recommended): Api alone everywhere but Acme's cluster -- Starts `release start --hotfix 101 --only api --without tnt-usw2-acme`, the hotfix's api change on every place but Acme's cluster."]
+    recorded.listed = [RELEASE_HOLD, CUT_PICK]
+    assert brief.approval_refusal(ACME_CUT.format("5d17d9c"), data) is None
+    fewer = "tools/ci release start --hotfix 101 --only api --without plat-usw2-staging,tnt-usw2-acme --order 5d17d9c"
+    assert brief.approval_refusal(fewer, data) is None
+    assert brief.approval_refusal("tools/ci release start --order 5d17d9c", data) == held(
+        "tools/ci release start --order 5d17d9c", f'`--order 5d17d9c` names his answer to "{CUT_PICK["title"]}", and it picks option 1 of the card it answers, {option}, and this release ships another change'
+    )
+    assert len(jev.asked) == 1
+
+
+def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:
+    answered_cut(run, demo, [CUT_PICK])
+    recorded.shown = {"5d17d9c": CUT_PICK}
+    data = state.load(demo)
+    release = "tools/ci release start --hotfix 101 --only api --env tnt-usw2-acme,tnt-usw2-north --without tnt-usw2-north --order 5d17d9c"
+    assert brief.approval_refusal(release, data) is None
+    option = {"hotfix": ("101",), "only": ("api",), "env": ("plat-usw2-prod",)}
+    assert settled.beyond({"hotfix": ("101",), "only": ("api",), "env": ("plat-usw2-prod", "tnt-usw2-acme", "tnt-usw2-north")}, option) == {"tnt-usw2-acme", "tnt-usw2-north"}
+    assert settled.placed({"hotfix": ("101",), "only": ("api",), "env": ("plat-usw2-prod", "tnt-usw2-acme", "tnt-usw2-north")}, option, " and then get Acme to the same", data["roles"]["coordinator"]["cwd"]) == (
+        "and this release also runs on tnt-usw2-north, which his words past its number do not name"
+    )
+    assert settled.placed({"hotfix": ("101",), "only": ("api",)}, option, " and Acme too", data["roles"]["coordinator"]["cwd"]) == (
+        "and this release runs on every place it does not leave out, where that option names its own"
+    )
+    assert settled.team_names("tnt-usw2-acme", data["roles"]["coordinator"]["cwd"]) == ["acme", "Acme"]
+    assert settled.team_names("tnt-usw2-north", data["roles"]["coordinator"]["cwd"]) == []
 
 
 def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: list[list[str]]) -> None:
