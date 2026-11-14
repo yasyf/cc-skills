@@ -2851,7 +2851,7 @@ def draw_questions(watcher: Watcher, moment: datetime) -> None:
     undrawn = [
         (job_id, question, Path(question["file"]))
         for job_id, job in data["jobs"].items()
-        if job["state"] not in ("failed", "stopped") and heard_job(watcher, data, job)
+        if job["state"] not in state.ENDED_JOB_STATES and heard_job(watcher, data, job)
         for question in view.open_questions(job)
         if question["file"] and not (question["card"] or question["refused"])
     ]
