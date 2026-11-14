@@ -1622,6 +1622,50 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
     assert len(jev.asked) == 1
 
 
+SOAK_CARD = """ASK Should the run-argument fix you approved soak on staging before it merges, or land on dev now as the incident's fix?
+Drive tooling: your pick decides when the run-argument fix merges.
+- Soak the branch on staging first: it merges only after real staging runs pass (recommended)
+  The branch's cloudrunner-next build deploys to plat-usw2-staging, the half-hourly promote-staging schedule is frozen so dev does not replace it, and a staging team runs the six cases.
+- Land it on dev now as the incident's fix: it merges tonight, proven by CI alone
+  The lander squash-merges the fix onto dev, and promote-staging ships dev to staging at its next half-hour tick.
+
+Findings:
+Root cause: none: a pick of when the fix merges
+Simplest: Land it on dev now as the incident's fix
+Holds: none: no option changes code any job builds
+"""
+SOAK_PICK = {
+    "id": "0a09bcc" + "0" * 33,
+    "title": "Should the run-argument fix you approved soak on staging before it merges, or land on dev now as the incident's fix?",
+    "body": "1 and then aggressively manually test it that should be the playbook",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-14T07:52:00Z",
+}
+SOAK = "tools/ci release start {targets} --from 216f90221a4708e2f694823ea207ae738992e829 --emergency --env {env} --order {order}"
+
+
+def test_his_number_on_a_kept_card_orders_the_release_its_option_names_in_prose_with_no_jev_read_and_jev_reads_any_release_past_its_words(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    acme = SOAK_PICK | {"id": "0a1ace0" + "0" * 33, "body": "1 and then get Acme to the same"}
+    answered_cut(run, demo, [SOAK_PICK, acme], SOAK_CARD)
+    recorded.shown = {answer["id"][:7]: answer for answer in (SOAK_PICK, acme)}
+    data = state.load(demo)
+    ordered = (SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging", order="0a09bcc"), SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a1ace0"))
+    assert [brief.approval_refusal(release, data) for release in ordered] == [None, None]
+    assert jev.asked == []
+    read = (
+        SOAK.format(targets="cloudrunner-next", env="plat-usw2-prod", order="0a09bcc"),
+        SOAK.format(targets="cloudrunner-next,runtime-api-next", env="plat-usw2-staging", order="0a09bcc"),
+        "tools/ci release start cloudrunner-next --from 216f90221a4708e2f694823ea207ae738992e829 --emergency --order 0a09bcc",
+        SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging", order="0a09bcc") + " --landed 56278",
+        SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a09bcc"),
+    )
+    refused = f'refused: `--order 0a09bcc` names his answer to "{SOAK_PICK["title"]}", "{SOAK_PICK["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+    assert [brief.approval_refusal(release, data) for release in read] == [refused] * len(read)
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this production release: `{release}`" for release in read]
+
+
 def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:
     answered_cut(run, demo, [CUT_PICK])
     recorded.shown = {"5d17d9c": CUT_PICK}

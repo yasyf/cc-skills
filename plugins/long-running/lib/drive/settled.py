@@ -114,6 +114,7 @@ ORDERED = (
 )
 LEADING_NUMBER = re.compile(r"\s*(\d+)\b(?![.,]\d)")
 UNCHANGED = frozenset({"env", "without", "from", "order"})
+PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 REPEATS_QUESTION = (
@@ -418,7 +419,7 @@ def repeats(data: dict, words: str) -> str | None:
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. Any other answer Jev reads once, his words beside that card, ordering only what they name, at the DECIDES bar; Unheard when Jev gave no answer."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads once, his words beside that card, ordering only what they name, at the DECIDES bar; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -426,12 +427,16 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
     if asked and (pick := picked_option(asked, said)):
         number, rest = pick
         option = asked.options[number - 1]
-        if commands := brief.card_releases(f"{option}\n{asked.hints.get(option, '')}"):
-            [flags] = brief.started(release)
-            whys = [placed(flags, brief.started(command)[0], rest, data["roles"]["coordinator"]["cwd"]) for command in commands]
+        words = f"{option}\n{asked.hints.get(option, '')}"
+        [flags] = brief.started(release)
+        cwd = data["roles"]["coordinator"]["cwd"]
+        if commands := brief.card_releases(words):
+            whys = [placed(flags, brief.started(command)[0], rest, cwd) for command in commands]
             if None in whys:
                 return None
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
+        if named(flags, words, rest, cwd):
+            return None
     card = {"card": "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])} if asked else {}
     found = picked(ORDERS_QUESTION, "His words order no such release.", {"action": f"start this production release: `{release}`"} | card, [{"id": answer["id"][:7], "asked": answer["title"], "said": said}])
     return None if found else UNORDERED
@@ -463,6 +468,17 @@ def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
     if unnamed := sorted(place for place in added if not any(f" {plain(name)} " in words for name in (place, *team_names(place, cwd)))):
         return f"and this release also runs on {', '.join(unnamed)}, which his words past its number do not name"
     return None
+
+
+def named(release: dict, words: str, rest: str, cwd: str) -> bool:
+    """Whether a card option's words, naming no release in backticks, name this release whole: it carries only targets, places, `--from`, `--order` and `--emergency`, at least one target and one place it runs on, each target a word of the option's and each place one of the option's or of his words past its number, by env id or its team's name."""
+    places = set(release.get("env", ())) - set(release.get("without", ()))
+    if set(release) - PROSE_FLAGS or not release.get("targets") or not places:
+        return False
+    option, both = f" {plain(words)} ", f" {plain(f'{words} {rest}')} "
+    return all(f" {plain(target)} " in option for target in release["targets"]) and all(
+        any(f" {plain(name)} " in both for name in (place, *team_names(place, cwd))) for place in places
+    )
 
 
 def beyond(release: dict, option: dict) -> set[str] | None:
