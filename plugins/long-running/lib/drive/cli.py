@@ -5607,20 +5607,23 @@ def parser() -> argparse.ArgumentParser:
     verbs.add_parser(
         "receive", help="take GitHub's signed webhook deliveries through this Mac's Tailscale Funnel path into each drive's events file: the process the receiver's launch agent runs"
     ).set_defaults(run=receive)
-    cards = verbs.add_parser("cards", help="his open question cards").add_subparsers(dest="action", required=True)
+    cards = verbs.add_parser("cards", help="redraw or withdraw his open question cards").add_subparsers(dest="action", required=True)
     verb = cards.add_parser(
         "redraw",
         parents=both,
-        help="print the card drive job card prints for each of his open question cards, one JSON line each",
+        help="rebuild every open question card of his, writing the drive for each, and print them only after the last; no list",
         description=(
-            "Redraw his open question cards in one pass: for each open card, print the JSON `drive job card <its ASK file>"
-            " --waits <its waits id>` prints, with `replaces` the card's permalink, which cc-slack draws over the card where it"
+            "Redraw his open question cards in one pass: for each open card, build the JSON `drive job card <its ASK file>"
+            " --waits <its waits id>` prints, writing the card's waits id into the drive under its writer lock, and once the"
+            " last is built print each, with `replaces` the card's permalink, which cc-slack draws over the card where it"
             " sits, posting no new version, whether or not its store still keeps the card, one line each, for say(card=…)."
             " His open cards are each open question of the drive drawn on a card, as drive status reads it open, and each card"
             " cc-slack lists open. A question's ASK file is the one it keeps; a listed card's is the one a job's question keeps"
             " under its waits id, else the one a question linked to the card keeps when it asks the card's question, else"
             " asks/<waits id>.md rebuilt from the card as posted, which a question of its job then keeps. Each card that does"
-            " not redraw, one whose redraw is refused, is named once the rest are printed, and the verb exits 2."
+            " not redraw, one whose redraw is refused, is named once the rest are printed, and the verb exits 2. It is no list"
+            " of his open cards: the asks him: lines of `drive status <order or job>` name each card its jobs asked, and"
+            " `cc-slack drive-cards --drive <drive> | grep -i '<words>'` each open card on those words, each in under a second."
         ),
     )
     verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")
