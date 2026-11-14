@@ -1005,9 +1005,9 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
 
 
 def line_facts(data: dict, group: list[str], registered: dict[str, list[str]]) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job or PR it is about: each order of it, each job's facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, and each PR's state, head, checks, Trunk ejection and tap as the watch last read them; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
-    jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"]}
-    prs = {key: data["prs"][key] for key in incident_prs(data, group, registered) if key in data["prs"]}
+    """What a line on an open order or incident tells him, by the order, job or PR it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, and each PR registered on those jobs or named in its orders' words, by its state, head, checks, Trunk ejection and tap as the watch last read them; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
+    jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["order"] in group}
+    prs = {key: data["prs"][key] for key in incident_prs(data, group, jobs, registered) if key in data["prs"]}
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
         **{job_id: state.job_news(job["state"], job["waits"], view.open_cards(job), job["said"]) for job_id, job in jobs.items() if job["state"] != "running"},
@@ -1019,17 +1019,11 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line or the watch's last report on it, which the watch keeps on each order at the first pass after that line and once each report reaches a handler: a job returning, its first wait beginning or its last ending, never one wait of several ending while it still waits, a new head, its checks settling, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. A report reaching a handler, started, handed or held by one already at work on it, keeps the facts it carried, so news a handler judged not worth posting starts no second handler and the next report carries only what moved after it; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
-    threads: dict[tuple[str, str] | str, list[str]] = {}
-    groups: dict[str, list[str]] = {}
     registered = render.prs_by_job(data)
-    joined = state.joined_orders(data)
-    for head, order in heard_orders(watcher, data).items():
-        if not (order["incident"] or order["thread"]) or order["joins"] or order["recovered"] or order["close_report"] or order["closed_on"]:
-            continue
-        group = [head, *joined.get(head, [])]
-        if not any(data["orders"][order_id]["proof"] for order_id in group):
-            groups[head] = group
-            threads.setdefault(state.promise_thread(order) or head, []).append(head)
+    groups = news_groups(data, heard_orders(watcher, data))
+    threads: dict[tuple[str, str] | str, list[str]] = {}
+    for head in groups:
+        threads.setdefault(state.promise_thread(data["orders"][head]) or head, []).append(head)
     facts = {head: line_facts(data, group, registered) for head, group in groups.items()}
     heard = {head: state.stamp(max(last_line(data, groups[other]) for other in heads)) for heads in threads.values() for head in heads}
     if stale := [head for head in groups if not data["orders"][head]["quiet"] or data["orders"][head]["quiet"]["heard"] != heard[head]]:
@@ -1042,7 +1036,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         incident = any(data["orders"][head]["incident"] for head in heads)
         since = max(quiet_since(data, groups[head]) for head in heads)
-        moved = [key for head in heads for key, fact in facts[head].items() if data["orders"][head]["quiet"]["news"].get(key) != fact]
+        moved = [key for head in heads for key in untold(data["orders"][head], facts[head])]
         working = [job_id for head in heads for order_id in groups[head] for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["state"] == "running"]
         if moment - since < QUIET_THREAD or not moved and not (incident and working):
             continue
@@ -1065,6 +1059,22 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for head in heads:
                 data["orders"][head]["quiet"] |= {"record": seq, "at": state.stamp(moment), "handler": handler, "news": facts[head]}
     return lines
+
+
+def news_groups(data: dict, orders: dict[str, dict]) -> dict[str, list[str]]:
+    joined = state.joined_orders(data)
+    groups = {}
+    for head, order in orders.items():
+        if not (order["incident"] or order["thread"]) or order["joins"] or order["recovered"] or order["close_report"] or order["closed_on"]:
+            continue
+        group = [head, *joined.get(head, [])]
+        if not any(data["orders"][order_id]["proof"] for order_id in group):
+            groups[head] = group
+    return groups
+
+
+def untold(order: dict, facts: dict[str, list]) -> list[str]:
+    return [key for key, fact in facts.items() if order["quiet"]["news"].get(key) != fact]
 
 
 def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str]) -> str:
@@ -1165,16 +1175,17 @@ def incident_pr_lines(name: str, group: list[str]) -> list[str]:
     from drive import cli
 
     data = cli.with_cards(name, state.load(name))
-    lines = [render.pr_line(key, data["prs"][key], data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in incident_prs(data, group, render.prs_by_job(data))]
+    jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"]}
+    lines = [render.pr_line(key, data["prs"][key], data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in incident_prs(data, group, jobs, render.prs_by_job(data))]
     return [f"PRs, as the watch last read them from GitHub: {len(lines)}", *(f"- {line}" for line in lines)]
 
 
-def incident_prs(data: dict, group: list[str], registered: dict[str, list[str]]) -> list[str]:
-    """Each PR of an incident's orders by its key, on their jobs, by render.prs_by_job for the ones registered on a job, or named in their words."""
+def incident_prs(data: dict, group: list[str], jobs: dict[str, dict], registered: dict[str, list[str]]) -> list[str]:
+    """Each PR of an incident's orders by its key, on these jobs of them, by render.prs_by_job for the ones registered on a job, or named in their words."""
     return list(
         dict.fromkeys(
             [
-                *(key for order_id in group for job_id in data["orders"][order_id]["jobs"] for key in render.job_pr_keys(data["jobs"][job_id], registered.get(job_id, []))),
+                *(key for job_id, job in jobs.items() for key in render.job_pr_keys(job, registered.get(job_id, []))),
                 *(key for order_id in group for key in state.named_prs(data, order_id, data["orders"][order_id]["text"])),
             ]
         )
@@ -2381,7 +2392,7 @@ def orphan_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, add each order that changed since he was last heard, and each a report held for his catch-up is on, to the catch-up the drive owes him, which keeps the time of the first such absence it covers, and which the watch's next pass posts."""
+    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders joined to it, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         since = (data.get("owner") or {}).get("heard")
@@ -2389,10 +2400,13 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
         news = []
         held = list(data["held"]) if back and since else []
         if back and since:
-            for key, order in data["orders"].items():
-                last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
-                if changed_since(order, data["jobs"], last) or any(mark["order"] == key for mark in data["held"].values()):
-                    news.append(key)
+            registered = render.prs_by_job(data)
+            for head, group in news_groups(data, state.open_orders(data)).items():
+                order, facts = data["orders"][head], line_facts(data, group, registered)
+                if order["quiet"] and untold(order, facts):
+                    order["quiet"]["news"] = facts
+                    news += group
+            news += [mark["order"] for mark in data["held"].values() if mark["order"]]
         if news or held:
             owed = data["catch_up"] or state.new_catch_up(since, [])
             data["catch_up"] = owed | {"orders": list(dict.fromkeys([*owed["orders"], *news])), "record": None}
@@ -2439,11 +2453,6 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
     text = f"POST his catch-up since {when(owed['since'])}: {len(orders)} orders with news, {len(held)} reports held for it"
     [seq] = reported(watcher, [{"kind": "report", "attr": {"catch_up": "true"}, "text": text, "body": "\n".join(facts) + "\n"}])
     return seq
-
-
-def changed_since(order: dict, jobs: dict, last: datetime) -> bool:
-    stamps = [order["updated"], *(jobs[job_id]["updated"] for job_id in order["jobs"])]
-    return any(state.parse_time(stamp) > last for stamp in stamps)
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:

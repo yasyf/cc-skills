@@ -529,7 +529,9 @@ restating it.
   watch's last report on it, the watch sends one `report` carrying `quiet=true` and the thread,
   naming every step that moved in that time, and starts one handler, which posts what changed in that
   thread, so no session writes a progress line of its own and a thread lined minutes before gets none. None goes out while he is away, since his catch-up
-  carries it, nor once a report closing the order is kept or posted, whose post is its line.
+  carries it, nor once a report closing the order is kept or posted, whose post is its line. A job
+  carrying a part of another order, and each PR registered on it, is a step in its own order's
+  thread alone.
 - An incident shares that rule with a clock: until its fix is live he hears each step the moment it
   happens, and until its users are unblocked a line five quiet minutes after the last while a job
   works on it or something it names moved, while he is away too, which the watch owes and has a
@@ -552,9 +554,10 @@ restating it.
   on it, and once the catch-up posts, an order it claimed to close is free for another report's
   close.
 - His next message, right after its ack, or his next card tap gets one catch-up at his DM root,
-  posted by the drive with no session in between. `drive heard`, or the tap, adds every order that
-  changed while he was away or has a report held to the catch-up the drive owes him, which it keeps
-  until the catch-up posts. Within one pass of the watch, 5 seconds, the watch writes one `report`
+  posted by the drive with no session in between. `drive heard`, or the tap, adds every open order
+  with a step its thread has had no line or report on, by the same test as that thread's line, or
+  with a report held, to the catch-up the drive owes him, which it keeps until the catch-up posts,
+  and counts those steps told, so no thread gets a line on what the catch-up carries. Within one pass of the watch, 5 seconds, the watch writes one `report`
   of it, naming each held report its writer did not withdraw, with the corrections cci holds re it,
   and each order with news, and
   starts the handler that posts it, grouped by feature and each held report's facts as its
