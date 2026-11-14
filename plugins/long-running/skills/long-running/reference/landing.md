@@ -245,8 +245,8 @@ change".
      checkout, the `drive-<drive>` worktree, gets `/exit` instead, once registered with cci there, so
      cci resumes it in the checkout on the new install and every agent and `tools/ci` it runs reads the
      default branch head, by his pick "Sessions run in the drive's dev-head checkout; every job
-     inherits it"; while an incident order is open, or when no tmux session of cci's runs it, it is
-     reloaded and moves at its next exit. `drive reload` does the same for every drive session with no
+     inherits it", an open incident order included, since cci resumes it at once; when no tmux session
+     of cci's runs it, it is reloaded and moves at its next exit. `drive reload` does the same for every drive session with no
      install, whatever installs reloaded before. No post asks him to type `/reload-plugins`. A reload
      draws no role block, so a session's role rules reach it at its next tool call instead: the
      `role_rules` check before each call of a drive session compares the digest its seat keeps, written

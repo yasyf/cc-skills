@@ -1110,7 +1110,7 @@ def reload_session(drive: str, seat: str, version: str, updated: datetime, deadl
 
 
 def homed(drive: str, seat: str, held: dict) -> tuple[str, bool]:
-    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci resumes it at its next exit, and ended now unless an incident order is open, which drive move refuses too, or no tmux session of cci's runs it, which would leave nothing to resume it; what its reload line adds, and whether it ends now."""
+    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci resumes it at its next exit, and ended now, an open incident order included, since cci resumes it at once, unless no tmux session of cci's runs it, which would leave nothing to resume it; what its reload line adds, and whether it ends now."""
     from drive import agents, orca
 
     if not (ran := orca.launch_dir(held["session"])):
@@ -1120,9 +1120,6 @@ def homed(drive: str, seat: str, held: dict) -> tuple[str, bool]:
     project = seat.removeprefix("sub-coordinator ") if seat.startswith("sub-coordinator ") else None
     agents.register(drive, "coordinator" if project else seat, project, str(kept), held["session"])
     resumed = f"cci session run resumes it in the drive's checkout {kept}"
-    orders = state.stored(drive, ("orders",))
-    if incidents := state.open_incidents(orders, list(orders["orders"])):
-        return f"; it runs in {ran} until it next exits, when {resumed}, since incident {', '.join(incidents)} is open", False
     if not orca.in_tmux(state.alias(drive, seat, project), held["session"]):
         return f"; it runs in {ran} until it next exits, when {resumed}, since no tmux session of cci's runs it", False
     return f", so {resumed}", True
