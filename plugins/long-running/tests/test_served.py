@@ -242,9 +242,26 @@ REPLAYS = {
 @pytest.mark.parametrize("key", list(REPLAYS))
 def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
     order, parts, answered, refused_in = REPLAYS[key]
-    said = served.words({"orders": {"o1": order | {"parts": dict.fromkeys(parts)}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [])
+    said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [])
     found = JUDGE(demo, said, {key: READ_CHANGE(key)})
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
+
+
+TEAMMATES_FIX = "https://github.com/Forge-AI/monorepo/pull/56212"
+REGRESSION_TEST = "https://github.com/Forge-AI/monorepo/pull/56227"
+
+
+@pytest.mark.parametrize(
+    ("job_prs", "lines"),
+    [
+        ([REGRESSION_TEST], f"  other changes deliver: fix, which {TEAMMATES_FIX} merged; stop; cause"),
+        ([TEAMMATES_FIX, REGRESSION_TEST], "  this change delivers: fix\n  other changes deliver: stop; cause"),
+    ],
+)
+def test_a_part_a_merged_pr_outside_the_job_delivered_is_left_to_other_changes_naming_that_pr_and_one_its_own_pr_delivered_stays_its_own(job_prs: list[str], lines: str) -> None:
+    order = {"created": "2026-11-13T18:40:00-08:00", "text": "fix the stuck chats", "parts": {"fix": {"posted": TEAMMATES_FIX}, "stop": {"posted": None}, "cause": {"posted": None}}}
+    said = served.words({"orders": {"o1": order}}, {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}, ["o1"], [], [], [])
+    assert said == f'o1, 2026-11-13T18:40:00-08:00: "fix the stuck chats"\n{lines}'
 
 
 STATUS = (
