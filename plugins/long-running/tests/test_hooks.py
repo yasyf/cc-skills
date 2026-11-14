@@ -1140,7 +1140,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     refusals = (
         (
             J2666_START.replace("5419ffd", "ac61348"),
-            f'refused: `--order ac61348` names his answer to "{PR_TAP["title"]}", "{PR_TAP["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}',
+            f'refused: `--order ac61348` names his answer to "{PR_TAP["title"]}", "Approve at 4aca314", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}',
         ),
         (J2666_START.removesuffix(" --order 5419ffd"), f"--release names no --order. {brief.RELEASE_APPROVAL}"),
         (
@@ -1234,9 +1234,9 @@ def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_an
     assert [[watch.heard_job(watcher, data, data["jobs"][job_id]) for job_id in ("j1", "j2")] for watcher in watchers] == [[False, True], [True, False]]
 
 
-RELEASE_PICK ={"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
+RELEASE_PICK ={"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)\nNotes:\nA session's reading, not his words: the fix ships on the next cut.", "tags": ["scope:durable"]}
 INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
-PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
+PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314\nNotes:\nTapped on the PR card.", "tags": ["scope:durable"]}
 
 
 def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_as_his_pick_to_release(demo: str, recorded: Answers, jev: Jev) -> None:
@@ -1247,7 +1247,7 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     [asked] = jev.asked
     assert asked["state"] == {
         "action": f"start this production release: `{start.format('5d0c4a1')}`",
-        "answers": [{"id": "5d0c4a1", "asked": RELEASE_PICK["title"], "said": RELEASE_PICK["body"]}],
+        "answers": [{"id": "5d0c4a1", "asked": RELEASE_PICK["title"], "said": "Release now (Recommended)"}],
     }
     assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", "5d0c4a1"]
     assert brief.approval_refusal(start.format("9e1f2b3"), state.load("demo")) is None

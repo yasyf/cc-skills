@@ -411,7 +411,7 @@ def helper_approved(drives: list[str], release: str) -> bool:
         data = state.load(drive)
         tapped = [(question["title"] or "", question["closed"]["words"] or "") for job in data["jobs"].values() for question in job["questions"] if (question["closed"] or {}).get("how") == "answered"]
         recorded = json.loads(settled.ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", data["roles"]["coordinator"]["cwd"], "could not read his recorded answers"))
-        for title, picked in tapped + [(answer["title"], answer["body"].partition("\n")[0]) for answer in recorded]:
+        for title, picked in tapped + [(answer["title"], settled.his(answer["body"]).partition("\n")[0]) for answer in recorded]:
             if EVERY_INSTALL in picked or (INSTALL_NOW in picked and re.search(rf"\binstall {re.escape(release)} now\b", title)):
                 return True
     return False
