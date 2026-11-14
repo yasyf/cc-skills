@@ -18,7 +18,7 @@ PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would 
 RUNS_AS = re.compile(r"^Runs as:(?![ \t]*none\b)[ \t]*(.+)$", re.MULTILINE | re.IGNORECASE)
 FROM_THIS_MAC = re.compile(r"\bbreak[- ]?glass\w*|\bmachine[- ]profile\b", re.IGNORECASE)
 FIELD = re.compile(
-    r"^(Order \(his words\)|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Release build|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
+    r"^(Order \(his words\)|From|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Release build|Mac|Handoff|Decisions that bind|Research|Researched|Answer"
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
     re.MULTILINE,
 )
@@ -146,14 +146,19 @@ SHARED_QUESTION = (
 SHARED_OPTIONS = {settled.UNDECIDED: "It names no such strategies, or its first change is their shared abstraction.", "first": "A strategy comes before their shared abstraction."}
 
 
-def carried(prompt: str) -> str:
-    """An agent's prompt with its brief file read in after it: the first file a path on any of its lines names whose Drive line names the prompt's own job, or any job when the prompt names none, wherever it is kept, such as the one a `Read your brief first:` or `Brief:` line names or the Orca task brief a Sprite lane's first message names."""
+def brief_file(prompt: str) -> tuple[Path, str] | None:
+    """The brief file an agent's prompt reads in, and its text: the first file a path on any of its lines names whose Drive line names the prompt's own job, or any job when the prompt names none, wherever it is kept, such as the one a `Read your brief first:` or `Brief:` line names or the Orca task brief a Sprite lane's first message names."""
     own = BRIEF_JOB.search(prompt)
     for named in BRIEF_FILE.findall(prompt):
         path = Path(named).expanduser()
         if os.path.isfile(path) and (job := BRIEF_JOB.search(text := path.read_text())) and (own is None or job[1] == own[1]):
-            return f"{prompt}\n{text}"
-    return prompt
+            return path, text
+    return None
+
+
+def carried(prompt: str) -> str:
+    """An agent's prompt with its brief file, by brief_file, read in after it."""
+    return f"{prompt}\n{read[1]}" if (read := brief_file(prompt)) else prompt
 
 
 def fields(text: str) -> list[tuple[str, str]]:

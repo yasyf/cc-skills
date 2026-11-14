@@ -2446,7 +2446,7 @@ def rebriefed(name: str, job_id: str) -> str:
 
 
 def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tuple[str, dict] | None:
-    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, each Slack message they link by linked_messages, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name; none, writing nothing, when the job's flags are no longer over, the ones this write replaces, since another brief write saved its own as this one ran."""
+    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, where its order came from, such as the record or his message `drive order add --from` names, each Slack message they link by linked_messages, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name; none, writing nothing, when the job's flags are no longer over, the ones this write replaces, since another brief write saved its own as this one ran."""
     data = state.load(name)
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
@@ -2460,6 +2460,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     fields = {
         "Order (his words)": order["text"] + carried,
+        "From": order["from"],
         "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],
         "Goal": job["goal"],
@@ -5114,7 +5115,7 @@ def parser() -> argparse.ArgumentParser:
         help="write a job's brief from his order's words, each ruling's words and the earlier jobs' transcripts, and print where",
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
-            " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer, each one the brief of any job on its order binds, and each one that"
+            " holds, verbatim; From, where the order came from, its --from; Goal from the job; Decisions that bind from each --ruling's recorded answer, each one the brief of any job on its order binds, and each one that"
             " settled a question of the reader its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"

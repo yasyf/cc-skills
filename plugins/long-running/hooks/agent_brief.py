@@ -9,6 +9,7 @@ from drive import agents, brief, place, state
 from drive.render import cut, when
 
 BUILDER = "long-running:builder"
+BRIEFED = ("long-running:reader", BUILDER, agents.DESIGNER)
 SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 SERVES = re.compile(r"^Serves:(.*)$", re.MULTILINE)
 SERVED = re.compile(r"port of #\d+|drive tooling|his order", re.IGNORECASE)
@@ -23,6 +24,26 @@ DATA_PASS = re.compile(
 )
 RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
 DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill, bulk or hand repair or any other write over a team's data, rather than building a PR or check named for one."
+
+
+def unbriefed(name: str, data: dict, prompt: str, kind: str) -> str | None:
+    """Why a drive agent may not start on this prompt: it reads in no brief file of the drive's jobs folder, where drive job brief, a handoff and a launch write every brief the drive writes, so an agent briefed by a prompt typed whole, or told to read a path nothing wrote, never starts without the lines its brief carries."""
+    jobs = (state.drive_dir(name) / "jobs").resolve()
+    read = brief.brief_file(prompt)
+    if read and read[0].resolve().is_relative_to(jobs):
+        return None
+    missing = [named for named in dict.fromkeys(brief.BRIEF_FILE.findall(prompt)) if not Path(named).expanduser().is_file()]
+    found = brief.BRIEF_JOB.search(f"{prompt}\n{read[1]}" if read else prompt)
+    job_id = found[1] if found else next((Path(named).name.removesuffix(".brief.md") for named in missing), None)
+    why = f"; {', '.join(missing)} {'does' if len(missing) == 1 else 'do'} not exist" if missing else ""
+    if read:
+        why += f"; {read[0]} is not in the drive's jobs folder"
+    refused = f"refused: a {kind} starts only on a brief the drive wrote{why}"
+    if job_id not in data["jobs"]:
+        return agents.Unjudged(f"{refused}: `drive job add` it, then `drive job brief <j>`, and start it on the line that prints")
+    if (held := data["jobs"][job_id].get("brief")) and Path(held).is_file():
+        return agents.Unjudged(f"{refused}: start it on `Read your brief first: {held}`")
+    return agents.Unjudged(f"{refused}: `drive job brief {job_id}`, then start it on the line that prints")
 
 
 def builder_refusal(text: str) -> str | None:
@@ -126,7 +147,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -144,6 +165,8 @@ def deny_reason(payload: dict) -> str | None:
             " whose line comes back as one cci record, never through the Agent tool, whose launch and finish notices add"
             " 2,232 characters to your context"
         )
+    if kind in BRIEFED and (refused := unbriefed(names[0], data, prompt, kind)):
+        return refused
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)

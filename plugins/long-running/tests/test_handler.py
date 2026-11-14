@@ -240,7 +240,9 @@ def test_the_agent_tool_starts_no_handler(communicator: str) -> None:
     refused = agent_brief.deny_reason(call)
     assert refused.startswith("refused: a handler starts with the drive's handler tool")
     assert agents.ruled(refused) == {"judged": False}
-    assert agent_brief.deny_reason(call | {"tool_input": call["tool_input"] | {"subagent_type": "long-running:reader"}}) is None
+    assert agent_brief.deny_reason(call | {"tool_input": call["tool_input"] | {"subagent_type": "long-running:reader"}}).startswith(
+        "refused: a long-running:reader starts only on a brief the drive wrote"
+    )
 
 
 def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_session_which_stops_hearing_his_dm(

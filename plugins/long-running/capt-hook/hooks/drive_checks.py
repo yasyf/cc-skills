@@ -111,6 +111,7 @@ for script in scripts:
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
 HANDLER_TURN = TURN.with_name("handler.jsonl")
+BRIEFS = TURN.with_name("state") / "fixture" / "jobs"
 HIS_DM_HOME = FileFixture(
     home=True,
     name=".claude/plugins/installed_plugins.json",
@@ -625,19 +626,25 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
         ): Block(pattern="a handler starts with the drive's handler tool"),
         Input(
             tool="Agent",
-            tool_input={"subagent_type": BUILDER, "prompt": "Serves: his order\nGoal: backfill each team's missing memory rows"},
+            tool_input={"subagent_type": BUILDER, "prompt": f"Read your brief first: {BRIEFS / 'j1.brief.md'}"},
             session_id=COORDINATOR,
             decide=CONFIRMED,
         ): Block(pattern="reads as a pass over a team's data"),
         Input(
             tool="Agent",
-            tool_input={"subagent_type": BUILDER, "prompt": "Serves: his order\nGoal: backfill: ship the script, run later from the cluster's schedule"},
+            tool_input={"subagent_type": BUILDER, "prompt": f"Read your brief first: {BRIEFS / 'j2.brief.md'}"},
             session_id=COORDINATOR,
             decide=UNCONFIRMED,
         ): Allow(),
-        Input(tool="Agent", tool_input={"subagent_type": "long-running:reader", "prompt": "Goal: x", "name": "desk"}, session_id=COORDINATOR): Rewrite(
+        Input(tool="Agent", tool_input={"subagent_type": "long-running:reader", "prompt": f"Read your brief first: {BRIEFS / 'j3.brief.md'}", "name": "desk"}, session_id=COORDINATOR): Rewrite(
             subagent_type="long-running:reader"
         ),
+        Input(
+            tool="Agent",
+            tool_input={"subagent_type": "long-running:reader", "prompt": f"Read your brief first: {BRIEFS / 'j9.brief.md'}"},
+            session_id=COORDINATOR,
+            decide=UNCONFIRMED,
+        ): Block(pattern="j9.brief.md does not exist"),
     },
 )
 def agent_brief(evt: BaseHookEvent) -> HookResult | None:

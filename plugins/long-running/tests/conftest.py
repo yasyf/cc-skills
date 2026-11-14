@@ -153,6 +153,7 @@ CUT_PICK = {
 }
 CUT_TAP = CUT_PICK | {"id": "7ab1e20" + "0" * 33, "body": "The full release"}
 ACME_CUT = "tools/ci release start --hotfix 101 --only api --from releases/2026-11-13/29 --without plat-usw2-staging,plat-usw2-prod,tnt-usw2-north --order {}"
+KEPT_BRIEFS = itertools.count(1)
 
 
 def explained(block: str) -> str:
@@ -165,6 +166,14 @@ def explained(block: str) -> str:
         if line.startswith("- ") and not (fenced or findings):
             lines.append(("" if line.endswith("\n") else "\n") + DESCRIPTION)
     return "".join(lines)
+
+
+def kept_brief(text: str, name: str = "demo") -> str:
+    """The `Read your brief first:` line of the text kept as a brief in the drive's jobs folder, where the drive writes every brief, its Drive line naming a job the drive holds none of when the text names none."""
+    path = state.drive_dir(name) / "jobs" / f"typed-{next(KEPT_BRIEFS)}.brief.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text if brief.BRIEF_JOB.search(text) else f"{text}\nDrive: {name}, order o0, job j0\n")
+    return f"Read your brief first: {path}"
 
 
 def git_in(repo: Path, *args: str) -> str:

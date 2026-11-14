@@ -18,7 +18,7 @@ import quiet_turn
 import record_lines
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, label, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, kept_brief, label, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -713,7 +713,11 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
-    named = started_by_role(coordinator, subagent_type="long-running:builder", name="desk", prompt="Handoff: 661200 Drive: demo Scratch: /s")
+    handoff = "Handoff: 661200 Drive: demo Scratch: /s"
+    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=handoff)).startswith(
+        "refused: a long-running:builder starts only on a brief the drive wrote: `drive job add` it"
+    )
+    named = started_by_role(coordinator, subagent_type="long-running:builder", name="desk", prompt=kept_brief(handoff))
     unnamed = {key: value for key, value in named["tool_input"].items() if key != "name"}
     output = json.loads(hook_output(agent_brief, monkeypatch, capsys, json.dumps(named)))
     assert output == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": unnamed}}
@@ -721,16 +725,16 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     assert agents.shaped(fable) == {key: value for key, value in fable["tool_input"].items() if key != "model"}
     designer = started_by_role(coordinator, subagent_type="long-running:designer", model="fable")
     assert agents.shaped(designer) == designer["tool_input"]
-    unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt="Order (his words): fix it\nGoal: fix it")
+    unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt=kept_brief("Order (his words): fix it\nGoal: fix it"))
     assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief, in its prompt or the brief file the prompt names")
-    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt="Handoff: 661200 Drive: demo Scratch: /s")) is None
-    tooling = "Order: Drive tooling: x\nServes: drive tooling"
+    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=kept_brief(handoff))) is None
+    tooling = kept_brief("Order: Drive tooling: x\nServes: drive tooling")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=tooling)) == (
         "refused: a builder serving drive tooling is the meta session's, never the coordinator's: send a defect record to"
         " meta@demo naming the tool and its refusal verbatim, and the meta session's builder takes it over"
     )
-    written = tmp_path / "jobs" / "j1.brief.md"
-    written.parent.mkdir()
+    written = state.drive_dir("demo") / "jobs" / "j1.brief.md"
+    written.parent.mkdir(exist_ok=True)
     written.write_text("Order (his words): fix it\nServes: his order\nDrive: demo, order o1, job j1\n")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=f"Read your brief first: {written}")) is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -947,6 +951,9 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", coordinator)
     typed = f"Order (his words): I told him since you never did, fix that\nServes: drive tooling\nResearched: j1\nDrive: demo, order o1, job j2\nScratch: {tmp_path / 'j2'}"
     assert agent_brief.deny_reason(drive_agent("long-running:builder", typed)) == (
+        f"refused: a long-running:builder starts only on a brief the drive wrote: start it on `Read your brief first: {state.drive_dir('demo') / 'jobs' / 'j2.brief.md'}`"
+    )
+    assert agent_brief.deny_reason(drive_agent("long-running:builder", kept_brief(typed))) == (
         "refused: a builder serving drive tooling is the meta session's, never the coordinator's: `drive job brief j2 --serves"
         ' "drive tooling"` gives o1 to the meta session, then send meta@demo a defect record naming j2 and its'
         " `Read your brief first:` line, and the meta session starts it"

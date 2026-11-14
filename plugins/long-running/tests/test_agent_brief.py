@@ -6,8 +6,8 @@ from pathlib import Path
 
 import agent_brief
 import pytest
-from conftest import RESEARCH
-from drive import agents, place, state, watch
+from conftest import RESEARCH, kept_brief
+from drive import agents, brief, place, state, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -16,6 +16,10 @@ Run = Callable[..., tuple[int, str]]
 def started(subagent_type: str, prompt: str, model: str | None = None) -> dict:
     tool_input = {"subagent_type": subagent_type, "prompt": prompt, "description": "d"} | ({"model": model} if model else {})
     return {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Agent", "tool_input": tool_input}
+
+
+def briefed(subagent_type: str, text: str, model: str | None = None) -> dict:
+    return started(subagent_type, kept_brief(text), model)
 
 
 def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -27,20 +31,20 @@ def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: p
     prompt = "Researched: j1\nDrive: demo, order o1, job j3"
     for call in (started("codex:codex-wrapper", prompt), started("long-running:builder", prompt, "fable")):
         assert agents.shaped(call) == call["tool_input"] | {"subagent_type": "long-running:designer"}
-    assert agent_brief.deny_reason(started("long-running:designer", prompt, "fable")) is None
+    assert agent_brief.deny_reason(briefed("long-running:designer", prompt, "fable")) is None
 
 
 def test_a_builders_serves_line_names_one_of_the_three(demo: str) -> None:
     order = "Order (his words): fix the watch\n"
-    refused = agent_brief.deny_reason(started("long-running:builder", f"{order}Serves: cleanup I noticed\nGoal: tidy the watch"))
+    refused = agent_brief.deny_reason(briefed("long-running:builder", f"{order}Serves: cleanup I noticed\nGoal: tidy the watch"))
     assert refused.startswith("refused: `Serves: cleanup I noticed` names none of `port of #N`, `drive tooling` or `his order`")
     for serves in ("his order o284", "port of #4203", '"fix the watch"'):
-        assert agent_brief.deny_reason(started("long-running:builder", f"{order}Serves: {serves}\nGoal: fix it")) is None
+        assert agent_brief.deny_reason(briefed("long-running:builder", f"{order}Serves: {serves}\nGoal: fix it")) is None
 
 
-def test_a_builders_brief_file_is_read_from_whichever_line_of_its_prompt_names_it_wherever_it_is_kept(demo: str, tmp_path: Path) -> None:
-    kept = tmp_path / "scratch" / "coordinator" / "j3.brief.md"
-    kept.parent.mkdir(parents=True)
+def test_a_builders_brief_file_is_read_from_whichever_line_of_its_prompt_names_it_in_the_drives_jobs_folder(demo: str, tmp_path: Path) -> None:
+    kept = state.drive_dir(demo) / "jobs" / "j3.brief.md"
+    kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text("Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, order o1, job j3\n")
     for prompt in (
         f"Read your brief first: {kept}",
@@ -49,37 +53,68 @@ def test_a_builders_brief_file_is_read_from_whichever_line_of_its_prompt_names_i
         f"Read the whole brief at `{kept}`, then follow it.",
     ):
         assert agent_brief.deny_reason(started("long-running:builder", prompt)) is None
+    elsewhere = tmp_path / "scratch" / "coordinator" / "j3.brief.md"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text(kept.read_text())
+    assert agent_brief.deny_reason(started("long-running:builder", f"Brief: {elsewhere}")) == (
+        f"refused: a long-running:builder starts only on a brief the drive wrote; {elsewhere} is not in the drive's jobs folder:"
+        " `drive job add` it, then `drive job brief <j>`, and start it on the line that prints"
+    )
     kept.write_text("Order (his words): fix the watch\nGoal: fix it\nDrive: demo, order o1, job j3\n")
     assert agent_brief.deny_reason(started("long-running:builder", f"Brief: {kept}")).startswith(
         "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line"
     )
 
 
-def test_a_builder_reads_no_brief_of_another_job_its_prompt_names_beside_its_own_drive_line(demo: str, tmp_path: Path) -> None:
-    other = tmp_path / "jobs" / "j2.brief.md"
-    other.parent.mkdir()
+def test_a_builder_reads_no_brief_of_another_job_its_prompt_names_beside_its_own_drive_line(demo: str) -> None:
+    other = state.drive_dir(demo) / "jobs" / "j2.brief.md"
+    other.parent.mkdir(parents=True, exist_ok=True)
     other.write_text("Order (his words): fix the watch\nServes: his order\nDrive: demo, order o1, job j2\n")
     prompt = f"Order (his words): fix the watch\nGoal: find why the builder on {other} stopped\nDrive: demo, order o1, job j3"
+    assert brief.carried(prompt) == prompt
     assert agent_brief.deny_reason(started("long-running:builder", prompt)).startswith(
-        "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line"
+        "refused: a long-running:builder starts only on a brief the drive wrote: `drive job add` it"
     )
+
+
+def test_a_drive_agent_starts_only_on_a_brief_the_drive_wrote_never_on_a_typed_prompt_or_a_brief_path_nothing_wrote(demo: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build", "--from", "cci:702923")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    never = state.drive_dir(demo) / "jobs" / "j1.brief.md"
+    refused = agent_brief.deny_reason(started("long-running:reader", f"Read your brief first, whole: {never} (if that path is missing, run `drive status j1`)"))
+    assert refused == (
+        f"refused: a long-running:reader starts only on a brief the drive wrote; {never} does not exist:"
+        " `drive job brief j1`, then start it on the line that prints"
+    )
+    assert agents.ruled(refused) == {"judged": False}
+    typed = "Order: Drive tooling: restores copy one store\nResearch: the Researched: block this build needs\nDrive: demo, order o1, job j1\nScratch: /s"
+    for kind in agent_brief.BRIEFED:
+        assert agent_brief.deny_reason(started(kind, typed)).startswith(f"refused: a {kind} starts only on a brief the drive wrote: `drive job brief j1`")
+    assert agent_brief.deny_reason(started("Explore", typed)) is None
+    line = run("job", "brief", "j1")[1].splitlines()[0]
+    assert line == f"Read your brief first: {never}"
+    assert agent_brief.deny_reason(started("long-running:reader", line)) is None
+    assert agent_brief.deny_reason(started("long-running:reader", typed)) == (
+        f"refused: a long-running:reader starts only on a brief the drive wrote: start it on `{line}`"
+    )
+    assert never.read_text().startswith("Order (his words): restores copy one store\nFrom: cci:702923\n")
 
 
 def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) -> None:
     order = "Order (his words): plat's runs are missing\nServes: his order\n"
     brief = f"{order}Goal: backfill run rows for team plat"
-    refused = agent_brief.deny_reason(started("long-running:builder", brief))
+    refused = agent_brief.deny_reason(briefed("long-running:builder", brief))
     assert refused.startswith("refused: the Goal reads as a pass over a team's data (`backfill`) with no `Runs as:` line")
     assert refused.endswith('--runs-as "<service account, how it starts>"`, or `--runs-as "none: <why>"` when it writes no team\'s data')
     for runs_as in ("svc-plat-backfill in the plat cluster, a cronjob", "none: it edits PR bodies"):
-        assert agent_brief.deny_reason(started("long-running:builder", f"{brief}\nRuns as: {runs_as}")) is None
+        assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}\nRuns as: {runs_as}")) is None
     for goal, word in (
         ("repair the two Cargill databases whose bucket prefixes are empty", "repair"),
         ("queued: migrate old-runner runs as each cluster's service account", "queued: migrate"),
         ("run the merged cleanup delete_old_generations on plat", "run the merged cleanup"),
         ("plat's run rows are backfilled", "are backfilled"),
     ):
-        assert f"(`{word}`)" in agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}"))
+        assert f"(`{word}`)" in agent_brief.deny_reason(briefed("long-running:builder", f"{order}Goal: {goal}"))
     for goal in (
         "write a migration adding a column",
         "the Show me of three PRs is redrawn as one compare each so the backfill stack's tap card draws",
@@ -87,7 +122,7 @@ def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) ->
         "api: ✨ a service account's API key runs admin backfills through its own permission",
         "migrate tests to pytest",
     ):
-        assert agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}")) is None
+        assert agent_brief.deny_reason(briefed("long-running:builder", f"{order}Goal: {goal}")) is None
 
 
 def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brief_runs_on_this_mac_waits_its_turn_while_old_held_work_neither_counts_nor_queues(
@@ -111,14 +146,14 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     sprite = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, "
     mac = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nMac: replay it on a test Mac\nDrive: demo, "
     counted = "; ".join(f"j{number + 1} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
-    assert agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o3, job j1")) == (
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1")) == (
         f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 starts on a Sprite at once, since its brief declares no"
         f" step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch j1 <file>"
     )
-    assert agents.ruled(agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o3, job j1"))) == {"judged": False}
+    assert agents.ruled(agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1"))) == {"judged": False}
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
     for order_id, job_id in (("o1", "j10"), ("o2", "j11"), ("o3", "j1")):
-        refused = agent_brief.deny_reason(started("long-running:builder", f"{mac}order {order_id}, job {job_id}"))
+        refused = agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order {order_id}, job {job_id}"))
     assert refused.startswith(
         f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 waits its turn for a builder slot on this Mac, 1 of 3 in line."
         " The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: j1 (due "
@@ -135,24 +170,24 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     assert (held["state"], held["waits"], held["said"], held["where"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", "local")
     run("job", "set", "j2", "--state", "stopped")
     for job_id, spot in (("j1", "1 of 3"), ("j11", "2 of 3"), ("j10", "3 of 3")):
-        assert agent_brief.deny_reason(started("long-running:builder", f"{mac}order o3, job {job_id}")).startswith(
+        assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o3, job {job_id}")).startswith(
             f"refused: {job_id} waits its turn for a builder slot on this Mac, {spot} in line. The watch's FREE line names"
         )
-    assert agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o1, job j10")).startswith(
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o1, job j10")).startswith(
         "refused: j10 waits its turn for a builder slot on this Mac, 3 of 3 in line, so j10 starts on a Sprite at once,"
     )
-    assert agent_brief.deny_reason(started("long-running:builder", "Order (his words): fix the watch\nServes: his order\nGoal: fix it")).startswith(
+    assert agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): fix the watch\nServes: his order\nGoal: fix it")).startswith(
         "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
         " start it once a slot opens here with no builder waiting its turn. The watch's FREE line"
     )
-    assert agent_brief.deny_reason(started("long-running:builder", f"{mac}order o1, job j13")).startswith(
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o1, job j13")).startswith(
         "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
     )
     assert state.load(demo)["jobs"]["j13"]["waits"] == []
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(waits=[], slot=state.stamp())
-    assert agent_brief.deny_reason(started("long-running:builder", f"{sprite}order o3, job j1")) is None
-    assert agent_brief.deny_reason(started("long-running:builder", f"{mac}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1")) is None
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
 
 
 def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_start_on_a_sprite(
@@ -168,8 +203,8 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
     order = "Order (his words): fix it\nServes: his order\nGoal: fix it\nDrive: demo, "
     for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
         job_id = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")[1].splitlines()[0]
-        assert agent_brief.deny_reason(started("long-running:builder", f"{order}order {order_id}, job {job_id}")) is None
-    assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(started("long-running:builder", f"{order}order o1, job j9"))
+        assert agent_brief.deny_reason(briefed("long-running:builder", f"{order}order {order_id}, job {job_id}")) is None
+    assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(briefed("long-running:builder", f"{order}order o1, job j9"))
 
 
 def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_starts_here_at_once_past_a_full_cap_and_its_line_and_holds_no_slot(
@@ -187,7 +222,7 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     proof = state.load(demo)["jobs"]["j10"]
     assert (proof["state"], proof["waits"], proof["where"], proof["builds_nothing"]) == ("running", [], "local", True)
     brief = "Order (his words): fix the AgentInbox\nServes: his order\nGoal: prove it live with a Datadog APM read\nDrive: demo, order o2, job j10"
-    assert agent_brief.deny_reason(started("long-running:builder", brief)) is None
+    assert agent_brief.deny_reason(briefed("long-running:builder", brief)) is None
     run("job", "set", "j10", "--agent", "a10")
     data = state.load(demo)
     assert list(place.local_builders(data, state.now())) == [f"j{number}" for number in range(1, 9)]
@@ -197,7 +232,7 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     run("job", "set", "j9", "--builds-nothing")
     assert (state.load(demo)["jobs"]["j9"]["waits"], place.waiting_builders(state.load(demo))) == ([], [])
     dry_run = "Order (his words): tidy the docs\nServes: his order\nGoal: dry-run it\nMac: tools/ci cluster-job reads this Mac's Buildkite token\nDrive: demo, order o1, job j9"
-    assert agent_brief.deny_reason(started("long-running:builder", dry_run)) is None
+    assert agent_brief.deny_reason(briefed("long-running:builder", dry_run)) is None
     run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces")
     assert run("job", "set", "j11", "--builds-nothing")[0] == 2
 
@@ -212,7 +247,7 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
     run("job", "add", "builder", "--order", "o1", "--part", "tidy", "--goal", "tidy", "--repo", "yasyf/cc-skills")
 
     def start(job_id: str, lines: str) -> str | None:
-        return agent_brief.deny_reason(started("long-running:builder", f"Order (his words): prove the fixes\nServes: his order\n{lines}\nDrive: demo, order o1, job {job_id}"))
+        return agent_brief.deny_reason(briefed("long-running:builder", f"Order (his words): prove the fixes\nServes: his order\n{lines}\nDrive: demo, order o1, job {job_id}"))
 
     assert start("j1", "Goal: fix the run page") == (
         "refused: this Mac is 63% busy, at or over its 50% limit, so j1 starts on a Sprite: drive job launch j1 <brief>. A brief declaring a step"
@@ -243,7 +278,7 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
         "Transcripts:\n- j2333 builder: read the 500s in Datadog APM, then tools/ci mac-box prove\n"
         "Drive: demo, order o1, job j1"
     )
-    assert agent_brief.deny_reason(started("long-running:builder", shared_alert)).startswith(
+    assert agent_brief.deny_reason(briefed("long-running:builder", shared_alert)).startswith(
         "refused: this Mac is 63% busy, at or over its 50% limit, so j1 starts on a Sprite: drive job launch j1 <brief>."
     )
     assert start("j2", "Goal: fix the run page") is None
