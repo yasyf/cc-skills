@@ -4768,8 +4768,19 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
     ]
 
 
+def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names_reads_blocked_on_his_answer_on_that_card(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="waiting", waits=[OTHER], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD) | {"waits": "demo:j2-1"}])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j2"]}
+    approve(demo, KEY)
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("blocked", stage.HIM, f"it waits on j2, his answer on {view.link('his question card', CARD)}")
+
+
+@pytest.mark.parametrize("named", [True, False], ids=["its waits name his cards", "no wait names his cards"])
 def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_blocked_on_him_over_an_older_unlanded_try_and_wakes_no_one_until_they_close(
-    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], named: bool
 ) -> None:
     pr, release = "Forge-AI/monorepo#56278", "release:cloudrunner-next:Forge-AI/monorepo#56278"
     links = {
@@ -4780,7 +4791,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j4413"])
         data["jobs"]["j1"]["prs"].append(state.pr_url(pr))
-        data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *links], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
+        data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *(links if named else [])], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
         data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
     approve(demo, pr)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
@@ -4802,6 +4813,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     assert his_card_row(demo, pr)["blocks"] == f"Approved by you. Lands once the build of watch finishes, {answers}"
     assert card.picks(state.load(demo), kept) == {}
     found = view.live_cards(demo)
+    assert stall.chain(state.load(demo), found, False, pr, set()) is None
     with state.edit(demo) as data:
         data["jobs"]["j4413"]["state"] = "running"
         assert stage.of(data, pr, found) == stage.Stage("waiting", stage.WAITED, "it waits on j4413, and the watch frees it once each ends")
@@ -4818,6 +4830,61 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
         (35, "blocked", stage.HIM, [], []),
         (64, "blocked", stage.HIM, [], []),
         (65, "unlanded", stage.ORDER, [unlanded], []),
+    ]
+    assert landers == []
+
+
+def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_reads_blocked_on_him_and_raises_no_stall_until_he_answers(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    pr = "Forge-AI/monorepo#56278"
+    links = {
+        "demo:j4413-1794644613322": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794644616374239",
+        "demo:j4413-1794651715431": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794651717356579",
+    }
+    tried = {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0 + timedelta(minutes=3)), "outcome": "not landed: Forge-AI/monorepo#56232 sits below it with neither his Approve nor an exempt class", "below": ["Forge-AI/monorepo#56232"]}
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j4413"])
+        data["jobs"]["j4413"] = job(
+            order="o2",
+            state="waiting",
+            prs=[state.pr_url(pr)],
+            said=f"WAITING {state.pr_url(pr)} waits on {', '.join(links)}",
+            waits=list(links),
+            questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()],
+        )
+        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j4413", "o2") | {"head": "aaaaaaa111", "checked": CHECKED, "lander": tried}
+    approve(demo, pr)
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
+    serve(monkeypatch, {pr: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    passes = []
+
+    def at(minutes: int) -> None:
+        said = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith((f"STAGE {pr}", "STUCK"))]
+        kept = state.load(demo)["prs"][pr]
+        passes.append((minutes, kept["stage"]["name"], kept["stage"]["owner"], said, [key for key, _ in woken]))
+        woken.clear()
+
+    for minutes in (5, 35, 64, 95):
+        at(minutes)
+    assert state.load(demo)["prs"][pr]["stall"] is None
+    assert state.load(demo)["prs"][pr]["stage"]["why"] == "its builder j4413 waits on " + ", ".join(f"his answer on {view.link('his question card', link)}" for link in links.values())
+    assert stall.chain(state.load(demo), view.live_cards(demo), False, pr, set()) is None
+    with state.edit(demo) as data:
+        for asked in data["jobs"]["j4413"]["questions"]:
+            asked["closed"] = state.new_close("answered", "Yes", None, seq="9")
+    at(96)
+    unlanded = (
+        f"STAGE {pr} unlanded since {state.stamp(T0 + timedelta(minutes=96))}, owed by the session holding its order: its lander's try at aaaaaaa, started {tried['at']},"
+        f" ended {tried['outcome']} [o2 j4413]"
+    )
+    assert passes == [
+        (5, "blocked", stage.HIM, [], []),
+        (35, "blocked", stage.HIM, [], []),
+        (64, "blocked", stage.HIM, [], []),
+        (95, "blocked", stage.HIM, [], []),
+        (96, "unlanded", stage.ORDER, [unlanded], []),
     ]
     assert landers == []
 
@@ -7596,6 +7663,19 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
     assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the meta session was told 30 minutes ago: post one line on it in its thread"
 
 
+def test_j4802_a_stalls_watchdog_brief_says_its_jobs_remote_lane_ended_so_it_offers_no_wake(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
+    watching = stalling(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"where": "remote", "dispatch": "ctx_26d8fa72c939", "deaths": [{"dispatch": "ctx_26d8fa72c939", "workspace": "w1", "why": "ended by drive job end", "at": state.stamp(T0)}]}
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(brief, _)] = watchdogs
+    assert (
+        f"Holder: the coordinator, session session-under-test; j1's lane ended at {watch.when(state.stamp(T0))}: ended by drive job end,"
+        " so neither drive job wake nor SendMessage reaches it, and only the holder's drive job resume j1 starts its next worker"
+    ) in brief.splitlines()
+
+
 def test_a_sessions_transcript_is_read_from_the_folder_it_first_ran_in_after_its_role_moved_to_the_drives_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
     first = tmp_path / "projects" / "-Users-me-src-monorepo" / "s-1.jsonl"
@@ -7858,10 +7938,18 @@ def test_watchdog_agents_count_those_still_searching_and_those_started_within_th
         (lambda data: data["jobs"]["j1"].update(waits=[OTHER]) or data["prs"][OTHER].update(stage=ON_HIS_APPROVE), False, []),
         (lambda data: data["jobs"]["j1"].update(waits=[OTHER]) or data["prs"][OTHER].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "bbbbbbb222", "source": "pressed"}), False, []),
         (lambda data: data["jobs"]["j1"].update(waits=[CARD]), False, []),
+        (lambda data: data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which store?", state.stamp(T0), card=CARD) | {"waits": "demo:j1-1"}), False, []),
+        (
+            lambda data: data["jobs"]["j1"].update(waits=[OTHER])
+            or data["orders"]["o1"]["jobs"].append("j2")
+            or data["jobs"].update(j2=job(state="done", questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds=OTHER) | {"waits": "demo:j2-1"}])),
+            False,
+            [],
+        ),
         (lambda data: data["orders"]["o1"].update(due=state.stamp(T0 + timedelta(hours=2))), False, []),
         (lambda data: data["jobs"].update(j2=job()) or data["jobs"]["j1"].update(waits=["j2"]), False, []),
     ],
-    ids=["unstopped", "his hold on every release", "hold label", "his card", "a pr he owes", "a pr he holds", "his question card", "due ahead", "running job"],
+    ids=["unstopped", "his hold on every release", "hold label", "his card", "a pr he owes", "a pr he holds", "his question card", "his question card no wait names", "his question card holding the pr", "due ahead", "running job"],
 )
 def test_no_chain_is_aged_past_a_step_of_his_a_time_to_come_or_a_running_job(demo: str, stops: Callable[[dict], None], on_hold: bool, subjects: list[str]) -> None:
     with state.edit(demo) as data:

@@ -2244,7 +2244,7 @@ def cards_redraw(args: argparse.Namespace) -> int:
 
 
 def cards_withdraw(args: argparse.Namespace) -> int:
-    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them, withdraw, or whose question or options they change, or that an event at --via overtook, as settled.unhappened reads it, so a tap has nothing left to pick, and its card follows: it shows his words, or what happened, and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it. The event's words are never recorded as his. With --via another open question card of the drive, by its waits id or permalink, each folds into the question that card asks, as `drive job ask` folds a question it reads as asked again into a newer card, by `fold_onto`: its card shows ASKED_AGAIN and a link to that card with no buttons, each wait on it moves to that card's waits id, and it stays open on that card, so his one answer there ends it too."""
+    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them after it was asked, withdraw, or whose question or options they change, or that an event at --via overtook, as settled.unhappened reads it, refusing a --via Slack message older than any of those questions, since no answer he gave another question settles one, so a tap has nothing left to pick, and its card follows: it shows his words, or what happened, and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it. The event's words are never recorded as his. With --via another open question card of the drive, by its waits id or permalink, each folds into the question that card asks, as `drive job ask` folds a question it reads as asked again into a newer card, by `fold_onto`: its card shows ASKED_AGAIN and a link to that card with no buttons, each wait on it moves to that card's waits id, and it stays open on that card, so his one answer there ends it too."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -2265,6 +2265,14 @@ def cards_withdraw(args: argparse.Namespace) -> int:
         raise DriveError(f'{args.card}: refused, not withdrawn: --via {args.via} is the drive\'s open card {onto[1]["card"]}, so the card shows "{ASKED_AGAIN}" linking it, never --words: drop --words')
     if not onto and not args.words:
         raise DriveError(f"{args.card}: refused, not withdrawn: --words is needed unless --via is another open question card of this drive, by its waits id or permalink")
+    if not onto and (posted := slack.MESSAGE_LINK.search(args.via)):
+        sent = datetime.fromtimestamp(float(f"{posted[2]}.{posted[3]}")).astimezone()
+        if later := [question for _, question in view.drawn_on(state.load(name), args.card) if question["closed"] is None and state.parse_time(question["asked"]) > sent]:
+            newest = max(later, key=lambda question: state.parse_time(question["asked"]))
+            raise DriveError(
+                f"{args.card}: refused, not withdrawn: --via {args.via} was written at {state.stamp(sent)}, before its question was asked at {newest['asked']}, and no answer he gave another question settles it;"
+                f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws {newest['waits'] or args.card}, its summary citing that answer"
+            )
     unsaid = None if onto else settled.unsaid([args.words], [args.via], view.live_cards(name), state.load(name))
     if unsaid and (unhappened := settled.unhappened(args.via)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}; nor did an event at {args.via} overtake it: {unhappened}")

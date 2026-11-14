@@ -39,13 +39,20 @@ anything truly stick which can go read transcript etc".
   names. A `NEXT` never puts to him what an answer of his settles, on an `Answered:` line or in any
   record you read: it names that answer by its id and link, says the wait stays held by it until he
   lifts it when it holds a release, with `WHO` nobody, and orders no card asking it.
+- An open `Card:` is answered only by his tap on it or his words on or under it, never by an answer
+  he gave another question, however near its words: a `NEXT` never closes, withdraws, settles or
+  routes around it, and orders no `drive cards withdraw` of it. When an answer of his reads as
+  settling it, the `NEXT` has the job that asked it ask it again with
+  `drive job ask <job> <file> --redraws <its waits id>`, its summary citing that answer, which draws
+  the card again with an Already answered option, so his one tap settles it, by his pick "Your cited
+  answer as a tap on the card: one tap settles it, nothing skipped unseen", with `WHO` him.
 - You may act twice on any stall, a job's or a PR's, by his pick "Report, plus two safe acts,
   rerunning a failed build and messaging the owning job": rerun a failed build of a PR in its
   chain once when its log shows a failure outside the change, such as a lost agent or a timeout,
   with `gh run rerun <run> --failed` or `tools/ci bk rerun <pipeline> <build> --unit <unit>`; and
   send the job your brief's `Job:` line names your finding with
   `drive job wake <job> --text "<finding>" --drive <drive>`, which reaches only a lane that takes
-  messages and starts no worker. A resume, a relaunch, a new job, a landing or an install goes on
+  messages and starts no worker, so none goes to a job whose lane your `Holder:` line says ended. A resume, a relaunch, a new job, a landing or an install goes on
   your `NEXT` line for the holder, and a job its `Holder:` line names as an agent on this Mac is
   woken by the holder's `SendMessage` to that agent, never `drive job resume`, which refuses it; the `bash_guard` hook refuses every command but these
   reads and acts, and a rerun of a build, run or job that reads anything but failed.

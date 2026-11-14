@@ -2128,7 +2128,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple[str, str]], held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, a Card line per open card of his on the chain or naming a service it waits on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
+    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, or that the job's lane or agent ended, by state.lane_death, so no wake reaches it, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, a Card line per open card of his on the chain or naming a service it waits on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
     job_id, order_id = stall.owner(data, subject)
     job = data["jobs"][job_id]
     holder, holding = state.holding_role(data, data["orders"][order_id])
@@ -2138,6 +2138,8 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
     if job.get("agent") and (runs_in := session_of(job, data)):
         reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
         wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, '', 'the message')}"
+    if ended := state.lane_death(job):
+        wake = f"; {job_id}'s lane ended at {when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}, so neither drive job wake nor SendMessage reaches it, and only the holder's drive job resume {job_id} starts its next worker"
     if holding:
         reading.append(f"cc-transcript {session_transcript(holding)}, from {when(held['since'])} on")
     reading += [f"gh pr {verb} {state.pr_url(key)}" for key in named if key in data["prs"] for verb in ("view", "checks")]

@@ -9327,7 +9327,7 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which cache disk?", state.stamp(), None, shown["url"]) | {"waits": "demo:j1-7"})
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which cache disk?", "2026-11-09T10:00:00-08:00", None, shown["url"]) | {"waits": "demo:j1-7"})
     calls: list[tuple] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
     words, via = "We're already addressing this with the lazy + restate object", "https://acme.slack.com/archives/D123/p1794300000000999"
@@ -9341,6 +9341,27 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
     assert cli.main(["cards", "withdraw", "demo:j1-8", "--words", words, "--via", via]) == 2
     assert "demo:j1-8: no open question of this drive is drawn on that card" in capsys.readouterr().err
+
+
+def test_j4802_cards_withdraw_refuses_his_words_at_a_message_written_before_its_question_was_asked(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shown = open_card(7, {"title": "May anyone who can open a cloud run list every file?", "options": ["Team", "Run"], "recommended": "Team", "waits": "demo:j1-7"})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    asked = "2026-11-13T06:40:41-08:00"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "May anyone who can open a cloud run list every file?", asked, None, shown["url"]) | {"waits": "demo:j1-7"})
+    calls: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
+    words, via = "Just have it cover the whole team like we yelled about previously", "https://acme.slack.com/archives/D123/p1794344777771949"
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", via]) == 2
+    written = state.stamp(datetime.fromtimestamp(1794344777.771949).astimezone())
+    assert (
+        f"demo:j1-7: refused, not withdrawn: --via {via} was written at {written}, before its question was asked at {asked}, and no answer he gave another question settles it;"
+        f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws demo:j1-7, its summary citing that answer"
+    ) in capsys.readouterr().err
+    assert (calls, state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]) == ([], None)
 
 
 def test_cards_withdraw_settles_a_card_an_event_overtook_showing_what_happened_and_refuses_before_the_event(

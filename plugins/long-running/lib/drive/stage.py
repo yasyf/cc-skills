@@ -64,13 +64,15 @@ def uncarded(pr: dict, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card."""
+    """Every rule of own past the draw of his card; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, f"it is {pr['state']}")
     if land.landing(pr):
         return Stage("landing", LANDER, landing_why(pr))
     if ended := unlanded(data, key, cards):
+        if mine := asked(data, key, [pr["job"]], cards):
+            return Stage("blocked", HIM, f"its builder {pr['job']} waits on {', '.join(fix_words(data, wait, cards) for wait in mine)}")
         return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)
@@ -117,17 +119,25 @@ def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[st
 
 
 def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> list[str]:
-    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job waiting or built to the waits holding it and each PR not waiting on his Approve to its own, to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere."""
+    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job and each PR not waiting on his Approve to what holds it by onward(), to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere."""
     found = []
     for wait in view.holding(data, waits, cards):
         release = state.RELEASE_WAIT.fullmatch(wait)
         if wait in seen or release and release["pr"] in seen:
             continue
         seen.add(wait)
-        job, pr = data["jobs"].get(wait), data["prs"].get(wait)
-        onward = job["waits"] if job and job["state"] in ("waiting", "built") else pr["waits"] if pr and not his(data, wait, cards) else []
-        found += ends(data, held, cards, seen) if (held := view.holding(data, onward, cards)) else [wait]
+        held = onward(data, wait, cards) if wait in data["jobs"] or wait in data["prs"] and not his(data, wait, cards) else []
+        found += ends(data, held, cards, seen) if held else [wait]
     return found
+
+
+def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
+    """What a job or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits and the cards of its own questions open on him, by view.open_cards, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
+    if job := data["jobs"].get(subject):
+        waits = [*job["waits"], *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
+    else:
+        waits = [*data["prs"][subject]["waits"], *land.pr_cards(data, data["prs"][subject])]
+    return view.holding(data, view.stored_waits(data, waits, cards), cards)
 
 
 def his(data: dict, wait: str, cards: dict | None) -> bool:
