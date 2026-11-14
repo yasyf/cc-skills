@@ -89,6 +89,10 @@ LINK_RULE = (
     "Link everything he could open where it is named, a PR, a teammate's fix, a card, a release, a build, an alert, a thread"
     " or an earlier decision, so he never has to look it up himself."
 )
+KNOWN_RULE = (
+    "A post naming a PR or an error one of his open question cards already asks about links that card, so he reads a failure he"
+    " was already told about as that card's, never as a new one."
+)
 OWED_TAP_RULE = "Ask for a tap only when one is owed: when he tapped a PR already, or it merged or closed, say what happened to it instead."
 CARD_RULE = 'Anything that says it waits on him carries the card with its buttons, by his words "Anything that says waiting on me you always need to embed the card with the buttons".'
 UNCARDED = (
@@ -515,7 +519,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
     dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -543,6 +547,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             long and agents.Ruled(long, LENGTH_RULE, long),
             long_ack(payload),
             unlinked(payload, drive, order_id),
+            uncarded_known(payload, drive, found),
             untapped(payload),
             claimed_tap(tool_input, drive, order_id),
             raw_visuals(tool_input),
@@ -798,6 +803,19 @@ def unlinked(payload: dict, drive: dict, order_id: str | None) -> str | None:
         return None
     refusal = limits.link_refusal(payload["tool_input"], limits.held(drive, order_id))
     return refusal and agents.Ruled(refusal, LINK_RULE)
+
+
+def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | None:
+    """Why a handler's post names a PR or an error his open question card already asks about, by state.asking_cards, with no {card:…} of that card, so a failure he was already told about would read to him as new; a card or PR card the post draws, and the card a reply is about, link themselves."""
+    tool_input = payload["tool_input"]
+    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs"):
+        return None
+    linked = {view.message_key(ref["url"]) for ref in found.values() if ref["kind"] == "card"}
+    about = tool_input.get("about") and state.waits_of(drive["name"], tool_input["about"])
+    if not (known := [(question, what) for question, what in state.asking_cards(drive, tool_input.get("text") or "") if view.message_key(question["card"]) not in linked and question["waits"] != about]):
+        return None
+    named = "; ".join(f"{state.asked_line(question, what)}, so link it as {{card:{question['waits']}}}" for question, what in known)
+    return agents.Ruled(f"refused: {named}. Name it beside what it asks about, and tell him the news as that card's.", KNOWN_RULE)
 
 
 def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:

@@ -203,7 +203,7 @@ def lane_posted(name: str, lane: str) -> bool:
 
 
 def order_add(args: argparse.Namespace) -> int:
-    """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a "Drive tooling:" order whose words Jev reads as asking what an open tooling order asks joins that order, every job on that order carrying it, so one fault keeps one job and one card; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up."""
+    """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a "Drive tooling:" order whose words Jev reads as asking what an open tooling order asks joins that order, every job on that order carrying it, so one fault keeps one job and one card; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
     refuse_unreworkable(state.load(name), args.rework)
     order_id, order, started, incidents = added_order(args)
@@ -346,7 +346,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             else f"its owner job carries this order with --carries {order_id}"
         )
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; {carried}")
-    return order_id, order, started, incidents
+    return order_id, order, [*started, *state.asked_lines(data, args.words)], incidents
 
 
 def held_order(data: dict, words: str, owner: str | None) -> str | None:
@@ -366,7 +366,7 @@ def alert_links(links: list[str]) -> list[str]:
 
 
 def incident_open(args: argparse.Namespace) -> int:
-    """Open an incident in one save: his order, a job on its fix beside a job on each diagnosis part, and the evidence record its note names, titled by the order's --title, so a record cc-notes refuses leaves the drive as it was."""
+    """Open an incident in one save: his order, a job on its fix beside a job on each diagnosis part, and the evidence record its note names, titled by the order's --title, so a record cc-notes refuses leaves the drive as it was; it names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
     args.parts = [state.INCIDENT_FIX, *state.INCIDENT_PARTS["release" if args.release else "none" if args.no_rollback else "rollback"]]
     with state.batch(name):
@@ -667,7 +667,7 @@ def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -799,6 +799,7 @@ def order_set(args: argparse.Namespace) -> int:
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
+    turned += state.asked_lines(data, order["text"]) if turning else []
     return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
 
 
@@ -1276,6 +1277,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     started = state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
+    names += state.asked_lines(data, args.goal)
     return job_id, job | {"builder": builder_id, "history": history}, [*took, *started, *waiting, *names]
 
 

@@ -131,6 +131,7 @@ DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monito
 SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w-]+/)?issues/[\w-]+(?:[/?#]\S*)?")
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
 PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
+QUOTED_SPAN = re.compile(r"[`'\"“”‘’]([^`'\"“”‘’\n]{24,})[`'\"“”‘’]")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d+\.\d+)(?:/(\d+\.\d+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
@@ -3038,6 +3039,33 @@ def names_pr(words: str, key: str) -> bool:
     """Whether words name the PR by its link, its owner/name#N key or a bare #N."""
     number = key.rpartition("#")[2]
     return any(bare == number if (bare := found.groups()[-1]) else pr_key(found[0]).casefold() == key.casefold() for found in PR_REF.finditer(words))
+
+
+def asking_cards(data: dict, words: str) -> list[tuple[dict, str]]:
+    """Each open question card of his the words point at, once a card by its Slack link, beside what they name of it: an open question drawn there, but one a `Replaces:` line folded into another, whose ask above its `Findings:` names a PR the words name, by link, key or #N, or whose `Root cause:` line holds a span of 24 or more characters the words quote, such as the error a failure prints; so a job, order or post on a failure he was already told about reads as his card's, whatever its `Holds:` line holds."""
+    from drive import limits, view
+
+    asked: dict[str, tuple[dict, str]] = {}
+    spans = QUOTED_SPAN.findall(words)
+    for job in data["jobs"].values():
+        for question in view.open_questions(job):
+            if not (question["card"] and question["file"]) or question["replaced"] or (card := view.message_key(question["card"])) in asked:
+                continue
+            ask, *findings = limits.FINDINGS.split(Path(question["file"]).read_text(), maxsplit=1)
+            cause = found[1].casefold() if (found := limits.ROOT_CAUSE.search("".join(findings))) else ""
+            keys = dict.fromkeys(pr_key(found[0]) for text in (ask, words) for found in PR_REF.finditer(text) if not found.groups()[-1])
+            if about := next((key for key in keys if names_pr(ask, key) and names_pr(words, key)), None) or next((f'"{span}"' for span in spans if span.casefold() in cause), None):
+                asked[card] = (question, about)
+    return list(asked.values())
+
+
+def asked_lines(data: dict, words: str) -> list[str]:
+    """One line for each open question card of his the words point at, by asking_cards, which a job add, an order add and an order turned incident print."""
+    return [asked_line(question, about) for question, about in asking_cards(data, words)]
+
+
+def asked_line(question: dict, about: str) -> str:
+    return f"his open card {question['card']} already asks about {about}: {question['title']}"
 
 
 def foreign(key: str, author: str | None, words: Iterable[str]) -> str | None:

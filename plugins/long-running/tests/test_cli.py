@@ -6910,6 +6910,38 @@ def test_job_add_names_by_id_each_pr_its_goal_names_and_each_other_order_whose_j
     assert run("job", "add", "reader", "--order", "o3", "--goal", "read the notes again") == (0, "j7")
 
 
+def test_job_add_order_add_and_an_incident_name_his_open_question_card_asking_about_the_pr_or_error_their_words_name(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    url, error = "https://github.com/acme/app/pull/55", "cannot set upsert_condition without corresponding upsert writes"
+    ask = tmp_path / "j1-7.md"
+    ask.write_text(
+        f"ASK Should the batch writer keep upsert_condition?\nFor {{order:o1}}: your pick decides whether {url} lands.\n- Keep it (recommended)\n  The writer keeps the condition.\n"
+        f"Findings:\nRoot cause: the batch writer sends `{error}` once a batch holds no upserts\nHolds: https://github.com/acme/app/pull/77\n"
+    )
+    run("order", "add", "--title", "Upserts", "--project", "The drive", "--workstream", "Drive tooling", "fix the upsert writes")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the upsert writes")
+    card = slack_card(7)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [
+            state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=card) | {"waits": "demo:j1-7"},
+            state.new_question(str(ask), "Keep it, folded?", state.stamp(), card=card) | {"waits": "demo:j1-8", "replaced": "demo:j1-7"},
+        ]
+    named, quoted = f"his open card {card} already asks about acme/app#55: Keep upsert_condition?", f"his open card {card} already asks about \"{error}\": Keep upsert_condition?"
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "read why acme/app#55 fails") == (0, f"j2\n{named}")
+    assert run("job", "add", "reader", "--order", "o1", "--goal", f'read why the writer prints "{error}"') == (0, f"j3\n{quoted}")
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "read why https://github.com/acme/app/pull/77 fails") == (0, "j4")
+    assert run("order", "add", "--title", "Upserts again", "--project", "The drive", "--workstream", "Drive tooling", f"the writer still prints '{error}'") == (0, f"o2\n{quoted}")
+    assert run("incident", "open", f"{url} fails on plat", *FILED)[1].endswith(f"{state.INCIDENT_BRIEF}\n{named}")
+    run("order", "add", "--title", "Upserts why", "--project", "The drive", "--workstream", "Drive tooling", f"why does {url} fail", "--kind", "answer")
+    assert named in run("order", "set", "o4", "--incident")[1].splitlines()
+    with state.edit("demo") as data:
+        for question in data["jobs"]["j1"]["questions"]:
+            question["closed"] = state.new_close("answered", "Keep it", card)
+    assert run("job", "add", "reader", "--order", "o1", "--goal", f'read why {url} prints "{error}"')[1].splitlines()[1:] == []
+
+
 def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix   the\nwatch")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix", "--agent", "a")
