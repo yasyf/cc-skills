@@ -609,7 +609,7 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     if held := {seq: mark for seq, mark in drive["held"].items() if runs is None or mark["order"] in orders}:
         lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each its writer did not withdraw:")
         lines.extend(
-            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}{corrected_by(mark['corrections'])}{withdrawn_by(mark['withdrawn'])}"
+            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}{corrected_by(mark['corrections'])}{withdrawn_by(mark['withdrawn'])}"
             for seq, mark in held.items()
         )
     if owed := drive["catch_up"]:

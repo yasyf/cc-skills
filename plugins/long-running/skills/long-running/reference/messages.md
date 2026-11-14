@@ -555,17 +555,15 @@ restating it.
   an incident's or a customer outage's line [incidents.md](incidents.md) calls for, marked
   `incident=true` or on an incident order, and an answer passing `asked` post; a hook
   refuses any other handler line. Summaries, due-time lines and job results wait.
-  A report whose line the hook holds is marked held on the drive, `drive status` lists it under
-  `Held for his catch-up`, and a `refused` record carrying `held=<seq>` tells the coordinator
-  session that wrote it, so nobody takes it for a line he got. A correction record `--re` a held
-  report travels with it, since cci never changes the report: `drive status` names it on the
-  report's line, the `refused` record names one already written, and a `say` of the correction
-  posts nothing while its report is held. A report found wrong while it is held, such as a close
-  of an order not done, its writer takes back with the cci `post` tool, `kind: withdraw`, `re`
-  the report's own seq, `to: communicator@<drive>`: `drive status` names the withdrawal on the
-  report's line, the catch-up leaves the report out, so no post carries it and no order closes
-  on it, and once the catch-up posts, an order it claimed to close is free for another report's
-  close.
+  A report whose line the hook holds is marked held on the drive, and `drive status` lists it
+  under `Held for his catch-up`, so nobody takes it for a line he got. A correction record `--re`
+  a held report travels with it, since cci never changes the report: `drive status` names it on
+  the report's line, and a `say` of the correction posts nothing while its report is held. A
+  report found wrong while it is held, such as a close of an order not done, its writer takes
+  back with the cci `post` tool, `kind: withdraw`, `re` the report's own seq,
+  `to: communicator@<drive>`: `drive status` names the withdrawal on the report's line, the
+  catch-up leaves the report out, so no post carries it and no order closes on it, and once the
+  catch-up posts, an order it claimed to close is free for another report's close.
 - His next message, right after its ack, or his next card tap gets one catch-up at his DM root,
   posted by the drive with no session in between. `drive heard`, or the tap, adds every open order
   with a step its thread has had no line or report on, by the same test as that thread's line, or
