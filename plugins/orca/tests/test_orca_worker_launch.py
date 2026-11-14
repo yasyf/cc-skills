@@ -197,7 +197,7 @@ class Launch:
         self.attempt = self.briefs / f"{LANE}.worker"
         self.path = [str(self.bin), *(path for path in os.environ["PATH"].split(os.pathsep) if path)]
         self.env = {
-            **{key: value for key, value in os.environ.items() if not key.startswith(("WORKER_", "ORCA_", "CC_REMOTE_"))},
+            **{key: value for key, value in os.environ.items() if not key.startswith(("WORKER_", "ORCA_", "CC_REMOTE_", "CLAUDE_LANE_"))},
             "PATH": os.pathsep.join(self.path),
             "FAKE_STATE": str(self.fake),
             "PYTHONPYCACHEPREFIX": str(root / "python-cache"),
