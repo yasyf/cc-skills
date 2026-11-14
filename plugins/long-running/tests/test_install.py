@@ -789,6 +789,61 @@ def test_a_session_still_busy_after_the_wait_gets_reload_plugins_queued_behind_i
     ]
 
 
+def exited(terminal: str) -> list[str]:
+    return ["orca", "terminal", "send", "--terminal", terminal, "--text", "/exit", "--enter", "--wait-submit", "10", "--json"]
+
+
+def running_in(folder: str, session: str) -> None:
+    sessions = install.config_dir() / "sessions"
+    sessions.mkdir(exist_ok=True)
+    (sessions / f"{os.getpid()}.json").write_text(json.dumps({"pid": os.getpid(), "sessionId": session, "cwd": folder}))
+
+
+def test_an_install_types_exit_into_a_session_cci_runs_outside_the_drives_checkout_once_registered_there_so_cci_resumes_it_there(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running_in("/old/durable-agents", "demo-communicator")
+    tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), exited("term_comm")]
+    assert registered == [("demo-communicator", "/work", "demo-communicator")]
+    assert capsys.readouterr().out.splitlines()[1:] == ["demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work"]
+
+
+@pytest.mark.parametrize("why", ["incident o1 is open", "no tmux session of cci's runs it"])
+def test_a_session_outside_the_drives_checkout_mid_incident_or_outside_cci_is_registered_there_and_only_reloaded(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], why: str
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running_in("/old/durable-agents", "demo-communicator")
+    if why.startswith("incident"):
+        tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
+        with state.edit("demo") as data:
+            data["orders"]["o1"] = state.new_order("the journal fails to open", "him", None, {}, state.stamp()) | {"incident": True}
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
+    assert registered == [("demo-communicator", "/work", "demo-communicator")]
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        f"demo communicator: reloaded in term_comm; it runs in /old/durable-agents until it next exits, when cci session run resumes it in the drive's checkout /work, since {why}"
+    ]
+
+
+def test_a_session_already_in_the_drives_checkout_is_only_reloaded(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running_in("/work", "demo-communicator")
+    tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
+    assert registered == []
+    assert capsys.readouterr().out.splitlines()[1:] == ["demo communicator: reloaded in term_comm"]
+
+
 def test_an_install_near_its_deadline_waits_only_the_time_left(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

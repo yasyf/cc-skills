@@ -2082,7 +2082,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             out = state.drive_dir(watcher.name) / "stalls" / f"{NOT_SLUG.sub('-', subject)}-{moment:%Y%m%dT%H%M%S}.md"
             try:
-                pid = agents.watchdog(watcher.name, watchdog_brief(watcher, data, subject, links[subject], held, moment), coordinator(data, watcher.project)["cwd"], out)
+                pid = agents.watchdog(watcher.name, watchdog_brief(watcher, data, subject, links[subject], held, moment), str(orca.checkout(watcher.name, coordinator(data, watcher.project)["cwd"])), out)
             except (OSError, state.DriveError) as error:
                 lines += failed(watcher, "watchdog", f"watchdog agent on {subject}", error, moment)
                 continue

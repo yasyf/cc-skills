@@ -60,6 +60,7 @@ ON_MAC = "on this Mac"
 PUSH_FIRST = "Commit and push before any long build."
 UNPUSHED = f"work it had not committed and pushed is not carried over. {PUSH_FIRST}"
 RELOAD = "/reload-plugins"
+EXIT = "/exit"
 MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
 SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
@@ -196,12 +197,12 @@ def drive_terminal(drive: str) -> str:
         return data["terminal"]
 
 
-def reload_command(terminal: str) -> str:
-    return f"orca terminal send --terminal {terminal} --text {RELOAD} --enter"
+def reload_command(terminal: str, text: str) -> str:
+    return f"orca terminal send --terminal {terminal} --text {text} --enter"
 
 
-def reload_plugins(terminal: str, wait_ms: int) -> bool:
-    """Type /reload-plugins into a Claude Code session's terminal once its turn is over, or once wait_ms pass into its busy prompt, where Claude Code holds it until the turn ends; whether the session was idle, or OrcaError when it shows a prompt the text would answer."""
+def typed_when_idle(terminal: str, text: str, wait_ms: int) -> bool:
+    """Type a slash command, /reload-plugins or /exit, into a Claude Code session's terminal once its turn is over, or once wait_ms pass into its busy prompt, where Claude Code holds it until the turn ends; whether the session was idle, or OrcaError when it shows a prompt the text would answer."""
     waiting = ("terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", str(wait_ms))
     try:
         waited = request(*waiting, seconds=wait_ms / 1000 + CALL_SECONDS)["wait"]
@@ -211,7 +212,7 @@ def reload_plugins(terminal: str, wait_ms: int) -> bool:
         waited = None
     if waited and not waited["satisfied"]:
         raise OrcaError(f"orca terminal wait: it shows {waited['blockedReason']}")
-    request("terminal", "send", "--terminal", terminal, "--text", RELOAD, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
+    request("terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
     return waited is not None
 
 
@@ -288,6 +289,19 @@ def show_worktrees(checkout: Path) -> None:
 
 def claude_pids(session: str) -> list[int]:
     return [pid for pid, record in agents.session_records() if record.get("sessionId") == session]
+
+
+def launch_dir(session: str) -> Path | None:
+    """The folder the session's live Claude Code process started in, where its tools and the agents it starts run, as its `~/.claude/sessions/<pid>.json` names it; None once it has exited."""
+    running = parents()
+    return next((Path(record["cwd"]) for pid, record in agents.session_records() if record.get("sessionId") == session and pid in running), None)
+
+
+def in_tmux(alias: str, session: str) -> bool:
+    """Whether the tmux session cci runs a seat in under its alias holds the session's Claude Code process, so cci session run resumes it once it exits."""
+    tree = parents()
+    pids = claude_pids(session)
+    return any(name == alias and any(holds(tree, pane, pid) for pid in pids) for pane, name in tmux_rows("list-panes", "-a", "-F", "#{pane_pid} #{session_name}"))
 
 
 def live_pid(session: str) -> int | None:

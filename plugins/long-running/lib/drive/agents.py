@@ -499,7 +499,7 @@ def start_kept(name: str, handler: str) -> str:
     kept = brief_path(name, handler)
     try:
         start_handler(name, handler, kept.read_text())
-    except reads.ReadError as error:
+    except (reads.ReadError, state.DriveError) as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
@@ -513,16 +513,18 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the checkout of the session it runs beside, the communicator's or on a drive with none the coordinator's, whether that session or the drive's watch starts it, its UserPromptSubmit hook binding it to the drive at its brief by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, its UserPromptSubmit hook binding it to the drive at its brief by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
+    from drive import orca
+
     _, held = beside(state.saved(name))
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", job_name(name, handler), prompt]
-    reads.run(argv, Path(held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
+    reads.run(argv, orca.checkout(name, held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
 
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
-    """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the checkout of the session the watch posts to, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
+    """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
     settings = session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name})
     argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
     out.parent.mkdir(parents=True, exist_ok=True)
