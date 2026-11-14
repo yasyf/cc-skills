@@ -55,6 +55,7 @@ OPTIONED = {
     "xargs": {"-P", "-n", "-I", "-L", "-d", "-s", "-a", "-E", "--max-procs", "--max-args", "--replace", "--max-lines", "--delimiter", "--max-chars", "--arg-file", "--eof"},
 }
 SOURCES = {"source", "."}
+PARSE_ONLY = re.compile(r"-[A-Za-z]*n[A-Za-z]*")
 FOLLOWED_DEPTH = 4
 SCRIPT_FOLDER = re.compile(r'\$\(cd "\$\(dirname "(?:\$0|\$\{BASH_SOURCE\[0\]\})"\)([^"]*)" && pwd\)')
 JSON_FIELD = re.compile(r"\$\(jq -r '?((?:\.\w+)+)'? (\S+)\)")
@@ -76,10 +77,11 @@ TEAM_DATA = (
     " it through a presigned URL"
 )
 UNLISTED = (
-    "refused: this reads or writes `{location}` where the job runs, and the checkout it runs in holds no"
+    "refused: this reads or writes `{location}` where the job runs, and `{folder}`, the folder its session runs in, holds no"
     " `release/team-buckets.generated.json` at origin/dev to say whether that bucket holds a team's data, so it is refused"
-    " as one that does. Run it from a Forge-AI/monorepo checkout, after `git fetch origin dev` in one fetched before that"
-    " list landed: the list names each bucket and folder holding a team's data"
+    " as one that does; a `cd` in the command changes nothing, since the list is read where the session runs. Run it from"
+    " a session in a Forge-AI/monorepo checkout, after `git fetch origin dev` in one fetched before that list landed: the"
+    " list names each bucket and folder holding a team's data"
 )
 SANDSQL_NAMESPACES = {"sandsql", "sandsql-system", "sandsql-inbox"}
 SANDSQL_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
@@ -382,10 +384,11 @@ def past_options(words: list[str], valued: set[str]) -> list[str]:
 
 
 def script_file(words: list[str], place: Place) -> Path | None:
-    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script; None when it runs none, it is not on disk or was read on the way here."""
+    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script; None when it runs none, as a shell given `-n` only parses its script, it is not on disk or was read on the way here."""
     name = Path(words[0]).name
     if name in SHELLS:
-        named = next(iter(past_options(words[1:], {"-o"})), None)
+        operands = past_options(words[1:], {"-o"})
+        named = None if any(PARSE_ONLY.fullmatch(word) for word in words[1 : len(words) - len(operands)]) else next(iter(operands), None)
     elif name in SOURCES:
         named = words[1] if words[1:] else None
     else:
@@ -452,14 +455,13 @@ def remote_location(tool: str, word: str) -> str | None:
 
 
 def team_data(command: str, cwd: str) -> agents.Unjudged | None:
-    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the checkout it runs in or a location holding one, any bucket when that checkout holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
-    place = Place(Path(cwd))
-    for words in reached(command, place):
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the folder its session runs in, whatever folder the command `cd`s to, or a location holding one, any bucket when that folder holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
+    for words in reached(command, Place(Path(cwd))):
         for location in bucket_locations(words):
             if TEAM_AREA.search(location):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
-            if (listed := team_buckets(place.cwd)) is None:
-                return agents.Unjudged(UNLISTED.format(location=location))
+            if (listed := team_buckets(Path(cwd))) is None:
+                return agents.Unjudged(UNLISTED.format(location=location, folder=cwd))
             if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
         if reach := sandsql_reach(words):
