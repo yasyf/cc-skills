@@ -391,6 +391,14 @@ def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def mac_boxes_downed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Each holder whose Mac boxes a save takes down, as `<drive>/<job>`, never a `tools/ci mac-box down` run."""
+    downed: list[str] = []
+    monkeypatch.setattr(state, "down_mac_boxes", lambda name, data, finished: downed.extend(f"{name}/{job_id}" for job_id in finished))
+    return downed
+
+
+@pytest.fixture(autouse=True)
 def checkers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(served, "spawn", lambda name, key: started.append(key) or os.getpid())
