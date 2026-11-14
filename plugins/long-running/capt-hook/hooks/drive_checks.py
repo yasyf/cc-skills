@@ -48,7 +48,7 @@ from captain_hook.tickets import (
     UserAnswered,
 )
 from captain_hook.tickets.context import said_evidence
-from captain_hook.tickets.decide import DETAIL_SHOWN, UNPERMITTED, cited, render_evidence
+from captain_hook.tickets.decide import DETAIL_SHOWN, UNPERMITTED, cited, render_action, render_evidence
 from captain_hook.transcripts import TranscriptLoadError
 from cc_transcript.tools import tool_name_matches
 from spawnllm import LabelAnswer
@@ -224,6 +224,13 @@ TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
 GUESSED = "The cloud's inbox reader queries Postgres straight."
 GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
+OVER_LINE = (
+    "refused: this post is 96 words, and a line in his thread is at most 60 words (the coordinator's reading of his Nov 9 9:33 PM words"
+    ' "your messages need to be way shorter rewrite this for a human"). Say what changed for him and what happens next, in plain words;'
+    " everything else stays on disk until he asks for it. It names no message of his as asked, so it is not an answer and keeps that limit."
+    " An answer to a question or order of his goes out whole, at any length: pass as asked each message of his it answers, word for word or"
+    " by its permalink, one per line."
+)
 STAMPED = "The stop alert fired a third time; a reader, {started:j4750}, is naming the runs it counted."
 STAMPED_CLAIMS = [{"claim": "fired a third time; a reader is naming the runs it counted", "read": "grep -m1 -o 'j4750 reader running'"}]
 STAMPED_READ = "Bash {\"command\": \"drive status o1535 | grep -m1 -o 'j4750 reader running'\"}\nj4750 reader running: read which runs the stop monitor counted in its third firing"
@@ -255,6 +262,11 @@ def refused_post(text: str, reason: str, counted: str = "") -> dict:
     """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for, and the finding again as counted when a count or a mark decides it."""
     denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
     return {"hookSpecificOutput": denied, "rule": f"1. {reason}", "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
+
+
+def found_beside(read: str) -> str:
+    """What message_limits.py hands Jev for a handler's say post whose claim names a read that long and whose words run past a line's length, as j4845 measured the post refused three times: the refusal telling its fix, the rule it stands for, and the one line its check found."""
+    return json.dumps(refused_post(GUESSED, OVER_LINE) | json.loads(handler_reads(read)) | {"found": "this post is 96 words, and a line in his thread is at most 60 words"})
 
 
 def long_thread(output: dict) -> str:
@@ -537,13 +549,13 @@ def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | Non
 
 
 def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, Decide, list[Evidence], list[Evidence]]:
-    """The post as Jev weighs it, in its place with what the drive's checks found in it, the judge for its session with only the rules this post can trip, the findings' only when the checks found something, each finding's own rule beside it, and the reads' only on a handler's post, the record rule only beside a record and the ancestry rule only beside a read the claims name, and the evidence the check hands with it: each read the post's claims name and each record it cites or carries, as the handler's own calls read them, with the rule each finding stands for, and apart from them his words the post answers, quotes or links, which the judge reads beside the user's words its own items find."""
+    """The post as Jev weighs it, in its place with what the drive's checks found in it, each finding as the one line its check found it in rather than the refusal telling the handler its fix, the judge for its session with only the rules this post can trip, the findings' only when the checks found something, each finding's own rule beside it, and the reads' only on a handler's post, the record rule only beside a record and the ancestry rule only beside a read the claims name, and the evidence the check hands with it: each read the post's claims name and each record it cites or carries, as the handler's own calls read them, with the rule each finding stands for, and apart from them his words the post answers, quotes or links, which the judge reads beside the user's words its own items find."""
     post = output["post"]
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
         where = f"in the group DM of {post['channel_id']}, him and the bot"
-    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason or "none"}, f"post this line {where}"))
+    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": output.get("found") or reason or "none"}, f"post this line {where}"))
     reads = [item["id"] for item in output.get("reads", [])]
     rules = dedent_text(
         POST_RULES
@@ -576,26 +588,32 @@ def by_newest(items: list[Evidence]) -> list[Evidence]:
 
 
 def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
-    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, with his words cut to what `fitted` fits, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules and own words already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; his words never refuse one, since `fitted` cuts them to what fits; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
+    """Why a post waits for narrower reads or fixed findings: Jev's prompt for it, its frame, rules, evidence and action, with his words cut to what `fitted` fits, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its findings, reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming the characters each part adds: the frame, the rules, the post, the findings, and each read and record, largest first; the findings come in the words that tell the handler their fix, so a post they would hold is fixed on its first retry: fixing them takes off their rules, their rule items and their lines in the action, and the reads are cut only by what that leaves. A post neither can bring under, one whose rules and own words already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; his words never refuse one, since `fitted` cuts them to what fits, and one past the limit holds none of them; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
     ctx, judge, fixed, answered = jev_reads(evt, output, reason)
     try:
         prompt = str(judge.framed(ctx, fitted(ctx, judge, fixed, answered, judge.items(ctx)), DETAIL_SHOWN))
     except (EvidenceIncomplete, TranscriptLoadError):
         return None
-    reads = sorted(
-        ((f"{item['id']} {json.dumps(item['read'], ensure_ascii=False)}" if item["id"].startswith("read:") else item["id"], len(render_evidence([Evidence.model_validate(item)]) or "")) for item in output["reads"]),
-        key=lambda pair: -pair[1],
-    )
     if (cut := len(prompt) - JEV_PROMPT_CHARS) <= 0:
         return None
-    too_long = f"refused: Jev's prompt for this post would be {len(prompt):,} characters, over the {JEV_PROMPT_CHARS:,} it takes"
-    if cut > sum(chars for _, chars in reads):
-        return f"{too_long}, and its rules and the post alone pass that. Say less and name it on a `DEFECT` line."
-    sizes = "\n".join(f"{name} {chars:,}" for name, chars in reads)
-    return (
-        f"{too_long}. Cut your reads by at least {cut:,} with a call showing only what each claim needs, such as a grep, a jq filter or"
-        f" `cci read` with a smaller budget, name it in claims, and call say again:\n```text\n{sizes}\n```"
+    bare, plain, reads, _ = jev_reads(evt, {key: value for key, value in output.items() if key not in ("rule", "found")}, "")
+    unfound = len(str(plain.framed(bare, reads, DETAIL_SHOWN)))
+    sized = sorted(
+        ((f"{item['id']} {json.dumps(item['read'], ensure_ascii=False)}" if item["id"].startswith("read:") else item["id"], len(render_evidence([read]))) for item, read in zip(output["reads"], reads)),
+        key=lambda pair: -pair[1],
     )
+    post, rules, found = len(render_action(bare.action)), len(plain.rules), len(prompt) - unfound
+    parts = [("frame", unfound - post - rules - sum(chars for _, chars in sized)), ("rules", rules), ("post", post), *([("findings", found)] if found else []), *sized]
+    sizes = "\n".join(f"{name} {chars:,}" for name, chars in parts)
+    shown = f":\n```text\n{sizes}\n```" + (f"\n```\n{reason}\n```" if found else "")
+    too_long = f"refused: Jev's prompt for this post would be {len(prompt):,} characters, over the {JEV_PROMPT_CHARS:,} it takes"
+    if cut - found > sum(chars for _, chars in sized):
+        return f"{too_long}, and its rules and the post alone pass that. Say less and name it on a `DEFECT` line{shown}"
+    narrower = "with a grep or a smaller `cci read` showing only what each claim needs, name it in claims"
+    if not found:
+        return f"{too_long}. Cut your reads by at least {cut:,} {narrower}, and call say again{shown}"
+    fix = f"{too_long}. Fix each finding below, which takes {found:,} of them off"
+    return f"{fix}, and call say again{shown}" if cut <= found else f"{fix}, cut your reads by at least {cut - found:,} {narrower}, and call say again{shown}"
 
 
 @on(
@@ -798,7 +816,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads("x" * JEV_PROMPT_CHARS)},
-        ): Block(pattern=r'(?s)over the 10,000 it takes\. Cut your reads by at least \d,\d{3} .*read:1 "cloudrunner/inbox\.go" 10,\d{3}'),
+        ): Block(pattern=r'(?s)over the 10,000 it takes\. Cut your reads by at least \d,\d{3} .*\nframe [\d,]+\nrules [\d,]+\npost [\d,]+\nread:1 "cloudrunner/inbox\.go" 10,\d{3}\n```'),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
@@ -817,6 +835,24 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": json.dumps(json.loads(handler_reads("x")) | {"post": {"text": "y" * JEV_PROMPT_CHARS, "thread_ts": THREAD}})},
         ): Block(pattern=r"(?s)over the 10,000 it takes, and its rules and the post alone pass that\. Say less and name it on a `DEFECT` line"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": found_beside("x" * 5_950)},
+        ): Block(pattern=r"(?s)over the 10,000 it takes\. Fix each finding below, which takes [\d,]+ of them off, and call say again:\n```text\nframe .*\nfindings [\d,]+\nread:1 .*\n```\n```\nrefused: this post is 96 words"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": found_beside("x" * JEV_PROMPT_CHARS)},
+        ): Block(pattern=r"(?s)over the 10,000 it takes\. Fix each finding below, which takes [\d,]+ of them off, cut your reads by at least \d,\d{3} with a grep .*\nfindings [\d,]+\nread:1 .*refused: this post is 96 words"),
         Input(
             tool=SAY,
             tool_input={"text": ACK, "thread_ts": THREAD},

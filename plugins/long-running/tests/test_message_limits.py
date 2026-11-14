@@ -481,7 +481,9 @@ def test_a_fix_live_note_before_the_proof_is_judged_by_the_reporter_rule_and_ref
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
     reason = message_limits.deny_reason(call("slack_reply", transcript, **note))
-    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "counted": reason}
+    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "counted": reason, "found": reason.found}
+    assert reason.found.startswith("the fix for the bug reported in this thread keeps no proof that it is live")
+    assert "It goes once" not in reason.found
 
 
 def test_a_shared_questions_thread_gets_its_answer_only_once_it_is_posted_to_him_and_only_once(run: Run, talker: str, transcript: Path, slack_thread: Thread) -> None:
@@ -1379,6 +1381,11 @@ def test_a_post_refused_several_ways_hears_every_way_at_once_after_its_thread_re
     assert refusal.startswith("refused, 3 ways; fix each, then post the fixed words once:\n1. this post is 69 words")
     assert '\n2. "the first PR" names something he could open with no link there' in refusal
     assert "\n3. `cc-slack check-post` finds this in the post's exact words" in refusal
+    facts = refusal.found.splitlines()
+    assert facts[0] == "1. this post is 69 words, and a line in his thread is at most 60 words"
+    assert facts[1].startswith('2. "the first PR" names something he could open with no link there')
+    assert facts[2] == "3. `cc-slack check-post` finds this in the post's exact words: 1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"
+    assert limits.LINE_REST in refusal and limits.LINE_REST not in refusal.found
     assert posted(transcript, text=text, thread_ts="1.9").startswith("refused: your transcript shows no read of his thread 1.9")
 
 
@@ -2555,7 +2562,7 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
 def test_a_107_word_line_judged_a_summary_by_its_handler_still_refuses_when_jev_cannot_finish(talker: str, transcript: Path) -> None:
     reason = say(transcript, text=f"Fixed the journal reader and the release. {said(100)}", thread_ts="1.2")
     assert "this post is 107 words, and a line in his thread is at most 60 words" in reason.counted
-    assert agents.ruled(reason) == {"rule": message_limits.LENGTH_RULE, "counted": reason.counted}
+    assert agents.ruled(reason) == {"rule": message_limits.LENGTH_RULE, "counted": reason.counted, "found": "this post is 107 words, and a line in his thread is at most 60 words"}
 
 
 def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_back_so_he_reads_away_an_hour_after_the_last(talker: str, transcript: Path, slack_thread: Thread) -> None:

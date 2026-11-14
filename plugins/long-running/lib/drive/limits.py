@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from itertools import groupby, pairwise, permutations
 from pathlib import Path
+from typing import Self
 
 from drive import picture
 from drive.render import clock, cut, when
@@ -514,22 +515,35 @@ def untabled(text: str) -> str:
     return "\n".join(kept)
 
 
+class Refusal(str):
+    """A refusal's words with what its check found, one line naming no fix, which Jev weighs in their place; words added to a refusal keep what it found."""
+
+    found: str
+
+    def __new__(cls, text: str, found: str) -> Self:
+        made = super().__new__(cls, text)
+        made.found = found
+        return made
+
+    def __add__(self, more: str) -> "Refusal":
+        return Refusal(str(self) + more, self.found)
+
+
 def post_refusal(post: dict, edited: int = 0) -> str | None:
     """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits: each row of a table is a line of its own, and the words around the tables keep the post's limit; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
     if long := next((row for table in tables((post.get("text") or "").splitlines()) for row in table if words(" ".join(row)) > LINE_WORDS), None):
-        return (
-            f'refused: the table row "{" | ".join(long)}" is {words(" ".join(long))} words, and each row of a table is a line'
-            f" in his thread, at most {LINE_WORDS} words ({READING}). {LINE_REST}"
-        )
+        found = f'the table row "{" | ".join(long)}" is {words(" ".join(long))} words, and each row of a table is a line in his thread, at most {LINE_WORDS} words'
+        return Refusal(f"refused: {found} ({READING}). {LINE_REST}", found)
     count = post_words(post)
     features = len(FEATURE.findall(post.get("text") or ""))
     limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
     if count <= max(limit, edited + REWORDING_WORDS if edited else 0):
         return None
     edit = f", or {REWORDING_WORDS} past the {edited} words of the post it edits" if edited else ""
-    return f"refused: this post is {count} words, and {shape} is at most {limit} words{edit} ({READING}). {LINE_REST}"
+    found = f"this post is {count} words, and {shape} is at most {limit} words{edit}"
+    return Refusal(f"refused: {found} ({READING}). {LINE_REST}", found)
 
 
 def card_body(summary: list[str], show_me: list[str]) -> str:
@@ -625,12 +639,8 @@ def card_refusal(card: dict, beside: str) -> str | None:
     body = card.get("body") or ""
     drawn = beside.strip() not in body
     if asked_card(card):
-        return (
-            f"refused: this post's text is {words(beside)} words cc-slack draws atop the card, and a drive's question card carries"
-            " only the words of the ASK block `drive job ask` kept and counted: post the same card with no text." + from_ask(card)
-            if drawn
-            else None
-        )
+        found = f"this post's text is {words(beside)} words cc-slack draws atop the card, and a drive's question card carries only the words of the ASK block `drive job ask` kept and counted"
+        return Refusal(f"refused: {found}: post the same card with no text." + from_ask(card), found) if drawn else None
     options = card.get("options") or []
     long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
     count = card_words(card | {"body": f"{beside}\n{body}"} if drawn else card)
@@ -644,7 +654,7 @@ def card_refusal(card: dict, beside: str) -> str | None:
         )
     if not problems:
         return None
-    return f"refused: {'; '.join(problems)} ({READING})." + from_ask(card)
+    return Refusal(f"refused: {'; '.join(problems)} ({READING})." + from_ask(card), "; ".join(problems))
 
 
 def asked_card(card: dict) -> bool:
@@ -1456,15 +1466,17 @@ def typed_time(text: str, data: dict) -> str | None:
         if job_id in data["jobs"]
     ]
     times = ", ".join(f'"{time}"' for time in typed)
-    return (
-        f"{times} {'is a time' if len(typed) == 1 else 'are times'} typed for work already done, and the drive's stamps say when"
+    found = f"{times} {'is a time' if len(typed) == 1 else 'are times'} typed for work already done"
+    return Refusal(
+        f"{found}, and the drive's stamps say when"
         f" it happened: this write is stamped {clock(at, seconds=True)}{''.join(jobs)}. Name the job or"
         " record and let its stamp give the time, {started:<job>} for when a job started and {at:<seq>} for when a record went out,"
         " which say fills, never for when anything else started; write a time a tool or query measured, such as an outage window,"
         f" in Pacific on the line linking the tool or read that measured it, as \"{SOURCED_TIME}\" does, or quote it in backticks as"
         " its tool printed it, and a release's, build's or deploy's start on the line linking that build or tool, as"
         f" {QUOTED_START} does; a time after this write, such as when a hold expires later today, passes, and one on another day"
-        f' names that day, as "6:54 AM tomorrow" does ({STAMP_RULING})'
+        f' names that day, as "6:54 AM tomorrow" does ({STAMP_RULING})',
+        f"{found}, and this write is stamped {clock(at, seconds=True)}{''.join(jobs)}",
     )
 
 
@@ -1485,17 +1497,17 @@ def unsourced_start(text: str) -> str | None:
             for stamp in (found for found in REF.finditer(QUOTED.sub(lambda quote: MASK * len(quote[0]), clause)) if found[1] in STAMPED):
                 named, what, example = STAMPED[stamp[1]]
                 if not named.search(words):
-                    return (
-                        f"{stamp[0]} is when {what.format(id=stamp[2])}, and this line says when a release, build or deploy started: a job's or"
+                    found = f"{stamp[0]} is when {what.format(id=stamp[2])}, and this line says when a release, build or deploy started"
+                    return Refusal(
+                        f"{found}: a job's or"
                         " record's stamp never stands in for another action's start. Quote the start its build or tool printed, in backticks"
                         f" or the words of the link to it, on the line linking it, as {QUOTED_START} does, or say in that clause what the stamp"
-                        f" is the time of, as {example.format(id=stamp[2])} does"
+                        f" is the time of, as {example.format(id=stamp[2])} does",
+                        found,
                     )
         if (quoted := [found[0] for found in BACKTICKED.finditer(line) if CLOCK_TIME.search(found[0])]) and not SOURCE_LINK.search(line):
-            return (
-                f"{', '.join(quoted)} says when a release, build or deploy started, and its line links no build or tool it was quoted"
-                f" from: put the link to that build or tool on the line, as {QUOTED_START} does"
-            )
+            found = f"{', '.join(quoted)} says when a release, build or deploy started, and its line links no build or tool it was quoted from"
+            return Refusal(f"{found}: put the link to that build or tool on the line, as {QUOTED_START} does", found)
     return None
 
 
@@ -1547,9 +1559,10 @@ def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
     found = [f"{key}: {why}" for each in named if each in folded for key, pr in [folded[each]] if (why := tap_owed_not(pr))]
     if not found:
         return None
-    return (
-        f"refused: this asks him to tap, approve or hold a PR the drive owes no tap on: {'; '.join(found)}. A tap is asked"
-        " for only when owed: read drive status <pr> before a card or line names a tap, and say what happened to it instead."
+    owed = f"this asks him to tap, approve or hold a PR the drive owes no tap on: {'; '.join(found)}"
+    return Refusal(
+        f"refused: {owed}. A tap is asked for only when owed: read drive status <pr> before a card or line names a tap, and say what happened to it instead.",
+        owed,
     )
 
 
@@ -1598,7 +1611,7 @@ def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
         problems = unlinked([post.get("text") or ""], [], kinds, (POST_NAMED, POST_KIND))
     if not problems:
         return None
-    return "refused: " + "; ".join(problems) + "." + (from_ask(card) if card else "")
+    return Refusal("refused: " + "; ".join(problems) + "." + (from_ask(card) if card else ""), "; ".join(problems))
 
 
 def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
@@ -1615,7 +1628,10 @@ def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
     ]
     if not found:
         return None
-    return f"this post calls a thing by a word he corrected, so write its proper term in that word's place: {'; '.join(found)} ({PROPER_TERMS_RULING})"
+    return Refusal(
+        f"this post calls a thing by a word he corrected, so write its proper term in that word's place: {'; '.join(found)} ({PROPER_TERMS_RULING})",
+        f"this post calls a thing by a word he corrected: {'; '.join(found)}",
+    )
 
 
 def third_person(found: dict[str, str]) -> list[str]:
