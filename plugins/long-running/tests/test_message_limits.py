@@ -916,7 +916,7 @@ def evidence(transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
 
 
 @pytest.mark.parametrize("as_text", [False, True])
-def test_jev_gets_each_call_a_claims_read_names_whole_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
+def test_jev_gets_the_newest_call_a_claims_read_names_whole_never_an_older_one_its_words_hold_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], as_text: bool
 ) -> None:
     lane = lane_of(transcript)
@@ -929,7 +929,7 @@ def test_jev_gets_each_call_a_claims_read_names_whole_a_read_naming_no_call_says
         {"claim": "the cloud reads the inbox straight from Postgres", "read": "reports/j1880.md"},
     ]
     backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
-    assert (backed["id"], backed["quote"]) == ("read:1", f"{shown(*SHADOW)}\n\n{shown(*SHADOWED)}")
+    assert (backed["id"], backed["quote"]) == ("read:1", shown(*SHADOWED))
     assert backed["source"] == message_limits.NAMED_SOURCE.format(read='"lower.rs:295-305"')
     assert "is a doc" not in backed["source"]
     assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
@@ -962,10 +962,10 @@ def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_n
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(2000)) + "]}"
-    compound = ("Bash", {"command": "cc-slack drive-cards --drive durable-agents | grep release; tools/ci bk api /pipelines/release/builds/15427"}, cards)
     build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427/jobs"}, '{"state": "passed"}')
+    compound = ("Bash", {"command": "cc-slack drive-cards --drive durable-agents | grep release; tools/ci bk api /pipelines/release/builds/15427"}, cards)
     lane = lane_of(transcript)
-    for each in (compound, build):
+    for each in (build, compound):
         tool(lane, *each)
     claims = [
         {"claim": "the release build passed", "read": "tools/ci bk api /pipelines/release/builds/15427"},
@@ -973,7 +973,7 @@ def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_n
     ]
     reads = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
     assert [(read["id"], read["quote"]) for read in reads] == [
-        ("read:1", f"{shown(*compound)}\n\n{shown(*build)}"),
+        ("read:1", shown(*compound)),
         ("read:2", message_limits.GIVEN.format(read="read:1")),
     ]
     assert sum(read["quote"].count(cards) for read in reads) == 1

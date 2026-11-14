@@ -702,8 +702,9 @@ restating it.
   PR's state; any other words after its `|` are the handler's own claim. A `{started:<job>}` or `{at:<seq>}` is no claim either:
   `say` draws its time from the drive's stamp of when that job was added or that record went out, and Jev reads it in the post's
   stamps beside the words drawn for it, so the time needs no read, while what the line says that job or record did is the
-  handler's own claim. The say hook hands Jev every call those
-  words name with its whole result, each call once, and each record the post cites or a claim names, the report it carries
+  handler's own claim. The say hook hands Jev the handler's newest call those
+  words name with its whole result, each call once, so a narrower call made later and named stands in for a wider one,
+  and each record the post cites or a claim names, the report it carries
   among them, as the handler's newest call naming its seq, never the record's whole body; each claim names its read by
   that read's id, so claims sharing a read add only their own words. Jev's prompt takes at most 10,000
   characters, by his words "jev should be getting like 10k chars at most for any call": of his words it gets only those the

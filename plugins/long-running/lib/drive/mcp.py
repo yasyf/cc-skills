@@ -91,8 +91,9 @@ CLAIMS = {
             "read": {
                 "type": "string",
                 "description": (
-                    "The read behind it: record:<seq> for a record, held whole, else words copied from one call of yours, such as the"
-                    " path, command or query it ran, each word in its input, every such call handed to Jev with its whole result"
+                    "The read behind it: record:<seq> for a record, else words copied from one call of yours, such as the"
+                    " path, command or query it ran, each word in its input, your newest call holding them, or naming that seq,"
+                    " handed to Jev with its whole result"
                 ),
             },
         },
