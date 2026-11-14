@@ -1649,12 +1649,14 @@ def test_a_pr_card_serving_drive_tooling_under_a_line_leaving_out_that_orders_wo
     assert say(transcript, text=f"_{tooling}_", tap_prs=[url]) is None
 
 
-def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_counts_alike_on_the_card_and_in_the_post(talker: str, transcript: Path) -> None:
+def test_a_block_drive_job_ask_keeps_posts_as_written_and_only_a_card_no_drive_kept_is_counted_again_in_the_post(talker: str, transcript: Path) -> None:
     card = limits.question(STRAY_CHATS_ASK).card("demo", "demo:j585-7")
     assert posted(transcript, card=card) is None
     longer = [*card["options"][:2], card["options"][2].replace("costs time.", "costs time and money.")]
     assert limits.card_words(card | {"options": longer}) == limits.QUESTION_WORDS + 1
-    assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
+    assert posted(transcript, card=card | {"options": longer}) is None
+    unkept = {key: value for key, value in card.items() if key != "drive"}
+    assert posted(transcript, card=unkept | {"options": longer}).startswith("refused: this card is 151 words")
 
 
 def test_a_block_starts_from_the_root_cause_and_names_the_option_that_removes_it() -> None:
@@ -2136,9 +2138,9 @@ def test_a_real_call_draws_and_a_block_with_nothing_to_show_has_no_show_me() -> 
 )
 def test_markdown_or_a_link_in_a_cards_title_or_an_option_is_refused_since_slack_draws_it_raw(question: str | None, option: str | None, found: str) -> None:
     block = WATCHDOG_ASK.replace(WATCHDOG_QUESTION, question or WATCHDOG_QUESTION).replace(WATCHDOG_OPTIONS[1], option or WATCHDOG_OPTIONS[1])
-    for kept in (False, True):
-        with pytest.raises(DriveError, match=re.escape(f'holds "{found}", which Slack draws as raw text')):
-            limits.question(block, kept=kept)
+    with pytest.raises(DriveError, match=re.escape(f'holds "{found}", which Slack draws as raw text')):
+        limits.question(block)
+    assert limits.question(block, kept=True).options
 
 
 def test_a_markdown_link_in_a_summary_is_refused_with_the_slack_link_to_write() -> None:

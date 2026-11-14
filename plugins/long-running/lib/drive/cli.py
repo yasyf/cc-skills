@@ -2110,25 +2110,35 @@ def meanwhile(data: dict, job_id: str, holds: str, unsettled: str | None) -> str
 
 
 def kept_ask(path: Path, question: dict | None, cards: dict) -> limits.Question:
-    """The question an ASK file draws. One the drive already asked, its question holding a waits id, draws again under the rules it was asked under, a file rebuilt from his card included, never the shape a new block meets; once the words `drive job ask` kept in its file changed since, it draws from his card as the drive stored it under that waits id, the words he read, and once cc-slack's store forgot that card, from the file while its question, summary, recommended option and options are the ones his card's message in Slack shows. Any other file `drive job ask` kept, named for the hash of its words, draws under the rules it was kept under, and one whose words changed since draws nothing, since only `drive job ask` changes a kept question; a file never kept is held to every rule a new block meets."""
+    """The question an ASK file draws. One the drive already asked, its question holding a waits id, draws again under the rules it was asked under, a file rebuilt from his card included, never the shape a new block meets; once the words `drive job ask` kept in its file changed since, it draws from his card as the drive stored it under that waits id, the words he read, and once cc-slack's store forgot that card, from the file while its question, summary, recommended option and options are the ones his card's message in Slack shows. A file rebuilt from his card, named for its waits id, draws only while those four are the ones his card shows, as the drive stored it, else as its message in Slack shows it once cc-slack's store forgot it. Any other file `drive job ask` kept, named for the hash of its words, draws under the rules it was kept under, and one whose words changed since draws nothing, since only `drive job ask` changes a kept question; a file never kept is held to every rule a new block meets."""
     text = path.read_text()
     named = state.KEPT_ASK.fullmatch(path.stem)
     asked = question and question["waits"]
+    stored = asked and next((shown["card"] for shown in cards["questions"] if shown["card"].get("waits") == asked), None)
     if named and named["hash"] != state.ask_hash(text):
-        if shown := asked and next((shown["card"] for shown in cards["questions"] if shown["card"].get("waits") == asked), None):
-            return limits.redrawn(limits.rebuilt(shown, path.parent))
-        if asked and question["card"] and slack.posted_question(question["card"]) == (
-            (edited := limits.redrawn(text)).title,
-            limits.coded("\n".join(edited.summary)),
-            edited.recommended,
-            edited.options,
-        ):
+        if stored:
+            return limits.redrawn(limits.rebuilt(stored, path.parent))
+        if asked and question["card"] and slack.posted_question(question["card"]) == shown_words(edited := limits.redrawn(text)):
             return edited
         raise DriveError(
             f"{path} no longer holds the words drive job ask kept there, so it draws no card: a kept question changes only through"
             f" drive job ask, which checks the new words against every rule, so keep them with drive job ask {named['job']} <file> and draw the file it prints"
         )
+    if asked and path.stem == asked.partition(":")[2]:
+        rebuilt = limits.redrawn(text)
+        if shown_words(rebuilt) == (shown_words(limits.redrawn(limits.rebuilt(stored, path.parent))) if stored else slack.posted_question(question["card"])):
+            return rebuilt
+        raise DriveError(
+            f"{path}, rebuilt from his card, no longer holds the question, summary, recommended option and options his card shows, so it draws no card:"
+            f" a question he was shown changes only through drive job ask, which checks the new words against every rule, so keep them with"
+            f" drive job ask {asked.partition(':')[2].partition('-')[0]} <file> --redraws {asked} and draw the file it prints"
+        )
     return limits.redrawn(text) if named or asked else limits.question(text)
+
+
+def shown_words(asked: limits.Question) -> tuple[str, str, str, list[str]]:
+    """The question, summary, recommended option and options a question's card draws, as `slack.posted_question` reads them off his card's message."""
+    return asked.title, limits.coded("\n".join(asked.summary)), asked.recommended, asked.options
 
 
 def recorded_answers(data: dict, job: dict, text: str) -> list[dict]:

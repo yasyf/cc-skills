@@ -446,7 +446,7 @@ def test_a_kept_block_redraws_with_the_markdown_in_its_options_drawn_as_the_word
         "- the old `drive watch` call stays as it was\n"
     )
     with pytest.raises(DriveError, match="which Slack draws as raw text"):
-        limits.question(text, kept=True)
+        limits.question(text)
     asked = limits.redrawn(text)
     assert asked.options[0] == "Each lead arms its own drive watch --project and hears only its own project's events"
     assert asked.recommended == asked.options[0]
@@ -488,23 +488,28 @@ def partitioned(show_me: str, summary: str = "Drive tooling: your pick decides h
     )
 
 
-def test_a_card_counting_a_set_lists_every_member_of_it_or_is_refused_kept_or_new() -> None:
-    for kept in (False, True):
-        with pytest.raises(DriveError, match=r'"four partition strategies" names 4 strategies, and the card lists no 4 of them'):
-            limits.question(partitioned(TIE_TABLE), kept=kept)
-        assert limits.question(partitioned(STRATEGIES_TABLE), kept=kept).show_me
+def test_a_new_card_counting_a_set_lists_every_member_of_it_and_one_he_was_shown_redraws_as_it_was_asked() -> None:
+    with pytest.raises(DriveError, match=r'"four partition strategies" names 4 strategies, and the card lists no 4 of them'):
+        limits.question(partitioned(TIE_TABLE))
+    assert limits.question(partitioned(STRATEGIES_TABLE)).show_me
+    assert limits.question(partitioned(TIE_TABLE), kept=True).title == "Which of the four partition strategies should split a full table when usage picks none?"
     named = "Drive tooling: the rule checks four strategies: spill values, insertion order, hash by key and equal cut, so the split waits on your pick."
     assert limits.question(partitioned(TIE_TABLE, named)).show_me
     measured = "Drive tooling: it waits 30 days, at most 3 requests, from 1:28 PM, so the split waits on your pick."
     assert limits.question(partitioned(STRATEGIES_TABLE, measured)).show_me
     with pytest.raises(DriveError, match=r'"three Macs" names 3 Macs, and the card lists no 3 of them'):
         limits.question(partitioned(STRATEGIES_TABLE, "Each of the three Macs writes the table, so the split waits on your pick."))
+    with pytest.raises(DriveError, match=r'"five tests" names 5 tests, and the card lists no 5 of them'):
+        limits.question(partitioned(STRATEGIES_TABLE, "Drive tooling: run five tests on one machine, so the split waits on your pick."))
+    for rate in ("run five tests at a time on one machine", "run five tests at once", "run with eight machines per build instead of two", "use eight machines rather than two"):
+        assert limits.question(partitioned(STRATEGIES_TABLE, f"Drive tooling: {rate}, so the split waits on your pick.")).show_me
 
 
 def test_a_posted_card_counting_a_set_it_never_lists_is_refused() -> None:
     card = {"title": "Which of the four partition strategies should split a full table?", "body": f"Usage picks none.\n*Show me*\n{TIE_TABLE}", "options": ["Insertion order", "Hash by key"]}
     assert '"four partition strategies" names 4 strategies' in limits.card_refusal(card, "")
     assert limits.card_refusal(card | {"body": f"Usage picks none.\n*Show me*\n{STRATEGIES_TABLE}"}, "") is None
+    assert limits.card_refusal(card | {"drive": "demo", "waits": "demo:j961-664395"}, "") is None
 
 
 def test_an_options_heading_is_refused_in_a_new_block_and_dropped_from_a_kept_one() -> None:

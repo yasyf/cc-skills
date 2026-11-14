@@ -2624,6 +2624,35 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, redrawn)
 
 
+def test_cards_redraw_refuses_a_rebuilt_ask_whose_words_left_his_card_and_draws_it_while_they_are_his_cards(
+    run: Run, asking: str, state_root: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        kept.append(run("job", "ask", asking, "-")[1].splitlines()[0])
+    printed = run("job", "card", kept[1], "--waits", "demo:j1-8")[1]
+    shown = open_card(0, json.loads(printed))
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [data["jobs"]["j1"]["questions"][0] | {"waits": None, "card": shown["url"]}]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    redrawn = json.dumps(json.loads(printed) | {"replaces": shown["url"]})
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, redrawn)
+    rebuilt = state_root / "demo" / "asks" / "j1-8.md"
+    his = rebuilt.read_text()
+    rebuilt.write_text(his.replace(": no guessing, but one request per file and twice the objects", ": no guessing, one request per file"))
+    refused = f"{rebuilt}, rebuilt from his card, no longer holds the question, summary, recommended option and options his card shows, so it draws no card"
+    assert cli.main(["cards", "redraw", "--waits", "demo:j1-8"]) == 2
+    assert refused in capsys.readouterr().err
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
+    slack_thread.messages = [posted_question("1794300000.000100", limits.redrawn(his))]
+    assert cli.main(["cards", "redraw", "--waits", "demo:j1-8"]) == 2
+    assert refused in capsys.readouterr().err
+    rebuilt.write_text(his)
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, redrawn)
+
+
 def test_cards_redraw_draws_an_open_question_cc_slack_forgot_over_its_card_where_it_sits_and_no_question_that_ended(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

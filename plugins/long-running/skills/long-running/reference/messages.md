@@ -305,12 +305,13 @@ Its Show me:
     no `![N · …](path)` screenshot for each option, by his ruling 0d2b7df, "this should have
     included images; you include images when they are usless and dont add anyhtng, and then dont
     when its things like this, its totlly backwards".
-- List every member of a set the card counts. `drive job ask`, `drive job card` and the post hook
-  refuse a question, summary or option that counts two to twelve things, as "four strategies" or
-  "5 oversized tables" does, unless the card lists that many. It lists them as options, Show me
-  table rows or columns, list lines, numbered captions, pictures or fences, or by name right after
-  the count, as "four strategies: spill values, insertion order, hash by key, and equal cut" does.
-  A measure such as "30 days", "3 requests" or "2 threads" and a bound such as "at most 3" pass.
+- List every member of a set the card counts. `drive job ask` refuses a question, summary or option
+  that counts two to twelve things, as "four strategies" or "5 oversized tables" does, unless the
+  card lists that many, and so does the post hook on a card no drive kept. It lists them as options,
+  Show me table rows or columns, list lines, numbered captions, pictures or fences, or by name right
+  after the count, as "four strategies: spill values, insertion order, hash by key, and equal cut"
+  does. A measure such as "30 days", "3 requests" or "2 threads", a bound such as "at most 3" and a
+  rate or swap such as "four tests at a time" or "eight machines instead of two" pass.
 - Give him a tap for each amount he named. Jev reads the card against his order and his messages in
   its thread, without the lines he quoted from others, and `drive job ask` prints to the agent each
   amount or choice Jev reads them as naming that the card offers no tap for, as "30 day bonding"
@@ -328,10 +329,14 @@ Posting it:
 - A kept ASK file changes only through `drive job ask`, which checks the new words against every
   rule. `drive job card` and `drive cards redraw` refuse a kept file whose words no longer hash to its
   name, naming the `drive job ask <j> <file>` that keeps them. A question already asked under a waits
-  id redraws under the rules it was asked under; once its file's words changed, it redraws from his
-  card as cc-slack stores it, and once cc-slack forgot that card, from the file only while its
-  question, summary, recommended option and options are the ones his card's message in Slack shows.
-  A block no job kept meets every rule a new block meets before it draws.
+  id redraws under the rules it was asked under, held to no rule at all once its words parse, so no
+  rule set since it was asked refuses a card he was shown, and the post hook never counts a drive's
+  question card again; once its file's words changed, it redraws from his card as cc-slack stores
+  it, and once cc-slack forgot that card, from the file only while its question, summary,
+  recommended option and options are the ones his card's message in Slack shows. A file rebuilt from
+  his card draws only while those four are the ones his card shows, as cc-slack stores it, else as
+  its message in Slack shows it. A block no job kept meets every rule a new block meets before it
+  draws.
 - cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
   permalink under its question in the thread of the job's order, or of its open incident, when that
   thread is in his DM. An incident's thread outside his DM, such as an alert's, gets the card's line through a
@@ -695,7 +700,7 @@ restating it.
   checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,
   or the line cut to what the reads show, never a line posted marked unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
-  caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
+  caption. `drive job ask` refuses an `ASK`, and the post hook a post, that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so
   in that clause. In a post, "the change" names its PR too and is linked the same way; a question
   card's "the change" may be the design it asks about, which no PR holds yet.
