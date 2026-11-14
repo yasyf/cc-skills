@@ -2554,7 +2554,7 @@ def fix_shipper(data: dict, job_id: str) -> str | None:
 
 
 def own_thread(order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order came in or was pointed at, in his DM or a channel such as an alert's or a teammate's; None for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
+    """The channel and thread an order came in or was pointed at, in his DM or a channel such as an alert's or a teammate's, or, for one with neither, the thread its first line at his DM root started; None for an order he gave in the thread its reporter wrote in, since that thread hears only its one note."""
     return (order["thread"][0], order["thread"][1]) if order["thread"] and not in_reporter_thread(order) else None
 
 
