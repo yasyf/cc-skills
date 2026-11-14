@@ -19,7 +19,7 @@ import record_lines
 import scratch_folder
 import session_start
 from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, label, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, land, limits, place, render, settled, state, tools, watch
+from drive import agents, brief, cli, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1150,6 +1150,23 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     job = state.load(demo)["jobs"]["j3"]
     assert (job["state"], job["said"], job["release_build"]) == ("stopped", "its release did not start: a freeze holds platform", None)
     assert not (state.drive_dir(demo) / "jobs" / "j3.brief.md").exists()
+
+
+def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_never_the_coordinators_own_tree(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
+    started = released(demo, f"echo '{STARTED}'")
+    behind = tmp_path / "behind"
+    behind.mkdir()
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(behind)
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: started.parent if clone == str(behind) else pytest.fail(clone))
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START)[0] == 0
+    assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
 
 
 def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(

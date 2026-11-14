@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -573,11 +573,11 @@ def test_status_places_a_session_while_claude_code_removes_a_session_file_it_lis
     run("start", "demo", "--role", "coordinator")
     listed = Path.glob
 
-    def removed_once_listed(path: Path, pattern: str, **kwargs: bool) -> list[Path]:
+    def removed_once_listed(path: Path, pattern: str, **kwargs: bool) -> Iterator[Path]:
         found = list(listed(path, pattern, **kwargs))
         if path == sessions:
             removed.unlink(missing_ok=True)
-        return found
+        return iter(found)
 
     monkeypatch.setattr(Path, "glob", removed_once_listed)
     assert run("status")[1].splitlines()[2] == (
@@ -797,7 +797,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
-    monkeypatch.setattr(orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout)
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"] if key == "Forge-AI/monorepo#7" else pytest.fail(key))
     assert cli.main(["job", "set", "j1", "--waits", "release:executor:Forge-AI/monorepo#7"]) == 2
     reach = "`tools/ci release select --pr` lists the paths Forge-AI/monorepo#7 changes reaching cloudrunner-next, sand-next"
@@ -1076,17 +1076,19 @@ def test_an_incident_jobs_brief_carries_the_rule_its_kind_follows_on_a_choice_on
     assert Path(state.load("demo")["jobs"]["j1"]["brief"]).read_text().count(state.INCIDENT_CHOICE["codex"]) == 1
 
 
-def test_incident_freeze_freezes_the_service_for_twelve_hours_and_notes_the_freeze(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+def test_incident_freeze_freezes_the_service_for_twelve_hours_from_the_drives_checkout_and_notes_the_freeze(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(cli.reads, "run", recorded(calls))
+    checkout = tmp_path / "drive-demo"
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout if cwd == str(tmp_path) else pytest.fail(cwd))
     run("incident", "open", "SandSQL release 60 failed on plat", "--release", *FILED)
     code, said = run("incident", "freeze", "o1", "sandsql")
     freeze = calls[-1]
-    assert (code, Path(freeze[0]).parts[-2:], freeze[1:6]) == (
+    assert (code, freeze[0], freeze[1:6]) == (
         0,
-        ("tools", "ci"),
+        str(checkout / "tools" / "ci"),
         ["release", "freeze", "sandsql", "--reason", "o1, SandSQL release 60 failed on plat: held until its root fix releases"],
     )
     assert timedelta(hours=11, minutes=59) < state.parse_time(freeze[7]) - state.now() <= timedelta(hours=12)
@@ -7366,6 +7368,25 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
         "4. wait until ps -p 4242 lists nothing",
         f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: cci session run resumes {held['session']} in tmux session demo-coordinator; create the terminal that shows it",
     ]
+
+
+def test_drive_start_and_drive_move_bind_a_role_to_the_drives_checkout_at_its_default_branchs_head_wherever_its_session_ran(
+    run: Run, demo: str, tmp_path: Path, ccx_worktrees: Path, registered: list[tuple[str, str, str]], slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head = cloned(tmp_path, demo)
+    clone, kept = tmp_path / "clone", ccx_worktrees / "drive-demo"
+    session = state.load(demo)["roles"]["coordinator"]["session"]
+    monkeypatch.chdir(clone)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-1")
+    code, out = run("start", demo, "--role", "communicator")
+    assert (code, state.load(demo)["roles"]["communicator"]["cwd"], registered[-1]) == (0, str(kept), ("demo-communicator", str(kept), "communicator-1"))
+    assert f"this session runs in {clone} until it next exits, when cci resumes it in the drive's checkout {kept}\n" in out
+    assert git_in(kept, "rev-parse", "HEAD") == head
+    monkeypatch.setattr(orca, "claude_pids", lambda session: [])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
+    his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
+    assert run("move", "coordinator", "--his-word", his)[0] == 0
+    assert (state.load(demo)["roles"]["coordinator"]["cwd"], registered[-1]) == (str(kept), ("demo-coordinator", str(kept), session))
 
 
 def test_drive_move_reads_a_role_recorded_before_roles_kept_a_terminal_as_in_none(

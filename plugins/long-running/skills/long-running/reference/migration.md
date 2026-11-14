@@ -85,9 +85,9 @@ step 5's command shows it, with no restart and no word from him.
 
 1. Run `drive move <role> --his-word <the permalink of his message naming the move>`. It refuses
    without his own message or while an incident order is open, records his word on the role,
-   registers its session with cci by its line in [Start or resume](start.md), and prints steps 2
-   to 4 with the role's lane, terminal, session and process id filled in; it stops and starts
-   nothing. Under tmux,
+   registers its session with cci by its line in [Start or resume](start.md), its `--cwd` the drive's
+   checkout, and prints steps 2 to 4 with the role's lane, terminal, session and process id filled
+   in; it stops and starts nothing. Under tmux,
    `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_start_command}'`
    lists each pane with the `claude` line that started it.
 2. Ask the old session to let go, and wait for its reply: `cci post --lane <your lane> --kind ask
@@ -103,7 +103,7 @@ step 5's command shows it, with no restart and no word from him.
    `~/.claude/sessions/<pid>.json` names the session: a resume while the old process runs makes a
    copy under a new id answering for the same role, so a hook refuses it.
 5. cci session run then resumes that session in the tmux session `<drive>-<role>`, which the old
-   one's channel starts as it closes. Show it in a new terminal by the command `drive manual migration`
+   one's channel starts as it closes, in the drive's checkout wherever it ran before. Show it in a new terminal by the command `drive manual migration`
    prints, which starts that tmux session itself when it is down:
 
    ```sh

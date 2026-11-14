@@ -533,7 +533,7 @@ def test_a_first_launch_while_another_fetch_holds_the_clones_remote_tracking_ref
     cloned(tmp_path, demo)
     head = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.38\n"})
     (tmp_path / "clone" / ".git" / "refs" / "remotes" / "origin" / "main.lock").write_text(f"{head}\n")
-    kept = orca.checkout(demo, state.load(demo))
+    kept = orca.checkout(demo, state.load(demo)["roles"]["coordinator"]["cwd"])
     assert (kept, git_in(kept, "rev-parse", "HEAD"), (ccx_worktrees / "made").read_text()) == (ccx_worktrees / "drive-demo", head, "drive-demo\n")
 
 
@@ -2071,7 +2071,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     lane = {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG}
-    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(
             lane,
@@ -2856,7 +2856,7 @@ def test_a_relaunch_orca_refuses_says_the_text_held_with_the_refusal_verbatim(
         data["jobs"]["j1"].update(brief=str(first), route=state.LOCAL_ROUTE, terminal="term_lane", workspace=None, environment=None)
     refusal = "orca orchestration worker-start: terminal_busy: The terminal is running another worker."
     orca_refuses(monkeypatch, refusal)
-    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     assert cli.main(["job", "resume", "j1", "the review"]) == 0
     assert capsys.readouterr().out.startswith(f"j1: held, not sent yet: {refusal}; ")
@@ -3312,7 +3312,7 @@ def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earl
 ) -> None:
     released = []
     monkeypatch.setattr(state, "scratch", lambda: False)
-    monkeypatch.setattr(orca, "checkout", lambda name, data: Path(remote))
+    monkeypatch.setattr(orca, "checkout", lambda name, clone: Path(remote))
     monkeypatch.setattr(orca, "holds_sprite", lambda job: job["workspace"] != "sprite-gone")
     monkeypatch.setattr(orca, "release_detached", lambda drive, job_id, job, checkout, log: released.append(job["workspace"]) or subprocess.Popen(["true"]))
     with state.edit(remote) as data:
@@ -3781,7 +3781,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     (workspaces / "pool-two.json").write_text("{}")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(state, "scratch", lambda: False)
-    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
     ends: list[str] = []
     monkeypatch.setattr(watch, "end_lane", lambda name, job_id: ends.append(job_id))
     started: list[tuple[str, ...]] = []
@@ -3818,7 +3818,7 @@ def test_the_watch_ends_every_lane_on_a_sprite_two_minutes_after_its_line_ahead_
         (workspaces / f"{workspace}.json").write_text("{}")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(state, "scratch", lambda: False)
-    monkeypatch.setattr(orca, "checkout", lambda name, data: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
     started: list[str] = []
     finished = subprocess.CompletedProcess([], 0)
     finished.poll = lambda: 0

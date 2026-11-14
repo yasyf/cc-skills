@@ -360,7 +360,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not (pulls := sorted({key for keys in fixes.values() for key in keys})):
         return []
     try:
-        checkout = orca.checkout(watcher.name, data)
+        checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
         read = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "pull", *(key.split("#")[1] for key in pulls), "--json"], checkout))
     except (state.DriveError, reads.ReadError) as error:
         return read_failed(watcher, "fix landing", error, moment)
@@ -1318,7 +1318,9 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def session_transcript(holder: dict) -> Path:
-    return config_dir() / "projects" / NOT_SLUG.sub("-", holder["cwd"]) / f"{holder['session']}.jsonl"
+    """The session's transcript, which Claude Code keeps in the project folder of the directory the session first ran in wherever cci resumes it since, as a role's moving into the drive's checkout; the path its own folder would hold while it has written none."""
+    named = f"{holder['session']}.jsonl"
+    return next((config_dir() / "projects").glob(f"*/{named}"), config_dir() / "projects" / NOT_SLUG.sub("-", holder["cwd"]) / named)
 
 
 def transcript(holder: dict, agent: str) -> Path:
@@ -2037,7 +2039,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
                 return
             with state.watch_log_path(watcher.name, watcher.project).open("a") as log:
                 try:
-                    checkout = orca.checkout(watcher.name, data)
+                    checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
                 except state.DriveError as error:
                     log.write(f"{held} is kept until a later pass: {error}\n")
                     return
