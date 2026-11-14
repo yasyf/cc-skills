@@ -8,7 +8,7 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import WRITTEN_AT, Checked, Thread, explained
+from conftest import DESCRIPTION, WRITTEN_AT, Checked, Thread, explained
 from drive import agents, limits, picture, refs, slack, state, talk, view
 from drive.state import DriveError
 
@@ -2075,6 +2075,7 @@ def test_a_real_call_draws_and_a_block_with_nothing_to_show_has_no_show_me() -> 
         ("Staging's smoke fails a page check since [release 14345](https://buildkite.com/forge/release/builds/14345); fix it?", None, "[release 14345](https://buildkite.com/forge/release/builds/14345)"),
         ("Does <https://github.com/yasyf/cc-skills/pull/4189|the raw data refusal> cover logs?", None, "<https://github.com/yasyf/cc-skills/pull/4189|the raw data refusal>"),
         ("Should the *listener* land PRs?", None, "*listener*"),
+        ("Should the drive build <file:///Users/me/scratch/proposal-1.md|the combined design proposal>?", None, "<file:///Users/me/scratch/proposal-1.md|the combined design proposal>"),
         (None, "Run `drive listen` at login: one new process", "`drive listen`"),
     ],
 )
@@ -2094,6 +2095,40 @@ def test_a_markdown_link_in_a_summary_is_refused_with_the_slack_link_to_write() 
         in str(refused.value)
     )
     assert "names something he could open" not in str(refused.value)
+
+
+LOCAL_LINKS = {
+    "[evidence packet](/Users/me/scratch/evidence.md)": "/Users/me/scratch/evidence.md",
+    "<file:///Users/me/scratch/proposal-1.md|the combined design proposal>": "file:///Users/me/scratch/proposal-1.md",
+}
+OPENED_LINKS = ["<https://github.com/yasyf/cc-skills/pull/5100|the evidence packet>", "<#C0ABCD123|the releases channel>", "<mailto:oncall@example.com|the on-call inbox>"]
+
+
+def in_summary(link: str) -> str:
+    return WATCHDOG_ASK.replace(f"<{HIS_PICK}|Your Nov 9 pick>", f"{link}, beside your Nov 9 pick,")
+
+
+def in_description(link: str) -> str:
+    return WATCHDOG_ASK.replace(DESCRIPTION.strip(), f"It keeps {link} beside the run.", 1)
+
+
+@pytest.mark.parametrize(("link", "target"), LOCAL_LINKS.items())
+def test_a_link_to_a_path_on_this_mac_is_refused_in_a_summary_and_a_new_option_description_since_slack_opens_no_path(link: str, target: str) -> None:
+    refused = f'"{link}" links {target}, which is no web page: a path on this Mac does not open from Slack'
+    for block, kept, found in ((in_summary(link), False, True), (in_summary(link), True, True), (in_description(link), False, True), (in_description(link), True, False)):
+        assert any(problem.startswith(refused) for problem in limits.question_problems(block, kept)[1]) is found
+
+
+@pytest.mark.parametrize("link", OPENED_LINKS)
+def test_a_link_slack_opens_in_a_summary_or_an_option_description_is_kept(link: str) -> None:
+    limits.question(in_summary(link))
+    limits.question(in_description(link))
+
+
+@pytest.mark.parametrize(("link", "refused"), [*((link, True) for link in LOCAL_LINKS), (OPENED_LINKS[0], False)])
+def test_a_say_card_whose_option_description_links_a_path_on_this_mac_is_refused(link: str, refused: bool) -> None:
+    card = {"title": WATCHDOG_QUESTION, "body": "Drive tooling: your pick decides what the watcher does.", "options": WATCHDOG_OPTIONS, "hints": {WATCHDOG_OPTIONS[0]: f"It keeps {link} beside the run."}}
+    assert ("a path on this Mac does not open from Slack" in (limits.link_refusal({"card": card}, limits.DRIVE_KINDS) or "")) is refused
 
 
 def test_a_show_me_table_row_is_no_caption_and_runs_past_25_words() -> None:

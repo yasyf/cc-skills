@@ -257,7 +257,8 @@ NAMED, POST_NAMED = (
     for kinds in (KINDS, POST_KINDS)
 )
 KIND, POST_KIND = (re.compile(rf"\b(?:{kinds})(?![-\w])", re.IGNORECASE) for kinds in (KINDS, POST_KINDS))
-MARKDOWN_LINK = re.compile(r"\[([^\]\n]*)\]\((https?://[^)\s]+)\)")
+MARKDOWN_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]\n]*)\]\((?P<target>[^)\s]+)\)")
+OPENS = re.compile(r"https?://|mailto:|[@#!]")
 FENCED = re.compile(r"^[ \t]*```.*?^[ \t]*```[^\n]*$", re.MULTILINE | re.DOTALL)
 MASK = "\x00"
 NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
@@ -286,14 +287,14 @@ UNBUILT = re.compile(
     re.IGNORECASE,
 )
 GENERIC = re.compile(r"\b(?:every|each|any|such|all)\s+$", re.IGNORECASE)
-LINK = re.compile(r"<[^<>|]+\|([^<>]*)>")
+LINK = re.compile(r"<(?P<target>[^<>|]+)\|(?P<label>[^<>]*)>")
 NUMBER_LABEL = re.compile(r"\s*(?:(?:PR|pull request)\s*)?#?\d+\s*", re.IGNORECASE)
 MARKUP = re.compile(
-    r"\[[^\]\n]*\]\([^)\s]*\)|<(?:https?://|mailto:|[@#!])[^<>\n]*>|https?://\S+|`[^`\n]+`"
+    r"\[[^\]\n]*\]\([^)\s]*\)|<(?:[^<>|\n]+\||https?://|mailto:|[@#!])[^<>\n]*>|https?://\S+|`[^`\n]+`"
     r"|(?<![\w*_~])[*_~](?=\S)[^*_~\n]*?(?<=\S)[*_~](?![\w*_~])"
 )
 MARKED = re.compile(
-    r"\[([^\]\n]*)\]\([^)\s]*\)|<(?:https?://|mailto:|[@#!])[^<>|\n]*\|([^<>\n]*)>|`([^`\n]+)`"
+    r"\[([^\]\n]*)\]\([^)\s]*\)|<[^<>|\n]+\|([^<>\n]*)>|`([^`\n]+)`"
     r"|(?<![\w*_~])[*_~](?=\S)([^*_~\n]*?)(?<=\S)[*_~](?![\w*_~])"
 )
 PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
@@ -703,7 +704,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         f'"{found}" points at an option by number or position; cards renumber, so each option says its own words'
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
     ]
-    problems += unlinked([*summary, *captions(show_me)], [title, *options], DRIVE_KINDS)
+    problems += unlinked([*summary, *captions(show_me), *([] if kept else [line for _, line in prose])], [title, *options], DRIVE_KINDS)
     problems += counted_problems(title, summary, options, show_me)
     problems += [
         f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
@@ -1353,15 +1354,26 @@ def held(data: dict, order: str | None) -> tuple[str, ...]:
 
 
 def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...], mentions: tuple[re.Pattern[str], re.Pattern[str]] = (NAMED, KIND)) -> list[str]:
-    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it does not exist yet, such as "its PR goes up first" or "no PR yet"; one that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included. `mentions` reads what names such a thing: a card's words name a PR or a card, a post's words "the change" too."""
+    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it does not exist yet, such as "its PR goes up first" or "no PR yet"; one that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included. `mentions` reads what names such a thing: a card's words name a PR or a card, a post's words "the change" too. A link in the `linked` lines whose target opens nowhere from Slack, such as a path on this Mac or a file:// address, is refused, since Slack opens only a web page, a mail address and its own user, channel and group links."""
     named_at, kind_of = mentions
-    labels = [label for line in linked for label in LINK.findall(line)]
+    links = [found for line in linked for found in LINK.finditer(line)]
+    labels = [found["label"] for found in links]
     linked_kinds = {kind(found) for label in labels for found in kind_of.findall(label)}
     markdown = [found for line in linked for found in MARKDOWN_LINK.finditer(FENCED.sub(" ", line))]
-    problems = [f'"{found[0]}" is a markdown link, and Slack draws no [label](url) link: write <{found[2]}|{found[1]}>' for found in markdown]
+    problems = [
+        f'"{found[0]}" is a markdown link, and Slack draws no [label](url) link: write <{found["target"]}|{found["label"]}>'
+        for found in markdown
+        if OPENS.match(found["target"])
+    ]
+    problems += [
+        f'"{found[0]}" links {found["target"]}, which is no web page: a path on this Mac does not open from Slack, so link a page he'
+        f" can open or draw what it holds in the Show me ({LINKS_RULING})"
+        for found in [*markdown, *links]
+        if not OPENS.match(found["target"])
+    ]
     problems += [
         f'the link <…|{label}> says only a number; its text says what it is, such as what the change does'
-        for label in [*labels, *(found[1] for found in markdown)]
+        for label in [*labels, *(found["label"] for found in markdown)]
         if NUMBER_LABEL.fullmatch(label)
     ]
     for lines, is_plain in ((linked, False), (plain, True)):
@@ -1540,10 +1552,14 @@ def kind_words(data: dict, pr: dict) -> str:
 
 
 def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
-    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary and Show me captions, carry each link where the thing is named, and its title and options, drawn as plain text, name only what the body links."""
+    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary, Show me captions and option descriptions, carry each link where the thing is named, to a target Slack opens, and its title and options, drawn as plain text, name only what the body links."""
     if card := post.get("card"):
         summary, *example = SHOWN.split(card.get("body") or "", maxsplit=1)
-        problems = unlinked([summary, *captions(example[0].splitlines() if example else []), post.get("text") or ""], [card.get("title") or "", *(card.get("options") or [])], kinds)
+        problems = unlinked(
+            [summary, *captions(example[0].splitlines() if example else []), *(card.get("hints") or {}).values(), post.get("text") or ""],
+            [card.get("title") or "", *(card.get("options") or [])],
+            kinds,
+        )
     else:
         problems = unlinked([post.get("text") or ""], [], kinds, (POST_NAMED, POST_KIND))
     if not problems:
