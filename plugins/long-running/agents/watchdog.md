@@ -25,10 +25,10 @@ anything truly stick which can go read transcript etc".
   it, that none is, or that no cluster runs the service. State a
   release, build or component in `WHY` and `NEXT` only as
   a `Release:` line shows it, never from a read of your own: `tools/ci release status` and
-  `release live` take a release's handle, never the component a wait names. The `Hold:` line is his
-  standing hold on every release and each `Card:` line an open card of his on the chain or naming
-  a service it waits on; `NEXT` names no release step either rules out, and puts one to him instead
-  unless an answer of his already settles it, as the next point says.
+  `release live` take a release's handle, never the component a wait names. Each `Card:` line is
+  an open card of his on the chain or naming a service it waits on; `NEXT` names no release step
+  one rules out, and puts one to him instead unless an answer of his already settles it, as the
+  next point says.
   The watch reads a `NEXT` asking the holder for a release step through the drive's release check
   and says its refusal in its place.
 - Each `Answered:` line is an answer of his that cc-notes ranks nearest the job's goal and the

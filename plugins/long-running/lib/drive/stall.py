@@ -13,30 +13,31 @@ FOLLOWED = (stage.BUILDER, stage.WAITED)
 ANSWER = re.compile(r"^(WHY|WHO|NEXT|UNREAD):.*$", re.MULTILINE)
 
 
-def chains(data: dict, cards: dict, moment: datetime, heard: Callable[[str], bool]) -> dict[str, list[tuple[str, str]]]:
-    """The chain of waits behind each open PR and each waiting job with waits of the orders heard, from it to each end, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick": never a PR his Hold or the hold label stops or whose stage asks him, which his card shows, nor a job or PR with a set time to come, nor a chain reaching a running job, whose agent moves it or whose gap the watch says as its own line."""
+def chains(data: dict, cards: dict, on_hold: bool, moment: datetime, heard: Callable[[str], bool]) -> dict[str, list[tuple[str, str]]]:
+    """The chain of waits behind each open PR and each waiting job with waits of the orders heard, from it to each end, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick": never a job or PR with a set time to come, nor a chain chain() ends at a running job, whose agent moves it or whose gap the watch says as its own line, or at a step of his, which his card or answer already asks of him, on_hold true while his hold on every release stands."""
     found = {}
     for key, pr in data["prs"].items():
-        kept = pr["stage"]
-        if pr["state"] != "open" or not kept or kept["name"] in stage.ASKS_HIM or stage.stopped(pr) or not heard(pr["order"]) or state.timed(data, data["jobs"][pr["job"]], moment):
+        if pr["state"] != "open" or not pr["stage"] or not heard(pr["order"]) or state.timed(data, data["jobs"][pr["job"]], moment):
             continue
-        if (links := chain(data, cards, key, set())) is not None:
+        if (links := chain(data, cards, on_hold, key, set())) is not None:
             found[key] = links
     for job_id, job in data["jobs"].items():
         if job["state"] != "waiting" or not job["waits"] or not heard(job["order"]) or state.timed(data, job, moment):
             continue
-        if (links := chain(data, cards, job_id, set())) is not None:
+        if (links := chain(data, cards, on_hold, job_id, set())) is not None:
             found[job_id] = links
     return found
 
 
-def chain(data: dict, cards: dict, subject: str, seen: set[str]) -> list[tuple[str, str]] | None:
-    """Each link from a job, PR or wait to the ends it waits on, by id and in words that change only when it moves: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it; None once it reaches a running job."""
+def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) -> list[tuple[str, str]] | None:
+    """Each link from a job, PR or wait to the ends it waits on, by id and in words that change only when it moves: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it; None once it reaches a running job or a step of his: a PR whose stage he owes or that his Hold or the hold label stops, his open question card, or a release while on_hold, his hold on every release, stands."""
     if subject in seen:
         return []
     seen.add(subject)
     if pr := data["prs"].get(subject):
         kept = pr["stage"]
+        if kept and kept["owner"] == stage.HIM or stage.stopped(pr):
+            return None
         owner = stage.owner_job(data, subject) if kept and kept["owner"] in FOLLOWED else None
         here = f"{subject} {kept['name']}, owed by {kept['owner']}: {kept['why']}" if kept else f"{subject} {pr['state']}"
         nexts = [*view.holding(data, pr["waits"], cards), *([owner] if owner else [])]
@@ -45,12 +46,14 @@ def chain(data: dict, cards: dict, subject: str, seen: set[str]) -> list[tuple[s
             return None
         nexts = view.holding(data, job["waits"], cards) if job["state"] in ("waiting", "built") else []
         here = f"{subject} {job['state']}" + (f" on {', '.join(nexts)}" if nexts else "")
+    elif state.card_wait(data, subject) or on_hold and state.RELEASE_WAIT.fullmatch(subject):
+        return None
     else:
         entry = view.wait_entry(data, subject, cards)
         here, nexts = " ".join(filter(None, (entry["title"], entry["url"]))), []
     links = [(subject, here)]
     for wait in nexts:
-        if (more := chain(data, cards, wait, seen)) is None:
+        if (more := chain(data, cards, on_hold, wait, seen)) is None:
             return None
         links += more
     return links
