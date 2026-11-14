@@ -100,8 +100,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    option while his card stays open, by his pick "The repair lands on the recommendation, the
    question stays open, another pick is a follow-up: no incident waits; costs a second PR."
    A card that asks him to lift a ruling of his is the exception: `drive job ask` reads each card
-   against the recorded answers of his `ccn answer match` ranks nearest to it and prints each
-   option Jev reads his words as ruling out; keep such a card with `--unsettled` naming them, a
+   against the recorded answers of his `ccn answer match` ranks nearest to it and those it cites,
+   prints each option Jev reads his words as ruling out, and keeps the card unsettled on the one Jev
+   reads its recommended option as breaking, as `--unsettled` naming them does, a
    mark that holds its PR on an incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
    until you answer; the drive finds each card against your recorded answers".
 4. Write the change:
@@ -586,7 +587,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape,
-  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card, and when the card asks him to lift those words, ask it again with `--unsettled "<id>: <why those words do not reach it>"`. Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
+  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads the recommended option as breaking a recorded answer or ruling of his, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too. Jev reads this ruling once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part

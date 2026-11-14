@@ -126,7 +126,7 @@ def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, d
 
 
 def binding(data: dict, link: str, asked: dict[str, dict], cwd: str) -> dict[str, list[str]]:
-    """Each open order bound by a pick of his that a question his message answers asked him to lift, as `drive job ask --unsettled "<id>: <why>"` keeps it, with the picks binding it: an order whose card, part, PR or waiting job the pick's own drive answer listed, one whose job's question the pick ended, and one whose card, part, PR or own key the pick's cc-notes answer names, as `named` reads his words. A pick ccn cannot read binds only by the drive's records."""
+    """Each open order bound by a pick of his that a question his message answers asked him to lift, as `drive job ask` keeps its unsettled mark `<id>: <why>`, with the picks binding it: an order whose card, part, PR or waiting job the pick's own drive answer listed, one whose job's question the pick ended, and one whose card, part, PR or own key the pick's cc-notes answer names, as `named` reads his words. A pick ccn cannot read binds only by the drive's records."""
     picks = sorted({pick for job in data["jobs"].values() for question in job["questions"] if question["unsettled"] and ended_at(link, question) for pick in PICK.findall(question["unsettled"])})
     bound: dict[str, list[str]] = {}
     for pick in picks:

@@ -94,6 +94,8 @@ WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
 TOKEN = re.compile(r"<[^<>]*>")
 URL = re.compile(r"https?://\S+")
+ANSWER_ID = re.compile(r"(?=[0-9a-f]*\d)[0-9a-f]{7,40}")
+CITED_ANSWER = re.compile(rf"\b{ANSWER_ID.pattern}\b")
 BACKTICKED = re.compile(r"`[^`\n]+`")
 CALLED = re.compile(r"\b(\w+)\(\)")
 CODE_NAME = re.compile(r"(?<![\w.-])(?:[\w.-]+/)*[A-Za-z0-9-]+(?<!-)(?:(?:\.(?=[A-Za-z_])|::|_+)[A-Za-z0-9-]+(?<!-))+")
@@ -947,9 +949,10 @@ def names_option(words: str, options: list[str]) -> bool:
     return any(words.casefold() in (option.strip().casefold(), option_head(option).casefold()) for option in options)
 
 
-def ask_case(text: str, asked: Question) -> str:
-    """A kept card as Jev reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it and the one they name the simplest, which every card offers, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
+def ask_case(text: str, asked: Question, cited: frozenset[str] = frozenset()) -> str:
+    """A kept card as Jev reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it and the one they name the simplest, which every card offers, each other line of its findings naming by id one of the recorded answers of his it cites, such as one saying its recommended option replaces words of that answer, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
     findings = FINDINGS.split(text, maxsplit=1)[1]
+    named = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST) if (found := pattern.search(findings))]
     with ThreadPoolExecutor() as pool:
         pages = list(pool.map(page_line, linked_pages(asked)))
     return "\n".join(
@@ -958,7 +961,8 @@ def ask_case(text: str, asked: Question) -> str:
             *asked.summary,
             *(["Show me:", *asked.show_me] if asked.show_me else []),
             *offered(asked),
-            *(found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST) if (found := pattern.search(findings))),
+            *named,
+            *(line.strip() for line in findings.splitlines() if line.strip() not in named and any(token[:7] in cited for token in CITED_ANSWER.findall(URL.sub(" ", line)))),
             *pages,
         ]
     )

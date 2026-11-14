@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import brief, github, install, limits, refs, settled, slack, state, view
-from drive.limits import REF
+from drive.limits import ANSWER_ID, REF
 from drive.render import cut
 from drive.state import DriveError
 
@@ -20,7 +20,6 @@ LEFT_OUT_CHARS = 8_000
 FILE_DIFF = re.compile(r"^diff --git a/(\S+) ", re.MULTILINE)
 TESTS = re.compile(r"(?:^|/)(?:tests?|e2e|__tests__|fixtures|testdata)/|[._-](?:test|spec)\.\w+$|_test\.\w+$")
 CITATION_BREAK = re.compile(r"[\s,;()\"']+")
-ANSWER_ID = re.compile(r"(?=[0-9a-f]*\d)[0-9a-f]{7,40}")
 CITED_REFS = {"card": "card", "answer": "answer", "record": "record", "at": "record"}
 READ_FIRST = ("card", "answer", "link", "record")
 NAMES = "his card's waits id, its permalink, the answer record as {record:<seq>} or the cc-notes answer id"

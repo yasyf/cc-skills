@@ -202,7 +202,7 @@ changed and when, its findings the suspects, and its root cause the verdict.
   its `JOB <j> <o> …; its ASK is kept` line says where his card stands.
 - A builder keeps its `ASK` with `drive job ask` the moment the fork shows, which leaves it
   running, builds the recommended option in the same run and opens its PR, which lands on that
-  option while his card stays open; nothing resumes it for that. A card kept with `--unsettled`,
+  option while his card stays open; nothing resumes it for that. A card kept unsettled,
   which asks him to lift a ruling of his, holds its PR instead: the builder pushes with
   `ccx vcs ship --no-pr` and returns `BUILT`.
 - A question he already answered, asked in the same words, on or under its card or recorded under
@@ -225,8 +225,10 @@ changed and when, its findings the suspects, and its root cause the verdict.
 - A card that asks him to lift a ruling of his holds its PR on an incident too, by his pick "Hold
   the PR until you answer; the drive finds each card against your recorded answers". `drive job ask`
   reads each card against his recorded answers `ccn answer match` ranks nearest to its whole block
-  and prints each option Jev reads his words as ruling out, refusing none, by his pick 320b7a7; the
-  builder keeps such a card with `--unsettled` naming those words. That mark makes
+  and those the card cites, and prints each option Jev reads his words as ruling out, refusing none,
+  by his pick 320b7a7. When Jev picks a recorded answer or ruling of his for the recommended option,
+  the cited answer the card says it goes against first, the verb itself keeps the card unsettled on
+  it, as `--unsettled` naming those words does. That mark makes
   `land.open_cards` keep the card on an incident, so the `bash_guard` hook refuses the
   `ccx vcs ship` that would open its PR, and the lander, `landing_guard` and his PR card hold an
   open one, until he answers.

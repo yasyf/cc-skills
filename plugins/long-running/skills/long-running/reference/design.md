@@ -91,8 +91,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
    reader's included whatever words the line names it in, and none whose `Holds:` line reads none.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
-     would open its PR while one of its cards is open, and on an incident while a card kept with
-     `--unsettled`, asking him to lift a ruling of his, is open. An immediate fix's job is never held: its PR goes up at once.
+     would open its PR while one of its cards is open, and on an incident while a card kept
+     unsettled, asking him to lift a ruling of his, is open. An immediate fix's job is never held: its PR goes up at once.
    - The minute a card holds a built job, the watch replies once in that card's own thread, in
      plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
      that card first in his queue.
