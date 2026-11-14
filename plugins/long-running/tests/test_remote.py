@@ -3739,7 +3739,7 @@ def test_a_held_text_no_send_took_is_said_as_the_watchs_to_carry(remote: str) ->
     )
 
 
-def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once_saying_nothing_and_leaving_the_job_unchanged(
+def test_the_watch_keeps_the_sprite_of_a_waiting_jobs_lane_that_died_asking_saying_nothing_and_leaving_the_job_unchanged(
     remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
 ) -> None:
     deliver(monkeypatch)
@@ -3754,7 +3754,7 @@ def test_the_watch_ends_a_waiting_jobs_dead_lane_on_a_sprite_once_saying_nothing
     monkeypatch.setattr(orca, "holds_sprite", lambda job: job.get("workspace") == "sprite-old")
     watch.release_lanes(watching, T0 + timedelta(minutes=2))
     watch.release_lanes(watching, T0 + timedelta(minutes=3))
-    assert (shown, ended_lanes) == ([DISPATCH], ["j1"])
+    assert (shown, ended_lanes) == ([DISPATCH], [])
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["updated"], [(death["dispatch"], death.get("ended")) for death in job["deaths"]]) == ("waiting", updated, [(DISPATCH, None)])
 
@@ -4370,15 +4370,15 @@ def test_an_end_whose_save_is_refused_leaves_the_watchs_record_of_the_lanes_deat
 
 
 @pytest.mark.parametrize(
-    ("code", "message", "why"),
+    ("code", "message"),
     [
-        ("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4", "Orca no longer holds its Sprite's environment"),
-        ("peer_changed", PEER_CHANGED, "Orca no longer pairs with its Sprite's server"),
+        ("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"),
+        ("peer_changed", PEER_CHANGED),
     ],
 )
 @pytest.mark.parametrize("words", ["Build #4412 failed: fix the lint", None])
 def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_any_message_in_its_handoff(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str, message: str, why: str, words: str | None
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str, message: str, words: str | None
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
@@ -4407,7 +4407,7 @@ def test_resume_or_launch_after_end_relaunches_the_job_on_a_fresh_sprite_with_an
         0,
         f"j1: {went}, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-rxo7catmn6cw4efb was"
-        f" dead ({why}), and {nothing}",
+        f" ended by drive job end, and {nothing}",
     )
     assert (launched["lane"], launched["run"]) == ("demo-j1-2", FRESH_RUN)
     brief = orca.brief_of(launched["brief"])
