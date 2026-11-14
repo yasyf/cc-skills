@@ -2220,6 +2220,22 @@ def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_s
     assert f"Done when: {watch.PASS_DONE}\n" in brief_text
 
 
+def test_a_standing_parts_next_pass_holds_the_texts_and_owes_the_answers_its_last_pass_held_so_its_launch_carries_them_and_none_waits_on_a_pass_that_ended(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launches(monkeypatch)
+    held = {"seq": None, "words": "run round 5 against staging-2", "sender": "coordinator", "at": state.stamp(T0), "said": None, "request": "r-1"}
+    with state.edit(demo) as data:
+        standing_order(data, ["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state="stopped", said="HANDOFF round 4 ran", undelivered=[held])
+        data["answers"]["a1"] = {"words": "keep box i-0ee4 for round 5", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {"j1": None, "j2": None}}
+    assert [line.split(":")[0] for line in staged(watch.standing_lines, watcher(demo), T0 + timedelta(hours=1))] == ['STANDING j3 o2 "codex test box"']
+    data = state.load(demo)
+    assert (data["jobs"]["j3"]["undelivered"], data["jobs"]["j2"]["undelivered"], data["answers"]["a1"]["jobs"]) == ([held], [], {"j1": None, "j3": None})
+    carried = cli.answers_since(data, "j3", Path(data["jobs"]["j3"]["brief"]).read_text())
+    assert (f"From the coordinator since:\n- {held['words']}" in carried, f'- "keep box i-0ee4 for round 5" ({CARD}9)' in carried) == (True, True)
+
+
 def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_another_job_and_the_job_it_names_finished_as_686978_and_686979_missed(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5079,6 +5095,30 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
     assert watch.sent(watcher(demo), "root", waking + batched, T0) == []
     assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", line) for line in batched]
     assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)
+
+
+@pytest.mark.parametrize(
+    ("standing", "job_state", "said", "clause", "kind"),
+    [
+        (True, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: box i-0ee4 under o2-codex-box, round 4 ran, staging untested", "", "evidence"),
+        (True, "done", "DONE round 4 ran on box i-0ee4; round 5 starts at staging", "", "evidence"),
+        (True, "failed", "BLOCKED codex-ask failed: its log is empty", "", "handoff"),
+        (True, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: round 4 ran", f"; {watch.UNKEPT_ASK.format(job='j2')}", "handoff"),
+        (False, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: round 4 ran", "", "handoff"),
+    ],
+)
+def test_a_standing_pass_ending_its_round_wakes_no_coordinator_since_the_watch_alone_starts_the_next_while_its_block_or_a_clause_the_drive_adds_still_wakes_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, standing: bool, job_state: str, said: str, clause: str, kind: str
+) -> None:
+    sent = posts(monkeypatch)
+    with state.edit(demo) as data:
+        standing_order(data, ["j2"])
+        if not standing:
+            data["orders"]["o2"]["parts"]["codex test box"]["standing"] = None
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state=job_state, said=said)
+    line = f"JOB j2 o2 {said}{clause}"
+    assert watch.sent(watcher(demo), "root", [line], T0) == []
+    assert posted(sent) == [(kind, f"root@{demo}", line)]
 
 
 @pytest.mark.parametrize(("job_state", "merged_kind"), [("running", "handoff"), ("waiting", "handoff"), ("done", "evidence")])

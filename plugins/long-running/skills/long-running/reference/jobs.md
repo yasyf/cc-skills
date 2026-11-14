@@ -140,7 +140,7 @@ marks the job running again, when its type is one the job's kind runs as: `long-
 `long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
 a codex job; a call or stop after its return with no such prompt leaves
 the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, a `drive job resume` of a job not stopped, which refuses a stopped one, and `drive job set <j> --agent` naming a worker other
-than the one recorded. Only the agent a stop left on its job keeps the stop, so that agent's later return is refused. An agent of any other type is never recorded this way, even
+than the one recorded. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. Only the agent a stop left on its job keeps the stop, so that agent's later return is refused. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's

@@ -2716,9 +2716,9 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses."""
     name = state.resolve(args.drive)
-    if held_job(state.load(name), args.id)["kind"] == "codex":
+    if unrun(state.load(name), args.id)["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
         return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
     return relaunch(args, name, None)
@@ -2757,9 +2757,9 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 
 
 def job_resume(args: argparse.Namespace) -> int:
-    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or a codex job's by codex_resume. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again."""
+    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or a codex job's by codex_resume. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again. A finished pass of a standing part is refused by unrun, holding nothing."""
     name = state.resolve(args.drive)
-    if held_job(state.load(name), args.id)["kind"] == "codex":
+    if unrun(state.load(name), args.id)["kind"] == "codex":
         return codex_resume(args, name)
     unqueued(name, args.id)
     if args.text is not None:
@@ -2809,6 +2809,17 @@ def yield_to_launch(name: str, job_id: str) -> None:
     """Stand a resume holding the job's lock down, before it wakes, messages or starts anything, while a drive job launch --local waits for that lock to move the job to this Mac; the texts the job holds stay on it for that launch's handoff."""
     if pid := state.launch_waiting(name, job_id):
         raise DriveError(f"{job_id}: stood down, nothing sent or started: drive job launch {job_id} --local, pid {pid}, waits for its lock to move it to this Mac, and its handoff carries the texts the job holds")
+
+
+def unrun(data: dict, job_id: str) -> dict:
+    """The job a launch or resume starts or messages the worker of, by held_job, refused before anything is written, held, sent or started when it is a finished pass of a standing part, since the watch alone starts each pass of one, by standing_lines, and a second start beside the pass the watch started drives the part's lane twice; the refusal names the part's live pass, else when the watch starts its next."""
+    job = held_job(data, job_id)
+    if job["state"] in state.FINISHED_JOB_STATES and (standing := state.standing_part(data, job)):
+        raise DriveError(
+            f"{job_id}: refused, nothing written, held, sent or started: it ended {job['state']} as a pass of {standing[0]}'s standing part"
+            f" {render.standing_line(data, *standing)}; the watch alone starts each pass of a standing part, carrying the texts and answers the last pass holds"
+        )
+    return job
 
 
 def unstopped(job_id: str, job: dict) -> None:
@@ -5401,7 +5412,8 @@ def parser() -> argparse.ArgumentParser:
             " error or a refusal, starts on a handoff brief carrying the job's brief, that agent's branch, last line, report and PRs,"
             " and the job is recorded as this session's lane. A codex job starts no worker: its codex-ask run starts here with"
             " --dispatch on its brief and --schema holding its final message to a state, line and report, which the watch takes as its"
-            " return once the run ends."
+            " return once the run ends. A finished pass of a standing part is refused, writing and starting nothing, naming the"
+            " part's live pass or when the watch starts its next, since the watch alone starts each pass of one."
         ),
     )
     verb.add_argument("id", help="the job")
@@ -5428,7 +5440,9 @@ def parser() -> argparse.ArgumentParser:
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive, by the one relaunch drive"
             " job launch shares, under the job's own lock, so a resume arriving while another starts the job's next worker waits"
             " for it, about 150 s, and sends that worker the text; one that finds the job stopped once it holds that lock exits 2,"
-            " sending, holding and starting nothing, and drive job launch runs a stopped job again. One that finds another verb holding that lock while Orca cannot reach the lane's Sprite exits 2 at once, sending and holding nothing, rather than wait up to 1800 s behind a wake of that Sprite, and names drive job launch --local; one holding the lock while a drive job launch --local waits for it stands down, exiting 2 before it wakes, sends or starts anything, the texts the job holds left for that launch's handoff. An agent on this Mac whose last response ended on an API error or"
+            " sending, holding and starting nothing, and drive job launch runs a stopped job again. A finished pass of a standing"
+            " part is refused the same way, naming the part's live pass or when the watch starts its next, which carries the texts"
+            " and answers that pass holds, since the watch alone starts each pass of one. One that finds another verb holding that lock while Orca cannot reach the lane's Sprite exits 2 at once, sending and holding nothing, rather than wait up to 1800 s behind a wake of that Sprite, and names drive job launch --local; one holding the lock while a drive job launch --local waits for it stands down, exiting 2 before it wakes, sends or starts anything, the texts the job holds left for that launch's handoff. An agent on this Mac whose last response ended on an API error or"
             " a refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff carrying the job's brief and this text. When its "
             "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
             "in that terminal, or, when Orca no longer finds that terminal or worktree, as a dead worker's; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "

@@ -2723,7 +2723,7 @@ def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], mome
 
 
 def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return and PASS_DONE as its Done when, launched by drive job launch as its own process, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job running with no codex-ask run, which its part's ORPHAN line says."""
+    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return and PASS_DONE as its Done when, holding the texts and owing the answers that pass held, by added_pass, launched by drive job launch as its own process, the one start of a pass, since launch and resume refuse a pass that ended, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job running with no codex-ask run, which its part's ORPHAN line says."""
     data = state.load(watcher.name)
     if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()):
         return []
@@ -2733,6 +2733,7 @@ def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def added_pass(data: dict, key: tuple[str, str], last: str | None, moment: datetime) -> str:
+    """Add a standing part's next pass, on the last pass's brief flags but its handoff, holding each text the last pass held and owing each answer of his it was owed, which move off it, so its launch carries them and nothing waits on a pass that ended."""
     order_id, part = key
     flags = (data["jobs"][last].get("brief_flags") or {}) if last else {}
     job_id = state.next_id(data["jobs"], "j")
@@ -2740,6 +2741,10 @@ def added_pass(data: dict, key: tuple[str, str], last: str | None, moment: datet
         "brief_flags": {flag: value for flag, value in flags.items() if flag != "handoff"}
     }
     data["orders"][order_id]["jobs"].append(job_id)
+    if last:
+        data["jobs"][job_id]["undelivered"], data["jobs"][last]["undelivered"] = data["jobs"][last]["undelivered"], []
+        for _, kept in superseded.owed(data, last):
+            kept["jobs"][job_id] = kept["jobs"].pop(last)
     return job_id
 
 
@@ -3189,8 +3194,10 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict, cards: dict | None) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner."""
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it; a clause the drive adds to that line, such as an ASK it did not keep, still asks its step."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
+        return False
+    if (job := JOB_LINE.match(line)) and passed(data, job["job"], line):
         return False
     if (staged := STAGE_LINE.match(line)) and staged["key"] in data["prs"]:
         return stage.of(data, staged["key"], cards).name == staged["name"]
@@ -3207,6 +3214,12 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     return data["jobs"][found["job"]]["state"] != "running"
 
 
+def passed(data: dict, job_id: str, line: str) -> bool:
+    """Whether a JOB line is a standing part's pass ending its round, DONE or HANDOFF, with no clause beside the line it said."""
+    job = data["jobs"][job_id]
+    return job["state"] in ("done", "stopped") and bool(state.standing_part(data, job)) and line == LINE_BREAKS.sub(" ", f"JOB {job_id} {job['order']} {job['said']}")
+
+
 def fixing(line: str, data: dict, cards: dict | None) -> bool:
     """Whether a line is a builder's READY whose every open PR the lander lands on that READY with no step of the holder's, by state.ships_untapped, while stage.of owes its builder the fix, red, reworked to his words or behind a PR its builder fixes, which stage_lines sends that builder through drive pr wake: the communicator or the meta session holding its order would start a second builder on the same fix, so neither gets it, and the lander lands the head the builder pushes on the READY already taken."""
     if not (job := JOB_LINE.match(line)) or not line.startswith("READY", job.end()):
@@ -3216,7 +3229,7 @@ def fixing(line: str, data: dict, cards: dict | None) -> bool:
 
 
 def wakes(line: str, data: dict, cards: dict | None) -> bool:
-    """Whether the coordinator acts on the line now: his tap but an Approve the drive's lander acts on, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR's line that asks for a step, such as its exempt landing or a failure of its landing."""
+    """Whether the coordinator acts on the line now: his tap but an Approve the drive's lander acts on, a promised time, an orphan, his answer, a lane's report or death but a standing part's pass ending its round, his return, a stopped watch, or a PR's line that asks for a step, such as its exempt landing or a failure of its landing."""
     return (line.startswith(WAKES) or line.startswith("PR ")) and needs_step(line, data, cards)
 
 
