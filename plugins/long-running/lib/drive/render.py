@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shlex
 import sys
@@ -526,9 +527,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
     lines = [
         *opening(drive, role, project),
         f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
-        f"{title(role).capitalize()} rules:",
-        *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
-        FILED,
+        *rules(role),
     ]
     lines += [
         (
@@ -542,6 +541,16 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
         FIRST_CALL[role],
     ]
     return "\n".join(lines)
+
+
+def rules(role: str) -> list[str]:
+    """The role's rules as its block draws them, numbered under their heading, with the filing line that closes them."""
+    return [f"{title(role).capitalize()} rules:", *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)), FILED]
+
+
+def rules_digest(role: str) -> str:
+    """What a seat keeps of the rules its session holds, so a check before each call can tell when an install changed them."""
+    return hashlib.sha256("\n".join(rules(role)).encode()).hexdigest()
 
 
 def compact_instructions(drive: dict, role: str) -> str:

@@ -239,7 +239,11 @@ change".
      already reloaded after this update is not sent it again, so installs run at once reload a session
      once. One showing a menu or refused by Orca names the `orca terminal send` command that types it:
      run that once the session is idle. `drive reload` does the same for every drive session with no
-     install, whatever installs reloaded before. No post asks him to type `/reload-plugins`.
+     install, whatever installs reloaded before. No post asks him to type `/reload-plugins`. A reload
+     draws no role block, so a session's role rules reach it at its next tool call instead: the
+     `role_rules` check before each call of a drive session compares the digest its seat keeps, written
+     whenever its block is drawn, with the installed rules, and hands it the rules whole once when they
+     differ.
    - A tool this Mac runs: follow its repository's release flow, install the release that contains the
      merge, and read the installed version back. Fix the source and release it; a hand patch to an
      installed copy is lost at the next release.

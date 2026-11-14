@@ -18,6 +18,7 @@ def role_context(session: str) -> str | None:
     role = state.session_role(data, session)
     project = state.session_project(data, session)
     context = render.context(data, role, project)
+    agents.hold_rules(bound[0], session)
     if role != "coordinator":
         return context
     watch.ensure(bound[0], project)

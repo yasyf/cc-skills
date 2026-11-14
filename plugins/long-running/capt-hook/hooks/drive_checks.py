@@ -82,6 +82,7 @@ PRE_TOOL_CHECKS: dict[str, tuple[str, ...] | None] = {
     "message_limits.py": POSTS,
     "bash_guard.py": SEARCHES,
     "landing_guard.py": SHELL,
+    "role_rules.py": None,
 }
 REMOTE_LANE = "LONG_RUNNING_REMOTE_LANE"
 QUOTING = re.compile(r"[\"'\\]")
@@ -894,6 +895,12 @@ def record_lines(evt: BaseHookEvent) -> HookResult | None:
 @on(Event.PreToolUse, tests={Input(tool="WebFetch", tool_input={"url": "https://example.com"}, session_id=NO_DRIVE): Allow()})
 def communicator_calls(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "communicator_calls.py")
+
+
+@on(Event.PreToolUse, advisory_on_deny=True, tests={Input(tool="WebFetch", tool_input={"url": "https://example.com"}, session_id=NO_DRIVE): Allow()})
+def role_rules(evt: BaseHookEvent) -> HookResult | None:
+    """The rules an install changed since the session's block drew them, beside its next call, kept beside a deny another check gives that call, since the check keeps them as held once it hands them."""
+    return checked(evt, "role_rules.py")
 
 
 @on(Event.Stop, tests={Input(session_id=NO_DRIVE): Allow()})

@@ -2200,6 +2200,11 @@ def bound_sessions(data: dict) -> dict[str, dict]:
     return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
 
 
+def seat(data: dict, session: str) -> dict | None:
+    """The binding of the role or sub-coordinator seat the session holds, or None for any other session, a handler's included."""
+    return next((held for held in bound_sessions(data).values() if held["session"] == session), None)
+
+
 def projects(data: dict) -> list[str]:
     return sorted({order["project"] for order in data["orders"].values() if order["project"]})
 

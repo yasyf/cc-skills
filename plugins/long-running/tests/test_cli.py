@@ -146,6 +146,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "terminal": None,
             "cwd": str(tmp_path),
             "started": data["roles"]["communicator"]["started"],
+            "rules": render.rules_digest("communicator"),
         }
     }
     assert data["slack"] == {"page": None, "watch": []}
