@@ -117,10 +117,8 @@ def hears(watcher: Watcher, data: dict, order_id: str) -> bool:
 
 
 def heard_job(watcher: Watcher, data: dict, job: dict) -> bool:
-    """Whether the watch hears a job, so one watch alone makes every line about it: the watch of the coordinator session whose agent runs it on this Mac, by state.agent_lane, whatever coordinator session holds its order now, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; else the top's watch one starting a production cut, whatever order it serves, by his words "the top hears unfiled orders and releases"; else one whose own order it hears, never one only carrying it, so a Sprite or Orca lane whose order moves to another coordinator session moves with it, running on."""
-    if (lane := state.agent_lane(data, job)) in state.coordinator_lanes(data):
-        return lane == watcher.lane
-    return watcher.project is None if state.starts_cut(job) else hears(watcher, data, job["order"])
+    """Whether the watch hears a job, so one watch alone makes every line about it, by state.heard_job_lane."""
+    return state.heard_job_lane(data, job) == watcher.lane
 
 
 def heard_orders(watcher: Watcher, data: dict) -> dict[str, dict]:
@@ -768,7 +766,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, naming when to start each builder a design's DESIGN added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, only ends that question, since its line went with that command's answer, and any such message from a lane `drive job end` ended changes nothing, so its question stays open for the next worker's handoff; any other escalation is a STOPPED quoting on one line the whole of Orca's last output, or its first line when it names none; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; what it took goes as its job's returned event, by state.returned, naming when to start each builder a design's DESIGN added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it, and a PUSHED makes none, since pushed_lines settles it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, only ends that question, since that command wrote its returned event, and any such message from a lane `drive job end` ended changes nothing, so its question stays open for the next worker's handoff; any other escalation is a STOPPED quoting on one line the whole of Orca's last output, or its first line when it names none, and a refused result its line with the refusal, each returned for the coordinator; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -799,15 +797,15 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         state.cite_designs(data, job_id, job["said"], body)
         added = state.add_changes(name, data, job_id, body)
         if untracked := [url for url in dict.fromkeys(found[0] for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)) if state.pr_key(url) not in data["prs"]]:
-            return f"JOB {job_id} {job['order']} {job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each"
+            state.returned(name, data, job_id, f"{job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each")
+            return None
         if state.PUSHED_LINE.match(job["said"]):
             return None
     if kept:
-        return f"JOB {job_id} {job['order']} ASK {kept}"
-    line = "; ".join([f"JOB {job_id} {job['order']} {job['said']}", *render.builder_lines(data, added)])
-    if job.get("ask") != message["id"]:
-        return line
-    return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
+        state.returned(name, data, job_id, f"ASK {kept}")
+        return None
+    state.returned(name, data, job_id, "; ".join([job["said"], *render.builder_lines(data, added), *([UNKEPT_ASK.format(job=job_id)] if job.get("ask") == message["id"] and reads.asks(body) else [])]))
+    return None
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -872,12 +870,6 @@ def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: lis
     return asks
 
 
-def kept_return(name: str, job_id: str, body: str) -> bool:
-    """Whether this report is the newest `drive job report` took for the job."""
-    returns = [reply["body"] for reply in state.replies(name, job_id) if reply["id"].startswith(state.REPORT_REPLY)]
-    return bool(returns) and returns[-1].strip() == body.strip()
-
-
 def queue_kept_reads(watcher: Watcher) -> None:
     """Queue each live lane's open question that asks a read, so a question kept as the coordinator's, such as one kept before the watch read it as a read, is answered here and its lane runs again."""
     data = state.load(watcher.name)
@@ -931,7 +923,7 @@ def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> 
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` that took its return wakes the coordinator with its `JOB` line as its answer goes, naming the texts its job holds for its next worker, as a job's own return does on this Mac, a `PUSHED` aside, which waits on its checks; its job may have left the live states by then, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does."""
+    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for a live lane's question with neither an answer nor a reader still running, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does."""
     running, data = ended_reads(watcher.name, data)
     for job_id, job in live_lanes(watcher, data).items():
         for message_id in job.get("reads", {}):
@@ -942,7 +934,7 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
     lines = []
     running, data = ended_reads(watcher.name, data)
     for job_id, job in data["jobs"].items():
-        for message_id, question in job.get("reads", {}).items() if heard_job(watcher, data, job) else ():
+        for message_id in job.get("reads", {}) if heard_job(watcher, data, job) else ():
             if (job_id, message_id) in running or not (kept := job.get("read_answers", {}).get(message_id)):
                 continue
             said, why = kept
@@ -955,9 +947,6 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                     continue
             else:
                 lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
-            if said.startswith(f"{reads.DRIVE_EXIT} 0\n") and job["said"] and not state.PUSHED_LINE.match(job["said"]) and kept_return(watcher.name, job_id, json.loads(question.partition("\n")[2] or "{}").get("stdin") or ""):
-                line = f"JOB {job_id} {job['order']} {job['said']}"
-                lines.append(f"{line}; {render.unread([held['words'] for held in job['undelivered']])}" if job["undelivered"] else line)
             watcher.failures.pop(source, None)
             with state.edit(watcher.name) as fresh:
                 for held in ("reads", "read_answers", "readers"):
@@ -1051,6 +1040,8 @@ def event_line(event: dict, prs: dict) -> str:
         return f"TAP {event['label']} {key}{suffix}"
     if event["kind"] == "landing" and event["change"].startswith(land.OWN_FAILURE):
         return f"{LANDER}{event['change']}"
+    if event["kind"] == state.RETURNED:
+        return f"JOB {event['job']} {event['order']} {event['line']}"
     if event["kind"] == "proof" and "job" in event:
         return f"JOB {event['job']} {event['order']}: {event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
@@ -1759,29 +1750,26 @@ def codex_gap(job_id: str, job: dict) -> str | None:
 
 
 def codex_asks(name: str, job_id: str) -> list[str]:
-    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; the JOB line saying where his card stands, the settled line when he already answered that same question, or why it was not kept."""
+    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; what its JOB line says of it: where his card stands, the settled line when he already answered that same question, or why it was not kept."""
     from drive import cli
 
-    job = state.load(name)["jobs"][job_id]
     if not (newest := state.returns(name, job_id)) or not (named := ASK_FIELD.search(newest[0]["body"])):
         return []
-    head = f"JOB {job_id} {job['order']} {job['said']}"
     try:
         _, _, question, said = cli.keep_ask(name, job_id, Path(named[1]).expanduser().read_text(), None)
     except (OSError, state.DriveError, slack.SlackError) as error:
-        return [f"{head}; its ASK: {named[1]} is not kept: {error}; keep it with drive job ask {job_id} {named[1]}"]
+        return [f"its ASK: {named[1]} is not kept: {error}; keep it with drive job ask {job_id} {named[1]}"]
     if question["closed"]:
-        return [f"{head}; {said}"]
+        return [said]
     kept, _, drawn = said.partition("\n")
-    return [f"{head}; its ASK is kept in {kept}, {drawn}, and the recommended option it built ships meanwhile"]
+    return [f"its ASK is kept in {kept}, {drawn}, and the recommended option it built ships meanwhile"]
 
 
-def fix_shipped(name: str, job_id: str, builder_id: str) -> str:
-    """The JOB line naming the builder state.fix_shipper added to ship a codex fix job's work, briefed here so the coordinator starts its agent in the turn this line wakes, or why its brief was not written."""
+def fix_shipped(name: str, builder_id: str) -> str:
+    """What a codex fix job's JOB line says of the builder state.fix_shipper added to ship its work, briefed here so the coordinator starts its agent in the turn this line wakes, or why its brief was not written."""
     from drive import cli
 
-    job = state.load(name)["jobs"][job_id]
-    head = f'JOB {job_id} {job["order"]} {job["said"]}; its fix is not live, so {builder_id}, an Opus 5.5 long-running:builder the drive added on "{state.INCIDENT_FIX}" to ship it'
+    head = f'its fix is not live, so {builder_id}, an Opus 5.5 long-running:builder the drive added on "{state.INCIDENT_FIX}" to ship it'
     try:
         started = cli.write_brief(name, builder_id, {})[0].splitlines()[0]
     except cli.VERB_ERRORS as error:
@@ -1936,7 +1924,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its JOB line telling the coordinator the return, failed or not, and an incident fix job's taken run names the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
@@ -2017,9 +2005,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if builder_id := gap.take(watcher.name, data, job_id):
                     shippers[job_id] = builder_id
     for job_id in taken:
-        job = data["jobs"][job_id]
-        lines += codex_asks(watcher.name, job_id) or ([] if job_id in shippers else [f"JOB {job_id} {job['order']} {job['said']}"])
-    lines += [fix_shipped(watcher.name, job_id, builder_id) for job_id, builder_id in shippers.items()]
+        state.returned(watcher.name, data, job_id, "; ".join([data["jobs"][job_id]["said"], *codex_asks(watcher.name, job_id), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])]))
     watcher.made += lines
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
@@ -2903,8 +2889,9 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, the waits his answers, a job's end or that read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, the waits his answers, a job's end or that read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield read_lines(watcher, state.load(watcher.name), moment)
+    yield event_lines(watcher)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
         try:
