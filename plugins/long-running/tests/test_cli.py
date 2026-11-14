@@ -1482,6 +1482,40 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        '#!/bin/sh\necho "${PATH%%:*}"\ncommand -v python3\n',
+        '#!/usr/bin/env bash\necho "${PATH%%:*}"\ncommand -v python3\n',
+        '#!/usr/bin/env python3 -I\nimport os, shutil\nprint(os.environ["PATH"].split(os.pathsep)[0])\nprint(shutil.which("python3"))\n',
+    ],
+)
+def test_job_set_repro_pins_the_drives_own_interpreter_into_the_kept_file_whatever_path_runs_it(run: Run, demo: str, tmp_path: Path, text: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    script = tmp_path / "proof"
+    script.write_text(text)
+    script.chmod(0o755)
+    assert run("job", "set", "j1", "--repro", str(script))[0] == 0
+    kept = Path(state.load("demo")["jobs"]["j1"]["repro"])
+    pinned = kept.read_text()
+    assert run("job", "set", "j1", "--repro", str(kept))[0] == 0
+    assert kept.read_text() == pinned
+    folder = Path(sys.executable).parent
+    ran = subprocess.run([kept], env={"PATH": "/usr/bin:/bin"}, capture_output=True, text=True, check=True)
+    assert ran.stdout.splitlines() == [str(folder), str(folder / "python3")]
+
+
+def test_job_set_repro_keeps_a_file_naming_its_interpreter_by_its_absolute_path_as_it_is(run: Run, demo: str, tmp_path: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    script = tmp_path / "proof.py"
+    script.write_text(f"#!{sys.executable} -I\nprint('ran')\n")
+    script.chmod(0o755)
+    assert run("job", "set", "j1", "--repro", str(script))[0] == 0
+    assert Path(state.load("demo")["jobs"]["j1"]["repro"]).read_text() == script.read_text()
+
+
+@pytest.mark.parametrize(
     ("text", "why"),
     [
         ("\n#!/bin/sh\n# Read-only proof of the fix\n", "{script} opens '\\n#!/bin/sh\\n# Read-only p', with no #! at its first byte, so the kernel cannot exec it as a script"),

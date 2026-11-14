@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -288,6 +289,14 @@ def judged_pictures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test keeps the verdicts on which fences illustrate something under its own state root, never the real one or another test's."""
     monkeypatch.delenv("LONG_RUNNING_STATE", raising=False)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+
+
+@pytest.fixture(autouse=True)
+def drive_interpreter(tmp_path: Path) -> None:
+    """Every test's state root records the interpreter running the tests as the drive's own, as hooks/installed.py records the drive's, so each proof file a test keeps has that interpreter's folder pinned first on its PATH."""
+    record = tmp_path / "long-running" / "interpreter"
+    record.parent.mkdir(exist_ok=True)
+    record.write_text(f"{sys.executable}\n")
 
 
 @pytest.fixture(autouse=True)
