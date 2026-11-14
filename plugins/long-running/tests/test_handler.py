@@ -179,7 +179,7 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
         assert run("order", "set", "o3", "--project", "The drive", "--workstream", "Copies")[0] == 0
         line = talk.say("demo", {"text": text, "thread_ts": THREAD, "close": True})
     result = f"POSTED {answer}"
-    assert line == f'{result}; o3 "did the copy fix ship?": posted {answer}; o3 closed on report 700001; j2 keeps {result} as its return, the line you end on'
+    assert line == f'{result}; o3 "Copy fix shipped": posted {answer}; o3 closed on report 700001; j2 keeps {result} as its return, the line you end on'
     assert ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "report", "--attr", "close=o3", "--json", "--text", text] in started
     data = state.load("demo")
     assert (data["orders"]["o3"]["state"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["said"]) == ("done", "done", result)

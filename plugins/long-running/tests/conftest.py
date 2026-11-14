@@ -86,6 +86,7 @@ Researched:
 rulings: none on the copy path
 exists: supervisor/copies.rs store_copy_at copies one store
 open: none
+build: one store_copy_at call per stalled store
 """
 
 LOCK_STALL = (

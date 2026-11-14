@@ -266,10 +266,10 @@ def test_a_part_whose_name_a_cut_or_its_writer_left_spaces_around_is_saved_trimm
     run: Callable[..., tuple[int, str]], demo: str, turn: Path
 ) -> None:
     words = "both PRs he approved this morning and the stack he tapped an hour later sat for two hours with no attempt to land them"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", words)
+    run("order", "add", "--title", " Short title ", "--project", "The drive", "--workstream", "Drive tooling", words)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the search worker", "--kind", "answer", "--parts", "fix ", " first check")
     run("order", "set", "o2", "--parts", "fix", " first check", "cause ")
-    whole = "both PRs he approved this morning and the stack he tapped an hour later sat for"
+    whole = "Short title"
     assert [list(order["parts"]) for order in state.load(demo)["orders"].values()] == [[whole], ["fix", "first check", "cause"]]
     assert record_lines.decision(coordinator(turn, kind="report", text="POST the stack landed", to=TO, attrs={"part": f"o1:{whole}", "close": "o1"})) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="POST the fix is live", to=TO, attrs={"part": "o2:fix"})) is None

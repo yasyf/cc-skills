@@ -595,7 +595,7 @@ def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: l
 
 
 def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry_run: bool) -> None:
-    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, holding the reporter attr reporter names, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Words sharing someone else's report, attr reporter, that serve an open order go to the order reporters_order names in place of a part. The record names the order as attr order, and a part it added as attr part."""
+    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, holding the reporter attr reporter names, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none, the order's own words naming its title's part; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Words sharing someone else's report, attr reporter, that serve an open order go to the order reporters_order names in place of a part. The record names the order as attr order, and a part it added as attr part."""
     named = item.get("order")
     if isinstance(named, dict):
         fields = {"kind": "build", "owner": "meta"} | sourced(item) | ({"reporter": attrs["reporter"]} if attrs.get("reporter") else {}) | named
@@ -620,7 +620,7 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
     if attrs.get("reporter"):
         attrs["order"] = reporters_order(name, said, index, item, attrs, data, order_id, dry_run)
         return
-    part = state.whole_order(item["text"])
+    part = order["title"] if state.whole_order(item["text"]) == state.whole_order(order["text"]) else state.whole_order(item["text"])
     attrs |= {"order": order_id, "part": f"{order_id}:{part}"}
     if part not in order["parts"]:
         ran(name, said, index, ("order", "set"), {"id": order_id, "parts": [*order["parts"], part]}, dry_run)

@@ -303,7 +303,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             )
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
-        parts = {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]}
+        parts = {part: state.new_part() for part in args.parts or [title]}
         order = data["orders"][order_id] = state.new_order(args.words, slack_key(args.source, message), thread, parts, created) | {
             "due": due_stamp(args.due) if args.due else None,
             "promised": created if args.due else None,
@@ -2127,7 +2127,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN adds a builder for each change it lists that no builder or codex job is on, by state.add_changes, and prints when to start each. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2166,10 +2166,9 @@ def job_report(args: argparse.Namespace) -> int:
             state.take_result(data, args.id, line, whole)
             state.cite_designs(data, args.id, line, whole)
             added = state.add_changes(name, data, args.id, whole)
-        briefed = [
-            f"{builder_id}: {write_brief(name, builder_id, {})[0]}"
-            for builder_id in (brief.unstarted_builders(data, args.id) if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else [])
-        ]
+            rebriefed = brief.unstarted_builders(data, args.id) if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else []
+            brief.name_goals(name, data, rebriefed, whole)
+        briefed = [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed]
         kept = str(state.replies_path(name, args.id))
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
         shown = f"{where}\n{said}" if said else where
