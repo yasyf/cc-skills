@@ -5170,7 +5170,7 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
     assert state.load("demo")["prs"][key]["job"] == "j3"
 
 
-def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_and_red_once_a_check_fails_and_no_report_or_pr_add_starts_one(
+def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_waiting_while_a_pr_it_waits_on_is_open_and_red_once_a_check_fails_and_no_report_or_pr_add_starts_one(
     run: Run, meta: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
@@ -5183,9 +5183,16 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     kept_proof(tmp_path, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
     assert (run("job", "report", "j1", "-")[0], run("pr", "add", url, "--job", "j1", *LEAD), landers) == (0, (0, key), [])
-    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage(
-        "ready", stage.LANDER, "its builder reported it and no check fails at abc1234, so the lander merges it with --admin while any still run"
-    )
+    ready = stage.Stage("ready", stage.LANDER, "its builder reported it and no check fails at abc1234, so the lander merges it with --admin while any still run")
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready
+    waited = "Forge-AI/monorepo#42"
+    run("job", "add", "builder", "--order", "o1", "--goal", "guard")
+    assert run("pr", "add", PR, "--job", "j2", *LEAD)[0] == 0
+    assert run("pr", "set", url, "--waits", waited)[0] == 0
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("waiting", stage.WAITED, f"it waits on {waited}, and the watch frees it once each ends")
+    with state.edit("demo") as data:
+        data["prs"][waited]["state"] = "merged"
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready
     with state.edit("demo") as data:
         data["prs"][key].update(checks="fail", failed_checks=["test"])
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("red", stage.BUILDER, "its checks fail at abc1234: test")

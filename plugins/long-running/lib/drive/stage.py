@@ -83,7 +83,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if holds := held(data, pr, cards):
         return Stage("held", HIM, holds)
     if state.ships_untapped(data, key):
-        return Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
+        return waiting(data, pr, cards) or Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
     if (flaky := land.flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "open":
@@ -92,16 +92,21 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
             WAITED,
             f"Trunk ejected it from the merge queue at {pr['head'][:7]} on its flaky test {flaky['test']}; the lander requeues that commit once {flaky['fix']}, that test's fix, merges",
         )
-    if state.cleared(pr) and (waiting := [wait for wait in view.holding(data, pr["waits"], cards) if not state.card_wait(data, wait)]):
-        return Stage("waiting", WAITED, f"it waits on {', '.join(waiting)}, and the watch frees it once each ends")
     if state.cleared(pr):
         after = f"; the check against his words objects, for after the merge: {named}" if (named := state.against(pr)) else ""
         unread = f"; its lander's last try ended {lander['outcome']}" if (lander := pr["lander"]) and lander["head"] == pr["head"] and (lander["outcome"] or "").startswith(land.UNREAD) else ""
-        return Stage("ready", LANDER, (f'green, its exempt class "{pr["exempt"]}" lands it' if state.exempted(pr) else f"green and approved by him at {pr['tap']['head'][:7]}{after}") + unread)
+        return waiting(data, pr, cards) or Stage("ready", LANDER, (f'green, its exempt class "{pr["exempt"]}" lands it' if state.exempted(pr) else f"green and approved by him at {pr['tap']['head'][:7]}{after}") + unread)
     if carded(pr):
         objection = f"; at {pr['head'][:7]} the check against his words objects: {named}" if (named := state.against(pr)) else ""
         return Stage("card", HIM, f"green, waits on his Approve{objection}")
     return Stage("author", BUILDER, "green; its author or its own builder lands it with no tap")
+
+
+def waiting(data: dict, pr: dict, cards: dict) -> Stage | None:
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it; None once nothing it waits on holds, its card waits read by held()."""
+    if standing := [wait for wait in view.holding(data, pr["waits"], cards) if not state.card_wait(data, wait)]:
+        return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
+    return None
 
 
 def carded(pr: dict) -> bool:
