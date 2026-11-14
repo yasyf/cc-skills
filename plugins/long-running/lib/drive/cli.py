@@ -2304,9 +2304,7 @@ def job_report(args: argparse.Namespace) -> int:
         line = whole.strip().splitlines()[0].strip()
         if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job["order"], line, whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
-        if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(
-            cited.removeprefix("DESIGN:").partition(":")[0].strip() != "none" and not served.named(cited) for cited in whole.splitlines() if cited.startswith("DESIGN:")
-        ):
+        if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {served.NAMELESS}")
         try:
             registered = register_named(name, args.id, line)
@@ -3525,8 +3523,8 @@ def pr_set(args: argparse.Namespace) -> int:
     if cards := [wait for wait in args.waits if state.card_wait(known, wait) and not state.PR_KEY.fullmatch(wait) and not state.ORDER_PART.fullmatch(wait)]:
         raise DriveError(
             f"--waits {', '.join(cards)}: refused, nothing set: a card of his holds a PR from landing only by its question's Holds: line,"
-            f" which drive job ask keeps, by his pick \"Each question names the changes it holds, kept with it\"; a card whose Holds: line"
-            f" names {key}'s change or its link already holds it, and drive job set --waits <card> wakes a job on his answer"
+            f" which drive job ask keeps, by his pick \"Each question names the changes it holds, kept with it\", or by the PR's DESIGN: line citing it;"
+            f" a card whose Holds: line names {key}'s change or its link, or that its DESIGN: line cites, already holds it, and drive job set --waits <card> wakes a job on his answer"
         )
     found = check_waits(name, args.waits)
     if args.port_of or args.tap or args.exempt == INCIDENT_EXEMPTION:
@@ -4671,7 +4669,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="CARD|JOB|PR|RELEASE|PART",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
-            " only by its question's Holds: line and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
+            " only by its question's Holds: line or the PR's DESIGN: line citing it, and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
             " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE, never the DONE the watch takes at a merge,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
