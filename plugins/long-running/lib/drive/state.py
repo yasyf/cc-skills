@@ -82,7 +82,9 @@ PUSHED_LINE = re.compile(r"PUSHED\b")
 POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
 REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
-CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$", re.MULTILINE)
+LISTED_CHANGE = r"[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$"
+CHANGE_LINE = re.compile(rf"^Change:{LISTED_CHANGE}", re.MULTILINE)
+UNBUILT_LINE = re.compile(rf"^UNBUILT:(?![ \t]*(?i:none)\b){LISTED_CHANGE}", re.MULTILINE)
 CHANGE_WAITS = re.compile(r"\bchange (\d+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 FLAKE_FIX = "flake fix"
@@ -1512,11 +1514,11 @@ def unread_since_take(data: dict, job_id: str) -> list[str]:
 
 
 def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
-    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, and each change a builder's return lists so, a piece of its plan it left to a follow-up, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, and each piece of its plan a builder's return leaves to a follow-up on its `UNBUILT:` lines, never its `CHANGE:` or `Change:` lines, which name its own change, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
     job = data["jobs"][job_id]
-    found = [(whole_order(line["change"]), change_waits(line)) for line in CHANGE_LINE.finditer(report)]
-    if job["kind"] == "builder" and found:
-        return left_changes(name, data, job_id, found)
+    found = [(whole_order(line["change"]), change_waits(line)) for line in change_lines(job["kind"], report)]
+    if job["kind"] == "builder":
+        return left_changes(name, data, job_id, found) if found else []
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or not found:
         return []
     order = data["orders"][job["order"]]
@@ -1530,7 +1532,7 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
 
 
 def left_changes(name: str, data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
-    """Make each change a builder's return lists on its `Change:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, whose research a builder of the part starts on, or, where its parts have none, read by each reader of them, by share_research; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
+    """Make each piece a builder's return lists on its `UNBUILT:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, whose research a builder of the part starts on, or, where its parts have none, read by each reader of them, by share_research; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
     builder = data["jobs"][builder_id]
     order = data["orders"][builder["order"]]
     design = next((held["design"] for part, held in order["parts"].items() if part in builder["parts"] and held["design"]), None)
@@ -1541,6 +1543,11 @@ def left_changes(name: str, data: dict, builder_id: str, found: list[tuple[str, 
         share_research(data, builder["order"], set(builder["parts"]), [change for change, _ in found])
     order["updated"] = stamp()
     return change_builders(name, data, design or builder_id, [([change], waits) for change, waits in found])
+
+
+def change_lines(kind: str, text: str) -> list[re.Match]:
+    """The lines a job's return lists its changes on: a builder's `UNBUILT:` lines, each a piece of its plan it left to a follow-up, since a builder names its own change on `CHANGE:` and often on `Change:` too, and any other job's `Change:` lines."""
+    return list((UNBUILT_LINE if kind == "builder" else CHANGE_LINE).finditer(text))
 
 
 def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:

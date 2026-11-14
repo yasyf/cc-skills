@@ -79,9 +79,9 @@ LEFT_PIECE_QUESTION = (
 )
 UNLEFT_PIECE = "No line leaves a piece of the plan unbuilt for later."
 NAMED_PIECE_QUESTION = (
-    "This NEXT: or UNPROVEN: line of a builder's return leaves a piece of its plan unbuilt for later. Each option but none is a change"
-    " the return names on a Change: line, or a part of its order still to build, each built by a job of its own. Which option names"
-    " that piece itself, in any wording, rather than a larger piece of work holding it? Pick none when no option does."
+    "This line of a builder's return names a piece of its plan left unbuilt for later. Each option but none is a piece the return"
+    " names on an UNBUILT: line, or a part of its order still to build, each built by a job of its own. Which option names that"
+    " piece itself, in any wording, rather than a larger piece of work holding it? Pick none when no option does."
 )
 UNNAMED_PIECE = "None of these is the piece the line leaves unbuilt."
 INSTALLED = re.compile(r"\b(?:install|merg)\w*", re.IGNORECASE)
@@ -592,7 +592,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no Change: line of it names, by left_piece, a builder's Change: lines naming their changes as a design's must, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -621,17 +621,24 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "design" and opening == "DESIGN" and (unowned := unowned_exists(name, data, job_id, text)):
         return unowned
-    listing = job["kind"] == "builder" or job["kind"] == "design" and opening == "DESIGN"
-    if listing and (unkeyed := unquotable_change(text)):
+    listed = state.change_lines(job["kind"], text) if job["kind"] == "builder" or job["kind"] == "design" and opening == "DESIGN" else []
+    word = "UNBUILT:" if job["kind"] == "builder" else "Change:"
+    if unkeyed := unquotable_change(listed):
         return (
-            f'its Change: line names its change as "{cut(unkeyed, 120)}": a change is named in at most {state.PART_CHARS} characters'
+            f'its {word} line names its change as "{cut(unkeyed, 120)}": a change is named in at most {state.PART_CHARS} characters'
             " with no backtick, double quote, $ or backslash, since those words become the order's part, which the coordinator"
             f' types as drive job add builder --part "<the change>"; its detail goes on {"the Design: line" if job["kind"] == "design" else "its NEXT: or UNPROVEN: line"}'
         )
-    if listing and (stray := unlisted_waits(text)):
+    if stray := unlisted_waits(listed):
         return (
-            f'its Change: line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on earlier changes'
-            " of its list, as (waits on change <its number, counting Change: lines from 1>) or (waits on change 1 and change 2)"
+            f'its {word} line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on earlier changes'
+            f" of its list, as (waits on change <its number, counting {word} lines from 1>) or (waits on change 1 and change 2)"
+        )
+    if job["kind"] == "builder" and (held := held_piece(data, job_id, listed)):
+        return (
+            f'its UNBUILT: line "{cut(held[0], 120)}" names work the drive already holds, {held[1]}, so a part of its own would build it'
+            " a second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which"
+            " CHANGE: says, nor another job's, so drop that line"
         )
     if job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
         return narrowed
@@ -644,7 +651,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and (piece := left_piece(data, job, text)):
         return (
-            f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": name each such piece on a Change:'
+            f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": name each such piece on an UNBUILT:'
             f" line of this return, in at most {state.PART_CHARS} characters with no backtick, double quote, $ or backslash, which keeps"
             " it as a part of the order with a builder of its own, or build it before you return, or return ASK when leaving it out needs his choice"
         )
@@ -727,16 +734,15 @@ def unowned_exists(name: str, data: dict, job_id: str, text: str) -> str | None:
     return unowned and f'its exists: entry "{cut(unowned, 120)}" does not cite what exists and which change of its list extends, reuses or deletes it; {shape}'
 
 
-def unquotable_change(text: str) -> str | None:
-    """The first change a Change: line names in words that cannot be its part's name: longer than a part's name, or holding a character double quotes do not keep as typed."""
-    names = (" ".join(line["change"].split()) for line in state.CHANGE_LINE.finditer(text))
+def unquotable_change(listed: list[re.Match]) -> str | None:
+    """The first change these lines of a return, by state.change_lines, name in words that cannot be its part's name: longer than a part's name, or holding a character double quotes do not keep as typed."""
+    names = (" ".join(line["change"].split()) for line in listed)
     return next((name for name in names if len(name) > state.PART_CHARS or re.search(r'[`"$\\]', name)), None)
 
 
-def unlisted_waits(text: str) -> str | None:
-    """The first Change: line waiting on a change that is not an earlier one of the list."""
-    found = list(state.CHANGE_LINE.finditer(text))
-    return next((line[0] for number, line in enumerate(found, start=1) if any(not 1 <= wait < number for wait in state.change_waits(line))), None)
+def unlisted_waits(listed: list[re.Match]) -> str | None:
+    """The first of these lines of a return, by state.change_lines, waiting on a change that is not an earlier one of the list."""
+    return next((line[0] for number, line in enumerate(listed, start=1) if any(not 1 <= wait < number for wait in state.change_waits(line))), None)
 
 
 def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
@@ -810,11 +816,11 @@ def left_for(line: str) -> bool:
 
 
 def left_piece(data: dict, job: dict, text: str) -> str | None:
-    """The NEXT: or UNPROVEN: line of a builder's return that Jev reads, beside its goal, as leaving a piece of its plan unbuilt for later, at least settled.DECIDES sure, unless Jev then reads that piece, as sure, as one a Change: line of the return or an undelivered other part of its order names, each built by a job of its own, never a larger part holding it, as a delivered design part holds a row it left out; Jev giving no reading lets it out, said on stderr."""
+    """The NEXT: or UNPROVEN: line of a builder's return that Jev reads, beside its goal, as leaving a piece of its plan unbuilt for later, at least settled.DECIDES sure, unless Jev then reads that piece, by named_piece, as one an UNBUILT: line of the return or an undelivered other part of its order names, each built by a job of its own, never a larger part holding it, as a delivered design part holds a row it left out; Jev giving no reading lets it out, said on stderr."""
     if not (lines := {f"line{number}": line.strip() for number, line in enumerate(LEFT.findall(text), 1)}):
         return None
     order_id = job["order"]
-    kept = [line["change"] for line in state.CHANGE_LINE.finditer(text)]
+    kept = [line["change"] for line in state.change_lines(job["kind"], text)]
     kept += [part for part in data["orders"][order_id]["parts"] if part not in job["parts"] and not state.delivered(data, order_id, part)]
     named = {f"part{number}": part for number, part in enumerate(kept, 1)}
     try:
@@ -826,20 +832,40 @@ def left_piece(data: dict, job: dict, text: str) -> str | None:
         )["left"]
         if read["choice"] not in lines or read["probabilities"][read["choice"]] < settled.DECIDES:
             return None
-        if not named:
-            return lines[read["choice"]]
-        piece = settled.jev(
-            {
-                "state": {"line": lines[read["choice"]]},
-                "questions": {"named": {"label": {"instructions": NAMED_PIECE_QUESTION, "options": {settled.UNDECIDED: UNNAMED_PIECE} | named}}},
-            }
-        )["named"]
+        if named and named_piece("named", lines[read["choice"]], named):
+            return None
     except settled.Unheard as failure:
         print(f"drive job report: Jev did not read the return for a piece of its plan left to a follow-up, so it is kept unchecked: {failure}", file=sys.stderr)
         return None
-    if piece["choice"] in named and piece["probabilities"][piece["choice"]] >= settled.DECIDES:
-        return None
     return lines[read["choice"]]
+
+
+def held_piece(data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, str] | None:
+    """The first UNBUILT: line of a builder's return naming work the drive already holds, beside what holds it, so a line on its own or a sibling's work makes no second part: a PR of another job the line names that did not close unmerged, or else a part of its order still to build, but its own and those the lines name in their own words, that Jev reads by named_piece as naming that piece itself; Jev giving no reading lets it out, said on stderr."""
+    job = data["jobs"][job_id]
+    order_id = job["order"]
+    for line in listed:
+        if other := next((key for key in state.named_prs(data, order_id, line[0]) if data["prs"][key]["job"] != job_id and data["prs"][key]["state"] != "closed"), None):
+            return line[0].strip(), f"in {other}, a PR of {data['prs'][other]['job']}"
+    pieces = {*job["parts"], *(state.whole_order(line["change"]) for line in listed)}
+    building = [part for part in data["orders"][order_id]["parts"] if part not in pieces and not state.delivered(data, order_id, part)]
+    named = {f"part{number}": part for number, part in enumerate(building, 1)}
+    try:
+        for line in listed if named else []:
+            if holder := named_piece("held", line[0].strip(), named):
+                builders = state.part_builders(data, order_id, holder)
+                return line[0].strip(), f'as the part "{cut(holder, 80)}"' + (f", which {', '.join(builders)} builds" if builders else "")
+    except settled.Unheard as failure:
+        print(f"drive job report: Jev did not read whether a part of the order already holds each UNBUILT: line, so it is kept unchecked: {failure}", file=sys.stderr)
+    return None
+
+
+def named_piece(question: str, line: str, named: dict[str, str]) -> str | None:
+    """The option of named that Jev reads, at least settled.DECIDES sure, as naming the piece of a builder's plan this line of its return leaves unbuilt, that piece itself in any wording and never a larger piece of work holding it; settled.Unheard when Jev gives no reading."""
+    read = settled.jev(
+        {"state": {"line": line}, "questions": {question: {"label": {"instructions": NAMED_PIECE_QUESTION, "options": {settled.UNDECIDED: UNNAMED_PIECE} | named}}}}
+    )[question]
+    return named[read["choice"]] if read["choice"] in named and read["probabilities"][read["choice"]] >= settled.DECIDES else None
 
 
 def he_sees(text: str) -> bool:

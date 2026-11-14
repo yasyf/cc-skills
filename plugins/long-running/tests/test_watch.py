@@ -3241,6 +3241,10 @@ def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: 
     assert REAL_LOCAL_GAP("j1", {"session": "session-under-test", "agent": "a1"}, data, state.now()) == "j1's agent a1 has no transcript"
 
 
+def test_a_local_job_no_agent_ever_took_never_started_rather_than_ending_with_an_earlier_session(demo: str) -> None:
+    assert REAL_LOCAL_GAP("j1", {"session": None, "agent": None}, state.load(demo), state.now()) == "j1 never started: no agent has taken it, so start its agent now"
+
+
 def ended_on(text: str) -> dict:
     return {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}}
 
