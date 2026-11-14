@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from drive import land, state, view
+from drive import github, land, state, view
 
 NOBODY = "nobody"
 WATCH = "the watch"
@@ -17,7 +17,7 @@ UNLANDED_SILENT = "no outcome: its process ended before it said whether it queue
 WAKES_LOG = "wakes.log"
 NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 ASKS_HIM = ("held", "card")
-OWN_STEP = ("uncarded", "landing", "unlanded", "held", "rework", "merged", "closed")
+OWN_STEP = ("uncarded", "landing", "unlanded", "held", "rework", "merged", github.FOLDED, "closed")
 EVERY = {
     "landing": timedelta(minutes=90),
     "unlanded": timedelta(minutes=30),
@@ -67,7 +67,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     """Every rule of own past the draw of his card; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers."""
     pr = data["prs"][key]
     if pr["state"] != "open":
-        return Stage(pr["state"], NOBODY, f"it is {pr['state']}")
+        return Stage(pr["state"], NOBODY, github.fold_line(pr) if pr["state"] == github.FOLDED else f"it is {pr['state']}")
     if land.landing(pr):
         return Stage("landing", LANDER, landing_why(pr))
     if ended := unlanded(data, key, cards):

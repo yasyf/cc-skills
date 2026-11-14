@@ -57,7 +57,7 @@ const TAP_LABELS = ['Approve', 'Hold'];
 const PR_TABS = [['show', 'Show me'], ['change', 'The change'], ['context', 'Context']];
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
-const GONE_ROWS = { merged: 'Landed', live: 'Landed', closed: 'Closed without merging', dropped: 'Dropped from the drive' };
+const GONE_ROWS = { merged: 'Landed', live: 'Landed', folded: 'Merged into another open PR, lands with it', closed: 'Closed without merging', dropped: 'Dropped from the drive' };
 const BUG_STAGES = [
   ['reported', 'No work on it yet', 'reported'],
   ['fixing', 'Being fixed', 'being fixed'],

@@ -958,7 +958,7 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR GitHub reads merged that delivered it, since no post delivers work."""
+    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR that delivered it once github.landing reads it merged, never one folded into another open PR's branch, since no post delivers work."""
     data = state.load(name)
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])
@@ -966,8 +966,9 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
         drive_post_at(link, data, order_id)
     elif not state.PR_URL.search(link):
         raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part, holder=f"{state.holding_lane(data, order)}@{name}"))
-    elif (read := merged_read(link))["state"] != "MERGED":
-        raise DriveError(f'--part "{part}": refused, GitHub reads {state.pr_key(link)} {read["state"].lower()}, and only a merged PR delivers work he ordered')
+    elif (landed := github.landing(merged_read(link), data["prs"].get(state.pr_key(link))))["state"] != "merged":
+        into = f" into {landed['into']}, which has not landed" if landed["state"] == github.FOLDED else ""
+        raise DriveError(f'--part "{part}": refused, {state.pr_key(link)} is {landed["state"]}{into}, and only a PR merged into its default branch delivers work he ordered')
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
     how = "the merged PR that delivered it" if work else "the post that answered it"

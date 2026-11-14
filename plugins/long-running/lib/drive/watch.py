@@ -149,9 +149,9 @@ def ids(pr: dict) -> str:
     return f"[{pr['order']} {pr['job']}]"
 
 
-def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
-    """What moved on the PR since the watch last read it, saved onto its row; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes."""
-    fresh = github.live(read, pr)
+def pr_changes(pr: dict, read: dict, entry: dict, followed: dict | None) -> list[str]:
+    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live with followed, the read of the PR it folded into; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes."""
+    fresh = github.live(read, pr, followed)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
         changes.append(f"new head {fresh['head'][:7]}")
@@ -162,30 +162,34 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
     if fresh["conflict"] and not pr["conflict"]:
         changes.append("conflicts with its base")
     if fresh["state"] != pr["state"]:
-        changes.append(fresh["state"])
+        changes.append(github.fold_line(fresh) if fresh["state"] == github.FOLDED else fresh["state"])
     lander = pr["lander"]
     ejected = bool(lander and entry["ejected_at"]) and state.parse_time(entry["ejected_at"]) > state.parse_time(lander["at"])
     if ejected and not pr["ejected"]:
         changes.append("ejected from the merge queue")
-    pr.update(fresh, draft=read["isDraft"], merged_sha=read["mergeCommit"], ejected=ejected)
+    pr.update(fresh, draft=read["isDraft"], ejected=ejected)
     return changes
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap, and saying nothing of it."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap, and saying nothing of it."""
     data = state.load(watcher.name)
     pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
     keys = [
         key
         for key in state.unmerged_pr_keys(data)
-        if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or (data["prs"][key]["required"] is None and key not in watcher.stale))
+        if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["state"] == github.FOLDED or (data["prs"][key]["required"] is None and key not in watcher.stale))
     ]
-    carried = [key for key in state.carrier_keys(data) if watcher.owed is None or key not in watcher.untracked or key in watcher.owed]
+    carried = [key for key in state.carrier_keys(data) if watcher.owed is None or key not in watcher.untracked or key in watcher.owed or watcher.untracked[key] == github.FOLDED]
+    followed = sorted({into for key in keys if (into := data["prs"][key]["into"])} - {*keys, *carried})
     watcher.owed = set()
     if not keys and not carried:
         return []
-    reads, refused = github.fetch([*keys, *carried])
-    carrying = {key: reads.pop(key)["state"] for key in carried if key in reads}
+    reads, refused = github.fetch([*keys, *carried, *followed])
+    landings = dict(reads)
+    for key in followed:
+        reads.pop(key, None)
+    carrying = {key: github.landing(reads.pop(key))["state"] for key in carried if key in reads}
     watcher.untracked |= carrying
     unread = set(keys) - set(reads)
     watcher.owed = (unread | set(carried) - set(carrying) if refused else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"}
@@ -199,8 +203,8 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
-            was_open = pr["state"] == "open"
-            changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
+            unlanded = pr["state"] in github.UNLANDED
+            changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read), landings.get(pr["into"]))
             pr["required"]["read"] = state.stamp(moment)
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
@@ -208,7 +212,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if edited_since_undrawn(pr, read, watcher.cards):
                 redraws.append(pr["url"])
             pr["updated"] = state.stamp(moment)
-            if was_open or pr["state"] == "open":
+            if unlanded or pr["state"] == "open":
                 lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
     watcher.stale |= set(foreign)
     for url in redraws:
@@ -408,7 +412,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
         fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["touched"]] for key in fixes}
         carries = github.carrier(str(checkout))
         serving = {
-            wait: {row["env"]: not row.get("running") and carries(row["commit"], data["prs"][found["pr"]]["merged_sha"], github.split(found["pr"])[2]) for row in live if row["target"] == found["service"]}
+            wait: {row["env"]: not row.get("running") and carries(row["commit"], data["prs"][found["pr"]]["merged_sha"], github.split(data["prs"][found["pr"]]["into"] or found["pr"])[2]) for row in live if row["target"] == found["service"]}
             for wait in dict.fromkeys([*merged, *(wait for waits in fix_waits.values() for wait in waits)])
             if (found := state.RELEASE_WAIT.fullmatch(wait))
         }
@@ -2193,7 +2197,7 @@ def release_line(watcher: Watcher, data: dict, wait: str) -> str:
     key, service = found["pr"], found["service"]
     pr = data["prs"][key]
     if not pr["merged_sha"]:
-        return f"{wait}: {key} is {pr['state']} and unmerged, so no release holds it yet"
+        return f"{wait}: {key} is {github.fold_line(pr) if pr['state'] == github.FOLDED else pr['state'] + ' and unmerged'}, so no release holds it yet"
     if watcher.serving and watcher.serving.get(wait) == {}:
         return f"{wait}: tools/ci release live reads {service} on no cluster, so no cluster serving {key} frees it"
     if (clusters := behind(watcher, wait)) is None:
@@ -2420,10 +2424,10 @@ def end_lane(name: str, job_id: str) -> None:
 
 
 def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
-    """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its, its proof to come, or a time to come, its own clock from drive job set --due or its orders' due times."""
+    """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its or one folded into another open PR's branch, its proof to come, or a time to come, its own clock from drive job set --due or its orders' due times."""
     if job.get("ask") or view.open_cards(job) or job["waits"] or proving(data, job_id):
         return True
-    if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
+    if any(pr["job"] == job_id and pr["state"] in github.UNLANDED for pr in data["prs"].values()):
         return True
     return state.timed(data, job, moment)
 
@@ -2512,13 +2516,13 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
 
 
 def untracked_gap(watcher: Watcher, job_id: str, job: dict, order_id: str, part: str, keys: list[str]) -> str | None:
-    """Why the PRs the drive does not track that a builder stopped before any agent took it holds leave its part with no one, by GitHub's state of each as github_lines last read it: None while one reads open, SETTLING until each was read, then the merged one as the part's delivery, which drive order posted records, or else each closed unmerged, naming the builder to start on the stopped one's goal."""
+    """Why the PRs the drive does not track that a builder stopped before any agent took it holds leave its part with no one, by GitHub's state of each as github_lines last read it: None while one reads open or folded into another open PR's branch, by github.landing, SETTLING until each was read, then the merged one as the part's delivery, which drive order posted records, or else each closed unmerged, naming the builder to start on the stopped one's goal."""
     read = [watcher.untracked.get(key) for key in keys]
-    if "OPEN" in read:
+    if any(now in github.UNLANDED for now in read):
         return None
     if None in read:
         return SETTLING
-    if merged := [key for key, now in zip(keys, read, strict=True) if now == "MERGED"]:
+    if merged := [key for key, now in zip(keys, read, strict=True) if now == "merged"]:
         return delivered_by(order_id, part, merged[0])
     return f"{' and '.join(keys)} closed unmerged, carrying nothing of {job_id}'s work: start its builder with drive job add builder --order {order_id} --part {shlex.quote(part)} --goal {shlex.quote(job['goal'])}"
 
@@ -3216,7 +3220,7 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict, cards: dict | None) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it; a clause the drive adds to that line, such as an ASK it did not keep, still asks its step."""
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it; a clause the drive adds to that line, such as an ASK it did not keep, still asks its step."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
         return False
     if (job := JOB_LINE.match(line)) and standing_pass_ended(data, job["job"], line):
@@ -3231,7 +3235,7 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
         return not (land.reported(found["key"], pr) or data["jobs"][found["job"]]["state"] == "done" or finishes(data, found["job"]))
     if found["change"].startswith("merged at"):
         return not (data["jobs"][found["job"]]["state"] in state.FINISHED_JOB_STATES or proving(data, found["job"]))
-    if pr["state"] == "open" or not found["change"].startswith(ENDED):
+    if pr["state"] in github.UNLANDED or not found["change"].startswith(ENDED):
         return False
     return data["jobs"][found["job"]]["state"] != "running"
 

@@ -48,7 +48,7 @@ from functools import cache, lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from drive import artifacts, limits, slack, state
+from drive import artifacts, github, limits, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut, when
 
@@ -234,7 +234,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open or folded into another open PR's branch, by github.landing, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -242,7 +242,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["jobs"]:
         return coming(drive, wait)
     if wait in drive["prs"]:
-        return drive["prs"][wait]["state"] == "open"
+        return drive["prs"][wait]["state"] in github.UNLANDED
     if part := state.part_wait(drive, wait):
         return shared(drive, wait) or drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
     if release := state.RELEASE_WAIT.fullmatch(wait):
@@ -704,7 +704,7 @@ def feature_state(order: dict, jobs: list[dict], prs: list[dict]) -> str:
 
 
 def all_merged(prs: list[dict]) -> bool:
-    return any(pr["state"] == "merged" for pr in prs) and all(pr["state"] != "open" for pr in prs)
+    return any(pr["state"] == "merged" for pr in prs) and all(pr["state"] not in github.UNLANDED for pr in prs)
 
 
 def latest_line(order: dict, jobs: list[dict]) -> str:

@@ -74,7 +74,7 @@ def pr_number(url: str) -> str:
 
 def pr_marks(prs: list[dict]) -> str:
     marks = [f"{CHECK_MARKS.get(pr['checks'], '⚪')} {pr_number(pr['url'])}{HELD.get(pr['tap'], '')}" for pr in prs if pr["state"] == "open"]
-    counted = [("more open", len(marks) - PRS_SHOWN), *((word, sum(pr["state"] == word for pr in prs)) for word in ("merged", "closed"))]
+    counted = [("more open", len(marks) - PRS_SHOWN), *((word, sum(pr["state"] == word for pr in prs)) for word in ("merged", "folded", "closed"))]
     return " ".join([*marks[:PRS_SHOWN], *(f"{count} {word}" for word, count in counted if count > 0)]) or "—"
 
 
