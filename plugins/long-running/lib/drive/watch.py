@@ -294,7 +294,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live and release pull reads or its PR closed unmerged, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live and release pull reads or its PR closed unmerged, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run as its own process with its output in the drive's relaunches log, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
@@ -306,6 +306,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not out and not turned and not any(regained(watcher, job) for job in data["jobs"].values()) and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
+    moves = []
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job):
@@ -314,6 +315,10 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 job["shipped"] = [wait for wait in job["shipped"] if wait not in again]
                 state.rewait(job, list(dict.fromkeys([*job["waits"], *again])))
                 lines += [f"REWAIT {job_id} {job['order']}: {wait} holds again: {', '.join(behind(watcher, wait))} behind it" for wait in again]
+            if job_id in turned and place.on_sprite(job):
+                state.rewait(job, [wait for wait in job["waits"] if wait != state.SLOT_WAIT])
+                job.update(slot=state.stamp(moment), updated=state.stamp(moment))
+                moves.append(job_id)
             if view.open_cards(job):
                 continue
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
@@ -350,6 +355,8 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
             if pr["waits"] != waited and pr["state"] == "open":
                 redraws.append(pr["url"])
+    for job_id in moves:
+        watcher.sending[job_id] = state.detach(watcher.name, ["job", "launch", job_id, "--local"], RELAUNCHES_LOG)
     for url in redraws:
         try:
             slack.redraw_pr_cards(url)
@@ -1993,7 +2000,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lane |= orca.run_of(worker)
             if any(job.get(field) != value for field, value in lane.items()):
                 found[job_id] = lane
-            if job["undelivered"] and orca.takes_messages(job, worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
+            if job["undelivered"] and state.SLOT_WAIT not in job["waits"] and orca.takes_messages(job, worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
                 watcher.sending[job_id] = send_held(watcher.name, job_id)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
@@ -2347,7 +2354,7 @@ def wake(name: str, job_id: str) -> int:
 
 
 def send_held(name: str, job_id: str) -> int:
-    """Run `drive job resume` with no text on a job holding texts a resume could not deliver, once Orca reads its worker alive, as its own process, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice. Its output is appended to the drive's relaunches log."""
+    """Run `drive job resume` with no text on a job holding texts a resume could not deliver, once Orca reads its worker alive and no wait on builder-slot holds it to move here, as its own process, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice. Its output is appended to the drive's relaunches log."""
     return state.detach(name, ["job", "resume", job_id], RELAUNCHES_LOG)
 
 
@@ -2366,13 +2373,13 @@ def carry_held(watcher: Watcher, moment: datetime) -> None:
 
 
 def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
-    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose SendMessage the ANSWER undelivered line names, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose SendMessage the ANSWER undelivered line names, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, builder-slot included for a lane started, whose move here the watch's turn starts with them in its handoff, or for an adopted PR's job no builder started, which starts only on a PR event."""
     started = job.get("agent") or job.get("dispatch") or job.get("codex_run")
     if job["state"] == "running" and started or job["prs"] and not started or state.agent_lane(data, job):
         return None
-    remote = job.get("where") == "remote" and job.get("dispatch")
+    remote = job.get("where") == "remote" and bool(job.get("dispatch"))
     local = not remote and bool(job.get("brief")) and bool(place.mac_step(Path(job["brief"]).read_text()))
-    if any(local or wait != state.SLOT_WAIT for wait in view.holding(data, job["waits"], cards)):
+    if any(remote or local or wait != state.SLOT_WAIT for wait in view.holding(data, job["waits"], cards)):
         return None
     return ["job", "resume", job_id] if remote else ["job", "launch", job_id, *(["--local"] if local else [])]
 

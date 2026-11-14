@@ -22,7 +22,8 @@ Contents:
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
   `Read your brief first:` line.
 - At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
-  `FREE` line gave its turn for a slot whose agent has not started yet, each agent here still in its turn, and each Orca
+  `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
+  turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each agent here still in its turn, and each Orca
   worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
   does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
   while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and
@@ -46,8 +47,12 @@ Contents:
   `drive job launch <j> <brief>`, and one whose brief declares one, that no agent runs, it holds waiting its
   turn the same way, unless a wait, a card of his or an open PR of its still holds it.
   Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
-  `agent_brief` hook; `drive job launch --local`, for a first lane or one moving from a Sprite, which
-  starts on a Sprite or waits its turn the same way; and a SendMessage that would wake an agent here
+  `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite or
+  waits its turn the same way; a move from a Sprite, below, which waits its turn on `builder-slot`
+  whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
+  kept for the handoff, until the watch's turn stamps its slot and starts the move itself with
+  `drive job launch <j> --local`, a refusal of that launch reaching the coordinator as its
+  `relaunch_refused` event; and a SendMessage that would wake an agent here
   whose turn ended, which the `communicator_calls` hook refuses while the slots are full, and after
   which `drive job resume <j> "<the message>"` hands the job to a lane on a Sprite with the message
   in its handoff.
@@ -68,10 +73,14 @@ Contents:
   of his `Order`, a `Goal`, `Plan` or `Handoff` places a job. The `agent_brief` hook refuses a
   builder started with the Agent tool while this Mac's CPU is at or over its load gate's limit, the
   `remote` that `drive place` prints, unless its brief declares such a step. Every later start of
-  a Sprite job reads the same lines, by the same `place.mac_step`, over its brief, its builder's last
-  report, where a `Mac:` line names the step its `PROVE:` needs, and the resume's text: a resume or
-  relaunch that finds one starts the next lane in a fresh worktree here, as `--local` does, and
-  never in the Sprite's own Claude session. Such a brief starts here
+  a Sprite job reads the same lines once, by the same `place.mac_step`, before it sends or starts
+  anything: `drive job resume`, `drive job launch` and `drive pr wake` read its brief, its builder's
+  last report, where a `Mac:` line names the step its `PROVE:` needs, each text the job holds and
+  the resume's text, and a job declaring one moves to a fresh worktree here, as `--local` moves one,
+  whatever its Sprite worker is doing and never in the Sprite's own Claude session: a worker still
+  at work or still taking messages is stopped by `orca.reclaim`, as `drive job end` stops one, and
+  gets nothing, and every text the job holds goes in the handoff. A builder that builds nothing
+  moves at once past the cap. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
   the Agent tool or with `--local`. A brief whose writer left its `Mac:` line out starts on a Sprite,
   which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`,
@@ -333,11 +342,12 @@ before it sends or starts.
 
 - A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
   message; one whose worker takes messages is refused, naming the resume that sends it one. With
-  `--local`, a job on a Sprite moves here: what its Sprite holds on no remote is saved to GitHub,
-  its next worker starts in a fresh worktree on this Mac whether the last one finished, died, does
-  not answer or returned its line and still takes messages, as a Sprite lane does after `BLOCKED`
-  on a step only this Mac runs, though a running one stays refused, and
-  the Sprite is destroyed once it holds nothing on no remote. A failed save still moves the job,
+  `--local`, or a step only this Mac runs that its brief, last report or held texts declare, a job
+  on a Sprite moves here: its worker, when it still works or takes messages, is stopped by
+  `orca.reclaim`, what its Sprite holds on no remote is saved to GitHub, its next worker starts in
+  a fresh worktree on this Mac whether the last one finished, died, does not answer, returned its
+  line and still takes messages or was still at work, as a Sprite lane does after `BLOCKED` on a
+  step only this Mac runs, and the Sprite is destroyed once it holds nothing on no remote. A failed save still moves the job,
   keeping the Sprite, and its handoff names what each lane of the job saved on GitHub.
 - An agent on this Mac that ended with its session, which no role holds any more, or whose last
   response ended on an API error or a refusal takes no `SendMessage`: either verb hands its job to
