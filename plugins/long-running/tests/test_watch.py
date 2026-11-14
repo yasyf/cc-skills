@@ -802,7 +802,7 @@ def due_owed(monkeypatch: pytest.MonkeyPatch) -> list[dict | str]:
     """Each report the watch writes owing a promised line, then the brief of each handler it starts, a report answering 901."""
     said: list[dict | str] = []
     monkeypatch.setattr(watch, "reported", lambda watcher, records: said.extend(records) or ["901"])
-    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: said.append(brief) or ("h1", False))
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: said.append(brief) or ("h1", False))
     return said
 
 
@@ -1088,7 +1088,7 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     quiet_incident(demo)
     calls = catching_up(monkeypatch, demo)
 
-    def busy(name: str, brief: str) -> tuple[str, bool]:
+    def busy(name: str, brief: str, **_: object) -> tuple[str, bool]:
         raise watch.agents.Busy("refused, no handler started: handler h1 is at work on his message")
 
     monkeypatch.setattr(watch.agents, "handle", busy)
@@ -7179,7 +7179,7 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
-    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     incident_reads(monkeypatch, {}, {"42": True})
     surface, recording = "the Iris chat on a Mac", "/tmp/proofs/o761-chat-answers.mov"
     fixed = f"{state.pr_url(KEY)} live in production"
@@ -7234,7 +7234,7 @@ def test_o852s_close_in_record_682673_replayed_stays_open_with_its_five_minute_l
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
-    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     o852(demo)
     live = {"55166": True, "55225": False}
     calls = incident_reads(monkeypatch, {"341360574": "OK"}, live)
@@ -7327,7 +7327,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
     )
     assert (data["jobs"]["j2"]["order"], data["prs"][OTHER]["order"]) == ("o3", "o3")
     assert view.incidents(data) == []
-    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
     assert ready_records[1:] == []
     reads[OTHER] = read(headRefOid="bbbbbbb222")
@@ -7722,7 +7722,7 @@ def watchdogs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Path]]:
     started: list[tuple[str, Path]] = []
     monkeypatch.setattr(watch.agents, "watchdog", lambda name, brief, cwd, out: started.append((brief, out)) or len(started))
     monkeypatch.setattr(watch.state, "alive", lambda pid: not started[pid - 1][1].exists())
-    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     return started
 
 
