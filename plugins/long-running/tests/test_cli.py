@@ -3919,9 +3919,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     added = run("job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards", "--waits", "j1")
     assert added == (
         0,
-        "j3\nj3 waits on j1: start no agent for it until the watch's FREE line says its last wait ended\n"
-        'j1 reader running on "design options": research: topologies\n'
-        'j2 builder waiting on "design options": build answer; control freak; design options',
+        "j3\nj3 waits on j1: start no agent for it until the watch's FREE line says its last wait ended\nj3 beside j1, j2: drive status <id>",
     )
     assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[0] == 0
     jobs = state.load("demo")["jobs"]
@@ -6337,7 +6335,7 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
     assert [question["card"] for question in data["jobs"]["j1"]["questions"]] == ["https://acme.slack.com/archives/D1/p1"]
 
 
-def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_job_add_names_each_live_job_already_carrying_its_part_by_id(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three spikes", "--parts", "spike 1", "spike 2", "spike 3")
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1: restore cost at three database sizes, one operation at a time", "--part", "spike 1")
     run("job", "add", "reader", "--order", "o1", "--goal", "spike 2", "--part", "spike 2")
@@ -6347,15 +6345,7 @@ def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run
     spikes = ("--part", "spike 1", "--part", "spike 2", "--part", "spike 3")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", *spikes]) == 2
     assert 'refused, no job added: j1 builder running carries "spike 1" already, so a second builder would race it on one change' in capsys.readouterr().err
-    code, out = run("job", "add", "reader", "--order", "o1", "--goal", "spikes", *spikes)
-    assert (code, out.splitlines()) == (
-        0,
-        [
-            "j4",
-            'j1 builder running on "spike 1": spike 1: restore cost at three database sizes, one operation',
-            'j3 builder running on "spike 2": spike 2 again',
-        ],
-    )
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "spikes", *spikes) == (0, "j4\nj4 beside j1, j3: drive status <id>")
 
 
 def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_change_job_and_no_step_of_the_top_coordinator(
@@ -6378,44 +6368,24 @@ def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_chang
     assert list(state.load("demo")["jobs"]) == ["j1"]
 
 
-def test_job_add_prints_each_card_and_job_on_any_order_carrying_a_pr_its_goal_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    url, key, link = "https://github.com/acme/app/pull/55", "acme/app#55", "https://acme.slack.com/archives/D123/p1794518129437989"
+def test_job_add_names_by_id_each_pr_its_goal_names_each_other_order_whose_jobs_carry_it_and_each_live_job_beside_it(run: Run, demo: str) -> None:
+    url, key = "https://github.com/acme/app/pull/55", "acme/app#55"
     run("order", "add", "--title", "Upload fix", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix to production")
     run("order", "add", "--title", "Ship again", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix again")
+    run("order", "add", "--title", "Notes", "--project", "The drive", "--workstream", "Drive tooling", "read the release notes")
     run("job", "add", "builder", "--order", "o1", "--goal", f"waits on release:api:{key}")
-    run("job", "add", "reader", "--order", "o1", "--goal", f"write his card on how {url} reaches production through the api release")
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["state"] = "done"
-    run("job", "add", "builder", "--order", "o1", "--goal", f"hotfix merged {url} onto the live build")
-    run("job", "add", "reader", "--order", "o1", "--goal", "read the release notes")
+    run("job", "add", "reader", "--order", "o3", "--goal", "read the release notes")
     run("job", "add", "reader", "--order", "o2", "--goal", f"read what shipping {url} again needs")
-    asked = state.stamp()
     with state.edit("demo") as data:
         data["prs"][key] = state.new_pr(url, "j1", "o1") | {"state": "merged", "title": "Fix: the upload reaches production"}
         data["jobs"]["j1"]["prs"].append(url)
-        data["jobs"]["j2"]["questions"].append(state.new_question(None, "How should the upload fix reach production?", asked, card=link) | {"waits": "demo:j2-1"})
-        for job_id, ended in (("j1", "done"), ("j2", "done"), ("j3", "failed"), ("j4", "done"), ("j5", "done")):
-            data["jobs"][job_id]["state"] = ended
-    answer = {"label": "Hotfix onto the live build", "at": asked}
-    closed = {"waits": "demo:j2-1", "title": "How should", "prs": [], "asked": asked, "url": link, "answer": answer, "tapped": "", "replaced_by": ""}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [closed]})
-    view.refresh_cards("demo")
-    code, out = run("job", "add", "reader", "--order", "o2", "--goal", f"write his question card for shipping {url} again")
-    assert (code, out.splitlines()) == (
-        0,
-        [
-            "j6",
-            f'{key} "Fix: the upload reaches production" merged, checks pending, review none, wants tap, his card never drawn',
-            "- o1 open: ship the upload fix to production",
-            f"  - j1 builder done: waits on release:api:{key}",
-            "  - j2 reader done: write his card on how https://github.com/acme/app/pull/55 reaches production…",
-            f'    - asks him: How should the upload fix reach production?; card {link} answered "{answer["label"]}" at {render.when(asked)} (demo:j2-1)',
-            "  - j3 builder failed: hotfix merged https://github.com/acme/app/pull/55 onto the live build",
-            "- o2 open: ship the upload fix again",
-            "  - j5 reader done: read what shipping https://github.com/acme/app/pull/55 again needs",
-        ],
-    )
-    assert run("job", "add", "reader", "--order", "o2", "--goal", "read the logs") == (0, "j7\nj6 reader running on \"Ship again\": write his question card for shipping https://github.com/acme")
+        for job_id in ("j1", "j2", "j3"):
+            data["jobs"][job_id]["state"] = "done"
+    assert run("job", "add", "reader", "--order", "o2", "--goal", f"write his question card for shipping {url} again") == (0, f"j4\nj4 names {key}, also on o1: drive status <id>")
+    assert run("job", "add", "reader", "--order", "o2", "--goal", f"read the logs of {url}") == (0, f"j5\nj5 beside j4; names {key}, also on o1: drive status <id>")
+    added = json.loads(run("job", "add", "reader", "--order", "o2", "--goal", "read the logs", "--json")[1])
+    assert (added["beside"], added["history"]) == (["j4", "j5"], {})
+    assert run("job", "add", "reader", "--order", "o3", "--goal", "read the notes again") == (0, "j7")
 
 
 def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: Run, demo: str) -> None:
