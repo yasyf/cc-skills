@@ -24,6 +24,7 @@ from conftest import (
     REAL_SAVED_BRANCHES,
     REAL_SESSION_OF,
     REAL_SPRITE_CONFIG,
+    REAL_UNREAD,
     RESEARCH,
     SPRITE_CONFIG,
     Answers,
@@ -5228,7 +5229,7 @@ def test_the_watch_holds_the_mail_a_finished_sprite_worker_never_read_once_and_r
 def test_orca_unread_reads_a_sprite_lanes_mailbox_from_that_sprites_orca_and_a_lane_here_from_this_macs(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {"messages": [message("message", "rebase first", to_handle=args[-3])]})
-    assert [[mail["body"] for mail in orca.unread(job)] for job in (SPRITE_LANE, {"route": state.LOCAL_ROUTE, "dispatch": DISPATCH})] == [["rebase first"], ["rebase first"]]
+    assert [[mail["body"] for mail in REAL_UNREAD(job)] for job in (SPRITE_LANE, {"route": state.LOCAL_ROUTE, "dispatch": DISPATCH})] == [["rebase first"], ["rebase first"]]
     assert calls == [
         ("inbox", "--environment", "pool-sprite-one", "--terminal", f"dispatch:{SPRITE_DISPATCH}", "--limit", str(orca.MAIL_LIMIT)),
         ("inbox", "--terminal", f"dispatch:{DISPATCH}", "--limit", str(orca.MAIL_LIMIT)),
