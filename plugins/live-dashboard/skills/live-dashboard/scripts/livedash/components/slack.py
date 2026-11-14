@@ -23,7 +23,7 @@ def slack_feed(ctx: Context, *, threads: list[str] = [], bot: str | None = None,
         return Feed([], note="Not run: no test thread is named yet; set `threads` to Slack permalinks.")
     entries = []
     for url in threads:
-        thread = ctx.json(["cc-slack", "thread", "--url", url, "--limit", str(limit)])
+        thread = ctx.json(["cc-slack", "thread", "--url", url, "--limit", str(limit), "--json"])
         origin = float(thread["thread_ts"])
         for message in thread["messages"]:
             if bot and bot.lower() not in (message.get("user_name") or "").lower():

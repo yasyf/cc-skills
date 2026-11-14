@@ -29,6 +29,7 @@ JOB_KINDS = ("builder", "reader", "design", "codex")
 REPORT_REPLY = "report_"
 TURN_ENDS = ("worker_done", "escalation")
 EARLIER_RETURN = "--- an earlier return, kept {at} ---"
+EARLIER_LINE = "an earlier return, kept {at}: {line}"
 JOB_ID = re.compile(r"j\d+")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("long-running:builder",)}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
@@ -361,12 +362,13 @@ def opening(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def report_text(name: str, job_id: str) -> str:
-    """A job's report, which is every return it took, newest first: the newest whole, so its first line is the newest return's, then each earlier one under a line naming when the drive kept it; nothing for a job that returned nothing."""
+def report_text(name: str, job_id: str, every: bool = True) -> str:
+    """A job's report, which is every return it took, newest first: the newest whole, so its first line is the newest return's, then each earlier one under a line naming when the drive kept it, or without every as that line and its first line alone; nothing for a job that returned nothing."""
     taken = returns(name, job_id)
     if not taken:
         return ""
-    earlier = (f"\n{EARLIER_RETURN.format(at=stamp(parse_time(reply['created_at']).astimezone()))}\n{reply['body'].strip()}\n" for reply in taken[1:])
+    kept = [(stamp(parse_time(reply["created_at"]).astimezone()), reply["body"]) for reply in taken[1:]]
+    earlier = (f"\n{EARLIER_RETURN.format(at=at)}\n{body.strip()}\n" if every else f"{EARLIER_LINE.format(at=at, line=opening(body))}\n" for at, body in kept)
     return "".join([taken[0]["body"].strip() + "\n", *earlier])
 
 

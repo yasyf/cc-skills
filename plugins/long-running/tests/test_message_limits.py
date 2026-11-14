@@ -1163,8 +1163,8 @@ def test_a_session_that_is_no_drives_communicator_is_not_limited(run: Run, demo:
 def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thread(talker: str, unread: Path) -> None:
     read_it = (
         f", so this line could miss what he said there since. Read it with slack_thread(channel_id={DM}, thread_ts=1.2,"
-        " limit=1000), then post. When the tool saves a long thread to a file, the call is not a read until you open that"
-        " file and read its newest messages."
+        " since_ts=<the newest ts you read there>), or limit=1000 in place of since_ts for a thread you never read, then post."
+        " When the tool saves a long thread to a file, the call is not a read until you open that file and read its newest messages."
     )
     no_read = "refused: your transcript shows no read of his thread 1.2, and a read by another agent or session does not count for yours"
     assert posted(unread, text="Fixed.", thread_ts="1.2") == no_read + read_it
@@ -1184,7 +1184,7 @@ def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thre
 
 def test_a_handlers_say_in_an_alerts_thread_waits_for_its_own_read_of_that_thread_in_the_alerts_channel(talker: str, unread: Path) -> None:
     line = {"text": "Fixed.", "channel_id": "C0B75AL4XEW", "thread_ts": "1.2"}
-    read_it = "Read it with slack_thread(channel_id=C0B75AL4XEW, thread_ts=1.2, limit=1000), then post."
+    read_it = "Read it with slack_thread(channel_id=C0B75AL4XEW, thread_ts=1.2, since_ts=<the newest ts you read there>)"
     assert read_it in say(unread, **line)
     reads(lane_of(unread), "1.2")
     assert read_it in say(unread, **line)

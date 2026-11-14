@@ -61,7 +61,7 @@ def test_the_slack_feed_times_each_reply_from_the_thread_opener(tmp_path):
     assert feed.entries[0].link == "https://example.slack.com/archives/C0TEST/p1791305708428659?thread_ts=1791305688.632409&cid=C0TEST"
     texts = {message["text"] for message in fixture("slack-thread.json")["messages"]}
     assert {entry.text for entry in feed.entries} == {"replied"} and not texts & {entry.text for entry in feed.entries}
-    assert ctx.calls[-1] == ["cc-slack", "thread", "--url", THREAD, "--limit", "50"]
+    assert ctx.calls[-1] == ["cc-slack", "thread", "--url", THREAD, "--limit", "50", "--json"]
 
 
 def test_the_slack_feed_without_threads_says_so(tmp_path):

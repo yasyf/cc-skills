@@ -95,7 +95,7 @@ def cards(name: str) -> dict:
     """His open question cards for the drive and the PR cards waiting on his tap, from cc-slack's stored state."""
     try:
         result = subprocess.run(
-            [slack.launcher(), "drive-cards", "--drive", name], check=False, capture_output=True, text=True, timeout=30
+            [slack.launcher(), "drive-cards", "--drive", name, "--json"], check=False, capture_output=True, text=True, timeout=30
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise CardsError(str(error)) from None
@@ -111,7 +111,7 @@ def refresh_cards(name: str) -> None:
     except CardsError as error:
         found = {"source": f"unavailable: {error}", **NO_CARDS}
     path = state.cards_path(name)
-    text = json.dumps(found, indent=2, sort_keys=True) + "\n"
+    text = json.dumps(found, sort_keys=True, separators=(",", ":")) + "\n"
     if path.exists() and path.read_text() == text:
         return
     tmp = path.with_name(f"cards.json.{os.getpid()}.tmp")

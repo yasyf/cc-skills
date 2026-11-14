@@ -100,7 +100,7 @@ def draw_refusal(card: dict) -> str | None:
 
 
 def thread(*where: str) -> list[dict]:
-    return cc_slack("thread", *where)["messages"]
+    return cc_slack("thread", *where, "--json")["messages"]
 
 
 def posted_question(url: str) -> tuple[str, str, str, list[str]] | None:

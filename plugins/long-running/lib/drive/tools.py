@@ -224,7 +224,7 @@ def verb_tools() -> list[dict]:
         *(ops_tool(group, {"add": job_add} if group == "job" else {}, root) for group in OPS),
         {
             "name": "status",
-            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, each whole, or with none a coordinator's own open orders, a line each, and any other session's every open order. A handler, the coordinator or the meta session reads this, never the communicator.",
+            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, each whole, or with none every open order a line each, a coordinator's only its own. A handler, the coordinator or the meta session reads this, never the communicator.",
             "inputSchema": {"type": "object", "properties": {**schema(leaf("status", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
