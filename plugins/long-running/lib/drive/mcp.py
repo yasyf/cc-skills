@@ -132,7 +132,7 @@ SAY = {
         " drive binds to it, posts nothing and says why, naming a handler's session the drive binds to nothing unbound; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and a clock time"
         " its words promise his next line by, such as \"Next line by 9:45\" or \"Next line by 10:00 AM tomorrow\", becomes the order's due, from which the watch starts a handler on the line it owes until one is posted, but on an incident, whose"
         " next line the watch owes five quiet minutes after this one once it has news. A refusal posts nothing and names its fix: a reference that names nothing,"
-        " an order or job id such as j1700, or a post over its length, to him while he is away, or out of turn in the thread"
+        " an order or job id such as j1700, or a post over its length, in his DM while he is away, or out of turn in the thread"
         " a bug report or question came from, that Jev does not lift: make the fix and call again. Jev judges every other post once say has posted it, and"
         " a post Jev holds stays in his DM as written beside its POSTED line, with Jev's reason and the fix: a handler's claim"
         " the read it names in claims does not back, or a finding Jev read its rule as holding against, such as a line"

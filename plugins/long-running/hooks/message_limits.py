@@ -725,9 +725,11 @@ def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) 
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive, but a report owing a promised line, which is owed at his return and joins no catch-up, since the watch writes it again the first pass after he is heard; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's prompt."""
+    """Why a handler's line in his DM waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive, but a report owing a promised line, which is owed at his return and joins no catch-up, since the watch writes it again the first pass after he is heard; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's prompt."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
+        return None
+    if talk.place(tool_input)[0] != slack.dm():
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
         return None

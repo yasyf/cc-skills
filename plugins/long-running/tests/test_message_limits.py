@@ -2526,6 +2526,15 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
     assert posted(transcript, text="The fix merged.") is None
 
 
+def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thread_goes_out(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+    update = "Staging stays frozen another half hour while the batch writer test finishes."
+    assert say(transcript, text=update).startswith("Refused on purpose: he is away")
+    reads(lane_of(transcript), "1794676871.132409", channel="C0STAGING1")
+    assert say(transcript, text=update, channel_id="C0STAGING1", thread_ts="1794676871.132409") is None
+
+
 def test_the_rule_jev_weighs_a_line_held_while_he_is_away_by_names_the_drives_away_mark_and_his_words_that_the_line_waits(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
