@@ -1,9 +1,11 @@
+import functools
 import json
 import os
 import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from itertools import groupby, takewhile
 from pathlib import Path
@@ -31,7 +33,7 @@ PRS_PER_QUERY = 25
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
-HOLDS = ("ahead", "identical")
+PICK = re.compile(r" \(#(\d+)\)$")
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 FLOOR = re.compile(r"ccx: GitHub rate limit floor: [^(]*\((?P<reset>[^)]+)\)")
 
@@ -119,11 +121,6 @@ def split(key: str) -> tuple[str, str, int]:
 
 def repo_of(key: str) -> str:
     return key.split("#")[0]
-
-
-def contains(repo: str, ref: str, commit: str) -> bool:
-    """Whether ref holds commit, by GitHub's compare of the two read through ccx's cache up to an hour old, since neither changes."""
-    return read(f"whether {repo}'s {ref} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{ref}", "--jq", ".status"], max_age="1h").strip() in HOLDS
 
 
 def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
@@ -443,3 +440,24 @@ def fetched(clone: str, branch: str) -> str:
     sha = run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()[0]
     run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", sha])
     return sha
+
+
+def carrier(clone: str) -> Callable[[str, str, int], bool]:
+    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by go/ci's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha as fetched does."""
+    git = ["git", "-C", clone]
+    order = {sha: at for at, sha in enumerate(reversed(run([*git, "rev-list", "--first-parent", "HEAD"]).split()))}
+
+    @functools.cache
+    def held(build: str) -> tuple[int, set[str]]:
+        if build in order:
+            return order[build], set()
+        if subprocess.run([*git, "cat-file", "-e", f"{build}^{{commit}}"], capture_output=True, check=False).returncode:
+            run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", build])
+        fork = run([*git, "merge-base", build, "HEAD"]).strip()
+        return order[fork], {found[1] for subject in run([*git, "log", "--format=%s", build, "--not", "HEAD"]).splitlines() if (found := PICK.search(subject))}
+
+    def carries(build: str, merge: str, number: int) -> bool:
+        at, picks = held(build)
+        return order.get(merge, at + 1) <= at or str(number) in picks
+
+    return carries

@@ -4814,8 +4814,7 @@ def parser() -> argparse.ArgumentParser:
             " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, or every cluster tools/ci release live reads running that service,"
-            " production or not, one at least, serves the PR and tools/ci release pull reads no production cluster of it behind"
-            " the PR, with no release running there, and says FREE once when the last is gone, which wakes the"
+            " production or not, one at least, serves the PR with no release running there, and says FREE once when the last is gone, which wakes the"
             " coordinator; a job keeps a release wait it was freed of until it finishes and says REWAIT once a cluster goes behind."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"
         ),
