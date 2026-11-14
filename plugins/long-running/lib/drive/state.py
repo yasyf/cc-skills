@@ -143,6 +143,7 @@ DAY = r"(?:yesterday|today|tonight|tomorrow|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|S
 DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
+STANDING_EVERY = timedelta(minutes=30)
 PART_CHARS = 80
 SHEBANG_BYTES = 512
 SHELLS = frozenset({b"sh", b"bash", b"zsh"})
@@ -762,6 +763,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("design", None)
             part.setdefault("answer", False)
             part.setdefault("orphan_gap", None)
+            part.setdefault("standing", None)
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
@@ -1644,6 +1646,18 @@ def orphan_stands(data: dict, order_id: str, part: str) -> bool:
     return bool(said) and all(parse_time(job["updated"]) <= parse_time(said) for _, job in part_jobs(data, order_id, part))
 
 
+def standing_passes(data: dict, order_id: str, part: str) -> tuple[tuple[str, dict] | None, tuple[str, dict] | None]:
+    """A standing part's live pass, its newest unfinished job, and its last pass, its newest finished one, each beside its id, or None."""
+    jobs = part_jobs(data, order_id, part)
+    live = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] not in FINISHED_JOB_STATES), None)
+    return live, next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] in FINISHED_JOB_STATES), None)
+
+
+def pass_due(jobs: list[tuple[str, dict]]) -> datetime | None:
+    """When the watch may start a standing part's next pass, these its jobs oldest first: STANDING_EVERY after the newest was added, so a pass that ends at once starts again only then; None before its first."""
+    return parse_time(jobs[-1][1]["created"]) + STANDING_EVERY if jobs else None
+
+
 def part_builders(data: dict, order_id: str, part: str) -> list[str]:
     """Each builder or codex job that builds a part of an order: on it and neither failed nor stopped, as design_builder reads its builder, since a job that ended so builds nothing; one done or built counts, so a design read again builds no change twice."""
     return [job_id for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] not in ENDED_JOB_STATES]
@@ -1689,7 +1703,9 @@ def done_at_merge(job: dict) -> bool:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; work he ordered once a builder or codex job on it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    if data["orders"][order_id]["parts"][part]["standing"]:
+        return False
     done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not done_at_merge(job)}
     posted = data["orders"][order_id]["parts"][part]["posted"]
     if work(data, order_id, part):
@@ -1876,8 +1892,8 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 
 def new_part() -> dict:
-    """A part of an order, undelivered."""
-    return {"posted": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False}
+    """A part of an order, undelivered and not standing: a standing part holds the goal each pass of it runs on, which drive order set --standing keeps."""
+    return {"posted": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None}
 
 
 def reporter(link: str) -> dict:

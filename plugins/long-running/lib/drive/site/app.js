@@ -2215,12 +2215,13 @@ function taskBody({ id }) {
     entry.proof ? ['Proof', inline(entry.proof)] : null,
     entry.note ? ['Note', esc(entry.note)] : null,
   ].filter(Boolean);
-  const shipped = entry.parts.filter((part) => part.delivered).length;
+  const shipping = entry.parts.filter((part) => !part.standing);
+  const shipped = shipping.filter((part) => part.delivered).length;
   const merged = entry.prs.filter((pr) => pr.state === 'merged').length;
   return `<div class="kick">${pill(HEADS[entry.state], STOP_TONES[entry.state])}${entry.holdup ? `<span class="holdup">${holdupLine(entry.holdup)}${entry.holdup.at ? ` <small class="meta">${clock(entry.holdup.at)}</small>` : ''}</span>` : ''}</div>
       <blockquote class="said">${esc(entry.text)}</blockquote>
       <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
-      <h2 class="sec">What it ships <span class="count">${shipped} of ${entry.parts.length} delivered</span></h2>
+      <h2 class="sec">What it ships <span class="count">${shipped} of ${shipping.length} delivered${shipping.length < entry.parts.length ? `, ${entry.parts.length - shipping.length} standing` : ''}</span></h2>
       <ul class="lines card">${entry.parts.map(partRow).join('')}</ul>
       <h2 class="sec">What went wrong <span class="count">${wrong.length}</span></h2>
       ${wrong.length ? `<ul class="lines card">${wrong.map(jobLine).join('')}</ul>` : '<p class="empty small">Nothing has failed or stopped.</p>'}
@@ -2250,8 +2251,16 @@ function reportLine(text, state) {
 }
 
 function partRow(part) {
+  if (part.standing) return standingRow(part);
   const said = part.delivered ? (part.posted ? 'answered in Slack' : 'delivered') : part.job ? `${part.kind} ${part.job} ${JOB_STATES[part.state].toLowerCase()}` : 'no job carries it yet';
   return `<li class="line${part.delivered ? ' done' : ''}"><span class="tick" aria-hidden="true"></span><span class="line-text">${esc(part.whole ? 'All of it, in one piece' : part.name)}</span><small class="meta">${esc(said)}${part.at ? ` · ${clock(part.at)}` : ''}</small></li>`;
+}
+
+function standingRow(part) {
+  const { goal, live, last } = part.standing;
+  const pass = (held) => `${held.kind} ${held.job} ${JOB_STATES[held.state].toLowerCase()}`;
+  const said = `standing: ${live ? `pass ${pass(live)}` : 'no pass at work'}; ${last ? `last pass ${pass(last)}` : 'no pass ended yet'}`;
+  return `<li class="line" data-tip="${esc([goal, last?.said].filter(Boolean).join('\n'))}"><span class="tick" aria-hidden="true"></span><span class="line-text"><b>${esc(part.name)}</b> ${esc(said)}</span><small class="meta">${last ? clock(last.at) : ''}</small></li>`;
 }
 
 function jobLine(job) {

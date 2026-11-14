@@ -461,7 +461,7 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
 
     orders, agentless, text = shown()
     assert (orders, agentless) == (["o1"], ["j1"])
-    assert "Open orders you run: 1, a line each and one under it for each part an ORPHAN named until it heals or a job on it moves; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
+    assert "Open orders you run: 1, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
     assert "build o1" not in text and "fix the invoice" not in text
     assert "fix the invoice" in run("status", "o2")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
@@ -1024,6 +1024,25 @@ def test_order_set_kind_build_on_one_part_of_an_answer_order_makes_it_a_build_wh
     assert run("order", "set", "o1", "--kind", "build", "--part", "fix")[0] == 0
     order = state.load("demo")["orders"]["o1"]
     assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}) == ("build", {"why": True, "fix": False})
+
+
+def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_empty_goal_takes_it_out_and_it_refuses_with_no_part_or_on_an_order_limited_to_options(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    goal = "test the new tree on the codex box, round after round"
+    run("order", "add", "--title", "Runs on the new tree", "--project", "The drive", "--workstream", "Drive tooling", "keep testing the new tree", "--parts", "codex test box", "old-tree ports")
+    code, out = run("order", "set", "o1", "--part", "codex test box", "--standing", goal)
+    assert (code, out.splitlines()[-1]) == (0, f'o1 "codex test box": standing on "{goal}", no pass at work, the watch starts the next on its next read, no pass ended yet')
+    assert {part: held["standing"] for part, held in state.load("demo")["orders"]["o1"]["parts"].items()} == {"codex test box": goal, "old-tree ports": None}
+    assert run("order", "set", "o1", "--part", "codex test box", "--standing", "")[0] == 0
+    assert state.load("demo")["orders"]["o1"]["parts"]["codex test box"]["standing"] is None
+    assert cli.main(["order", "set", "o1", "--standing", goal]) == 2
+    assert "--standing: refused, name each part of o1 it keeps standing with --part" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["options_only"] = True
+    assert cli.main(["order", "set", "o1", "--part", "old-tree ports", "--standing", goal]) == 2
+    assert "--standing: refused, no part kept standing, since each pass of a standing part is a codex job: o1 is limited to options" in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["parts"]["old-tree ports"]["standing"] is None
 
 
 FILED = ("--project", "Platform", "--workstream", "SandSQL", "--title", "SandSQL incident")

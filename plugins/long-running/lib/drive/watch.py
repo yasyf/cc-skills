@@ -2645,12 +2645,14 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job; a standing part, never delivered, is held only by an unfinished job on it, and once none is its gap is the Restart standing_lines starts its next pass on, by standing_gap."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, order_id, part, moment) for job_id, job in jobs}
     if stuck := [gap for job_id, job in jobs if (gap := gaps[job_id]) and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
+    if order["parts"][part]["standing"]:
+        return standing_gap(jobs, gaps, moment)
     if fixer := no_fix_job(data, order_id, part, jobs):
         last, job = fixer
         idle = "" if part == state.INCIDENT_FIX else f", no job of {order_id} is at work or has his card open, and it keeps no proof users are unblocked"
@@ -2671,6 +2673,74 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR or order["options_only"] and order["parts"][part]["design"]:
         return None
     return "no job"
+
+
+class Restart(str):
+    """A standing part's gap once no unfinished job holds it and STANDING_EVERY passed since its last pass was added, carrying that pass, none before its first, which standing_lines starts the next pass after."""
+
+    last: str | None
+
+    def __new__(cls, last: str | None) -> Self:
+        made = super().__new__(cls, f"no pass of it is at work since {last} ended" if last else "no pass of it ran yet")
+        made.last = last
+        return made
+
+
+def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], moment: datetime) -> str | None:
+    """Who holds a standing part: each unfinished job on it, read as any part's carriers are, else no one, its Restart once state.pass_due lets its next pass start, and SETTLING until then."""
+    if held := [gaps[job_id] for job_id, job in jobs if job["state"] not in state.FINISHED_JOB_STATES]:
+        return None if None in held else SETTLING if SETTLING in held else held[-1]
+    if (due := state.pass_due(jobs)) and moment < due:
+        return SETTLING
+    return Restart(jobs[-1][0] if jobs else None)
+
+
+def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return, launched by drive job launch as its own process, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job running with no codex-ask run, which its part's ORPHAN line says."""
+    data = state.load(watcher.name)
+    if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()):
+        return []
+    with state.edit(watcher.name) as data:
+        restarts = [(key, gap.last, added_pass(data, key, gap.last, moment)) for key, gap in part_gaps(watcher, data, moment).items() if isinstance(gap, Restart)]
+    return [launched_pass(watcher.name, *restart) for restart in restarts]
+
+
+def added_pass(data: dict, key: tuple[str, str], last: str | None, moment: datetime) -> str:
+    order_id, part = key
+    flags = (data["jobs"][last].get("brief_flags") or {}) if last else {}
+    job_id = state.next_id(data["jobs"], "j")
+    data["jobs"][job_id] = state.new_job(order_id, "codex", data["orders"][order_id]["parts"][part]["standing"], [part], state.stamp(moment)) | {
+        "brief_flags": {flag: value for flag, value in flags.items() if flag != "handoff"}
+    }
+    data["orders"][order_id]["jobs"].append(job_id)
+    return job_id
+
+
+def launched_pass(name: str, key: tuple[str, str], last: str | None, job_id: str) -> str:
+    """Brief and launch the pass standing_lines added, the line saying it, or why its brief was not written."""
+    from drive import cli
+
+    order_id, part = key
+    data = state.load(name)
+    ended = f'{last} ended {data["jobs"][last]["state"]}: "{cut(data["jobs"][last]["said"] or "no line", 160)}"' if last else "no pass of it ran before"
+    head = f'STANDING {job_id} {order_id} "{cut(part, 80)}": {ended}; the watch added {job_id}, a codex job on this Mac on its standing goal'
+    try:
+        cli.write_brief(name, job_id, {"handoff": pass_handoff(name, data, key, last)})
+    except cli.VERB_ERRORS as error:
+        return f"{head}, and wrote it no brief: {error}; brief it with drive job brief {job_id}, then drive job launch {job_id}"
+    state.detach(name, ["job", "launch", job_id], RELAUNCHES_LOG)
+    return f"{head}, and ran drive job launch {job_id}, its output in the drive's {RELAUNCHES_LOG}"
+
+
+def pass_handoff(name: str, data: dict, key: tuple[str, str], last: str | None) -> str:
+    """The handoff a standing part's next pass starts on: its last pass's newest return whole, else that pass's line, else that it is the first pass, each line of the return quoted, so none reads as a line of the brief."""
+    standing = f'{key[0]}\'s standing part "{key[1]}"'
+    if not last:
+        return f"The watch started the first pass of {standing}: no pass of it ran before."
+    returned = next(iter(state.returns(name, last)), None)
+    quoted = returned["body"].strip() if returned else data["jobs"][last]["said"] or "nothing"
+    lines = "\n".join(f"> {line}".rstrip() for line in quoted.splitlines())
+    return f"The watch started this pass of {standing} once its last pass, {last}, ended {data['jobs'][last]['state']}. Its return, verbatim:\n{lines}"
 
 
 def no_fix_job(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> tuple[str, dict] | None:
@@ -2731,11 +2801,11 @@ def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str,
 
 
 def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: datetime) -> str | None:
-    """Whether the part's gap is said or healed: said once as it appears, by his pick "Said once, then listed in drive status: no repeats and a standing gap stays readable", and again only once a job on the part changes, by state.orphan_stands, or 30 minutes after a FREE line said its job's last wait ended, since drive status lists the gap it said until it heals or a job on the part moves."""
+    """Whether the part's gap is said or healed, never a standing part's Restart, which standing_lines answers with its next pass: said once as it appears, by his pick "Said once, then listed in drive status: no repeats and a standing gap stays readable", and again only once a job on the part changes, by state.orphan_stands, or 30 minutes after a FREE line said its job's last wait ended, since drive status lists the gap it said until it heals or a job on the part moves."""
     part = data["orders"][key[0]]["parts"][key[1]]
     if gap is None:
         return "heal" if part["orphan_said"] else None
-    if gap == SETTLING:
+    if gap == SETTLING or isinstance(gap, Restart):
         return None
     if not part["orphan_said"]:
         return "say"
@@ -2843,7 +2913,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs in production, the waits his answers, a job's end or that read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs in production, the waits his answers, a job's end or that read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, new events, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, promised times still owed a line, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and on a drive with no communicator a handler on each POST report to it. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield read_lines(watcher, state.load(watcher.name), moment)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -2895,6 +2965,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     yield clock_lines(watcher, moment)
     yield undelivered_lines(watcher, moment)
     yield tell_lines(watcher, moment)
+    yield standing_lines(watcher, moment)
     yield orphan_lines(watcher, moment)
     yield post_lines(watcher, moment)
 

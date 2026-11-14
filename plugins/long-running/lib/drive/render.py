@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, part_jobs, pass_due, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -488,11 +488,28 @@ def orphans(drive: dict, order_id: str, limit: int) -> list[str]:
 
 
 def part_line(drive: dict, order_id: str, part: str) -> str:
-    """A part as drive status lists it: delivered, else each job state.carriers says can carry it, with each PR the drive does not track that carries a stopped builder's part, else that no builder carries work he ordered."""
+    """A part as drive status lists it: a standing part by standing_line, delivered, else each job state.carriers says can carry it, with each PR the drive does not track that carries a stopped builder's part, else that no builder carries work he ordered."""
+    if drive["orders"][order_id]["parts"][part]["standing"]:
+        return standing_line(drive, order_id, part)
     if delivered(drive, order_id, part):
         return f'"{part}": delivered'
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}{untracked_line(drive, job)}" for job_id, job in carriers(drive, order_id, part))
     return f'"{part}": {held or ("no builder carries it" if work(drive, order_id, part) else "no job carries it")}'
+
+
+def standing_line(drive: dict, order_id: str, part: str) -> str:
+    """A standing part as drive status lists it: its goal, its live pass, else when the watch starts the next, and its last pass with the line it ended on."""
+    live, last = standing_passes(drive, order_id, part)
+    due = pass_due(part_jobs(drive, order_id, part))
+    starts = f"at {when(due.isoformat())}" if due and due > now() else "on its next read"
+    at_work = f"its live pass {live[1]['kind']} {live[0]} {live[1]['state']}" if live else f"no pass at work, the watch starts the next {starts}"
+    ended = f', its last pass {last[1]["kind"]} {last[0]} {last[1]["state"]}: "{cut(last[1]["said"] or "no line", 80)}"' if last else ", no pass ended yet"
+    return f'"{part}": standing on "{cut(drive["orders"][order_id]["parts"][part]["standing"], 80)}", {at_work}{ended}'
+
+
+def standings(drive: dict, order_id: str, order: dict) -> list[str]:
+    """Each standing part of the order, listed under its line on the drive page."""
+    return [f"  STANDING {standing_line(drive, order_id, part)}" for part, held in order["parts"].items() if held["standing"]]
 
 
 def untracked_line(drive: dict, job: dict) -> str:
@@ -628,10 +645,10 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
         lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
     lines.extend(agentless_lines(drive, None if runs is None else orders))
     lines.append(
-        f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals or a job on it moves;"
+        f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"
     )
-    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(order))}", *orphans(drive, order_id, 80)])
+    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(order))}", *standings(drive, order_id, order), *orphans(drive, order_id, 80)])
     repros = sorted(
         (
             (job["updated"], job_id, job)
