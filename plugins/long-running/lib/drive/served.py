@@ -167,11 +167,11 @@ def verdict(name: str, key: str) -> str:
         carried = checked[key]["carried"]
         cards = view.live_cards(name)
         outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}; {stage.on_card(data, member, cards).why}; {view.staging(data, member)}" for member, stamp in checked.items()}
-    return install.finished(f"{key}: {outcomes[key]}", JUDGE_SECONDS, kept, name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "faulted": faulted, "checked": checked, "carried": carried, "pid": os.getpid()})
+    return kept(name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "faulted": faulted, "checked": checked, "carried": carried, "pid": os.getpid()})
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; on a merged PR, each job whose passing proof proves it delivers the parts its diff carries, by state.deliver_proven, as its proof would have had the check landed first; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; on a merged PR, each job whose passing proof proves it delivers the parts its diff carries, by state.deliver_proven, as its proof would have had the check landed first; the outcome for key."""
     outcome = result["outcomes"][key]
     with state.edit(name) as data:
         fresh = [

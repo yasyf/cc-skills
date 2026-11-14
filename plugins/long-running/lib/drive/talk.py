@@ -7,10 +7,9 @@ import re
 import sys
 import time
 import uuid
-from collections.abc import Callable
 from pathlib import Path
 
-from drive import agents, brief, cli, dashboard, install, limits, picture, reads, refs, render, slack, state, view
+from drive import agents, brief, cli, dashboard, limits, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -64,7 +63,7 @@ def say(name: str, post: dict) -> str:
     held = list(known["held"]) if report.get("catch_up") else []
     amended = agents.amendments(name, [seq, *held] if seq else [])
     if close:
-        report["seq"] = close_report(name, order, post.get("text") or "")
+        report["seq"] = seq = close_report(name, order, post.get("text") or "")
     claimed = cli.claim_close(name, report)
     if key := request_key(name, known, post, report):
         post = post | {"request_key": key}
@@ -78,22 +77,26 @@ def say(name: str, post: dict) -> str:
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
     if job_id := post.get("job"):
-        line += "; " + after_post(link, awaiting, name, job_id, link)
+        line += "; " + awaiting(name, job_id, link)
     handler = state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if handler or report.get("seq"):
-        after_post(link, kept_line, name, handler, report.get("seq"), link, line)
+    if handler or seq:
+        with state.edit(name) as data:
+            if handler:
+                data["handlers"][handler]["posted"].append(line)
+            if seq:
+                data["carried"][seq] = link
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
     if found := amended["correction"].get(seq):
         line += f"; cci holds corrections of report {seq}, {', '.join(found)}: unless this post carries each, reword it with say(edit={link}, text=…)"
     if report.get("catch_up"):
-        line += after_post(link, released, name, link, amended)
+        line += released(name, link, amended)
     if order:
-        line += "; " + after_post(link, recording, name, {"order": order, "link": link, "record": seq, "sent": reply.get("sent"), "channel": post.get("channel_id")}, report if close else None)
+        line += "; " + recording(name, {"order": order, "link": link, "record": seq, "sent": reply.get("sent"), "channel": post.get("channel_id")}, report if close else None)
     if close:
-        line += after_post(link, closed, name, order, report["seq"], link, post.get("text") or "")
+        line += closed(name, order, report["seq"], link, post.get("text") or "")
     if promise:
-        line += after_post(link, repromised, name, promise, reply["sent"])
+        line += repromised(name, promise, reply["sent"])
     return line
 
 
@@ -135,20 +138,6 @@ def caller(name: str) -> dict:
     if refused := cli.recording_refusal(known, f"only the communicator's handlers post to him: send these words as a report record to communicator@{name}, whose handler posts and records them"):
         raise DriveError(f"nothing posted: {refused}")
     return known
-
-
-def after_post[T](link: str, keep: Callable[..., T], name: str, *args: object) -> T:
-    """Run one of the drive writes a post that went out at link needs through install.finished, so a newer install's save while the post went out keeps it on that install."""
-    return install.finished(f"say posted {link}", state.DRIVE_LOCK_SECONDS, keep, name, *args)
-
-
-def kept_line(name: str, handler: str | None, seq: str | None, link: str, line: str) -> None:
-    """Keep a post's line on the handler that made it, for its done record to carry whole, and the post at link as the one its report seq went out in, which a later correction of that report rewords."""
-    with state.edit(name) as data:
-        if handler:
-            data["handlers"][handler]["posted"].append(line)
-        if seq:
-            data["carried"][seq] = link
 
 
 def request_key(name: str, known: dict, post: dict, report: dict) -> str | None:
@@ -490,7 +479,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
-        after_post(reply["permalink"], cli.follow_card, name, card["waits"], sorted(asked), reply["permalink"])
+        cli.follow_card(name, card["waits"], asked, reply["permalink"])
     kept = refs.board(text, found) or (card or {}).get("title") or ""
     state.append_event(
         name,
@@ -511,10 +500,11 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     else:
         reply |= {"sent": sent}
         if first[1] and view.drawn_on(data, *view.SLACK_TS.findall(sent)):
-            after_post(reply["permalink"], keep_line, name, first[1], reply["permalink"], sent)
+            keep_line(name, first[1], reply["permalink"], sent)
     cards = [reply.get("card_permalink"), *(linked(name, data, reply["permalink"], place, stack, refs.slack(words, found, place[1]), kept, post.get("request_key")) for place in rest if place[0] in operators)]
     if stack:
-        after_post(reply["permalink"], joined, name, stack, cards)
+        with state.edit(name) as data:
+            state.join_pr_cards(data, stack, cards, state.stamp())
     label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
@@ -535,12 +525,6 @@ def keep_line(name: str, thread: str, link: str, sent: str) -> None:
     with state.edit(name) as data:
         for _, question in view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             question["told"][thread] = {"link": link, "words": sent}
-
-
-def joined(name: str, stack: list[str], cards: list[str | None]) -> None:
-    """Join the thread of each PR card a post drew to every order its PRs serve."""
-    with state.edit(name) as data:
-        state.join_pr_cards(data, stack, cards, state.stamp())
 
 
 def project(data: dict, post: dict, stack: list[str], order: str | None) -> str | None:
