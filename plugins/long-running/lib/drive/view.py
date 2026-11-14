@@ -5,11 +5,11 @@
 - `queue`: what waits on him, in one rank whatever its kind: what an open incident waits on first, then what is past
   due, then what holds the most (a built job first, then the finished PRs, built jobs and tasks it holds, a tap counting
   the PRs it lands and those stacked above them), then what has waited longest. Its items are his open question cards,
-  PRs ready for his tap, one item for each PR card however many PRs it carries, and promised times that passed. Each
+  as `with_questions` reads them from the drive's open questions, PRs ready for his tap, one item for each PR card however many PRs it carries, and promised times that passed. Each
   item has `kind` (`question`, `tap`, `late`), `title`, `detail`, `since` (when it started waiting, when known), `due`,
   `url` (where he acts), `links`, `tasks` (the ids of the tasks it serves), `project` and `workstream` (where its first task is filed, null until filed), `rank_why`
   (why it ranks where it does, in his words' order of the rank), and for a question or a tap with a Slack card, `card` (the whole card
-  cc-slack draws), `answer` (the card's permalink, which takes his answer from any surface) and `thread` (the Slack
+  cc-slack draws, or the one `forgotten` draws once cc-slack's store forgot it), `answer` (the card's permalink, which takes his answer from any surface) and `thread` (the Slack
   thread the card sits in, or starts). A question also has `holds`: how many green approved open PRs and built jobs
   wait on it, alone or beside other cards of his, `blocks`: each feature it holds up, with its `id` and `title`,
   `recommended`: the option its card recommends, or null, and `built`: each job built on its recommended option that
@@ -45,6 +45,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from functools import cache, lru_cache
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
@@ -452,10 +453,11 @@ def tap_detail(pr: dict) -> str:
     return f"{checks}, {review}{changed}{now}"
 
 
-def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict], asker: str | None) -> dict:
+def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict]) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
     finished = held_up(drive, card)
     tasks = [entry["id"] for entry in features if any(held["url"] == card["url"] for held in entry["cards"])]
+    asker = card["job"]
     return {
         "kind": "question",
         "tasks": list(dict.fromkeys([*tasks, *([drive["jobs"][asker]["order"]] if asker else [])])),
@@ -496,6 +498,33 @@ def asked_by(drive: dict, found: dict) -> dict[str, str | None]:
         named = state.waits_job(drive, card["card"].get("waits") or "")
         asker[card["url"]] = drawn.get(message_key(card["url"])) or (named if named in drive["jobs"] else None)
     return asker
+
+
+def with_questions(drive: dict, found: dict) -> dict:
+    """His cards with his question cards as the drive's open questions decide them, each with the job that asked it: each card cc-slack lists, in its order, unless questions of the drive hold its waits id or are drawn on it and none of them still asks him, whatever cc-slack still lists, then, once per waits id, each open question drawn on a card cc-slack's store forgot, as `forgotten` draws it; a question a `Replaces:` line folded into another asks him only through the other."""
+    asked = [(job_id, question) for job_id, job in drive["jobs"].items() for question in open_questions(job) if not question["replaced"]]
+    asking = {key for _, question in asked for key in (question["waits"], question["card"] and message_key(question["card"])) if key}
+    known = {key for job in drive["jobs"].values() for question in job["questions"] for key in (question["waits"], question["card"] and message_key(question["card"])) if key}
+    asker = asked_by(drive, found)
+    listed = [card | {"job": asker[card["url"]]} for card in found["questions"] if {card["card"].get("waits"), message_key(card["url"])} & asking or not {card["card"].get("waits"), message_key(card["url"])} & known]
+    shown = {key for card in listed for key in (card["card"].get("waits"), message_key(card["url"]))}
+    lost = {question["waits"]: forgotten(drive["name"], question) | {"job": job_id} for job_id, question in asked if question["card"] and not {question["waits"], message_key(question["card"])} & shown}
+    return found | {"questions": [*listed, *lost.values()]}
+
+
+def forgotten(name: str, question: dict) -> dict:
+    """His card on an open question as the drive keeps it once cc-slack's store forgot it: drawn from the ASK file the question is kept in, as `drive cards redraw` draws it before filling its references and pictures, or from the question alone when it is kept in none, or in a file that is gone or no longer draws, as `drive cards redraw` refuses it."""
+    drawn = kept_card(name, question) or {"title": question["title"] or "his question card", "body": "", "options": [], "recommended": "", "waits": question["waits"], "drive": name}
+    return {"question": drawn["title"], "options": drawn["options"], "recommended": drawn["recommended"], "asked": question["asked"], "url": question["card"], "card": drawn}
+
+
+def kept_card(name: str, question: dict) -> dict | None:
+    if not question["file"]:
+        return None
+    try:
+        return limits.redrawn(Path(question["file"]).read_text()).card(name, question["waits"])
+    except (state.DriveError, FileNotFoundError):
+        return None
 
 
 def rail(drive: dict, item: dict, reports: set[str], heard: dict[str, list[dict]]) -> dict:
@@ -553,9 +582,8 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
     taps = [(pr, head_card(pr, found["pr_cards"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     waiting = waiting_on_him(drive, found)
-    asker = asked_by(drive, found)
     items = [
-        *(question_item(drive, card, features, waiting, asker[card["url"]]) for card in found["questions"]),
+        *(question_item(drive, card, features, waiting) for card in found["questions"]),
         *(tap_item(drive, pr, card) for pr, card in taps),
         *(late_item(drive, order_id, order, found["team_url"]) for order_id, order in drive["orders"].items() if is_late(order, moment)),
     ]
@@ -758,10 +786,11 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
 
 
 def build(drive: dict, found: dict, moment: datetime, events: Iterable[dict] = (), project: str | None = None, workstream: str | None = None) -> dict:
-    """The drive's model from its stored state with each open PR at the stage stage.of names now, never one the watch kept a pass ago, his open cards as cc-slack lists them, the events naming his words typed under a card and the drive's posts since, and the time it is drawn for; naming a project, and a workstream of it, only the features and queue items filed there, ignoring case as `status` merges spellings."""
+    """The drive's model from its stored state with each open PR at the stage stage.of names now, never one the watch kept a pass ago, his open cards as cc-slack lists them, each question card as `with_questions` reads it from the drive's open questions, the events naming his words typed under a card and the drive's posts since, and the time it is drawn for; naming a project, and a workstream of it, only the features and queue items filed there, ignoring case as `status` merges spellings."""
     from drive import stage
 
     stage.shown(drive, found, state.open_pr_keys(drive))
+    found = with_questions(drive, found)
     groups = status(drive, moment, found)
     waiting = queue(drive, found, moment, [entry for group in groups for entry in group["features"]], answering(events))
     if project:

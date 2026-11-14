@@ -5,7 +5,8 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import land, page, slack, stage, state, view, watch
+from conftest import SHORT_ASK
+from drive import land, limits, page, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -283,7 +284,7 @@ def test_each_feature_names_the_open_cards_of_his_that_block_it_and_each_card_th
             "j1": job("o1", "waiting", questions=asked_on(f"{TEAM}archives/D123/p-40")),
             "j2": job("o1", "built", branch="lane/built", waits=["demo:j2-7-a", "j1"]),
             "j3": job("o2", "waiting"),
-            "j4": job("o3", "waiting", questions=asked_on(f"{TEAM}archives/D123/p-90")),
+            "j4": job("o3", "waiting", questions=[each | {"closed": state.new_close("answered", "Yes", None, at=at(-60))} for each in asked_on(f"{TEAM}archives/D123/p-90")]),
         },
         [pr(1, "o2", waits=["demo:j2-7-a"]), pr(2, "o3", waits=["demo:j9-1-a"], state="merged")],
     )
@@ -1063,6 +1064,42 @@ def test_a_question_card_cc_slacks_store_forgot_reads_as_the_drives_question_sta
     asked["closed"] = state.new_close("withdrawn", None, None, at=at(-3))
     assert view.question_card_words(found(), "live", asked) == f"card {forgotten} withdrawn at {when(at(-3))}"
     assert view.question_card_words(None, "unavailable: not signed in", asked) == "his cards could not be read (unavailable: not signed in)"
+
+
+def test_a_question_card_cc_slacks_store_forgot_waits_on_him_as_its_ask_file_draws_it_and_one_whose_question_ended_no_longer_does(tmp_path: Path) -> None:
+    kept = tmp_path / "j1-7.md"
+    kept.write_text(SHORT_ASK)
+    title = limits.redrawn(SHORT_ASK).title
+    forgotten = f"{TEAM}archives/D123/p1794200000000300"
+    asked = state.new_question(str(kept), title, at(-50), card=forgotten) | {"waits": "demo:j1-7"}
+    ended, unknown = question("Release now?", -40, "demo:j2-3"), question("Rename it?", -20)
+    answered = state.new_question(None, "Release now?", at(-40), card=ended["url"], closed=state.new_close("answered", "Yes", None, at=at(-5))) | {"waits": "demo:j2-3"}
+    data = drive_of(
+        {"o1": order("lay out the run files", ["j1", "j3"]), "o2": order("release it", ["j2"])},
+        {
+            "j1": job("o1", "waiting", questions=[asked]),
+            "j2": job("o2", "waiting", questions=[answered]),
+            "j3": job("o1", "built", branch="lane/layout", waits=["demo:j1-7"]),
+        },
+        [],
+    )
+    listed = found([ended, unknown])
+    model = view.build(data, listed, T0)
+    items = {item["title"]: item for item in model["queue"]}
+    assert list(items) == [title, "Rename it?"]
+    lost = items[title]
+    assert (lost["answer"], lost["since"], lost["job"], lost["tasks"], lost["built"]) == (forgotten, asked["asked"], "j1", ["o1"], [{"job": "j3", "branch": "lane/layout"}])
+    assert lost["card"] == limits.redrawn(SHORT_ASK).card("demo", "demo:j1-7")
+    features = {entry["title"]: entry for group in model["status"] for entry in group["features"]}
+    assert (features["lay out the run files"]["cards"], features["release it"]["cards"]) == ([{"title": title, "url": forgotten, "asked": asked["asked"]}], [])
+    assert [(entry["wait"], entry["job"]) for entry in view.waiting_on_him(data, view.with_questions(data, listed))] == [("demo:j1-7", "j3")]
+
+
+def test_a_forgotten_card_whose_ask_file_no_longer_draws_shows_its_question_alone(tmp_path: Path) -> None:
+    kept = tmp_path / "j1-7.md"
+    kept.write_text("ASK Which store?\n")
+    asked = state.new_question(str(kept), "Which store?", at(-50), card=f"{TEAM}archives/D123/p1794200000000300") | {"waits": "demo:j1-7"}
+    assert view.forgotten("demo", asked)["card"] == {"title": "Which store?", "body": "", "options": [], "recommended": "", "waits": "demo:j1-7", "drive": "demo"}
 
 
 def test_pr_card_words_name_his_open_tap_card_at_its_head_one_at_an_older_head_by_that_head_a_tap_on_a_redrawn_one_or_none() -> None:
