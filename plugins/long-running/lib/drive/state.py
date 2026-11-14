@@ -33,7 +33,8 @@ EARLIER_LINE = "an earlier return, kept {at}: {line}"
 JOB_ID = re.compile(r"j\d+")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("long-running:builder",)}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
-FINISHED_JOB_STATES = ("done", "failed", "stopped")
+ENDED_JOB_STATES = ("failed", "stopped")
+FINISHED_JOB_STATES = ("done", *ENDED_JOB_STATES)
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 CHANGE_KINDS = ("builder", "codex")
 WORK_KINDS = (*CHANGE_KINDS, "design")
@@ -1410,7 +1411,7 @@ def unread_since_take(data: dict, job_id: str) -> list[str]:
 
 
 def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
-    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts; then give each change no builder or codex job is on a builder of its own, by change_builders, and return the builders added."""
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
     job = data["jobs"][job_id]
     found = [(whole_order(line["change"]), change_waits(line)) for line in CHANGE_LINE.finditer(report)]
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or not found:
@@ -1426,7 +1427,7 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
 
 
 def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job is on, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
+    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
@@ -1434,10 +1435,10 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
     created = stamp()
     added = []
     for parts, numbers in changes:
-        if not (uncarried := [part for part in parts if not any(job["kind"] in CHANGE_KINDS for _, job in part_jobs(data, order_id, part))]):
+        if not (uncarried := [part for part in parts if not part_builders(data, order_id, part)]):
             continue
         earlier = [part for number in numbers for part in changes[number - 1][0] if not delivered(data, order_id, part)]
-        building = [change_wait(data, job_id) for part in earlier for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS]
+        building = [change_wait(data, job_id) for part in earlier for job_id in part_builders(data, order_id, part)]
         waits = list(dict.fromkeys([*cards, *(wait for wait in building if view.holds(data, wait, None))]))
         if brief.job_refusal(name, data, order_id, "builder", uncarried, False, waits):
             continue
@@ -1495,7 +1496,7 @@ def design_builder(data: dict, design_id: str) -> str | None:
         for job_id, job in data["jobs"].items()
         if job["kind"] == "builder"
         and job["order"] == design["order"]
-        and job["state"] not in ("failed", "stopped")
+        and job["state"] not in ENDED_JOB_STATES
         and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
     ]
     return min(builders)[1] if builders else None
@@ -1546,6 +1547,11 @@ def worked(data: dict, job_id: str, order_id: str) -> set[str]:
 
 def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in job_parts(data["jobs"][job_id], order_id)]
+
+
+def part_builders(data: dict, order_id: str, part: str) -> list[str]:
+    """Each builder or codex job that builds a part of an order: on it and neither failed nor stopped, as design_builder reads its builder, since a job that ended so builds nothing; one done or built counts, so a design read again builds no change twice."""
+    return [job_id for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] not in ENDED_JOB_STATES]
 
 
 def work(data: dict, order_id: str, part: str) -> bool:

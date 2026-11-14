@@ -4625,6 +4625,24 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert (jobs["j3"]["state"], jobs["j4"]["state"]) == ("stopped", "failed")
 
 
+@pytest.mark.parametrize(("kind", "ended"), [("builder", "stopped"), ("codex", "failed")])
+def test_a_one_change_design_on_a_part_a_job_that_ended_names_adds_its_builder_and_ends_carried_by_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], kind: str, ended: str
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    with state.edit("demo") as data:
+        parts = data["jobs"]["j1"]["parts"]
+        data["jobs"]["j2"] = state.new_job("o1", kind, "build the store copy", parts, state.stamp()) | {"state": ended}
+        data["orders"]["o1"]["jobs"].append("j2")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ("done", "carried by builder j3")
+    assert (jobs["j3"]["kind"], jobs["j3"]["parts"], jobs["j3"]["state"]) == ("builder", parts, "running")
+    with state.edit("demo") as data:
+        assert state.add_changes("demo", data, "j1", DESIGNED) == []
+
+
 @pytest.mark.parametrize(
     ("exists", "refusal"),
     [
@@ -4742,6 +4760,24 @@ def test_a_designs_change_waits_on_the_builder_of_the_earlier_change_its_line_na
         "the moved-table interface": [],
         "the writes through it": ["j2"],
     }
+
+
+def test_a_designs_change_worded_as_a_part_a_stopped_builder_names_gets_its_own_builder_that_a_later_change_waits_on(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "build the reads", ["the reads through it"], state.stamp()) | {"state": "stopped"}
+        data["orders"]["o1"]["jobs"].append("j2")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES)[0] == 0
+    jobs = state.load("demo")["jobs"]
+    assert {job_id: (job["parts"], job["state"], job["waits"]) for job_id, job in jobs.items() if job["kind"] == "builder" and job_id != "j2"} == {
+        "j3": (["the moved-table interface"], "running", []),
+        "j4": (["the reads through it"], "running", []),
+        "j5": (["the writes through it"], "waiting", ["j4"]),
+    }
+    assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ("done", "carried by builder j3")
 
 
 @pytest.mark.parametrize(
