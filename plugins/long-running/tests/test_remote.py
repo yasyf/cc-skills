@@ -578,6 +578,31 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     assert orca.brief_of(composed) == text
 
 
+def test_a_sprite_brief_names_drive_job_replies_for_each_earlier_transcript_no_read_serves_and_a_lane_on_this_mac_keeps_each_path(demo: str) -> None:
+    folder = state.drive_dir(demo)
+    kept = orca.transcripts(demo, "j3", DISPATCH) / "-home-sprite-monorepo" / "0b1c9e.jsonl"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("{}\n")
+    (folder / "scratch" / "j4" / "codex").mkdir(parents=True)
+    on_mac = "/Users/someone/.claude/projects/-Users-someone-repo/41915b5c/subagents/agent-a8360123c483699e1.jsonl"
+    text = (
+        "Order (his words): ship it\nTranscripts:\n"
+        f"- j1 design: {on_mac}\n"
+        "- j2 builder, a remote lane: drive job replies j2\n"
+        f"- j3 builder: {kept}\n"
+        f"- j4 codex, its codex-ask run: {folder}/scratch/j4/codex\n"
+        "Drive: demo, order o1, job j5"
+    )
+    assert orca.brief_of(orca.vm_brief(demo, "j5", text, None)) == (
+        "Order (his words): ship it\nTranscripts:\n"
+        "- j1 design: drive job replies j1\n"
+        "- j2 builder, a remote lane: drive job replies j2\n"
+        f"- j3 builder: {kept}\n"
+        "- j4 codex: drive job replies j4\n"
+        "Drive: demo, order o1, job j5"
+    )
+    assert orca.brief_of(orca.vm_brief(demo, "j5", text, state.LOCAL_ROUTE)) == text
+
 def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_and_stamps_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

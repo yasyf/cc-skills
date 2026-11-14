@@ -4465,8 +4465,8 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_build
     monkeypatch.setattr("sys.stdin", io.StringIO(DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 2 live on every cluster)")))
     assert cli.main(["job", "report", "j1", "-"]) == 0
     assert capsys.readouterr().out.splitlines()[-3:] == [
-        'j2 builder on "the moved-table interface": start its agent now, the design as its brief\'s Plan:',
-        'j3 builder on "the reads through it": start its agent now, the design as its brief\'s Plan:',
+        'j2 builder on "the moved-table interface": start its agent now',
+        'j3 builder on "the reads through it": start its agent now',
         'j4 builder on "the writes through it" waits on j2, j3: start no agent for it until the watch\'s FREE line says its last wait ended',
     ]
     data = state.load("demo")
@@ -4482,6 +4482,20 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_build
         "j4": (["the writes through it"], "waiting", ["j2", "j3"]),
     }
 
+
+def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a_brief_naming_no_plan_and_its_sprite_brief_carries_the_designs_report(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES)[0] == 0
+    for builder_id, change in (("j2", "the moved-table interface"), ("j3", "the reads through it")):
+        cli.write_brief("demo", builder_id, {})
+        written = Path(state.load("demo")["jobs"][builder_id]["brief"]).read_text()
+        assert f'\nPlan: j1\'s design, change "{change}": drive job report j1\n' in written
+        assert f"\n# Report of j1, which your brief names\n\n{DESIGNED_IN_CHANGES}" in orca.vm_brief("demo", builder_id, written, None)
+    assert run("job", "brief", "j2", "--plan", "the store copy section")[0] == 0
+    assert "\nPlan: the store copy section\n" in Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
 
 def test_a_designs_change_waits_on_the_builder_of_the_earlier_change_its_line_names_once_that_builders_pr_closed_unmerged(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -4985,7 +4999,7 @@ def test_a_design_job_ends_once_the_builder_its_return_or_his_pick_adds_takes_it
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert cli.main(["job", "set", "j1", "--state", "done"]) == 2
     assert "drive: j1: refused, nothing changed: --state sets only stopped" in capsys.readouterr().err
-    assert run("order", "set", "o1", "--no-options-only")[1].splitlines()[-1] == 'j2 builder on "Short title": start its agent now, the design as its brief\'s Plan:'
+    assert run("order", "set", "o1", "--no-options-only")[1].splitlines()[-1] == 'j2 builder on "Short title": start its agent now'
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
     assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "move the tables", "--parts", "move the tables", "the old copy")
@@ -5856,6 +5870,23 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert "Serves: his order\n" in written.read_text()
     assert "Native: the dashboard's run page\n" in written.read_text()
     assert "Plan: the steps section\n" in written.read_text()
+
+
+def test_a_brief_naming_no_flag_written_as_drive_job_brief_types_a_plan_is_written_again_keeping_that_plan(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
+    rendered = cli.linked_messages
+
+    def typed_meanwhile(*given: object) -> list[str]:
+        monkeypatch.setattr(cli, "linked_messages", rendered)
+        assert run("job", "brief", "j1", "--plan", "the watchdog section")[0] == 0
+        return rendered(*given)
+
+    monkeypatch.setattr(cli, "linked_messages", typed_meanwhile)
+    line, _ = cli.write_brief(demo, "j1", {})
+    assert line.splitlines()[-1] == "kept from its earlier brief: --serves, --plan"
+    assert state.load(demo)["jobs"]["j1"]["brief_flags"]["plan"] == "the watchdog section"
+    assert "\nPlan: the watchdog section\n" in Path(state.load(demo)["jobs"]["j1"]["brief"]).read_text()
 
 
 def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_ones(run: Run, demo: str) -> None:

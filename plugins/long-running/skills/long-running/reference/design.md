@@ -121,9 +121,10 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
    - His order to land a change does not answer a design card still open on it. Name that card in
      your `report` at once, so the handler redraws it with its buttons in his order's thread, and
      land after he answers, because he wants each card that blocks work surfaced, not skipped.
-5. **The builder carries the design.** Its brief carries the design as `--plan` and his answer to
-   each fork as `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim, those
-   above the answer's `Notes:` and never the drive's reading of them. `drive job brief` adds every
+5. **The builder carries the design.** Its brief carries the design on its `Plan:` line, which the
+   drive gives each builder it adds for a change, and his answer to each fork as
+   `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim, those above the
+   answer's `Notes:` and never the drive's reading of them. `drive job brief` adds every
    ruling the `rulings:` line of each carried order's reader names, his answer to each question
    that reader asked, and each carried order's words, so no brief reads `none named` over a ruling
    on its area; a lane that takes over or restarts the job starts on the brief rebuilt this way. A builder
