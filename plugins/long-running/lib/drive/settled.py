@@ -22,6 +22,7 @@ HAND_ASK = (
     " `--redraws <that card's waits id>`"
 )
 BODY_CHARS = 1500
+TITLE_BYTES = 256
 QUOTED_CHARS = 400
 CANDIDATES = 8
 UNDECIDED = "none"
@@ -175,14 +176,26 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
     return None
 
 
-def recorded(name: str, title: str, words: str, labels: list[str], cwd: str) -> str:
-    """Record his answer on the drive in cc-notes, the question as its title, his words as its body and the drive's labels before these, and return its id."""
-    add = ["ccn", "answer", "add", f"--title={title}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
-    return json.loads(ccn(add, words, cwd, "could not record his answer in cc-notes"))["id"]
+def recorded(name: str, title: str, words: str, labels: list[str], where: str, cwd: str) -> str:
+    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, and return its id; a refusal names his words, the question and the card or message where he gave them."""
+    handle = titled(title)
+    body = words if handle == title else f"{words}{NOTES} the whole question: {title}"
+    add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
+    return json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
+
+
+def titled(question: str) -> str:
+    """The question as the cc-notes title of his answer to it: whole when it fits the TITLE_BYTES `ccn answer add` takes, else cut on a whole word to fit, since ccn refuses a longer title and records nothing."""
+    if len(question.encode()) <= TITLE_BYTES:
+        return question
+    chars = TITLE_BYTES
+    while len(cut(question, chars).encode()) > TITLE_BYTES:
+        chars -= 1
+    return cut(question, chars)
 
 
 def note_cards(name: str) -> None:
-    """Record in cc-notes each answer of his that ended a question before his tap recorded it, as the tap records one, the question as its title and his words as its body, and keep its id on the question, so `matched` ranks every answer he gave a card, never an Already answered tap, whose words cc-notes holds already; one cc-notes holds already under that question in those words keeps that one's id, so a pass cut short records none twice; marked so this runs once."""
+    """Record in cc-notes each answer of his that ended a question before his tap recorded it, as the tap records one through `recorded`, and keep its id on the question, so `matched` ranks every answer he gave a card, never an Already answered tap, whose words cc-notes holds already; one cc-notes holds already under that question in those words keeps that one's id, so a pass cut short records none twice; marked so this runs once."""
     data = state.load(name)
     if data.get(state.CARDS_NOTED):
         return
@@ -198,9 +211,11 @@ def note_cards(name: str) -> None:
     kept = {(plain(answer["title"]), plain(his(answer["body"]))): answer["id"] for answer in every}
     noted = []
     for job_id, question in unnoted:
-        said = (plain(question["title"]), plain(question["closed"]["words"]))
+        said = (plain(titled(question["title"])), plain(question["closed"]["words"]))
         if said not in kept:
-            kept[said] = recorded(name, question["title"], question["closed"]["words"], [], cwd)
+            closed = question["closed"]
+            where = closed["link"] or question["card"] or (f"his card {question['waits']}" if question["waits"] else f"record {closed['seq']}")
+            kept[said] = recorded(name, question["title"], closed["words"], [], where, cwd)
         noted.append((job_id, question, kept[said]))
     with state.edit(name) as data:
         for job_id, question, answer_id in noted:
