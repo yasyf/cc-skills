@@ -100,7 +100,7 @@ ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)
 GUARDED_OWNER = "forge-ai"
 HIS_LOGIN = "yasyf"
 NO_TAP_OWNER = HIS_LOGIN
-FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
+FOREIGN_RULING = '4e4db31 on work that is neither a port nor his order: "It\'s not in scope for us"'
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
@@ -2875,21 +2875,24 @@ def foreign(key: str, author: str | None, words: Iterable[str]) -> str | None:
     if author is None or author.casefold() == HIS_LOGIN or any(names_pr(said, key) for said in words):
         return None
     return (
-        f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and neither an order of his it serves nor a question card of that order he answered names it by link or #N: the drive"
+        f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and no word of his on an order it serves names it by link or #N, neither the"
+        " order's text nor his answer to a question card of its jobs, what he typed or the option he tapped with its description: the drive"
         f" tracks, cards, taps, rebases and lands no one else's PR unless his words name it, by his ruling {FOREIGN_RULING}"
     )
 
 
 def his_words_on(data: dict, orders: Iterable[dict]) -> Iterator[str]:
-    """His words on these orders: each order's text, and each question card a job of the order drew that he answered, as its ASK file shows it above its Findings:, so a PR the card links is one his answer names."""
+    """His words on these orders: each order's text, and his answer to each question of their jobs he answered, what he typed or the option he tapped with the description its ASK file gives it, so a PR that option's description links is one his tap names, and one only the card's summary or an option he left links is not."""
     from drive import limits
 
     for order in orders:
         yield order["text"]
         for job_id in order["jobs"]:
             for question in data["jobs"][job_id]["questions"]:
-                if question["card"] and question["file"] and (question["closed"] or {}).get("how") == "answered":
-                    yield limits.FINDINGS.split(Path(question["file"]).read_text(), maxsplit=1)[0]
+                if (closed := question["closed"] or {}).get("how") == "answered":
+                    yield closed["words"] or ""
+                    if question["file"]:
+                        yield limits.question_problems(limits.ask_block(Path(question["file"]).read_text()), kept=True)[0].hints.get(closed["words"], "")
 
 
 def served(data: dict, pr: dict) -> Iterator[dict]:

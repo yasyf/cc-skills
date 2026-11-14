@@ -264,7 +264,7 @@ def pushing(watcher: Watcher, data: dict, job_id: str) -> bool:
 
 
 def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], moment: datetime) -> list[str]:
-    """Stop tracking each PR someone else opened that no order of his it serves names, with nothing done on GitHub: each open card of his carrying it withdrawn first, saying who opened it, then the PR dropped from the drive; one whose withdrawal fails stays, refused everywhere, and goes again next read."""
+    """Stop tracking each PR someone else opened that no word of his on an order it serves names, with nothing done on GitHub: each open card of his carrying it withdrawn first, saying who opened it, then the PR dropped from the drive; one whose withdrawal fails stays, refused everywhere, and goes again next read."""
     lines, gone = [], []
     for key, (url, author, why) in foreign.items():
         try:
