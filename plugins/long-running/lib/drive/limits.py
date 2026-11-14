@@ -126,10 +126,13 @@ INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 HOLDS = re.compile(r"^[ \t]*Holds:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 REPLACES = re.compile(r"^[ \t]*Replaces:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 HOLDS_RULING = 'his pick "Each question names the changes it holds, kept with it"'
+HELD_BRANCH = re.compile(r"`[\w./-]+`")
 HOLDS_SHAPE = (
-    "`Holds: <each change of the order its options alter, in that change's words, as the order's parts or your `Change:`"
-    " lines name it, or a PR the drive tracks that builds it, by its link or #N>` or `Holds: none: <why no option alters what any job builds>`, since his open card holds from landing"
-    " only the PRs building a change it names that its own job, its design's builder or a job briefed on its research carries or that it names by link, #N or job id"
+    "`Holds: <each PR the drive tracks that its options alter, by its link or #N, and each branch building an option, in backticks, as"
+    " `j1-remote-config`; on a reader's or design's card, also each change of the order they alter, in that change's words, as the order's"
+    " parts or your `Change:` lines name it>` or `Holds: none: <why no option alters what any job builds>`, since his open card holds from"
+    " landing each PR it names by link, #N or whole branch name, and the PRs building a change it names only of the builder its design or"
+    " research starts or a job it names by id"
 )
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)

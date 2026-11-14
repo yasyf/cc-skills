@@ -1071,6 +1071,21 @@ def job_parts(job: dict, order_id: str) -> list[str]:
     return job["parts"] if job["order"] == order_id else job["carries"].get(order_id, [])
 
 
+def split_research(data: dict, order_id: str, parts: list[str]) -> None:
+    """Give each part a `drive order set --parts` list adds to each reader of the part it splits, a part the list leaves out or else the order's one part, so a builder on a part split from read work starts on that reader's research, as the remedy of a part every option on his card shares being its own builder job needs."""
+    held = data["orders"][order_id]["parts"]
+    added = [part for part in parts if part not in held]
+    split = {part for part in held if part not in parts} or (set(held) if len(held) == 1 else set())
+    for job_id in data["orders"][order_id]["jobs"] if added else []:
+        job = data["jobs"][job_id]
+        if job["kind"] != "reader" or not split & set(job_parts(job, order_id)):
+            continue
+        if job["order"] == order_id:
+            job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
+        else:
+            carry(data, job_id, order_id, added)
+
+
 def carry(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job, order = data["jobs"][job_id], data["orders"][order_id]
     job["carries"][order_id] = list(dict.fromkeys([*job["carries"].get(order_id, []), *parts]))
@@ -1350,14 +1365,18 @@ def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
 
 
 def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id: str, pr: dict | None) -> bool:
-    """Whether an open question of his holds a job's work on an order, its PR when given, by his pick "Each question names the changes it holds, kept with it": its `Holds:` line names a change the work carries, the parts `drive pr set --part` gave the PR or else those the job works on there, the design it builds included, or the question was kept with no `Holds:` line, which holds every change; and it is the job's own, a design job's whose design the job builds, a reader's or design's the job was built on, by brief.research_links, or its `Holds:` line names the job by id or the PR by link or #N. `Holds: none` holds nothing."""
+    """Whether an open question of his holds a job's work on an order, its PR when given, by his pick "Each question names the changes it holds, kept with it": its `Holds:` line names the PR by link, #N or whole branch name; it is the job's own and the work is unbuilt, which builds its recommended option; or, on another job's question, its `Holds:` line names a change the work carries, the parts `drive pr set --part` gave the PR or else those the job works on there, the design it builds included, or the question was kept with no `Holds:` line, which holds every change, and it is a design job's whose design the job builds, a reader's or design's the job was built on, by brief.research_links, or its `Holds:` line names the job by id. So the job's own question holds no PR of its it does not name, and `Holds: none` holds nothing."""
     holds = question["holds"]
-    carried = set(pr["parts"]) if pr is not None and pr["parts"] else worked(data, job_id, order_id)
-    if holds == "" or holds is not None and not names_part(holds, carried):
+    if holds == "":
         return False
-    if holds is not None and (names_job(holds, job_id) or pr is not None and names_pr(holds, pr_key(pr["url"]))):
+    if pr is not None and holds and (names_pr(holds, pr_key(pr["url"])) or names_branch(holds, pr["branch"])):
         return True
-    return asks_for(data, asker_id, job_id)
+    if asker_id == job_id:
+        return pr is None
+    carried = set(pr["parts"]) if pr is not None and pr["parts"] else worked(data, job_id, order_id)
+    if holds is not None and not names_part(holds, carried):
+        return False
+    return holds is not None and names_job(holds, job_id) or asks_for(data, asker_id, job_id)
 
 
 def asks_for(data: dict, asker_id: str, job_id: str) -> bool:
@@ -1498,16 +1517,26 @@ def names_job(holds: str, job_id: str) -> bool:
     return bool(re.search(rf"(?<![\w-]){re.escape(job_id)}\b", holds))
 
 
+def names_branch(holds: str, branch: str | None) -> bool:
+    """Whether a question's `Holds:` words name a branch by its whole name, so a branch stacked on it under a longer name, such as `j1-fix-remote-config` on `j1-fix`, is not named."""
+    return bool(branch) and bool(re.search(rf"(?<![\w./-]){re.escape(branch)}(?![\w/-]|\.\w)", holds))
+
+
 def held_words(data: dict, holds: str, order_ids: Iterable[str]) -> str:
-    """A question's `Holds:` words with, for each PR the drive tracks on these orders that they name by its link, its owner/name#N key or a bare #N, the parts it serves appended: those `drive pr set --part` names, else the parts its job works on its order, so a lane that names its PR names its change."""
+    """A question's `Holds:` words with, for each PR of held_prs, the parts it serves appended: those `drive pr set --part` names, else the parts its job works on its order, so a lane that names its PR names its change."""
+    served = [part for pr in held_prs(data, holds, order_ids) for part in pr["parts"] or sorted(worked(data, pr["job"], pr["order"])) if not names_part(holds, [part])]
+    return "; ".join([holds, *dict.fromkeys(served)])
+
+
+def held_prs(data: dict, holds: str, order_ids: Iterable[str]) -> list[dict]:
+    """Each PR the drive tracks on these orders that a question's `Holds:` words name by its link, its owner/name#N key, a bare #N or its whole branch name."""
     orders = set(order_ids)
-    named = [
+    return [
         pr
         for key, pr in data["prs"].items()
-        if pr["order"] in orders and re.search(rf"{re.escape(pr_url(key).removeprefix('https://'))}\b|{re.escape(key)}\b|(?<![\w/-])#{key.rpartition('#')[2]}\b", holds)
+        if pr["order"] in orders
+        and (re.search(rf"{re.escape(pr_url(key).removeprefix('https://'))}\b|{re.escape(key)}\b|(?<![\w/-])#{key.rpartition('#')[2]}\b", holds) or names_branch(holds, pr["branch"]))
     ]
-    served = [part for pr in named for part in pr["parts"] or sorted(worked(data, pr["job"], pr["order"])) if not names_part(holds, [part])]
-    return "; ".join([holds, *dict.fromkeys(served)])
 
 
 def worked(data: dict, job_id: str, order_id: str) -> set[str]:

@@ -91,7 +91,9 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
 3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
    opens no PR. The line sets its job built on that branch, waiting on each card's waits id or
    Slack link it names and on each open card of his holding its work as the lander reads it, its
-   reader's included whatever words the line names it in, and none whose `Holds:` line reads none.
+   reader's included whatever words the line names it in, and none whose `Holds:` line reads none;
+   each holds a PR of the job only as the lander reads that card, so a card naming another branch
+   holds none of the job's other PRs.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
      would open its PR while one of its cards is open, and on an incident while a card kept
@@ -105,8 +107,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      rebuilding first wherever his pick differs from the option it built.
 4. **Nothing lands around an open card.** Work does not land with a question of his on it
    unanswered: the lander, the `landing_guard` hook, `drive pr add` and a `yasyf/*` PR's merge each
-   refuse while any card of his bears on its work: one whose question's `Holds:` line names a change
-   its job builds, the design job's included, since a card holds work only by its `Holds:` line and
+   refuse while a card of his holds it: one whose question's `Holds:` line names it by link, `#N` or
+   whole branch name, or a design's card naming a change its job builds, since a card holds work only by its `Holds:` line and
    a card a job waits on otherwise only wakes it. His open PR card names each card holding the PR, and
    says his Approve also picks that card's recommended option, which answers and closes the card, or,
    for a card recommending none, that it lands once he answers it, so `drive pr set --waits` refuses a card. While a

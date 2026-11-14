@@ -147,9 +147,10 @@ his words on that order ask for options only; then no builder starts on the prop
 pick, because he wants to choose the fix. Work does not land with a question of his on it
 unanswered: outside an incident's repair, the `bash_guard` hook refuses the `ccx vcs ship` that would
 open a proper-fix PR, on this Mac and on a Sprite, and the lander,
-the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while any open card of his bears
-on its work: one whose question's `Holds:` line names a change its job builds, the design it builds
-included. The immediate fix of a bug hurting someone now is never held: its own
+the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while an open card of his
+holds it: one whose question's `Holds:` line names it by link, `#N` or whole branch name, or, on a
+design's or reader's card, names a change its job builds from that design or research; a card its
+job asked holds its unbuilt work, never a PR the line leaves out. The immediate fix of a bug hurting someone now is never held: its own
 `immediate fix` job starts at once, options-only orders too, its PR waits on none of his cards, and
 the proper fix replaces it.
 
@@ -188,9 +189,12 @@ card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
-refused without it. The findings' `Holds:` line names, in each change's own words, every change of the
-order its options alter, or reads `Holds: none: <why>`, and his open card holds from landing,
-among the PRs of jobs working a change it names, only those its own job, its design's builder or a job briefed on its research carries and those it names by link, `#N` or their job's id, and a question kept with no `Holds:` line holds every change of those jobs; no card holds a flake fix. No option asks a
+refused without it. The findings' `Holds:` line names each PR its options alter, by link or `#N`, and each branch
+building an option, in backticks by its whole name; a reader's or design's also names, in each change's
+own words, every change of the order its options alter; or it reads `Holds: none: <why>`. His open card
+holds from landing each PR it names, a PR of a branch it names included, and, among the PRs of jobs working a change it names,
+only those its design's builder, a job briefed on its research or a job it names by id carries, while a question kept with no
+`Holds:` line holds every change of those jobs; no card holds a flake fix. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 

@@ -98,7 +98,7 @@ def answer() -> None:
 
 def test_landing_while_his_card_holding_it_is_open_is_refused_naming_the_card_to_wait_on(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
-    ask(None)
+    ask("ship the fix, on #42")
     reason = landing_guard.deny_reason(bash("stack-enqueue 42"))
     assert reason == landing_guard.CARD_REASON.format(key=drive_pr, cards=CARD)
     assert f"return `WAITING {CARD}`" in reason
@@ -116,7 +116,7 @@ def test_landing_a_pr_whose_job_waits_on_drive_prs_and_its_own_holds_none_card_p
 
 def test_the_immediate_fix_lands_while_his_card_on_the_proper_fix_is_open(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
-    ask(None)
+    ask("ship the fix, on #42")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["parts"] = [state.IMMEDIATE_FIX]
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
@@ -124,7 +124,7 @@ def test_the_immediate_fix_lands_while_his_card_on_the_proper_fix_is_open(drive_
 
 def test_landing_once_he_answered_the_card_passes(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
-    ask(None)
+    ask("ship the fix, on #42")
     answer()
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 
@@ -150,7 +150,7 @@ def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_h
     drive_pr: str, sprite: list[list[str]], run: Run, no_calls: None
 ) -> None:
     approve(drive_pr)
-    ask(None)
+    ask("ship the fix, on #42")
     lane = bash("stack-enqueue 41 42", session_id="sprite")
     assert landing_guard.deny_reason(lane) == landing_guard.CARD_REASON.format(key=drive_pr, cards=CARD)
     assert sprite == [["drive", "job", "held", "--json", "--pr=Forge-AI/monorepo#41", "--pr=Forge-AI/monorepo#42"]]

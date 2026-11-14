@@ -89,12 +89,13 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    push the branch with `ccx vcs ship --no-pr`, open no PR and return
    `BUILT <branch>, waits on <the card's waits id>`, by his words "build recommended options on
    branches until I select the option then build / turn my option into PRs". When `Decisions that
-   bind` names an open card's option to build, build that one the same way. While any open card of
-   his bears on your work, one your own job, the design you build or the
+   bind` names an open card's option to build, build that one the same way. While an open card your
+   own job asked is up, its `Holds:` line not reading none, or one the design you build or the
    reader your brief's `Researched:` line names asked whose `Holds:` line names a change your job
    builds or that was kept with no `Holds:` line, the `bash_guard` hook refuses a `ccx vcs ship`
-   that would open your PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
-   work does not land with a question of his on it unanswered. Only when his words ask for options
+   that would open your first PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
+   work does not land with a question of his on it unanswered; once your job has a PR up, his card
+   holds from landing only the PRs its `Holds:` line names by link, `#N` or whole branch name. Only when his words ask for options
    and no build, or the recommended option is no change you build, does the `ASK` end your run:
    keep it with `drive job report <your job> -` and return it, and the `one_line_result` hook refuses
    any other `ASK` ending a running builder's run.
@@ -592,7 +593,7 @@ Root cause: <the structure that lets the defect happen, by its proper terms; or 
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Simplest: <the option that is the simplest design doing his words, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
-Holds: <each change of the order its options alter, in that change's words; or none: <why no option alters what any job builds>>
+Holds: <each PR its options alter, by link or #N, and each branch building an option, in backticks; or none: <why no option alters what any job builds>>
 Replaces: <only on a question built on another open question of his: the path drive job ask printed for that question's ASK file>
 <the evidence, for the record: what was hit, what was measured, the cause, and what backs each option's description>
 ````
@@ -614,16 +615,16 @@ Replaces: <only on a question built on another open question of his: the path dr
   and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at least 0.8 sure and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
-- `Holds:` names, in each change's own words, every change of the order the options alter: a part
-  of the order, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask`
-  keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
-  working a change it names, only those its own job, its design's builder or a job briefed on its
-  research carries and those it names by link, `#N` or their job's id, so a card on another subject
-  holds no PR its options leave alone, and `Holds: none: <why>` holds nothing, whichever job
-  waits on it, while a question kept with no `Holds:` line holds every change of those jobs; no card holds
-  a flake fix. `drive job ask` refuses a block without the
-  line, or one naming no part of its job's orders. His pick: "Each question names the changes it holds,
-  kept with it".
+- `Holds:` names each PR the drive tracks that the options alter, by its link or `#N`, and each
+  branch building an option, in backticks by its whole name, as `j1-remote-config`; `drive job ask`
+  keeps a named PR with the parts it serves. His open card then holds from landing only the PRs it
+  names, a PR of that branch included, and your unbuilt work, so a card on another subject holds no
+  PR its options leave alone, nor a PR of your job it does not name; a card of a design or reader also
+  holds the PRs of a change it names that the builder its design or research starts carries, or a
+  job it names by id, while a question kept with no `Holds:` line holds every change of those jobs.
+  `Holds: none: <why>` holds nothing, whichever job waits on it; no card holds a flake fix. `drive
+  job ask` refuses a block without the line, or a builder's naming no PR the drive tracks and no
+  branch. His pick: "Each question names the changes it holds, kept with it".
 - A question built on another open question of his, such as a ceiling that assumes his pick on
   where the rows are counted, asks both choices on that question's card, its options pairing the
   picks, two to four in all, with `Replaces: <that question's ASK file>` under `Findings:`.

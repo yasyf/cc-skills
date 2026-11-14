@@ -27,7 +27,8 @@ for its repository says, then return `DONE <proof>`.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
   land arrived, since its recommended option never stands in for his answer. `drive pr add`,
   `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open whose `Holds:`
-  line names a change that any job carrying it builds, its own or one holding its landing, since a
+  line names it by link, `#N` or whole branch name, or a design's or reader's naming a change one of the
+  jobs carrying it builds from that design or research, since a
   card holds work only by its `Holds:` line and a card a job waits on otherwise only wakes it; the watch stops a lander already landing it when that card opens, and the lander
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which

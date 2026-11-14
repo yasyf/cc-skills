@@ -572,7 +572,7 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
 def test_a_pr_his_open_design_card_holds_draws_its_card_with_approve_saying_it_lands_once_he_answers(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds=None) | {"waits": "demo:j1-7-a"}]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds="the store, on #42") | {"waits": "demo:j1-7-a"}]
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["options"] == ["Approve", "Hold"]
     assert drawn["card"]["prs"][0]["lands"].startswith("you approve") and "you answer" in drawn["card"]["prs"][0]["lands"]
@@ -923,7 +923,7 @@ JOURNAL_QUESTION = "Which heads does the journal read?"
 JOURNAL_PICK = "Journal 15, the build's own heads"
 
 
-@pytest.mark.parametrize(("asker", "holds"), [("j1", None), ("j2", f"{URL}, the relay fix, then one exception release")])
+@pytest.mark.parametrize(("asker", "holds"), [("j1", "the journal heads, on #42"), ("j2", f"{URL}, the relay fix, then one exception release")])
 def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recommended_option_there_closes_the_card_and_starts_the_lander(
     drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], asker: str, holds: str | None
 ) -> None:
@@ -1203,7 +1203,7 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
 
 def test_a_stack_whose_every_pr_asking_his_tap_is_held_by_his_open_card_draws_one_card_saying_each_lands_once_he_answers(stacked: list[list[str]]) -> None:
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds=None) | {"waits": "demo:j1-7-a"}]
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds="the store, on #41 and #42") | {"waits": "demo:j1-7-a"}]
         data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert all("you answer" in row["lands"] for row in drawn["card"]["prs"][:2])
