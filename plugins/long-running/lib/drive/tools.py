@@ -394,24 +394,27 @@ def typed(action: argparse.Action) -> dict:
 
 
 def argv(words: tuple[str, ...], given: dict) -> list[str]:
-    """The drive command an op runs: its positionals by name, then each flag, a value glued to its flag so a value opening with a dash stays a value."""
+    """The drive command an op runs: its positionals by name, then each flag, a value glued to its flag so a value opening with a dash stays a value, and the positionals after the flags and a -- once one opens with a dash, so it stays a value too."""
     taken = fields(leaf(*words))
     if unknown := sorted(set(given) - set(taken)):
         raise DriveError(f"drive {' '.join(words)} takes no {', '.join(unknown)}; it takes {', '.join(taken)}")
-    line = [*words, *(item for field, action in taken.items() if not action.option_strings for item in listed(given.get(field)))]
+    positionals = [item for field, action in taken.items() if not action.option_strings for item in listed(given.get(field))]
+    flags: list[str] = []
     for field, action in taken.items():
         if (value := given.get(field)) is None or not action.option_strings:
             continue
         values = listed(value)
         if isinstance(action, argparse.BooleanOptionalAction):
-            line.append(action.option_strings[0 if value else 1])
+            flags.append(action.option_strings[0 if value else 1])
         elif action.nargs == 0:
-            line += [action.option_strings[0]] if value else []
+            flags += [action.option_strings[0]] if value else []
         elif action.nargs in ("+", "*") or isinstance(action.nargs, int):
-            line += [action.option_strings[0], *values]
+            flags += [action.option_strings[0], *values]
         else:
-            line += [f"{action.option_strings[0]}={item}" for item in values]
-    return line
+            flags += [f"{action.option_strings[0]}={item}" for item in values]
+    if any(item.startswith("-") for item in positionals):
+        return [*words, *flags, "--", *positionals]
+    return [*words, *positionals, *flags]
 
 
 def listed(value: object) -> list[str]:
@@ -478,7 +481,7 @@ def op_ran(name: str, group: str, ops: list[dict], index: int, said: list[str], 
 
 def refusal(index: int, words: tuple[str, ...], given: dict, why: str) -> str:
     """An op's refusal, naming it by its index, verb and opening words, with its fix."""
-    opening = given.get("words") or given.get("goal")
+    opening = " ".join(listed(given.get("words") or given.get("goal")))
     return f"{index} {' '.join(words)}{f' {json.dumps(render.cut(opening, 60), ensure_ascii=False)}' if opening else ''} refused: {why}"
 
 
@@ -496,7 +499,7 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
     out, usage, stopped = io.StringIO(), False, None
     with state.batch(name, dry=True) if dry_run else contextlib.nullcontext(), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         try:
-            code = cli.main([*line, "--drive", name])
+            code = cli.main([*words, "--drive", name, *line[len(words) :]])
         except SystemExit as stop:
             code, usage = stop.code, True
         except state.Rehearsed as reached:

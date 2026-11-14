@@ -558,7 +558,7 @@ def machine_chained(config: configparser.RawConfigParser, section: str) -> bool:
 def plan_sections(phrases: list[str], checkout: Path) -> list[dict]:
     """The sections of the cc-notes plans in the checkout whose headings or lines carry one of the phrases whole, in any case, plans best first, each with its plan, the headings above it and only the lines carrying one."""
     phrase = re.compile("|".join(rf"(?<!\w){re.escape(each)}(?!\w)" for each in phrases), re.IGNORECASE)
-    plans = json.loads(run(["ccn", "plan", "search", " ".join(phrases), "--limit", str(PLANS), "--json"], checkout))
+    plans = json.loads(run(["ccn", "plan", "search", "--limit", str(PLANS), "--json", "--", " ".join(phrases)], checkout))
     return [
         {"plan": plan["id"][:7], "title": plan["title"], "status": plan["status"], "heading": section["heading"], "text": "\n".join(lines)}
         for plan in plans

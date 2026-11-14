@@ -210,6 +210,33 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     assert listed["status"]["annotations"] == {"readOnlyHint": True}
 
 
+def test_each_verb_tool_answers_or_refuses_any_value_its_schema_takes_reading_each_dash_led_positional_as_a_value(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reads, "plan_sections", lambda phrases, checkout: [])
+    for tool in tools.verb_tools():
+        try:
+            said = cli.run_tool(tool["name"], dash_led(tool["inputSchema"]) | {"drive": demo, "dry_run": True})
+        except DriveError as refused:
+            said = str(refused)
+        assert "unrecognized arguments" not in said and "the following arguments are required" not in said, f"{tool['name']}: {said}"
+
+
+def dash_led(shape: dict) -> object:
+    if "enum" in shape:
+        return shape["enum"][0]
+    if choices := shape.get("oneOf") or shape.get("anyOf"):
+        return dash_led(choices[-1])
+    match shape["type"]:
+        case "object":
+            return {field: dash_led(each) for field, each in shape.get("properties", {}).items()}
+        case "array":
+            return [dash_led(each) for each in shape["items"].get("oneOf") or [shape["items"]] * shape.get("minItems", 1)]
+        case "boolean":
+            return False
+        case "integer":
+            return 1
+    return "--local"
+
+
 PLAN = {
     "id": "ec8bf71cc2820ecf8c5bb8b2695825c2cf3e7c54",
     "title": "One copy per store",
@@ -394,13 +421,21 @@ def test_search_plan_returns_the_plan_lines_carrying_its_words_under_their_headi
     assert said.splitlines() == ["== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 2: the catch-up", "The catch-up runs on start."]
     coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
     assert calls[:2] == [
-        (["ccn", "plan", "search", "catch-up start", "--limit", "5", "--json"], coordinator),
+        (["ccn", "plan", "search", "--limit", "5", "--json", "--", "catch-up start"], coordinator),
         (["ccn", "plan", "show", PLAN["id"], "--json"], coordinator),
     ]
+    calls.clear()
+    said = tools.run("search_plan", demo, {"words": ["catch-up", "--json"]})
+    assert said.splitlines() == ["== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 2: the catch-up", "The catch-up runs on start."]
+    assert calls[0] == (["ccn", "plan", "search", "--limit", "5", "--json", "--", "catch-up --json"], coordinator)
+    assert tools.run("search_plan", demo, {"dry_run": True, "words": ["catch-up", "--local"]}) == "1 drive plan search -- catch-up --local"
+    with pytest.raises(DriveError, match='^1 plan search "catch-up --local" refused: drive plan search takes no limit; it takes words$'):
+        tools.run("search_plan", demo, {"words": ["catch-up", "--local"], "limit": 5})
     assert run("plan", "search", "bucket") == (
         0,
         "== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 1: the bucket\nWrite each copy to the bucket.",
     )
+    assert run("plan", "search", "--", "--local", "bucket")[1].endswith("Write each copy to the bucket.")
     assert run("plan", "search", "deploy", "freeze") == (0, 'no plan the coordinator keeps in cc-notes has a line on "deploy", "freeze"')
     listed = {tool["name"]: tool for tool in tools.verb_tools()}["search_plan"]
     assert (listed["inputSchema"]["required"], listed["annotations"]) == (["words"], {"readOnlyHint": True})
