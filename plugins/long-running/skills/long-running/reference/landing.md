@@ -165,7 +165,7 @@ change".
    conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
    changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, and runs the job's proof file right after the install with those plugins' `bin/` first on
-   `PATH`, since no install reads a CI run; only when the file fails while a `yasyf/*` merge's CI on the default branch still runs does it follow that run to its end, with no deadline, and run the file once more.
+   `PATH` and the drive's own interpreter's folder next, so a bare `python3` imports what the drive imports, since no install reads a CI run; only when the file fails while a `yasyf/*` merge's CI on the default branch still runs does it follow that run to its end, with no deadline, and run the file once more.
    It keeps its output beside the job's report, takes `DONE` on exit 0 with output or `BLOCKED` otherwise,
    an exit 0 printing nothing among them, quoting the run's last `FAIL` line, else saying it printed none, and a
    nonzero exit ending on a `WAIT` line with no `FAIL` line takes no result and runs again once he is next heard,

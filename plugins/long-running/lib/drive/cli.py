@@ -5257,7 +5257,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, a yasyf/* one among them, and it keeps an"
             " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once,"
-            " wait until the drive's dashboard runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH with no wait for CI,"
+            " wait until the drive's dashboard runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH and the drive's own interpreter's folder next, so its bare python3 imports what the drive imports, with no wait for CI,"
             " and when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled,"
             " the run drive pr ci judges the merge by, follow that run to its end with no deadline and run the file once more, keep its output"
             " beside the job's report, take DONE on exit 0 and BLOCKED quoting its last FAIL line otherwise or when an install fails, no release will carry a merge,"

@@ -242,7 +242,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
-     with each changed plugin's `bin/` first on `PATH`, printing a line for each check it passed and
+     with each changed plugin's `bin/` first on `PATH` and the drive's own interpreter's folder next, so a
+     bare `python3` imports what the drive imports, printing a line for each check it passed and
      `FAIL <check>: <why>` for each that failed, the line the watch quotes:
      `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing, or whose Slack post or
      picture link does not open, such as a stand-in permalink. When only his next word can

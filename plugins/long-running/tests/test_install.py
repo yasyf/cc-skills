@@ -3,6 +3,7 @@ import os
 import plistlib
 import re
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -1121,6 +1122,14 @@ def test_a_proof_files_drive_calls_naming_no_drive_act_on_the_drive_it_proves_wh
     script.write_text(f"#!/bin/sh\nexec python3 -I -c '{resolving}' {Path(state.__file__).parents[1]}\n")
     install.prove("demo", "j1", 900)
     assert state.proof_path("demo", "j1").read_text() == "resolves demo\n"
+
+
+def test_a_proof_files_bare_python3_is_the_drives_own_interpreter_behind_the_plugin_bins(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    script.write_text('#!/bin/sh\necho "ran on ${PATH%%:*}"\ncommand -v python3\n')
+    install.prove("demo", "j1", 900)
+    assert state.proof_path("demo", "j1").read_text() == f"ran on /cache/long-running/1.0.3/bin\n{Path(sys.executable).parent / 'python3'}\n"
 
 
 def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
