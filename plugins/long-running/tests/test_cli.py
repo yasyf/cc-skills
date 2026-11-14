@@ -5280,7 +5280,8 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     ready = stage.Stage("ready", stage.LANDER, "its builder reported it and no check fails at abc1234, so the lander merges it with --admin while any still run")
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready
     waited = "Forge-AI/monorepo#42"
-    run("job", "add", "builder", "--order", "o1", "--goal", "guard")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: guard it")
+    run("job", "add", "builder", "--order", "o2", "--goal", "guard")
     assert run("pr", "add", PR, "--job", "j2", *LEAD)[0] == 0
     assert run("pr", "set", url, "--waits", waited)[0] == 0
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("waiting", stage.WAITED, f"it waits on {waited}, and the watch frees it once each ends")
