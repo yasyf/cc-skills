@@ -66,12 +66,17 @@ FOLLOWED_DEPTH = 4
 SCRIPT_FOLDER = re.compile(r'\$\(cd "\$\(dirname "(?:\$0|\$\{BASH_SOURCE\[0\]\})"\)([^"]*)" && pwd\)')
 JSON_FIELD = re.compile(r"\$\(jq -r '?((?:\.\w+)+)'? (\S+)\)")
 TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
-NO_WRITER = (
-    "No service account writes or deletes a team's data from a pass box yet, since the pass box role and every reader's"
-    f" grant are read-only: a pass that writes it {limits.CLUSTER_JOB}, and any other write or delete {limits.UNMADE}."
+BOX_ROUTE = (
+    "Run the step on a pass box of the team's env where Forge-AI/monorepo grants that box the step, as"
+    " `PASS_BOX_OPERATOR_ENVS` in `infra/rows/identity/pass-box-operator.ts` and `PASS_BOX_OPERATOR_RULES` in"
+    " `infra/rows/sandsql/workload.ts` do for a SandSQL namespace and `kubectl auth can-i` on the box confirms: launch it"
+    " with `AWS_PROFILE=<env profile> tools/ci pass-box launch --purpose <job> --type <instance type> --delete-after"
+    " <YYYY-MM-DD>`, run the script there with `AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`,"
+    " print counts and summaries and copy no team data back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A pass"
+    f" no box is granted {limits.CLUSTER_JOB}, and any other read or write {limits.UNMADE}."
 )
 TEAM_DATA = (
-    "refused: this reads or writes `{location}` where the job runs, and " + limits.TEAM_DATA_RULE + ". {route} " + NO_WRITER
+    "refused: this reads or writes `{location}` where the job runs, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE + " {route}"
     + " Only {forge} are read or written where a job runs, since they hold no team's data: a box's binary goes under"
     " `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
 )
@@ -81,18 +86,12 @@ SECRETS = {"secret", "secrets"}
 KUBECTL_VALUED = {"-n", "--namespace", "--context", "--cluster", "--user", "--kubeconfig", "-c", "--container", "-o", "--output", "-l", "--selector", "-f", "--filename", "--address", "-s", "--server", "--as"}
 SANDSQL_DATA = (
     "refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs, and with them"
-    " every read and write of their rows, and " + limits.TEAM_DATA_RULE + ". A pass box's cluster access grants no secrets,"
-    f" exec or port-forward, so no service account reaches a team's SandSQL rows from a box yet: a pass over them {limits.CLUSTER_JOB},"
-    f" and any other read or write {limits.UNMADE}."
+    " every read and write of their rows, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE
 )
 RUNS_ROUTE = (
-    "The one such read is `iris/teams/<team>/runs/` of a team the plat-prod cluster serves: launch a box with"
-    " `AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose <job> --type <instance type> --delete-after <YYYY-MM-DD>`,"
-    " then run the read and the work that needs it there with `AWS_PROFILE=plat-prod aws ssm send-command --region"
-    " us-west-2 --instance-ids <id> --document-name AWS-RunShellScript --parameters file://<scratch>/<name>.json`, whose"
-    ' commands load the runs reader\'s grant first, `eval "$(./ci runs-reader grant --team {team})"`, and copy no team data'
-    " back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A team another cluster serves, a staging read, or a"
-    " `./ci runs-reader grant` that refuses has no route: return `BLOCKED` naming the prefix, the team and its refusal."
+    "A team's `iris/teams/<team>/runs/` is read on the box under a `runs_read` grant, which a plat-prod box's script loads"
+    ' first with `eval "$(./ci runs-reader grant --team {team})"`; a grant that refuses returns `BLOCKED` naming the'
+    " prefix, the team and its refusal."
 )
 NO_ROUTE = (
     "No service account reads `{prefix}`, as the runs reader's grant reaches `iris/teams/<team>/runs/` alone: return"
@@ -459,7 +458,7 @@ def team_data(command: str, cwd: str) -> agents.Unjudged | None:
 
 
 def team_route(location: str) -> str:
-    """The route his words leave a read of a team's data: the runs reader on a plat-prod pass box for a team's `runs/`, and `BLOCKED` for every other prefix."""
+    """The grant a pass box reads a team's bucket prefix under: `runs_read` for a team's `runs/`, and none, so `BLOCKED`, for every other prefix."""
     found = TEAM_AREA.search(location)
     if found and found[2] == "runs":
         return RUNS_ROUTE.format(team=found[1])
