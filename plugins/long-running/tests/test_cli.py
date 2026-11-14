@@ -9388,13 +9388,30 @@ def test_an_answer_holds_each_open_card_of_any_job_or_order_jev_reads_it_as_chan
     jev.changes = {"j3-9": probability}
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     assert (f"  demo:j3-9  question  j3 o2  {LAYOUT}  {LAYOUT_CARD}" in capsys.readouterr().err) is held
-    [read] = [request for request in jev.asked if "changes" in request["questions"]]
+    [read] = [request for request in jev.asked if "changes1" in request["questions"]]
     assert read["state"]["answer"]["said"] == WORDS
-    assert read["questions"]["changes"]["label"]["options"] == {
-        "none": "It changes none of them.",
-        "j2-7": "Which topology? Options: Tree | Ring",
-        "j3-9": f"{LAYOUT} Options: One snapshot file | A map file beside each",
+    assert read["questions"] == {
+        "changes1": {
+            "label": {
+                "instructions": settled.CHANGES_QUESTION,
+                "options": {
+                    "none": "It changes none of them.",
+                    "j2-7": "Which topology? Options: Tree | Ring",
+                    "j3-9": f"{LAYOUT} Options: One snapshot file | A map file beside each",
+                },
+            }
+        }
     }
+
+
+def test_an_answer_is_read_against_more_open_cards_than_one_label_question_takes_in_even_pages_of_one_call(jev: Jev) -> None:
+    asked = {f"demo:j{number}-1": {"kind": "question", "title": f"Which store does part {number} use?", "options": ["Bucket", "Disk"]} for number in range(1, 274)}
+    jev.changes = {"j7-1": 0.5, "j200-1": 0.5}
+    assert settled.changed("Which store?", "Bucket everywhere", asked) == {"demo:j7-1", "demo:j200-1"}
+    [read] = [request for request in jev.asked if "changes1" in request["questions"]]
+    pages = [question["label"]["options"] for question in read["questions"].values()]
+    assert ([len(page) for page in pages], [next(iter(page)) for page in pages]) == ([137, 138], ["none", "none"])
+    assert [short for page in pages for short in page if short != "none"] == [f"j{number}-1" for number in range(1, 274)]
 
 
 def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question_and_waits_until_that_job_hears_his_words(
