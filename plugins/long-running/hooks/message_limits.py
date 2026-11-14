@@ -140,16 +140,10 @@ RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
 LINE_NUMBERS = re.compile(r":\d[\d-]*(?=[\s:]|$)")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
-ANCESTRY = (
-    "; an ancestry read, such as `git merge-base --is-ancestor`, measures that a build holds a commit when it is an ancestor,"
-    " never that a build lacks a pull request, since a hotfix carries the PR as a cherry-pick no ancestry read finds"
-)
-NAMED_SOURCE = "the read the posting handler names as {read}, as its own calls whose tool name and input hold its words" + ANCESTRY
-GIVEN = "its whole result is under {read}, given there once"
+CALLS_SOURCE = "the posting handler's own calls behind {names}"
+CARRIED = ", the report this post carries"
 DOC_SOURCE = "; {docs} is a doc, which backs what that doc says and nothing about what code does"
-CITED_SOURCE = "a record the post cites or a claim names, as the posting handler's newest call naming its seq; a record's line names its writer and, after >, the lanes it went to" + ANCESTRY
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
-CARRIED_SOURCE = "the report this post carries, another agent's words, as the posting handler's newest call naming its seq" + ANCESTRY
 
 
 class Warned(str):
@@ -807,7 +801,7 @@ def denial(reason: str) -> dict:
 
 
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, all with their whole results, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads a record again narrower hands Jev only that read; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, all with their whole results, so a report it carries reaches Jev only when a line of it names that report, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads a record again narrower hands Jev only that read. Each call goes once, in the item of the first read or record reaching it, which names every later read and record reaching it too, so Jev's prompt grows with the calls the claims reach, never with how many claims name one; a read or record reaching only calls an earlier item holds adds its name there and no item of its own. None for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
         return []
@@ -817,15 +811,18 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
     claimed = [read.removeprefix("record:") for read in reads if RECORD_READ.fullmatch(read)]
     seqs = list(dict.fromkeys([*cited, *claimed]))
     calls = own_calls(payload) if named or seqs else {}
-    given: dict[str, str] = {}
-    return [
-        *(
-            called(f"read:{index}", read, NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False)), calls, given)
-            for index, read in enumerate(named, 1)
-        ),
-        *(called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given, newest=True) for seq in seqs),
-        *([] if claims else [UNCLAIMED]),
-    ]
+    items: dict[str, dict] = {}
+    under: dict[str, str] = {}
+    for item, name, held in [
+        *((f"read:{index}", read, holding(read, calls)) for index, read in enumerate(named, 1)),
+        *((f"record:{seq}", f"record:{seq}", holding(seq, calls)[-1:]) for seq in seqs),
+    ]:
+        for earlier in dict.fromkeys(under[call] for call in held if call in under):
+            items[earlier]["read"].append(name)
+        if (new := [call for call in held if call not in under]) or not held:
+            items[item] = {"id": item, "read": [name], "calls": new}
+            under |= dict.fromkeys(new, item)
+    return [*(shown(item, calls, tool_input.get("record")) for item in items.values()), *([] if claims else [UNCLAIMED])]
 
 
 def own_calls(payload: dict) -> dict[str, str]:
@@ -844,18 +841,23 @@ def own_calls(payload: dict) -> dict[str, str]:
     return results
 
 
-def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str], newest: bool = False) -> dict:
-    """Jev's item for one read the claims name, or one record by its seq: each call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, or with newest only the last such call, so a narrower read again stands in for a wide one, since each call's result goes whole; each with its whole result or, for a call an earlier item gave, as given records, that item's id, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, a call of it opens."""
+def holding(read: str, calls: dict[str, str]) -> list[str]:
+    """The calls whose tool name and input hold every word of a read the claims name, or of a record's seq, case aside, a path's line numbers after its colon left out, oldest first, so a record's newest is the last and a narrower read of it stands in for a wide one, since each call's result goes whole."""
     words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
-    held = [call for call in calls if words and all(word in call.casefold() for word in words)][-1 if newest else 0 :]
-    docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
-    first = {call: given.setdefault(call, item) for call in held}
+    return [call for call in calls if words and all(word in call.casefold() for word in words)]
+
+
+def shown(item: dict, calls: dict[str, str], carried: str | None) -> dict:
+    """Jev's item for the calls a read or record reached first: each with its whole result, under every read and record behind it, the report the post carries named so, or none when no call holds the read. Its source names each doc, such as a report or a brief, a call of it opens."""
+    seqs = {name: name.removeprefix("record:") for name in item["read"] if RECORD_READ.fullmatch(name)}
+    behind = [f"record {seqs[name]}" + (CARRIED if seqs[name] == carried else "") if name in seqs else json.dumps(name, ensure_ascii=False) for name in item["read"]]
+    docs = list(dict.fromkeys(doc for call in item["calls"] for doc in DOC_PATH.findall(call)))
     return {
-        "id": item,
-        "read": read,
-        "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
-        "quote": "\n\n".join(f"{call}\n{calls[call] if first[call] == item else GIVEN.format(read=first[call])}" for call in held)
-        or f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}",
+        "id": item["id"],
+        "read": item["read"],
+        "source": CALLS_SOURCE.format(names=", ".join(behind)) + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
+        "quote": "\n\n".join(f"{call}\n{calls[call]}" for call in item["calls"])
+        or f"none: no call of the handler's own holds {json.dumps(seqs.get(item['read'][0], item['read'][0]), ensure_ascii=False)}",
     }
 
 

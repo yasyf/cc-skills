@@ -174,9 +174,10 @@ FINDINGS_RULES = """
 """
 READS_RULES = """
     Reads, by his words "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
-    evakuate them". Each claim in <action> names the read behind it. <evidence> holds each read as the handler's own
-    calls whose words it names, each with its whole result or the id of the item already holding it, and each record
-    the post cites or carries as the handler's newest call naming it. Check each claim against its reads together:
+    evakuate them". Each claim in <action> names the read behind it. <evidence> holds each call of the handler's own
+    once, with its whole result, under every read and record behind it: a read's calls hold its words in their tool
+    name and input, and a record's is its newest call naming its seq, whose line names its writer and, after >, the
+    lanes it went to; the report the post carries is another agent's words. Check each claim against its reads together:
     - A line about code, where it lives, what it does or why, stands only on a read of that code: its lines, a grep or
       a diff. A doc, report, brief, PR body, earlier answer, or a comment, panic, error or log message is a claim to
       test, never a read of the code.
@@ -184,6 +185,8 @@ READS_RULES = """
       read of it. A record backs a line telling what it says or where it went, and any other line only where it
       measured what that line says.
     - A line telling what a named source says, such as a job's report, stands on the read of that source.
+    - An ancestry read, such as `git merge-base --is-ancestor`, shows a build holds a commit, never that it lacks a pull
+      request, since a hotfix carries the PR as a cherry-pick no ancestry read finds.
     - A line about every case, with each, all, always, never or only, stands on a read of what decides it; an absence
       read from one metric, span or log series also needs a second source with no shared emitter.
     - A mechanism the line proposes stands on a read or his words showing the system controls that piece, by his words
@@ -232,9 +235,10 @@ class SentPosts(WorkflowState):
     found: dict[str, dict] = {}
 
 
-def handler_reads(read: str) -> str:
-    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results."""
-    named = {"id": "read:1", "read": "cloudrunner/inbox.go", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
+def handler_reads(read: str, *also: str) -> str:
+    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results, in one item that names each other read reaching the same calls."""
+    names = ["cloudrunner/inbox.go", *also]
+    named = {"id": "read:1", "read": names, "source": "the posting handler's own calls behind " + ", ".join(json.dumps(name) for name in names), "quote": read}
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS}})
 
 
@@ -543,14 +547,20 @@ def fitted(ctx: Context, judge: Decide, items: list[Evidence]) -> list[Evidence]
 
 
 def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
-    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, with as many of his words said at a time as `fitted` keeps, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules, own words and the rulings of his the checks add already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
+    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, with as many of his words said at a time as `fitted` keeps, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each item of reads by the characters it adds, largest first, with every read and record behind its calls, so a call several claims name is sized once. A post its reads cannot bring under, one whose rules, own words and the rulings of his the checks add already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
     ctx, judge, handed = jev_reads(evt, output, reason)
     try:
         prompt = str(judge.framed(ctx, fitted(ctx, judge, [*judge.items(ctx), *handed]), DETAIL_SHOWN))
     except (EvidenceIncomplete, TranscriptLoadError):
         return None
     reads = sorted(
-        ((f"{item['id']} {json.dumps(item['read'], ensure_ascii=False)}" if item["id"].startswith("read:") else item["id"], len(render_evidence([Evidence.model_validate(item)]) or "")) for item in output["reads"]),
+        (
+            (
+                " ".join([item["id"], *(json.dumps(name, ensure_ascii=False) for name in item.get("read", []) if name != item["id"])]),
+                len(render_evidence([Evidence.model_validate(item)]) or ""),
+            )
+            for item in output["reads"]
+        ),
         key=lambda pair: -pair[1],
     )
     if (cut := len(prompt) - JEV_PROMPT_CHARS) <= 0:
@@ -766,6 +776,15 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads("x" * JEV_PROMPT_CHARS)},
         ): Block(pattern=r'(?s)over the 10,000 it takes\. Cut your reads by at least \d,\d{3} .*read:1 "cloudrunner/inbox\.go" 10,\d{3}'),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": handler_reads("x" * JEV_PROMPT_CHARS, "inbox.go:57", "record:675192")},
+        ): Block(pattern=r'(?s)Cut your reads by at least \d,\d{3} .*\nread:1 "cloudrunner/inbox\.go" "inbox\.go:57" "record:675192" 10,\d{3}\n```'),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},

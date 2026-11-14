@@ -930,8 +930,7 @@ def test_jev_gets_each_call_a_claims_read_names_whole_a_read_naming_no_call_says
     ]
     backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
     assert (backed["id"], backed["quote"]) == ("read:1", f"{shown(*SHADOW)}\n\n{shown(*SHADOWED)}")
-    assert backed["source"] == message_limits.NAMED_SOURCE.format(read='"lower.rs:295-305"')
-    assert "is a doc" not in backed["source"]
+    assert backed["source"] == message_limits.CALLS_SOURCE.format(names='"lower.rs:295-305"')
     assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
     assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
     assert doc["source"].endswith(message_limits.DOC_SOURCE.format(docs='["/drive/reports/j1880.md"]'))
@@ -953,30 +952,45 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_comman
     asked = {"command": "drive status o937 2>&1 | head -80"}
     tool(lane_of(transcript), "Bash", asked, pointer.format(saved=saved, preview="o937: long-running 1.0.697 installed"))
     claims = [{"claim": "#4817 merged", "read": "drive status o937"}, {"claim": "#4817 merged", "read": str(saved)}]
-    by_command, by_path = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
-    call = f"Bash {json.dumps(asked)} {saved}"
-    assert (by_command["quote"], by_path["quote"]) == (f"{call}\n{saved.read_text()}", f"{call}\n{message_limits.GIVEN.format(read='read:1')}")
+    (read,) = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
+    assert (read["read"], read["quote"]) == (["drive status o937", str(saved)], f"Bash {json.dumps(asked)} {saved}\n{saved.read_text()}")
 
 
-def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_names_it_beside_its_own_calls_whole(
+def test_a_call_two_reads_hold_reaches_jev_once_in_the_first_reads_item_which_names_the_second_beside_its_own_calls_whole(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(2000)) + "]}"
     compound = ("Bash", {"command": "cc-slack drive-cards --drive durable-agents | grep release; tools/ci bk api /pipelines/release/builds/15427"}, cards)
     build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427/jobs"}, '{"state": "passed"}')
+    cited = ("Bash", {"command": "cci show 675192"}, "675192 report root>communicator release 15427 passed")
     lane = lane_of(transcript)
-    for each in (compound, build):
+    for each in (compound, build, cited):
         tool(lane, *each)
     claims = [
         {"claim": "the release build passed", "read": "tools/ci bk api /pipelines/release/builds/15427"},
         {"claim": "one release card is open", "read": "cc-slack drive-cards --drive durable-agents"},
+        {"claim": "the root heard it passed", "read": "cci show 675192"},
+        {"claim": "the root heard it passed", "read": "record:675192"},
     ]
     reads = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
-    assert [(read["id"], read["quote"]) for read in reads] == [
-        ("read:1", f"{shown(*compound)}\n\n{shown(*build)}"),
-        ("read:2", f"{compound[0]} {json.dumps(compound[1])}\n{message_limits.GIVEN.format(read='read:1')}"),
+    assert [(read["id"], read["read"], read["quote"]) for read in reads] == [
+        ("read:1", [claims[0]["read"], claims[1]["read"]], f"{shown(*compound)}\n\n{shown(*build)}"),
+        ("read:3", [claims[2]["read"], "record:675192"], shown(*cited)),
     ]
+    assert reads[1]["source"] == message_limits.CALLS_SOURCE.format(names='"cci show 675192", record 675192')
     assert sum(read["quote"].count(cards) for read in reads) == 1
+
+
+@pytest.mark.parametrize("many", [1, 100])
+def test_one_call_reaches_jev_as_one_item_however_many_claims_name_a_read_of_it(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], many: int
+) -> None:
+    states = "\n".join(f"{56000 + index} OPEN APPROVED" for index in range(many))
+    asked = {"command": "; ".join(f"gh pr view {56000 + index} -R Forge-AI/monorepo --json state,reviewDecision" for index in range(many))}
+    tool(lane_of(transcript), "Bash", asked, states)
+    claims = [{"claim": f"#{56000 + index} is open and approved", "read": f"gh pr view {56000 + index} -R Forge-AI/monorepo"} for index in range(many)]
+    (read,) = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
+    assert (read["id"], len(read["read"]), read["quote"]) == ("read:1", many, shown("Bash", asked, states))
 
 
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
@@ -1007,13 +1021,13 @@ def test_a_record_the_post_cites_or_a_claim_names_reaches_jev_as_the_handlers_ne
     claims = [{"claim": "A pack deletes the run's values in its range", "read": "record:675300"}]
     reads = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="673870", claims=claims)
     assert [(read["id"], read["source"], read["quote"]) for read in reads] == [
-        ("record:675192", message_limits.CITED_SOURCE, shown(*narrower)),
-        ("record:675111", message_limits.CITED_SOURCE, 'none: no call of the handler\'s own holds "675111"'),
-        ("record:675300", message_limits.CITED_SOURCE, shown(*one)),
+        ("record:675192", message_limits.CALLS_SOURCE.format(names="record 675192"), shown(*narrower)),
+        ("record:675111", message_limits.CALLS_SOURCE.format(names="record 675111"), 'none: no call of the handler\'s own holds "675111"'),
+        ("record:675300", message_limits.CALLS_SOURCE.format(names="record 675300"), shown(*one)),
     ]
     assert bodies["675192"] not in json.dumps(reads)
     named = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="673870", claims=[*claims, {"claim": "A pack deletes the run's values", "read": "record:673870"}])
-    assert (named[-1]["id"], named[-1]["source"], named[-1]["quote"]) == ("record:673870", message_limits.CARRIED_SOURCE, shown(*both))
+    assert (named[-1]["id"], named[-1]["source"], named[-1]["quote"]) == ("record:673870", message_limits.CALLS_SOURCE.format(names="record 673870" + message_limits.CARRIED), shown(*both))
     assert evidence(transcript, monkeypatch, capsys, text="On it; next line by 5:40 AM.", thread_ts="1.2") == [message_limits.UNCLAIMED]
 
 
