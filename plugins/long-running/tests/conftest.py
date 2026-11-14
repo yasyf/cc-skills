@@ -153,6 +153,10 @@ CUT_PICK = {
     "created_at": "2026-11-14T06:11:19Z",
 }
 CUT_TAP = CUT_PICK | {"id": "7ab1e20" + "0" * 33, "body": "The full release"}
+SANDSQL_SOAK = {
+    "freeze": {"id": "k3d8q2m7xa", "holding": ["5cbffb70144a2d1e9c8b7a6f5e4d3c2b1a0f9e8d"], "agentsOnly": True},
+    "text": "freeze k3d8q2m7xa: SandSQL on plat-usw2-prod at commits holding 5cbffb70144a, for agents' starts only until Nov 21, 12:00 AM for 3e6822d, set by Yasyf Mohamedali (to end it sooner, ask Yasyf Mohamedali, its owner, to run `tools/ci release unfreeze k3d8q2m7xa`). Staging still ships.",
+}
 ACME_CUT = "tools/ci release start --hotfix 101 --only api --from releases/2026-11-13/29 --without plat-usw2-staging,plat-usw2-prod,tnt-usw2-north --order {}"
 KEPT_BRIEFS = itertools.count(1)
 
@@ -339,6 +343,14 @@ def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[d
         closed = state.new_close("answered", answers[0]["body"], CUT_LINK, seq="7")
         data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), answers[0]["title"], said, card=CUT_LINK, closed=closed))
         data["answers"] |= {answer["id"]: {"words": answer["body"], "link": CUT_LINK, "at": said, "said": said, "cards": {}, "jobs": {}} for answer in answers}
+
+
+@pytest.fixture(autouse=True)
+def frozen(monkeypatch: pytest.MonkeyPatch) -> dict[tuple[str, ...], list[dict]]:
+    """The release freezes `tools/ci release freezes --json -- <words>` reads as holding each start, by its words after `ci release`: none until a test adds one."""
+    holding: dict[tuple[str, ...], list[dict]] = {}
+    monkeypatch.setattr(brief, "freezes", lambda data, words: holding.get(tuple(words), []))
+    return holding
 
 
 @pytest.fixture(autouse=True)

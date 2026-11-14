@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SANDSQL_SOAK, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -3481,6 +3481,22 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     assert f'drive job ask: kept the card unsettled as "{marked}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
     assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (marked, [question["card"]])
+
+
+def test_job_ask_refuses_a_card_offering_on_any_option_a_start_a_standing_release_freeze_holds(
+    asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], frozen: dict[tuple[str, ...], list[dict]]
+) -> None:
+    described = "  Each journal upload in `journal/upload.go` also writes a map object beside its file in the team's bucket, and `site/journal.js` reads each map, then its page range; every journal upload pays one more object write."
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace(described, f"{described} It ships with `release start --targets sandsql --from 9413765ebd71`."))
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
+    assert capsys.readouterr().out == "ready\n"
+    frozen[("start", "--targets", "sandsql", "--from", "9413765ebd71")] = [SANDSQL_SOAK]
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
+    assert (
+        "\n- a release freeze standing now holds `ci release start --targets sandsql --from 9413765ebd71`, so nothing starts or offers it"
+        f" until it ends or its owner lifts it: {SANDSQL_SOAK['text']}"
+    ) in capsys.readouterr().err
 
 
 def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading(

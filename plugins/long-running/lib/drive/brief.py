@@ -1,4 +1,5 @@
 import functools
+import json
 import os
 import re
 import sys
@@ -121,7 +122,7 @@ RELEASE = re.compile(r"^Release:[ \t]*(.+)$", re.MULTILINE)
 MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
-RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order"})
+RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
 RELEASE_ASIDE = frozenset({"json"})
 RELEASE_APPROVAL = (
     "A release starts only on words of his ordering it, whatever card or thread they answer, or on an incident's order, the"
@@ -242,6 +243,33 @@ def release_refusal(command: str) -> str | None:
 
 
 def approval_refusal(command: str, data: dict) -> str | None:
+    """Why the one release a command starts may not start: the answer of his its --order names does not order it, by order_refusal(), or a release freeze standing now holds it, by freeze_refusal()."""
+    return order_refusal(command, data) or freeze_refusal(command, data)
+
+
+def freeze_refusal(command: str, data: dict) -> str | None:
+    """Why the one release a command starts may not start or be offered on his card: a release freeze standing now holds it from this session, at the commit it cuts and on the stacks it picks, or the freezes could not be read; None when none holds it."""
+    from drive import reads
+
+    [words] = [words for words in simple_commands(command) if release_flags(words) is not None]
+    try:
+        held = freezes(data, words[2:])
+    except (state.DriveError, reads.ReadError) as error:
+        return f"refused: the release freezes that could hold `{command}` could not be read ({error}), so nothing starts or offers it until `tools/ci release freezes -- {' '.join(words[2:])}` reads"
+    if not held:
+        return None
+    return f"refused: a release freeze standing now holds `{command}`, so nothing starts or offers it until it ends or its owner lifts it: {'; '.join(each['text'] for each in held)}"
+
+
+def freezes(data: dict, words: list[str]) -> list[dict]:
+    """Each release freeze standing now that holds the release start or hotfix these words after `ci release` name, started from this session, as `tools/ci release freezes --json -- <words>` reads the release ledger from the drive's checkout: its ledger row under freeze and its line under text."""
+    from drive import orca, reads
+
+    checkout = orca.checkout(data["name"], data["roles"]["coordinator"]["cwd"])
+    return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "freezes", "--json", "--", *words], checkout))
+
+
+def order_refusal(command: str, data: dict) -> str | None:
     """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and `settled.unordered` reads it as ordering another release, or Jev gave no answer."""
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):

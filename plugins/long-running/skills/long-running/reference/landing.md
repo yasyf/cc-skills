@@ -517,8 +517,13 @@ the patch.
   cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
   change merges without its writer; a stack's bottom waits for its top". Jev reads his approval once:
   `drive job add --release` refuses a start whose `--order <id>` Jev does not read as his order or
-  pick to release, unless the answer is an incident's, labelled `incident`, and the `landing_guard`
-  hook refuses every `ci release start` and `hotfix` a drive session or agent runs itself.
+  pick to release, unless the answer is an incident's, labelled `incident`, or one a release freeze
+  standing now holds, as `tools/ci release freezes --json -- <its words>` reads the release ledger,
+  and the `landing_guard` hook refuses every `ci release start` and `hotfix` a drive session or agent
+  runs itself. A release-order rule, such as no SandSQL cut to production before its staging soak,
+  is an agents-only release freeze on the commit it holds, `tools/ci release freeze <stacks>
+  --holding <full sha> --agents-only --reason <why> --until <its end>`, set from a job's session, so
+  every agent's start and every card offering one refuses it while people's starts go through.
 - A job never approves a release he has not approved, and never touches one he started himself. An
   incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
 - Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what

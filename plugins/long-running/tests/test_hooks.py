@@ -19,7 +19,7 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, kept_brief, label, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_SOAK, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, kept_brief, label, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1322,6 +1322,23 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
         "refused: Jev did not say whether his answer ac61348 approves this release (no jev decision within 20s)"
     )
     assert len(jev.asked) == 3
+
+
+def test_a_release_his_answer_orders_never_starts_while_a_release_freeze_holds_it_and_a_manual_starts_stack_and_commit_read_as_values(
+    demo: str, recorded: Answers, jev: Jev, frozen: dict[tuple[str, ...], list[dict]]
+) -> None:
+    recorded.shown = {RELEASE_PICK["id"][:7]: RELEASE_PICK}
+    start = "tools/ci release start sandsql --only sandsql --emergency --order 5d0c4a1"
+    jev.picks("5d0c4a1")
+    assert brief.approval_refusal(start, state.load("demo")) is None
+    frozen[("start", "sandsql", "--only", "sandsql", "--emergency", "--order", "5d0c4a1")] = [SANDSQL_SOAK]
+    jev.picks("5d0c4a1")
+    assert brief.approval_refusal(start, state.load("demo")) == (
+        f"refused: a release freeze standing now holds `{start}`, so nothing starts or offers it until it ends or its owner lifts it: {SANDSQL_SOAK['text']}"
+    )
+    assert brief.started("tools/ci release start --manual --stack runtime-api-next/plat-usw2-prod --commit 55b9c39c --rollback") == [
+        {"manual": ("true",), "stack": ("runtime-api-next/plat-usw2-prod",), "commit": ("55b9c39c",), "rollback": ("true",)}
+    ]
 
 
 RELEASE_HOLD = {
