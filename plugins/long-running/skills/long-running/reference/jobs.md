@@ -91,7 +91,11 @@ The `agent_brief` hook sets each Agent call to the shape the drive runs it: it d
 named agent joins the agent team and never wakes on events, drops Fable from any agent but
 `long-running:designer`, starts a design job as `long-running:designer` whatever type the call
 names, and drops `sonnet` or `haiku` from any lane of a build order or of an answer order you marked
-`--complex`, so it runs on its definition's model. It refuses a builder whose brief lacks `Serves:`
+`--complex`, so it runs on its definition's model. It refuses a reader, builder or designer whose
+prompt reads in no brief file of the drive's `jobs/` folder, where `drive job brief`, a handoff and a
+launch write every brief, naming each path the prompt names that does not exist and
+`drive job brief <j>`, so a prompt typed whole or naming a brief nothing wrote starts no agent. It
+refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an

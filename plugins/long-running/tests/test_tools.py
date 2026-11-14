@@ -1411,7 +1411,7 @@ def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_not
     )
     assert state.load(demo)["orders"]["o1"]["owner"] == "meta"
     written = path.read_text()
-    assert written.startswith("Order (his words): do a pass on the tools\nServes: drive tooling\nGoal: make the verbs MCP tools\n")
+    assert written.startswith(f"Order (his words): do a pass on the tools\nFrom: slack:D123/{THREAD}\nServes: drive tooling\nGoal: make the verbs MCP tools\n")
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n" in written
     assert "cci owner 660781" not in written
     assert written.endswith("Drive: demo, order o1, job j2\n")

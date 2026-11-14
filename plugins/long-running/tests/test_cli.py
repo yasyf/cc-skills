@@ -6138,7 +6138,7 @@ def test_job_brief_carries_each_slack_message_its_orders_link_and_refuses_on_one
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
     posted = {ts: slack.sent_at({"ts": ts}).isoformat(timespec="seconds") for ts in (alert, his)}
     assert written.read_text().startswith(
-        f"Order (his words): {alert_link}\no2, which it also carries: and <{his_link}|this>, as {alert_link} says\nLinked messages:\n"
+        f"Order (his words): {alert_link}\no2, which it also carries: and <{his_link}|this>, as {alert_link} says\nFrom: terminal\nLinked messages:\n"
         f"- {alert_link}, posted by Datadog at {posted[alert]}:\n  Runner refusing runs whose journal cannot open\n"
         f"- {his_link}, posted by him at {posted[his]}:\n  this one & the next\n  Shared from PagerDuty: the journal is gone\nServes: his order\n"
     )
