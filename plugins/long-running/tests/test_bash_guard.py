@@ -7,7 +7,7 @@ from pathlib import Path
 
 import bash_guard
 import pytest
-from conftest import SESSION
+from conftest import SESSION, commit_files, git_in
 from drive import agents, github, install, land, limits, orca, settled, state, view
 from drive.orca import OrcaError
 
@@ -355,6 +355,17 @@ def test_any_sessions_hook_helper_restart_waits_for_his_install_now_tap_on_the_c
 
 R2 = "https://4287159177eecb5f0a7e87cfe96ccde5.r2.cloudflarestorage.com"
 BLOBS = "s3://artifacts-prod/iris/teams/team_01demo/runs/blobs"
+TEAM_BUCKETS = ["artifacts-prod/", "frg-plat-usw2-prod-sandsql-replication/", "frg-plat-usw2-staging-microvm-artifacts/projects/"]
+CI_POINTER = "aws s3 cp s3://frg-ci-cache/cache-seeds/ci-go-pointer/dev -"
+
+
+@pytest.fixture
+def monorepo(tmp_path: Path) -> str:
+    checkout = tmp_path / "monorepo"
+    checkout.mkdir()
+    git_in(checkout, "init", "-q", "-b", "dev")
+    git_in(checkout, "update-ref", "refs/remotes/origin/dev", commit_files(checkout, "the team buckets", {"release/team-buckets.generated.json": json.dumps(TEAM_BUCKETS)}))
+    return str(checkout)
 
 
 def scratch(tmp_path: Path, folder: str) -> Path:
@@ -380,30 +391,31 @@ def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass
     assert bash_guard.deny_reason(bash(replay, cwd=str(root), session="ordinary")) is None
 
 
-def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_box_call_is_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_box_call_is_not(demo: str, monorepo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     refused = {
         "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "artifacts-prod/iris/teams/team_01demo/sessions/",
         f"aws --endpoint-url {R2} s3 cp --recursive --exclude '*' --include '*.ltx' s3://artifacts-prod/iris/teams/t/runs/wal/ ./wal": "artifacts-prod/iris/teams/t/runs/wal/",
         "AWS_PROFILE=plat-prod aws s3 sync s3://frg-plat-usw2-prod-sandsql-replication/wal/team_1/ .": "frg-plat-usw2-prod-sandsql-replication/wal/team_1/",
-        "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com",
+        "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com/iris/teams/t/runs/blobs/x",
         "aws s3 cp s3://forge-globex-artifact-bucket/iris/teams/t/x -": "forge-globex-artifact-bucket/iris/teams/t/x",
         'B=artifacts-prod; for d in a b; do aws s3 cp "s3://$B/iris/teams/t/runs/blobs/$d" .; done': "artifacts-prod/iris/teams/t/runs/blobs/$d",
         "rclone copy r2:artifacts-prod/iris/teams/t/runs/ ./runs --transfers 32": "artifacts-prod/iris/teams/t/runs/",
         "gsutil -m cp gs://customer-bucket/iris/teams/t/x .": "customer-bucket/iris/teams/t/x",
         "azcopy copy 'https://acct.blob.core.windows.net/iris/teams/t/x' ./x": "acct/iris/teams/t/x",
-        "sh -c 'aws s3 ls s3://$BUCKET/iris/'": "$BUCKET/iris/",
         "aws s3 presign s3://frg-plat-usw2-prod-forge-app-bucket/iris/teams/t/runs/blobs/x --expires-in 1800": "frg-plat-usw2-prod-forge-app-bucket/iris/teams/t/runs/blobs/x",
         "AWS_PROFILE=plat-staging aws s3 cp s3://frg-plat-usw2-staging-microvm-artifacts/projects/proj_01demo/code.zip -": "frg-plat-usw2-staging-microvm-artifacts/projects/proj_01demo/code.zip",
         "aws s3 ls s3://frg-plat-usw2-staging-microvm-artifacts/": "frg-plat-usw2-staging-microvm-artifacts/",
     }
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     for command, location in refused.items():
-        assert bash_guard.deny_reason(bash(command, **builder)).startswith(f"refused: this reads or writes `{location}` where the job runs"), command
+        assert bash_guard.deny_reason(bash(command, cwd=monorepo, **builder)).startswith(f"refused: this reads or writes `{location}` where the job runs"), command
     passed = [
-        "aws s3 cp s3://frg-ci-cache/cache-seeds/ci-go-pointer/dev -",
+        CI_POINTER,
+        "aws s3 cp s3://frg-ci-cache/iris-evals/summary/latest.json -",
         "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/latest.json -",
         "aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/stacks/api/",
         "aws --profile plat-prod-read s3api list-objects-v2 --bucket frg-plat-usw2-prod-desktop-release-origin --prefix iris-desktop/by-key/",
+        "sh -c 'aws s3 ls s3://$BUCKET/iris/'",
         "AWS_PROFILE=plat-staging aws s3 presign s3://frg-plat-usw2-staging-microvm-artifacts/pass-box/searchbench/searchbench.gz --expires-in 1800 --region us-west-2",
         "AWS_PROFILE=plat-prod aws s3 cp s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz -",
         "AWS_PROFILE=plat-prod aws s3 cp ./ci-linux.gz s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz",
@@ -415,31 +427,43 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
         "cat > /s/box.sh <<'EOF'\naws s3 cp s3://artifacts-prod/iris/teams/t/runs/blobs/x .\nEOF",
         "grep -rn artifacts-prod /work/docs",
     ]
-    assert [bash_guard.deny_reason(bash(command, **builder)) for command in passed] == [None] * len(passed)
+    assert [bash_guard.deny_reason(bash(command, cwd=monorepo, **builder)) for command in passed] == [None] * len(passed)
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/")).startswith("refused: this reads")
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="ordinary")) is None
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/", session="sprite")).startswith("refused: this reads")
 
 
-def test_a_script_setting_its_bucket_from_its_own_json_table_is_judged_by_the_bucket_the_table_names(demo: str, tmp_path: Path) -> None:
-    tools = tmp_path / "checkout" / "tools"
-    tools.mkdir(parents=True)
+def test_a_script_setting_its_bucket_from_its_own_json_table_is_judged_by_the_bucket_the_table_names(demo: str, monorepo: str) -> None:
+    tools = Path(monorepo) / "tools"
+    tools.mkdir()
     (tools / "artifact.sh").write_text(
         '#!/bin/bash\nREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\nTABLE="$REPO_ROOT/tools/artifacts.json"\n'
         "BUCKET=\"$(jq -r '.bucket' \"$TABLE\")\"\naws s3api put-object --bucket \"$BUCKET\" --key \"$2/claim\" --body /dev/null\n"
     )
-    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(tools.parent)}
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": monorepo}
     hashed = bash("tools/artifact.sh hash sandsql-images-linux-amd64", **builder)
     (tools / "artifacts.json").write_text(json.dumps({"bucket": "frg-ci-cache"}))
     assert bash_guard.deny_reason(hashed) is None
     (tools / "artifacts.json").write_text(json.dumps({"bucket": "artifacts-prod"}))
-    assert bash_guard.deny_reason(hashed).startswith("refused: this reads or writes `artifacts-prod` where the job runs")
-    (tools / "artifacts.json").write_text(json.dumps({"buckets": ["frg-ci-cache"]}))
-    assert bash_guard.deny_reason(hashed).startswith(f"refused: this reads or writes `$(jq -r '.bucket' {tools.resolve()}/artifacts.json)` where the job runs")
+    assert bash_guard.deny_reason(hashed).startswith("refused: this reads or writes `artifacts-prod/$2/claim` where the job runs")
+    (tools / "artifacts.json").write_text(json.dumps({"buckets": ["artifacts-prod"]}))
+    assert bash_guard.deny_reason(hashed) is None
 
 
-def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_for_every_other_prefix(demo: str) -> None:
+def test_a_bucket_call_from_a_checkout_holding_no_team_bucket_list_is_refused_until_it_runs_from_one(demo: str, monorepo: str) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    reason = bash_guard.deny_reason(bash(CI_POINTER, **builder))
+    assert reason.startswith("refused: this reads or writes `frg-ci-cache/cache-seeds/ci-go-pointer/dev` where the job runs, and the checkout it runs in holds no `release/team-buckets.generated.json` at origin/dev")
+    assert "Run it from a Forge-AI/monorepo checkout" in reason
+    assert bash_guard.deny_reason(bash(f"cd {monorepo} && {CI_POINTER}", **builder)) is None
+    computed = 'B=$(jq -r .bucket tools/artifacts.json); aws s3 ls "s3://$B/cache-seeds/"'
+    assert bash_guard.deny_reason(bash(computed, **builder)).startswith("refused: this reads or writes `$B/cache-seeds/` where the job runs")
+    assert bash_guard.deny_reason(bash(computed, cwd=monorepo, **builder)) is None
+    assert f'"{limits.IRIS_BLOBS_QUOTE}"' in bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/sessions/", **builder))
+
+
+def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_for_every_other_prefix(demo: str, monorepo: str) -> None:
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     runs = bash_guard.deny_reason(bash("aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/runs/blobs/x -", **builder))
     assert "A team's `iris/teams/<team>/runs/` is read on the box under a `runs_read` grant" in runs
@@ -448,12 +472,11 @@ def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_
     blocked = {
         "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "iris/teams/team_01demo/sessions/",
         "aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/blobs/team_01demo/x -": "iris/teams/team_01demo/blobs/",
-        "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com",
+        "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/sessions/x out": "iris/teams/t/sessions/",
         "AWS_PROFILE=plat-prod aws s3 sync s3://frg-plat-usw2-prod-sandsql-replication/wal/team_1/ .": "frg-plat-usw2-prod-sandsql-replication/wal/team_1/",
-        "sh -c 'aws s3 ls s3://$BUCKET/iris/'": "$BUCKET/iris/",
     }
     for command, prefix in blocked.items():
-        reason = bash_guard.deny_reason(bash(command, **builder))
+        reason = bash_guard.deny_reason(bash(command, cwd=monorepo, **builder))
         assert f"No service account reads `{prefix}`" in reason, command
         assert "return `BLOCKED` naming the prefix and the team" in reason, command
         assert "never a person's grant such as `tools/ci pass-box-creds`" in reason, command
@@ -472,7 +495,6 @@ TEAM_WRITES = [
     "rclone delete r2:artifacts-staging/iris/teams/team_x/runs/",
     "gsutil rm gs://customer-bucket/iris/teams/team_x/runs/a.ltx",
     "azcopy copy ./a.ltx https://acct.blob.core.windows.net/iris/teams/team_x/runs/a.ltx",
-    "az storage container delete --account-name acct --name iris",
     "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- aws s3 cp ./a.ltx s3://artifacts-staging/iris/teams/team_x/runs/a.ltx",
 ]
 SANDSQL_STEPS = {

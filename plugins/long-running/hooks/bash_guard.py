@@ -1,10 +1,11 @@
 import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from functools import reduce
+from functools import cache, reduce
 from itertools import pairwise
 from pathlib import Path
 
@@ -38,15 +39,7 @@ UNSEEN_PROMPT = (
     " run nothing and return BLOCKED naming it. Any other tool that asks, such as computer use's `request_access`, gets"
     " no answer either: reach what it does another way, or return BLOCKED naming the call"
 )
-FORGE_LOCATIONS = (
-    "frg-ci-cache/",
-    "frg-core-usw2-artifacts-internal-release-artifacts/",
-    "frg-core-usw2-audit-datadog-log-archive/",
-    "frg-core-usw2-root-pulumi-state/",
-    "frg-plat-usw2-prod-desktop-release-origin/",
-    "frg-plat-usw2-prod-microvm-artifacts/pass-box/",
-    "frg-plat-usw2-staging-microvm-artifacts/pass-box/",
-)
+TEAM_BUCKETS = "origin/dev:release/team-buckets.generated.json"
 STORAGE_TOOLS = {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"}
 SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage",)}
 S3API_OBJECTS = re.compile(r"object|upload|part")
@@ -77,8 +70,16 @@ BOX_ROUTE = (
 )
 TEAM_DATA = (
     "refused: this reads or writes `{location}` where the job runs, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE + " {route}"
-    + " Only {forge} are read or written where a job runs, since they hold no team's data: a box's binary goes under"
-    " `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, and the box fetches it through a presigned URL"
+    + " It holds a team's data, as its key is under `iris/teams/` or Forge-AI/monorepo's `release/team-buckets.generated.json`"
+    " at origin/dev, which infra writes from each bucket's grants and rows, lists it or its folder. A box's binary goes"
+    " under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, which that list leaves out, and the box fetches"
+    " it through a presigned URL"
+)
+UNLISTED = (
+    "refused: this reads or writes `{location}` where the job runs, and the checkout it runs in holds no"
+    " `release/team-buckets.generated.json` at origin/dev to say whether that bucket holds a team's data, so it is refused"
+    " as one that does. Run it from a Forge-AI/monorepo checkout, after `git fetch origin dev` in one fetched before that"
+    " list landed: the list names each bucket and folder holding a team's data"
 )
 SANDSQL_NAMESPACES = {"sandsql", "sandsql-system", "sandsql-inbox"}
 SANDSQL_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
@@ -349,12 +350,12 @@ def json_field(value: str, place: Place) -> str:
 
 
 def unwrapped(words: list[str], place: Place) -> list[str]:
-    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`."""
+    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`; a variable assigned a command's output, which `templates` splits at `$(` and leaves as `$`, stays as written."""
     while words:
         head = Path(words[0]).name
         if ASSIGNMENT.fullmatch(words[0]):
             name, value = words[0].split("=", 1)
-            place.env[name] = json_field(value, place)
+            place.env[name] = f"${name}" if value == "$" else json_field(value, place)
             words = words[1:]
         elif words[0] in KEYWORDS:
             words = words[1:]
@@ -405,11 +406,14 @@ def shell_shebang(path: Path) -> bool:
 
 
 def bucket_locations(words: list[str]) -> list[str]:
-    """The bucket or blob locations a command reads or writes, as `<bucket>/<key>`: each it names through the AWS, Google Cloud or Azure CLI, s5cmd, gsutil, rclone or azcopy, whatever it does there, and the bucket and copy source of each s3api operation on objects."""
+    """The bucket or blob locations a command reads or writes, as `<bucket>/<key>`: each it names through the AWS, Google Cloud or Azure CLI, s5cmd, gsutil, rclone or azcopy, whatever it does there, and the bucket with its key or prefix and the copy source of each s3api operation on objects."""
     tool = Path(words[0]).name
     if tool == "aws" and "s3api" in words:
         operation = next((word for word in words[words.index("s3api") + 1 :] if not word.startswith("-")), "")
-        return [location for location in (option(words, "--bucket"), option(words, "--copy-source")) if location] if S3API_OBJECTS.search(operation) else []
+        if not S3API_OBJECTS.search(operation):
+            return []
+        named = "/".join(part for part in (option(words, "--bucket"), option(words, "--key") or option(words, "--prefix")) if part)
+        return [location for location in (named, option(words, "--copy-source")) if location]
     service = SERVICES.get(tool, ())
     if tool not in STORAGE_TOOLS or any(name not in words for name in service):
         return []
@@ -448,14 +452,25 @@ def remote_location(tool: str, word: str) -> str | None:
 
 
 def team_data(command: str, cwd: str) -> agents.Unjudged | None:
-    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a bucket or blob outside a Forge build, state or log bucket and the `pass-box/` folder of a pass box env's MicroVM artifacts bucket, where a job puts the binary its box fetches through a presigned URL, so a team's data, a customer's own bucket included, whose name no list here holds, or it opens a team's SandSQL databases through `kubectl`."""
-    for words in reached(command, Place(Path(cwd))):
-        if location := next((found for found in bucket_locations(words) if not f"{found}/".startswith(FORGE_LOCATIONS)), None):
-            forge = [f"`{place}`" for place in FORGE_LOCATIONS]
-            return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location), forge=f"{', '.join(forge[:-1])} and {forge[-1]}"))
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the checkout it runs in or a location holding one, any bucket when that checkout holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
+    place = Place(Path(cwd))
+    for words in reached(command, place):
+        for location in bucket_locations(words):
+            if TEAM_AREA.search(location):
+                return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
+            if (listed := team_buckets(place.cwd)) is None:
+                return agents.Unjudged(UNLISTED.format(location=location))
+            if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed):
+                return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
         if reach := sandsql_reach(words):
             return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], namespace=reach[1]))
     return None
+
+
+@cache
+def team_buckets(cwd: Path) -> tuple[str, ...] | None:
+    done = subprocess.run(["git", "-C", str(cwd), "show", TEAM_BUCKETS], capture_output=True, text=True, check=False)
+    return None if done.returncode else tuple(json.loads(done.stdout))
 
 
 def team_route(location: str) -> str:
