@@ -19,10 +19,10 @@ anything truly stick which can go read transcript etc".
 - Answer only from what you read. A claim you could not read goes on the `UNREAD` line, never in
   `WHY`.
 - A release's state is your brief's `Release:` lines alone: for each release wait in the chain,
-  what the watch's own `tools/ci release live` and `tools/ci release pull` reads of that wait's PR
-  found: each cluster of its service, production or not, behind the PR, running an older build or,
-  in production, one a release still runs on, a hotfix that cherry-picked the PR counting as serving
-  it, that none is, or that no cluster runs the service. State a
+  what the watch's own `tools/ci release live` read of that wait's PR found of the clusters it
+  counts, the service's production clusters or, for a service with none, every cluster it runs
+  on: those serving the PR, or that each is behind it running an older build, or that no cluster
+  runs the service. State a
   release, build or component in `WHY` and `NEXT` only as
   a `Release:` line shows it, never from a read of your own: `tools/ci release status` and
   `release live` take a release's handle, never the component a wait names. The `Hold:` line is his
