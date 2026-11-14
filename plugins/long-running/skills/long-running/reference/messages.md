@@ -161,9 +161,13 @@ summary of one feature is a line of at most 60 words.
   its summary or findings name the proper terms.
 - Slack draws a card's title and buttons as plain text, so a link or markdown there shows raw and
   `drive job ask` refuses it; put the link in the summary.
-- Its body is its summary, one to three lines: what was found and what is being decided, the
-  recommendation, and what happens meanwhile, naming the immediate fix or rollback already shipping
-  when a bug hurts someone now. The first line says what the card is: the work it serves, as
+- Its body is its summary, one to three lines: what was found and what is being decided, and the
+  recommendation, naming the immediate fix or rollback already shipping when a bug hurts someone
+  now. What is built while he decides is the drive's line above the card's buttons, read from its
+  jobs at each draw by `meanwhile`, so the summary says nothing of it: being built on a branch and
+  paused on his pick when the asking job is a builder or the card holds a part only a builder
+  carries, landing on the recommendation on an open incident, and nothing built until he picks on
+  an order he limited to options or an answer order. The first line says what the card is: the work it serves, as
   `{order:<o>}`, which his card draws as his order's own words linked to its thread, `port of #N` as
   the text of that PR's link, or Drive tooling, and what his pick changes for him, said as "your
   pick", such as "For {order:o518}: your pick decides whether restoring a SandSQL Env to an earlier
@@ -343,8 +347,7 @@ Posting it:
   the job asking the same shows asked again with a link to the live one and no buttons, and each
   wait on it moves to the live one; his answer closes every copy at once. A question that ended draws under no
   `waits` id: `drive job card` refuses it, naming the words it ended on. `drive job ask` refuses a block another
-  job's open card asks. When a job builds the recommended option meanwhile, the summary says which
-  option is being built, and names the immediate fix or rollback already shipping.
+  job's open card asks.
 - Set `drive` to the drive's name on every card, so cc-slack reads a `waits` card as the drive's
   question, whose home is Slack, and posts it with no cc-present board warning.
 
@@ -812,7 +815,6 @@ me drawn whole above them, and no findings post before it.
 *How should a finished run's files be laid out so its page opens without guessing?*
 A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
-Meanwhile the snapshot file is built on a branch, and its PR waits on your pick.
 *Show me*
 The requests a finished run's page makes today, then with one snapshot file:
 ```
@@ -826,6 +828,7 @@ GET 2 page ranges
 [One snapshot file per finished run (Recommended): written when the run ends, old runs backfilled; any finished run opens in 3 requests]
 [A map file beside each journal file: no guessing, but still one request per file and twice the objects]
 [Map at the start of the file: changes the shared file format and still needs a length read first]
+⏸ *Being built on a branch while you decide, paused on your pick.* Tap an option or reply with its number, or tap Other to write your own answer.
 ````
 
 ## Before it goes out

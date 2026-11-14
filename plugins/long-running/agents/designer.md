@@ -107,7 +107,7 @@ name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and writ
 
 ````
 ASK <the question, one line>
-<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation; what happens meanwhile>
+<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
@@ -128,9 +128,11 @@ Replaces: <only on a question built on another open question of his: the path dr
 ````
 
 - Put the option you recommend first, since a builder may build it on a pushed branch while he
-  decides; `drive job ask` refuses a block whose recommended option is not the first. The summary's last line says what happens meanwhile: the recommended option built on a
-  branch, or nothing built until he picks when his order asks for options only, and the immediate
-  fix or rollback already shipping when a bug hurts someone now, which `Interim fix:` links.
+  decides; `drive job ask` refuses a block whose recommended option is not the first. What is built
+  while he decides is the drive's to say: his card's line above its buttons reads it from the
+  drive's jobs at each draw, the recommended option built on a branch, or nothing built until he
+  picks, so the summary says nothing of it. The summary names the immediate fix or rollback already
+  shipping when a bug hurts someone now, which `Interim fix:` links.
 - Draw the options from the job's own evidence. Start from the root cause: the structure that lets the defect happen, not the step where it
   showed. `Root cause:` names it by its proper terms, and `First principles:` names, by its words
   whole or up to the colon that ends its first part, the option that removes it through one
