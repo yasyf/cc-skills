@@ -7755,7 +7755,7 @@ def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_neve
     assert cli.main(["answer", ruling, "--words", WORDS, "--link", PICK]) == 2
     capsys.readouterr()
     assert cli.main(["answer", ruling[:12], "--words", WORDS, "--link", PICK]) == 2
-    assert f'his answer {ruling} "' in capsys.readouterr().err
+    assert f"{ruling} is recorded already, at {PICK}, so --words and --link would change nothing" in capsys.readouterr().err
     assert run("answer", ruling[:7], "--others-stand")[0] == 0
     assert list(state.load("demo")["answers"]) == [ruling]
 
@@ -7775,25 +7775,25 @@ def test_an_answer_is_recorded_only_as_his_words_at_the_permalink_it_names(
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     assert "a1: refused, nothing recorded: his words at the link do not say it" in capsys.readouterr().err
     assert (added, "a1" in state.load("demo")["answers"]) == ([], False)
-    assert heard.checked == [("a drafted reading of his question", PICK), (WORDS, PICK)]
+    assert heard.checked == [("a drafted reading of his question", [PICK]), (WORDS, [PICK])]
 
 
 @pytest.mark.parametrize(
-    ("words", "link", "said", "refusal"),
+    ("words", "links", "said", "refusal"),
     [
-        (WORDS, PICK, f"{WORDS}.", None),
-        ("Iris proposes … use-when line", PICK, "<https://example.com|Iris> *proposes* with one new tool, guided by each topology's use-when line", None),
-        ("Iris proposes [one way:] two new tools", PICK, WORDS, f'his words at {PICK} do not say "two new tools"'),
-        ("Iris should propose topologies itself", PICK, WORDS, f'his words at {PICK} do not say "Iris should propose topologies itself"'),
-        (WORDS, PICK, None, f"{PICK} is neither his own message nor a card he answered"),
-        (WORDS, None, WORDS, f'no permalink names where he said "{WORDS}"'),
-        ("Tree", DESIGN_CARD, "Tree", None),
-        ("Tree", DESIGN_CARD, "withdrawn", f"{DESIGN_CARD} is neither his own message nor a card he answered"),
-        ("Tree", DESIGN_CARD, "open", f"{DESIGN_CARD} is neither his own message nor a card he answered"),
+        (WORDS, [PICK], f"{WORDS}.", None),
+        ("Iris proposes … use-when line", [PICK], "<https://example.com|Iris> *proposes* with one new tool, guided by each topology's use-when line", None),
+        ("Iris proposes [one way:] two new tools", [PICK], WORDS, f'his words at {PICK} do not say "two new tools"'),
+        ("Iris should propose topologies itself", [PICK], WORDS, f'his words at {PICK} do not say "Iris should propose topologies itself"'),
+        (WORDS, [PICK], None, f"{PICK} is neither his own message nor a card he answered"),
+        (WORDS, [], WORDS, f'no permalink names where he said "{WORDS}"'),
+        ("Tree", [DESIGN_CARD], "Tree", None),
+        ("Tree", [DESIGN_CARD], "withdrawn", f"{DESIGN_CARD} is neither his own message nor a card he answered"),
+        ("Tree", [DESIGN_CARD], "open", f"{DESIGN_CARD} is neither his own message nor a card he answered"),
     ],
 )
 def test_words_count_as_his_answer_only_when_his_message_or_card_answer_at_the_link_holds_each_piece(
-    slack_thread: Thread, words: str, link: str | None, said: str | None, refusal: str | None
+    slack_thread: Thread, words: str, links: list[str], said: str | None, refusal: str | None
 ) -> None:
     card = {"waits": "demo:j2-7", "url": DESIGN_CARD, "answer": {"label": "Tree", **({"withdrawn": True} if said == "withdrawn" else {})}}
     found = view.NO_CARDS | {"closed": [] if said == "open" else [card]}
@@ -7801,15 +7801,61 @@ def test_words_count_as_his_answer_only_when_his_message_or_card_answer_at_the_l
         {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
         {"ts": "1794300000.000300", "thread_ts": "1794300000.000100", "text": said or "a line the drive posted", "from_user": said is not None},
     ]
-    unsaid = UNSAID([words], link, found, {"jobs": {}})
+    unsaid = UNSAID([words], links, found, {"jobs": {}})
     assert (unsaid is None) if refusal is None else (unsaid.startswith(refusal) and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
+
+
+NEXT_PICK = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000100"
+ROOTS = [f"https://acme.slack.com/archives/D123/p17943000000006{n}" for n in ("00", "10")]
+
+
+@pytest.mark.parametrize(
+    ("links", "refusal"),
+    [
+        ([PICK, NEXT_PICK], None),
+        ([DESIGN_CARD, PICK, NEXT_PICK], None),
+        (ROOTS, None),
+        ([PICK], f'his words at {PICK} do not say "reuse the blob pointer"'),
+        ([PICK, ROOTS[1]], f"his messages at {PICK}, {ROOTS[1]} sit in more than one thread"),
+        ([PICK, "https://acme.slack.com/archives/C456/p1794300000000400?thread_ts=1794300000.000100"], "sit in more than one thread"),
+        ([PICK, "terminal"], "sit in more than one thread"),
+    ],
+)
+def test_his_messages_in_a_row_are_one_answer_read_joined_in_link_order_only_in_one_thread_or_at_one_channels_root(
+    slack_thread: Thread, links: list[str], refusal: str | None
+) -> None:
+    said = ("Why do we have text and file pointers?", "just reuse the blob pointer")
+    slack_thread.messages += [
+        {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
+        *({"ts": f"1794300000.000{n}", "thread_ts": "1794300000.000100", "text": text, "from_user": True} for n, text in zip(("300", "400"), said, strict=True)),
+        *({"ts": f"1794300000.000{n}", "text": text, "from_user": True} for n, text in zip(("600", "610"), said, strict=True)),
+    ]
+    found = view.NO_CARDS | {"closed": [{"waits": "demo:j2-7", "url": DESIGN_CARD, "answer": {"label": "Tree"}}]}
+    unsaid = UNSAID(["Tree … text and file pointers … reuse the blob pointer" if DESIGN_CARD in links else "text and file pointers … reuse the blob pointer"], links, found, {"jobs": {}})
+    assert (unsaid is None) if refusal is None else (refusal in unsaid and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
+
+
+def test_his_messages_in_a_row_are_one_answer_kept_at_the_first_link_and_a_kept_answer_refuses_more_words_or_links(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], heard: Heard
+) -> None:
+    cards_asking(monkeypatch, PR)
+    words = "text and file pointers … reuse the blob pointer"
+    assert cli.main(["answer", "a1", "--words", words, "--link", PICK, NEXT_PICK]) == 2
+    assert "his answer a1 " in capsys.readouterr().err
+    assert heard.checked == [(words, [PICK, NEXT_PICK]), ("", [PICK, NEXT_PICK])]
+    kept = state.load("demo")["answers"]["a1"]
+    assert (kept["words"], kept["link"]) == (words, PICK)
+    for again in (["--words", words], ["--link", NEXT_PICK]):
+        assert cli.main(["answer", "a1", *again]) == 2
+        assert f"a1 is recorded already, at {PICK}, so --words and --link would change nothing" in capsys.readouterr().err
+    assert state.load("demo")["answers"]["a1"] == kept
 
 
 @pytest.mark.parametrize(("how", "refusal"), [("answered", None), ("withdrawn", f"{DESIGN_CARD} is neither his own message nor a card he answered")])
 def test_his_words_on_a_card_cc_slack_forgot_are_read_from_the_question_the_drive_ended_on_them(slack_thread: Thread, how: str, refusal: str | None) -> None:
     slack_thread.messages.append({"ts": "1794300000.000100", "text": "Which topology?", "from_user": False})
     question = {"waits": "demo:j2-7", "card": DESIGN_CARD, "closed": state.new_close(how, "Tree", DESIGN_CARD)}
-    unsaid = UNSAID(["Tree"], DESIGN_CARD, view.NO_CARDS, {"jobs": {"j2": {"questions": [question]}}})
+    unsaid = UNSAID(["Tree"], [DESIGN_CARD], view.NO_CARDS, {"jobs": {"j2": {"questions": [question]}}})
     assert (unsaid is None) if refusal is None else unsaid.startswith(refusal)
 
 

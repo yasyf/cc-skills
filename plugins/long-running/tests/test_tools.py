@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
-from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Cci, Heard, Jev, Withdrawals
+from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, Answers, Cci, Heard, Jev, Thread, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -1189,7 +1189,7 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
     heard.refusal = "no permalink names where he said it"
     with pytest.raises(DriveError, match="1: refused, nothing posted: no permalink names where he said it"):
         tools.run("record", demo, {"records": [answer]})
-    assert heard.checked == [("one subject has one card", None)]
+    assert heard.checked == [("one subject has one card", [])]
     heard.refusal = None
     assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == ['1 would end j1\'s question "Which card keeps the subject?" answered, closing its card']
     assert posted == []
@@ -1248,6 +1248,24 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     assert (withdrawals.asked, answered) == ([], [])
     pr_entry = state.load(demo)["prs"]["Forge-AI/monorepo#54084"]
     assert (pr_entry["wants_tap"], pr_entry["rework"]) == (True, None)
+
+
+def test_his_messages_in_a_row_naming_one_ruling_are_checked_together_and_kept_as_one_drive_answer_at_the_first(
+    demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, slack_thread: Thread
+) -> None:
+    said = ("Why do we have text and file pointers?", "just reuse the blob pointer for both")
+    links = [f"https://acme.slack.com/archives/D123/p17942000000008{n}?thread_ts={THREAD}" for n in ("00", "10")]
+    slack_thread.messages += [{"ts": f"1794200000.0008{n}", "thread_ts": THREAD, "text": text, "from_user": True} for n, text in zip(("00", "10"), said, strict=True)]
+    monkeypatch.setattr(settled, "unsaid", UNSAID)
+    recorded.shown["5a1e0f2"] = {"id": "5a1e0f2", "title": "Owner: one pointer for text and files", "body": f"{said[0]} … {said[1]}\nNotes: cci owner 690001", "tags": []}
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"seq": 690001}\n{"seq": 690002}\n', ""))
+    records = [{"kind": "owner", "text": text, "url": link, "about": "his work", "ruling": "5a1e0f2"} for text, link in zip(said, links, strict=True)]
+    with pytest.raises(DriveError, match=f'1: refused, nothing posted: his words at {links[0].replace("?", "[?]")} do not say "just reuse the blob pointer for both"'):
+        tools.run("record", demo, {"records": records[:1]})
+    assert "5a1e0f2" not in state.load(demo)["answers"]
+    assert tools.run("record", demo, {"records": records}).splitlines()[:2] == ["1 owner 690001", "2 owner 690002"]
+    answer = state.load(demo)["answers"]["5a1e0f2"]
+    assert (answer["words"], answer["link"]) == (" … ".join(said), links[0])
 
 
 SANDSQL_PARTS = ("sandsql-proc supervises every sandsql-server it starts", "sandsql-proc owns each sandsql socket")

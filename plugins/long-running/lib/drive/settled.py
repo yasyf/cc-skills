@@ -203,28 +203,42 @@ def heard(link: str, found: dict | None, data: dict) -> str | None:
     return message["text"] if message.get("from_user") else None
 
 
-def unsaid(kept: list[str], link: str | None, found: dict | None, data: dict) -> str | None:
-    """Why the first of the words kept as his answer that are not his is not: no link names where he said them, what is there is not his, or it lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece of each is his, what is at the link read once for all of them. At terminal, his words are a prompt he typed into a session the drive binds that holds every piece."""
-    read: list[str | None] = []
+def unsaid(kept: list[str], links: list[str], found: dict | None, data: dict) -> str | None:
+    """Why the first of the words kept as his answer that are not his is not: no link names where he said them, what is at one is not his, his messages at several links sit in more than one thread, or what is at them lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece of each is his, his messages in a row at the links read once for all of them and joined in link order. At terminal, his words are a prompt he typed into a session the drive binds that holds every piece."""
+    read: list[str] = []
     for words in kept:
         if not plain(ELIDED.sub(" ", words)):
             return f"no words of his are given; {HIS_ANSWER}"
-        if not link:
+        if not links:
             return f'no permalink names where he said "{cut(words, 200)}"; {HIS_ANSWER}'
-        if link == TERMINAL:
+        if links == [TERMINAL]:
             if any(lacking(words, said) is None for said in typed(data)):
                 continue
             return f'no prompt he typed into a terminal of the drive\'s sessions says "{cut(words, 200)}"; {HIS_ANSWER}'
         if not read:
-            try:
-                read.append(heard(link, found, data))
-            except slack.SlackError as error:
-                return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
-        if read[0] is None:
-            return f"{link} is neither his own message nor a card he answered; {HIS_ANSWER}"
-        if missing := lacking(words, read[0]):
-            return f'his words at {link} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
+            if apart := unthreaded(links):
+                return f"{apart}; {HIS_ANSWER}"
+            for link in links:
+                try:
+                    said = heard(link, found, data)
+                except slack.SlackError as error:
+                    return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
+                if said is None:
+                    return f"{link} is neither his own message nor a card he answered; {HIS_ANSWER}"
+                read.append(said)
+        if missing := lacking(words, "\n".join(read)):
+            return f'his words at {", ".join(links)} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
     return None
+
+
+def unthreaded(links: list[str]) -> str | None:
+    """Why his messages at several links are no one answer of his: they sit in more than one thread and are not all at one channel's root, so an answer kept at the first link, which ends the cards of that link's thread alone, would leave a card under another thread asking him; None for one link."""
+    if len(links) < 2:
+        return None
+    where = [state.CARD_LINK.search(link) for link in links]
+    if all(where) and len({match[1] for match in where}) == 1 and (len(set(map(view.card_thread, links))) == 1 or not any(match[4] for match in where)):
+        return None
+    return f"his messages at {', '.join(links)} sit in more than one thread, and not all at one channel's root, so no one answer holds them: record each thread's messages as an answer of its own"
 
 
 def unhappened(link: str) -> str | None:
