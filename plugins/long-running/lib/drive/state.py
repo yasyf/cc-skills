@@ -1534,9 +1534,14 @@ def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (
     )
 
 
+def done_at_merge(job: dict) -> bool:
+    """Whether a job holds the DONE the watch takes at the merge of a builder's PRs outside yasyf/*, which proves nothing live."""
+    return job["state"] == "done" and bool(MERGED_LINE.match(job["said"] or ""))
+
+
 def delivered(data: dict, order_id: str, part: str) -> bool:
     """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
-    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not MERGED_LINE.match(job["said"] or "")}
+    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not done_at_merge(job)}
     posted = data["orders"][order_id]["parts"][part]["posted"]
     if work(data, order_id, part):
         return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
