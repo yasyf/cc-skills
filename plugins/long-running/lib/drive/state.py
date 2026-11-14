@@ -187,6 +187,7 @@ READ_ONLY = {
 }
 GH_FIELDS = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"}
 DATABASE = "drive.db"
+MAC_BOXES_LOG = "mac-boxes.log"
 BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
@@ -2091,7 +2092,7 @@ def written(name: str, data: dict, newest: str | None) -> None:
     with closing(connect(path)) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
-            rewrite(name, db, data, newest)
+            finished = rewrite(name, db, data, newest)
         except BaseException:
             db.execute("ROLLBACK")
             raise
@@ -2100,6 +2101,7 @@ def written(name: str, data: dict, newest: str | None) -> None:
             WROTE.add("drive")
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    down_mac_boxes(name, data, finished)
 
 
 def built(name: str, data: dict) -> Path:
@@ -2116,8 +2118,8 @@ def built(name: str, data: dict) -> Path:
     return path
 
 
-def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -> None:
-    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved."""
+def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -> list[str]:
+    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved; the id of each job whose row it moved from an unfinished state into done, failed or stopped."""
     found = db.execute("SELECT value FROM meta WHERE key = 'saved_by'").fetchone()
     if newest and found and version_order(found[0]) > version_order(newest):
         raise NewerDrive(f"the {name} drive was saved by long-running {found[0]} since this {newest} read it, which may misread it: run the newest install's drive")
@@ -2143,6 +2145,29 @@ def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -
         db.execute("DELETE FROM meta WHERE key = 'saved_by'")
         if saver:
             db.execute("INSERT INTO meta VALUES ('saved_by', ?)", (saver,))
+    was = kept.get("jobs", {})
+    return [
+        job_id
+        for job_id, body in rows.get("jobs", {}).items()
+        if job_id in was
+        and was[job_id][1] != body
+        and data["jobs"][job_id]["state"] in FINISHED_JOB_STATES
+        and json.loads(was[job_id][1])["state"] not in FINISHED_JOB_STATES
+    ]
+
+
+def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
+    """Take down every Mac box each job a save just finished holds: `tools/ci mac-box down --holder <drive>/<job>` in the drive's checkout, a process of its own for each job that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job whose holder tag it carries. None for a scratch drive, a proof's or a test's, or a repository with no tools/ci, which hold no Mac box."""
+    if not finished or scratch():
+        return
+    from drive import orca
+
+    checkout = orca.holder(data["roles"]["coordinator"]["cwd"], f"drive-{name}")
+    if not (ci := checkout / "tools" / "ci").is_file():
+        return
+    with (drive_dir(name) / MAC_BOXES_LOG).open("a") as log:
+        for job_id in finished:
+            subprocess.Popen([str(ci), "mac-box", "down", "--holder", f"{name}/{job_id}"], cwd=checkout, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:

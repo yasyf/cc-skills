@@ -91,6 +91,13 @@ Contents:
   key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite and starts `ci db-read` builds only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
   through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
   Mac's processes always run here.
+- A Mac box comes down with the job that holds it. `tools/ci mac-box up <name> --holder <drive>/<job>`
+  refuses a box with no holder; the lane names the drive and job its brief's `Drive:` line names,
+  which tags the box `mac-box:holder`. The save that moves a job into done, failed or stopped
+  starts `tools/ci mac-box down --holder <drive>/<job>` in the drive's checkout, a process of its
+  own whose output goes to the drive's `mac-boxes.log`, so no box outlives its job and no sweep
+  looks for one. A waiting job, such as one waiting for a staging slot, keeps its box, and a job
+  that needs a Mac runs its own `up`.
 
 ## Start one on this Mac
 

@@ -32,6 +32,29 @@ def make(name: str, session: str | None = None, started: str | None = None) -> N
     state.create(data)
 
 
+def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_into_done_failed_or_stopped_once(state_root: Path, mac_boxes_downed: list[str]) -> None:
+    make("demo")
+    with state.edit("demo") as data:
+        data["jobs"] |= {job_id: state.new_job("o1", "builder", "use a Mac box", [], state.stamp()) for job_id in ("j1", "j2", "j3", "j4")}
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+        data["jobs"]["j2"]["state"] = "waiting"
+        data["jobs"]["j3"]["state"] = "built"
+        data["jobs"]["j4"]["state"] = "failed"
+    assert mac_boxes_downed == ["demo/j1", "demo/j4"]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "stopped"
+        data["jobs"]["j2"]["state"] = "stopped"
+        data["jobs"]["j3"]["goal"] = "use another Mac box"
+        data["jobs"]["j4"]["goal"] = "use another Mac box"
+    assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2"]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "running"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+    assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1"]
+
+
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     make("demo")
     with state.edit("demo") as data:
