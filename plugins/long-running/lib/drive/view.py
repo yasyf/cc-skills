@@ -42,7 +42,6 @@ import json
 import math
 import os
 import re
-import subprocess
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from functools import cache, lru_cache
@@ -94,14 +93,9 @@ class CardsError(Exception):
 def cards(name: str) -> dict:
     """His open question cards for the drive and the PR cards waiting on his tap, from cc-slack's stored state."""
     try:
-        result = subprocess.run(
-            [slack.launcher(), "drive-cards", "--drive", name, "--json"], check=False, capture_output=True, text=True, timeout=30
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
+        return slack.cc_slack("drive-cards", "--drive", name, "--json", seconds=30)
+    except slack.SlackError as error:
         raise CardsError(str(error)) from None
-    if result.returncode:
-        raise CardsError(" ".join(result.stderr.split()) or f"cc-slack exited {result.returncode}")
-    return json.loads(result.stdout)
 
 
 def refresh_cards(name: str) -> None:

@@ -4,12 +4,13 @@ from collections import Counter
 from datetime import timedelta
 
 import pytest
-from drive import land, page, stage, state, view, watch
+from drive import land, page, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
 TEAM = "https://acme.slack.com/"
 DRAW = page.draw
+CARDS = view.cards
 DASHBOARD = "http://mac:41234/"
 
 
@@ -686,6 +687,24 @@ def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: st
     monkeypatch.setattr(view, "cards", refused)
     view.refresh_cards(demo)
     assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")
+
+
+@pytest.mark.parametrize(
+    ("printed", "why"),
+    [
+        ("", "printed nothing"),
+        ("restarting the daemon\n", "printed no JSON (Expecting value: line 1 column 1 (char 0))"),
+    ],
+)
+def test_a_card_list_cc_slack_ends_cleanly_without_json_stores_the_cards_unavailable_saying_what_it_printed(
+    demo: str, monkeypatch: pytest.MonkeyPatch, printed: str, why: str
+) -> None:
+    ran: list[list[str]] = []
+    monkeypatch.setattr(view, "cards", CARDS)
+    monkeypatch.setattr(slack.subprocess, "run", lambda argv, **kwargs: ran.append(argv) or subprocess.CompletedProcess(argv, 0, printed, ""))
+    view.refresh_cards(demo)
+    assert ran == [["cc-slack", "drive-cards", "--drive", demo, "--json"]]
+    assert view.stored_cards(demo) == (view.NO_CARDS, f"unavailable: cc-slack drive-cards exited 0 and {why}")
 
 
 def test_cards_an_older_cc_slack_lists_with_no_closed_field_read_as_none_closed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

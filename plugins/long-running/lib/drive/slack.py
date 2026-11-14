@@ -30,14 +30,19 @@ def launcher() -> str:
     return str(Path(newest["installPath"]) / "bin" / "cc-slack")
 
 
-def cc_slack(*args: str) -> dict:
+def cc_slack(*args: str, seconds: int = 90) -> dict:
+    """The JSON cc-slack prints for args; a launch that fails, a nonzero exit, or an exit 0 that prints nothing or no JSON raises SlackError saying which."""
     try:
-        result = subprocess.run([launcher(), *args], check=False, capture_output=True, text=True, timeout=90)
+        result = subprocess.run([launcher(), *args], check=False, capture_output=True, text=True, timeout=seconds)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise SlackError(str(error)) from None
     if result.returncode:
         raise SlackError(" ".join(result.stderr.split()) or f"cc-slack exited {result.returncode}")
-    return json.loads(result.stdout)
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        printed = f"no JSON ({error})" if result.stdout.strip() else "nothing"
+        raise SlackError(f"cc-slack {args[0]} exited 0 and printed {printed}") from None
 
 
 @functools.cache
