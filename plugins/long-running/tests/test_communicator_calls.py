@@ -7,7 +7,7 @@ from pathlib import Path
 
 import communicator_calls
 import pytest
-from drive import agents, state, superseded, tools, watch
+from drive import agents, render, state, superseded, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -73,7 +73,7 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
         call("SendMessage", to="a-7", message="Approve"),
         call("Skill", skill="long-running:long-running"),
         call("Bash", command="drive heard --ts 1.2"),
-        call("Bash", command="cci subscribe --reader communicator --cursor communicator"),
+        call("Bash", command="cci drive use demo"),
     ):
         assert communicator_calls.deny_reason(own) is None
     assert communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2")) == (
@@ -87,6 +87,23 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
         assert output["judged"] is False
     assert communicator_calls.deny_reason({**call(SLACK + "slack_thread"), "agent_id": "a-1"}) is None
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
+
+
+def test_the_communicator_sends_every_record_on_the_drives_record_tool_and_makes_no_other_cci_call_but_cci_drive_use(
+    communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    refused = f"Refused on purpose: {render.RECORDING}"
+    for cci in (
+        call("mcp__plugin_cc-inbox_cci__post", kind="answer", re="706660", to="meta", text="started a handler for it"),
+        call("mcp__plugin_cc-inbox_cci__read", seq="706660"),
+        call("Bash", command="cci post --kind answer --re 706660 --to meta@demo 'started a handler for it'"),
+        call("Bash", command="cci read 706660"),
+        call("Bash", command="cci subscribe --reader communicator --cursor communicator"),
+    ):
+        output = json.loads(hook_output(monkeypatch, capsys, cci))
+        assert (output["hookSpecificOutput"]["permissionDecisionReason"], output["judged"]) == (refused, False), cci
+    assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__record", records=[{"kind": "answer", "re": "706660", "text": "on it"}])) is None
+    assert communicator_calls.deny_reason({**call("mcp__plugin_cc-inbox_cci__read", seq="706660"), "agent_id": "a-1"}) is None
 
 
 def answered(builder: Callable[..., None], demo: str, words: str, at: datetime, **fields: object) -> dict:

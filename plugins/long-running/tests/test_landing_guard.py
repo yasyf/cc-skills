@@ -6,7 +6,7 @@ from pathlib import Path
 import landing_guard
 import pytest
 from conftest import LEAD, SESSION, SHORT_ASK, Answers
-from drive import agents, brief, land, limits, settled, shell, state, view
+from drive import agents, brief, land, limits, render, settled, shell, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -464,6 +464,18 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
     cci_delta(session, "removedNames", ["mcp__plugin_cc-inbox_cci__post"])
     assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) is None
     assert landing_guard.deny_reason(bash(report)) is None
+
+
+def test_the_communicators_own_cci_post_in_bash_is_refused_for_the_record_tool_whether_or_not_its_cci_server_is_connected(
+    communicator: str, no_calls: None, tmp_path: Path
+) -> None:
+    session = tmp_path / "session.jsonl"
+    answer = "cci post --kind answer --lane communicator --re 706660 --to meta@demo 'started a handler for it'"
+    refused = f"Refused on purpose: {render.RECORDING}"
+    assert landing_guard.deny_reason(bash(answer, transcript_path=str(session))) == refused
+    cci_delta(session, "addedNames", ["mcp__plugin_cc-inbox_cci__post"])
+    assert landing_guard.deny_reason(bash(answer, transcript_path=str(session))) == refused
+    assert landing_guard.deny_reason(bash(answer, transcript_path=str(session), agent_id="a1")) == landing_guard.CLI_POST
 
 
 def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool_runs(run: Run, demo: str, no_calls: None) -> None:
