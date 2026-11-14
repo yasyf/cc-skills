@@ -1698,6 +1698,16 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
                 f"{job_id} has {', '.join(unlinked)} open, which its ASK's summary does not link, so his card would describe its work as if no PR"
                 " were up: link each in the summary by what it does, as <url|what it does>"
             )
+        reads, refused = github.fetch(sorted(linked))
+        if refused:
+            raise DriveError(f"could not read who opened the PRs its ASK's summary links from GitHub: {refused}")
+        problems += [
+            f"its summary links {state.pr_url(key)}, which {read['author']} opened, and no option's description links it, so no tap of his names it:"
+            f" link it, as <{state.pr_url(key)}|what it does>, in the description of each option that acts on it, since the drive takes his tap as"
+            " naming only what the tapped option's description links"
+            for key, read in reads.items()
+            if read["state"] == "OPEN" and read["author"].casefold() != state.HIS_LOGIN and not any(state.names_pr(hint, key) for hint in asked.hints.values())
+        ]
     if typed := limits.typed_time("\n".join([asked.title, *asked.summary, *asked.show_me, *asked.options, *asked.hints.values()]), data):
         problems.append(f"his card draws these words, and {typed}")
     said = "\n".join([asked.title, *asked.summary]).casefold()

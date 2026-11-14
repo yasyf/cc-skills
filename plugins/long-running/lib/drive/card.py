@@ -615,7 +615,7 @@ def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
 
 
 def foreign(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no card is drawn for the members: one of them is someone else's PR that no order of his it serves names, which the drive never cards."""
+    """Why no card is drawn for the members: one of them is someone else's PR that no word of his on an order it serves names, which the drive never cards."""
     return "; ".join(why for key in members if (why := state.foreign_pr(state.load(known[key][0]), key)))
 
 

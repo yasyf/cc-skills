@@ -3314,6 +3314,29 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"], {}) == [data["jobs"]["j3"]["questions"][-1]["card"]]
 
 
+
+def test_job_ask_refuses_a_summary_linking_a_teammates_open_pr_that_no_options_description_links(
+    run: Run, asking: str, tmp_path: Path, pr_reads: dict[str, dict], capsys: pytest.CaptureFixture[str]
+) -> None:
+    teammates, merged, own = (f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (43, 44, 45))
+    pr_reads |= {
+        "Forge-AI/monorepo#43": {"state": "OPEN", "author": "rowan"},
+        "Forge-AI/monorepo#44": {"state": "MERGED", "author": "rowan"},
+        "Forge-AI/monorepo#45": {"state": "OPEN", "author": "yasyf"},
+    }
+    linking = SHORT_ASK.replace(
+        "Meanwhile nothing is built on either layout.", f"Meanwhile <{own}|the layout PR> waits on <{teammates}|the teammate's fix>, after <{merged}|the reader fix>."
+    )
+    block = tmp_path / "ask.md"
+    block.write_text(linking)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    err = capsys.readouterr().err
+    assert f"\n- its summary links {teammates}, which rowan opened, and no option's description links it, so no tap of his names it" in err
+    assert (f"links {merged}," not in err, f"links {own}," not in err) == (True, True)
+    assert state.load("demo")["jobs"][asking]["questions"] == []
+    block.write_text(linking.replace("a backfill writes one for each old run.", f"a backfill writes one for each old run, after <{teammates}|the teammate's fix> lands."))
+    assert run("job", "ask", asking, str(block))[0] == 0
+
 NIGHTLY_EXPORT = {
     "id": "7a1c0de" + "0" * 33,
     "title": "Which identity runs each team's nightly export?",
@@ -5222,7 +5245,7 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     assert state.load("demo")["prs"][key]["exempt"] is None
 
 
-def test_pr_add_takes_a_pr_someone_else_opened_once_he_answers_a_question_card_of_its_order_linking_it_above_its_findings(
+def test_pr_add_takes_a_pr_someone_else_opened_once_his_answer_to_a_card_of_its_order_names_it_by_the_option_he_tapped_or_the_words_he_typed(
     run: Run, demo: str, on_github: dict, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     key = "Forge-AI/monorepo#42"
@@ -5230,22 +5253,28 @@ def test_pr_add_takes_a_pr_someone_else_opened_once_he_answers_a_question_card_o
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["author"] = {"login": "rowan", "is_bot": False}
     asked = tmp_path / "j1-c960362c.md"
-    asked.write_text(f"ASK Should the drive merge the teammate's fix?\nFor {{order:o1}}: your pick decides whether it lands.\nFindings:\n- {PR}: green\n")
+    asked.write_text(
+        "ASK Should the drive merge the teammate's fix?\n"
+        f"For {{order:o1}}: your pick decides whether <{PR}|the teammate's fix> lands.\n"
+        f"- Merge the teammate's fix too: both land on dev (recommended)\n  The drive registers <{PR}|the teammate's fix> and lands it.\n"
+        "- Leave the teammate's fix to its author\n  The drive does nothing to the teammate's PR.\n"
+        f"Findings:\n- {PR}: green\n"
+    )
+    refused = state.foreign(key, "rowan", [])
+    for words in (None, "Leave the teammate's fix to its author", "ask him"):
+        with state.edit("demo") as data:
+            data["jobs"]["j1"]["questions"] = [
+                state.new_question(str(asked), "Should the drive merge the teammate's fix?", state.stamp(), card=slack_card(1), closed=words and state.new_close("answered", words, slack_card(1)))
+            ]
+        assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+        assert f"{key}: refused, nothing added: {refused}" in capsys.readouterr().err
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"].append(
-            state.new_question(str(asked), "Should the drive merge the teammate's fix?", state.stamp(), card=slack_card(1), closed=state.new_close("answered", "Merge it", slack_card(1)))
-        )
-    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
-    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
-    asked.write_text(f"ASK Should the drive merge the teammate's fix?\nFor {{order:o1}}: your pick decides whether <{PR}|the teammate's fix> lands.\nFindings:\n")
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"][0]["closed"] = None
-    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
-    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Merge it", slack_card(1))
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Merge the teammate's fix too: both land on dev", slack_card(1))
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
-    assert state.foreign_pr(state.load("demo"), key) is None
+    for words, why in (("merge #42 too", None), ("ask him", refused)):
+        with state.edit("demo") as data:
+            data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", words, slack_card(1))
+        assert state.foreign_pr(state.load("demo"), key) == why
 
 
 def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_or_a_sessionless_sprite_lane_and_its_opener_takes_it_back(
