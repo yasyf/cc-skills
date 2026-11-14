@@ -246,7 +246,7 @@ def scratch(prompt: str) -> Path | None:
 
 
 def holds(prompt: str) -> dict:
-    """What a handler's brief works on: for a brief naming a Record, whatever its other lines say, that record, each record its re chain names, the message of his the chain reaches, and the record's thread, else the one its Thread: line names; else the message of his its words' Link names and the thread that message is in."""
+    """What a handler's brief works on: for a brief naming a Record, whatever its other lines say, that record, its attrs, each record its re chain names, the message of his the chain reaches, and the record's thread, else the one its Thread: line names; else the message of his its words' Link names and the thread that message is in."""
     if named := RECORD.search(prompt):
         held = answered(named[1]) | {"record": named[1]}
         return held | {"thread": held["thread"] or (line[1] if (line := THREAD.search(prompt)) else None)}
@@ -260,18 +260,19 @@ def holds(prompt: str) -> dict:
 
 
 def answered(seq: str) -> dict:
-    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain; the record's thread and each record the chain names either way."""
+    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain; the record's thread, its attrs and each record the chain names either way."""
     record = shown(seq)
-    thread = record["fields"].get("attrs", {}).get("thread")
+    attrs = record["fields"].get("attrs", {})
+    thread = attrs.get("thread")
     chain: list[str] = []
     for _ in range(RE_HOPS):
         if record["kind"] in HIS_KINDS and (found := state.CARD_LINK.search((record.get("refs") or {}).get("url") or "")):
-            return {"message": f"{found[2]}.{found[3]}", "link": record["refs"]["url"], "thread": thread or found[4] or f"{found[2]}.{found[3]}", "re": chain}
+            return {"message": f"{found[2]}.{found[3]}", "link": record["refs"]["url"], "thread": thread or found[4] or f"{found[2]}.{found[3]}", "re": chain, "attrs": attrs}
         if not record.get("re"):
             break
         chain.append(str(record["re"]))
         record = shown(chain[-1])
-    return {"message": None, "link": None, "thread": thread, "re": chain}
+    return {"message": None, "link": None, "thread": thread, "re": chain, "attrs": attrs}
 
 
 def shown(seq: str) -> dict:
@@ -389,10 +390,13 @@ class Busy(state.DriveError):
 
 
 def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
+    attrs = held_now.pop("attrs", {})
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
+        if not held_now["thread"] and (order_id := state.report_order(data, attrs)):
+            held_now |= state.thread_attr(data["orders"][order_id])
         left: list[str] = []
         while (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
             left += data["handlers"].pop(held)["handed"]

@@ -183,7 +183,7 @@ def verb_tools() -> list[dict]:
                 " brief carries his words, so his message takes the ack and this one call. Returns started <its id>; the"
                 " line it ends on comes back as one cci done record from lane handler when it ends, and its session ends"
                 " with it. A message of his and a thread each have one handler at a time: a brief, his words or a record, in"
-                " a live handler's thread, a record's own thread or else its brief's Thread: line, on the message of his it"
+                " a live handler's thread, a record's own thread, else its brief's Thread: line, else its order's thread, on the message of his it"
                 " holds, or naming its record up a re chain or named by its record's, returns handed to <that handler's id>,"
                 " which takes it at its next step and covers it in its post; it refuses a brief while a live handler holds"
                 " the same record or the same message of his, a copy that needs nothing. For his read-only question, answer"
