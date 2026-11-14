@@ -123,8 +123,9 @@ for, by his words "You didn't give me a tap for 30 day bonding how many times do
 naming each part and the words it breaks, and keeps the card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits".
 When a finding holds, the agent rewrites that part and asks the same question again, which redraws
 its card. When Jev reads the card's recommended option as breaking a recorded answer or ruling of his,
-at least 0.8 sure, the cited answer the card says it goes against first, the verb keeps the card unsettled on it, as
-`<id>: Jev reads the recommended option as breaking it`, asking him to lift those words, so it holds
+at least 0.8 sure, the cited answer the card says it goes against first, or else any other option it
+offers as sure, the verb keeps the card unsettled on it, as `<id>: Jev reads the recommended option as
+breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
 its PR on an incident too until he answers. A cited answer the release gate reads as ordering a release
 the recommended option names in backticks is his order carried out, never words to lift: the verb
 prints that `drive job add --release` starts that release with no card, by one reading of his pick

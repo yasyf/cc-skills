@@ -66,7 +66,7 @@ AGAIN_QUESTION = (
     "Does this card ask him again, in other words, the question this open card of his already asks, so that one answer of his"
     ' settles both? Answer no when it asks something that card leaves open, or a choice that card does not offer. That card asks: "{title}"'
 )
-MARKED = "Jev reads the recommended option as breaking it"
+MARKED = "Jev reads {option} as breaking it"
 UNSETTLED = (
     'drive job ask: kept the card unsettled as "{unsettled}", asking him to lift {id}, {asked}, so it holds its PR from landing'
     ' on an incident too until he answers, by his pick "Hold the PR until you answer; the drive finds each card against your'
@@ -340,8 +340,8 @@ def matched(text: str, cwd: str) -> list[dict]:
     return [{"id": answer["id"][:7], "asked": answer["title"], "said": said[:BODY_CHARS]} for answer in found if APPROVAL not in answer["tags"] and (said := his(answer["body"]))][:CANDIDATES]
 
 
-def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dict], cards: dict[str, str]) -> tuple[dict | None, list[str]]:
-    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his Jev picks for the recommended option at least DECIDES sure, the cited answer the card says it goes against first, else one his words show it breaks, which the card then asks him to lift; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading."""
+def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dict], cards: dict[str, str]) -> tuple[tuple[dict, str] | None, list[str]]:
+    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, each pick at least DECIDES sure: the one Jev picks for the recommended option, the cited answer the card says it goes against first, else one his words show it breaks, else the first Jev picks for any other option the card offers, since offering an option his words rule out asks him to lift them too; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading."""
     rules = limits.rule_words(case)
     near = {word["id"] for word in words}
     heard_words = [*words, *(answer for answer in cited if answer["id"] not in near)]
@@ -375,8 +375,9 @@ def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dic
             item = items[found["choice"]]
             rule = f" Its rule: {item['rule']}" if "rule" in item else ""
             print(ADVISED.format(part=parts[key], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
-    picks = (found["choice"] for key in ("says", recommended) if (found := read.get(key)) and found["probabilities"][found["choice"]] >= DECIDES)
-    return next((items[choice] for choice in picks if limits.ANSWER_ID.fullmatch(choice.removeprefix("ruling:"))), None), repeated
+    marks = [("says", "the recommended option"), (recommended, "the recommended option"), *((key, parts[key]) for key in parts if key.startswith("breaks") and key != recommended)]
+    picks = ((option, found["choice"]) for key, option in marks if (found := read.get(key)) and found["probabilities"][found["choice"]] >= DECIDES)
+    return next(((items[choice], option) for option, choice in picks if limits.ANSWER_ID.fullmatch(choice.removeprefix("ruling:"))), None), repeated
 
 
 def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
