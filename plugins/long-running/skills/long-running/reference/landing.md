@@ -188,7 +188,7 @@ change".
      reads a sibling's new field, such as long-running reading cc-slack's `closed`, crashes on the old sibling. A
      captain-hook floor, or captain-hook's own release, also needs Captain Hook.app, whose hook worker runs every
      session's hooks, at that release: while it is older, the install holds and prints his Install now card, naming
-     its ASK file once a job keeps one, and installs nothing; run it again once `drive answer` records his tap, and it
+     its ASK file once a job keeps one, and installs nothing; run it again once his tap or `drive answer` records his pick, and it
      runs `capt-hook helper install` first. It updates each scope's install with its own `claude plugin update --scope`, the user
      scope's and, for each git repository, its first project or local scope's from that folder, skipping one whose folder is
      gone, and checks each holds the merge. Claude Code takes a repository's checkout and its worktrees for one project: a
@@ -248,7 +248,7 @@ change".
    - Ask him on a card before each install that restarts the hook helper every session on this Mac
      shares, such as capt-hook's: he approved one such restart, not all of them. The `bash_guard` hook
      refuses any session's `capt-hook helper install`, which installs captain-hook's newest release, and its
-     `brew upgrade` or `brew reinstall` of captain-hook, until `drive answer` records his Install now on the card
+     `brew upgrade` or `brew reinstall` of captain-hook, until his tap or `drive answer` records his Install now on the card
      naming that release, and again once the helper runs it; the refusal names the card's ASK file.
 
 ## Forge-AI/monorepo

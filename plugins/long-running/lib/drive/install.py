@@ -404,14 +404,15 @@ def helper_release() -> str:
 
 
 def helper_approved(drives: list[str], release: str) -> bool:
-    """Whether an answer of his recorded for one of the drives picks Installs never need me, or Install now on the card asking to install release."""
+    """Whether he picked Installs never need me, or Install now on the card asking to install release: by his tap, which ends the card's question on one of the drives seconds after it, or by an answer of his recorded for one of them, which `drive answer` keeps a minute or two later."""
     from drive import settled
 
     for drive in drives:
-        cwd = state.load(drive)["roles"]["coordinator"]["cwd"]
-        for answer in json.loads(settled.ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", cwd, "could not read his recorded answers")):
-            picked = answer["body"].partition("\n")[0]
-            if EVERY_INSTALL in picked or (INSTALL_NOW in picked and re.search(rf"\binstall {re.escape(release)} now\b", answer["title"])):
+        data = state.load(drive)
+        tapped = [(question["title"] or "", question["closed"]["words"] or "") for job in data["jobs"].values() for question in job["questions"] if (question["closed"] or {}).get("how") == "answered"]
+        recorded = json.loads(settled.ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", data["roles"]["coordinator"]["cwd"], "could not read his recorded answers"))
+        for title, picked in tapped + [(answer["title"], answer["body"].partition("\n")[0]) for answer in recorded]:
+            if EVERY_INSTALL in picked or (INSTALL_NOW in picked and re.search(rf"\binstall {re.escape(release)} now\b", title)):
                 return True
     return False
 
@@ -441,8 +442,8 @@ def meet_helper(key: str, floor: str, deadline: float, drive: str | None) -> Non
             raise InstallError(f"{key} needs captain-hook {floor}, and its newest release is {release}")
         if not approved:
             raise InstallError(
-                f"holds {key} for {card}: it needs captain-hook {floor}, and Captain Hook.app, which runs every hook, runs"
-                f" {runs or 'no release'}; run this again once `drive answer` records his pick"
+                f"WAIT holds {key} for {card}: it needs captain-hook {floor}, and Captain Hook.app, which runs every hook, runs"
+                f" {runs or 'no release'}; run this again once his tap or `drive answer` records his pick"
             )
         run([HELPER, "helper", "install"], deadline)
         if not ((runs := app_release()) and at_least(runs, floor)):
@@ -844,7 +845,7 @@ def merge_commits(merges: dict[str, str]) -> list[str]:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line taking no result, an install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
     from drive import brief, dashboard
 
     with state.edit(name) as data:
@@ -920,9 +921,9 @@ def quoted(output: str) -> str:
 
 
 def waited(code: int | str, output: str) -> str | None:
-    """The WAIT line a proof file's nonzero exit ended on with no FAIL line before it, saying only his next word can let it pass, or None for a proof that failed."""
+    """The WAIT line a proof file's nonzero exit ended on with no FAIL line before it, or an install held for his card opens, saying only his next word can let it pass, or None for a proof that failed."""
     quote = quoted(output)
-    return quote if isinstance(code, int) and code and quote.startswith("WAIT") else None
+    return quote if (code == "unrun" or isinstance(code, int) and code) and quote.startswith("WAIT") else None
 
 
 def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess:
