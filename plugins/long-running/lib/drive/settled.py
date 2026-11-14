@@ -66,6 +66,17 @@ AGAIN_QUESTION = (
     "Does this card ask him again, in other words, the question this open card of his already asks, so that one answer of his"
     ' settles both? Answer no when it asks something that card leaves open, or a choice that card does not offer. That card asks: "{title}"'
 )
+ANSWERS_QUESTION = (
+    "Does one of his recorded answers below already answer what this card asks him, given to an earlier question in the same or"
+    " other words, so the card asks him again what his words there settle? Pick that answer, or none when the card asks something"
+    " each of them leaves open, such as a choice none of them makes." + UNSAID_HERE
+)
+ANSWERED = (
+    'drive job ask: Jev reads his answer {id} to "{asked}"{link} as already answering this card: "{said}". This refuses and skips'
+    " no card, by his picks 320b7a7 and 679484: when it holds, cite {id} in the card's summary and ask the same question again,"
+    " which redraws his card with his words there as its Already answered tap, so one tap settles it, by his pick 692284 \"Your"
+    ' cited answer as a tap on the card: one tap settles it, nothing skipped unseen", and build on his words meanwhile.'
+)
 MARKED = "Jev reads {option} as breaking it"
 JEV_MARK = re.compile(re.escape(MARKED).replace(re.escape("{option}"), ".+") + r"\Z")
 UNSETTLED = (
@@ -164,10 +175,37 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
     return None
 
 
-def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
-    """Record his answer in cc-notes, the question as its title and his words as its body, and return its id."""
-    add = ["ccn", "answer", "add", f"--title={title}", "--body-file", "-", *(f"--label={label}" for label in labels), "--json"]
+def recorded(name: str, title: str, words: str, labels: list[str], cwd: str) -> str:
+    """Record his answer on the drive in cc-notes, the question as its title, his words as its body and the drive's labels before these, and return its id."""
+    add = ["ccn", "answer", "add", f"--title={title}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
     return json.loads(ccn(add, words, cwd, "could not record his answer in cc-notes"))["id"]
+
+
+def note_cards(name: str) -> None:
+    """Record in cc-notes each answer of his that ended a question before his tap recorded it, as the tap records one, the question as its title and his words as its body, and keep its id on the question, so `matched` ranks every answer he gave a card, never an Already answered tap, whose words cc-notes holds already; one cc-notes holds already under that question in those words keeps that one's id, so a pass cut short records none twice; marked so this runs once."""
+    data = state.load(name)
+    if data.get(state.CARDS_NOTED):
+        return
+    cwd = data["roles"]["coordinator"]["cwd"]
+    unnoted = [
+        (job_id, question)
+        for job_id, job in data["jobs"].items()
+        for question in job["questions"]
+        if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"] and not (closed["answer"] or closed["ruling"] or closed["noted"]) and (question["card"] or question["waits"] or closed["seq"])
+        and closed["words"] != "\n".join(dict.fromkeys(answer["words"] for answer in question["recorded"]))
+    ]
+    every = json.loads(ccn(["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--full", "--json"], "", cwd, "could not read his recorded answers")) if unnoted else []
+    kept = {(plain(answer["title"]), plain(his(answer["body"]))): answer["id"] for answer in every}
+    noted = []
+    for job_id, question in unnoted:
+        said = (plain(question["title"]), plain(question["closed"]["words"]))
+        if said not in kept:
+            kept[said] = recorded(name, question["title"], question["closed"]["words"], [], cwd)
+        noted.append((job_id, question, kept[said]))
+    with state.edit(name) as data:
+        for job_id, question, answer_id in noted:
+            state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
+        data[state.CARDS_NOTED] = True
 
 
 def supersede(pick: str, answer_id: str, cwd: str) -> None:
@@ -335,17 +373,30 @@ def whole_ids(typed: set[str], cwd: str) -> dict[str, str]:
     return {answer_id: found[0] if len(found := [whole for whole in known.get(answer_id[:7], []) if whole.startswith(answer_id)]) == 1 else answer_id for answer_id in typed}
 
 
-def matched(text: str, cwd: str) -> list[dict]:
-    """The first CANDIDATES of his recorded answers ccn ranks nearest to an ASK's whole block, findings included, which reach a ruling whose subject only its findings name, such as a wait he ordered on another order, each as Jev reads his words beside the card; never a tap approving a PR, which rules only whether that PR lands, nor a provisional pick, which holds no words of his."""
+def matched(texts: list[str], data: dict) -> list[dict]:
+    """The first CANDIDATES of his recorded answers ccn ranks nearest to each text in turn, once each, with where he gave it: for an ASK its card's question, summary and options, which reach his answer to the question it asks again in other words, then its whole block, findings included, which reach a ruling whose subject only its findings name, such as a wait he ordered on another order, each as Jev reads his words beside the card; never a tap approving a PR, which rules only whether that PR lands, nor a provisional pick, which holds no words of his."""
     match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"]
-    found = json.loads(ccn(match, read(text), cwd, "could not check the question against his recorded answers"))
-    return [{"id": answer["id"][:7], "asked": answer["title"], "said": said[:BODY_CHARS]} for answer in found if APPROVAL not in answer["tags"] and (said := his(answer["body"]))][:CANDIDATES]
+    found: dict[str, dict] = {}
+    for text in texts:
+        ranked = json.loads(ccn(match, read(text), data["roles"]["coordinator"]["cwd"], "could not check the question against his recorded answers"))
+        for answer in [answer for answer in ranked if APPROVAL not in answer["tags"] and his(answer["body"])][:CANDIDATES]:
+            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer["id"])})
+    return list(found.values())
+
+
+def given_at(data: dict, answer_id: str) -> str | None:
+    """Where he gave a recorded answer of his: the link `drive answer` kept for it, else the card or message of the question it ended."""
+    return next((answer["link"] for whole, answer in data["answers"].items() if whole[:7] == answer_id[:7]), None) or next(
+        (closed["link"] for job in data["jobs"].values() for question in job["questions"] if (closed := question["closed"]) and closed["link"] and answer_id[:7] in {(closed["answer"] or "")[:7], (closed["noted"] or "")[:7]}),
+        None,
+    )
 
 
 def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dict], cards: dict[str, str]) -> tuple[tuple[dict, str] | None, list[str]]:
-    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings `limits.rule_words` names beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, each pick at least DECIDES sure: the one Jev picks for the recommended option, the cited answer the card says it goes against first, else one his words show it breaks, else the first Jev picks for any other option the card offers, since offering an option his words rule out asks him to lift them too; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading."""
+    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings `limits.rule_words` names beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, each pick at least DECIDES sure: the one Jev picks for the recommended option, the cited answer the card says it goes against first, else one his words show it breaks, else the first Jev picks for any other option the card offers, since offering an option his words rule out asks him to lift them too; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading; and it picks the one recorded answer of his among `words` the card does not cite that already answers what the card asks, printed with where he gave it, at least DECIDES sure, so its job cites it and his card carries it as the Already answered tap, refusing and skipping nothing, by his picks 320b7a7, 679484 and 692284."""
     rules = limits.rule_words(case)
     near = {word["id"] for word in words}
+    given = [word for word in words if limits.ANSWER_ID.fullmatch(word["id"]) and word["id"] not in {answer["id"] for answer in cited}]
     heard_words = [*words, *(answer for answer in cited if answer["id"] not in near)]
     offered = {UNDECIDED: UNBROKEN, **dict.fromkeys(word["id"] for word in [*heard_words, *rules] if word["id"] != limits.ROOT_CAUSE_WORDS["id"])}
     items = {word["id"]: word for word in [*heard_words, *rules, limits.WORKED_WORDS]}
@@ -363,6 +414,7 @@ def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dic
         **({"untapped": {"label": {"instructions": UNTAPPED_QUESTION, "options": {UNDECIDED: "The card offers a tap for each.", **dict.fromkeys(word["id"] for word in words)}}}} if words else {}),
         **({"says": {"label": {"instructions": SAYS_QUESTION, "options": {UNDECIDED: UNSAID, **dict.fromkeys(answer["id"] for answer in cited)}}}} if cited else {}),
         "card": {"label": {"instructions": CARD_QUESTION, "options": {UNDECIDED: "It breaks none of them.", **dict.fromkeys(rule["id"] for rule in rules)}}},
+        **({"answers": {"label": {"instructions": ANSWERS_QUESTION, "options": {UNDECIDED: "It asks what none of them settles.", **dict.fromkeys(word["id"] for word in given)}}}} if given else {}),
         **{f"again{number}": {"binary": {"instructions": AGAIN_QUESTION.format(title=title)}} for number, title in enumerate(cards.values(), 1)},
     }
     heard = [{key: item[key] for key in ("id", "asked", "said", "rule") if key in item} for item in items.values()]
@@ -372,6 +424,9 @@ def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dic
         print(f"drive job ask: Jev gave no reading of this question against his words, so it goes to him: {failure}", file=sys.stderr)
         return None, []
     repeated = [waits for number, waits in enumerate(cards, 1) if read.pop(f"again{number}")["p_yes"] >= DECIDES]
+    if (found := read.pop("answers", None)) and found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES:
+        item = items[found["choice"]]
+        print(ANSWERED.format(id=item["id"], asked=cut(item["asked"], 200), link=f" ({item['link']})" if item.get("link") else "", said=cut(item["said"], QUOTED_CHARS)), file=sys.stderr)
     for key, found in read.items():
         if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES:
             item = items[found["choice"]]

@@ -60,6 +60,7 @@ LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
 POST_ASK = cli.post_ask
 SETTLED_MATCHED = settled.matched
+SETTLED_RECORDED = settled.recorded
 SETTLED_LISTED = settled.listed
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
@@ -949,6 +950,13 @@ def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def noted(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    records: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(settled, "recorded", lambda name, title, words, labels, cwd: records.append((name, title, words)) or f"{len(records)}c0ffee{'0' * 33}")
+    return records
+
+
+@pytest.fixture(autouse=True)
 def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     answers = Answers()
 
@@ -961,7 +969,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
         )
 
     monkeypatch.setattr(settled, "shown", shown)
-    monkeypatch.setattr(settled, "matched", lambda text, cwd: answers.matched)
+    monkeypatch.setattr(settled, "matched", lambda texts, data: answers.matched)
     monkeypatch.setattr(settled, "listed", lambda label, cwd: sorted((answer for answer in answers.listed if label in answer["tags"]), key=lambda answer: answer["created_at"], reverse=True))
     return answers
 

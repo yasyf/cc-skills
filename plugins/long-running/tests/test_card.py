@@ -755,7 +755,7 @@ def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_quest
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
-    assert [(item["text"], item["attr"]) for batch in posted for item in batch] == [("Ring", {"job": "j3", "waits": f"{drive}:j3-661440"})]
+    assert [(item["text"], item["attr"]) for batch in posted for item in batch] == [("Ring", {"job": "j3", "waits": f"{drive}:j3-661440", "noted": f"1c0ffee{'0' * 33}"})]
     closed = state.load(drive)["jobs"]["j3"]["questions"][0]["closed"]
     assert (closed["how"], closed["words"], closed["link"]) == ("answered", "Ring", NEWER_CARD)
 
@@ -863,6 +863,19 @@ def test_a_tap_cc_slack_runs_again_after_its_card_command_was_cut_short_posts_it
     assert [(closes(question) or ("open",))[0] for question in job["questions"]] == ["superseded", "answered"]
     assert ([answer["seq"] for answer in job["undelivered"]], [event["kind"] for event in events(drive)]) == (["661500"], ["answered"])
     assert answered == [(OLDER_CARD, "Ring", NEWER_CARD, False)]
+
+
+def test_his_tap_is_recorded_in_cc_notes_once_under_its_cards_question_its_id_kept_on_the_question_and_its_answer_record(
+    drive: str, monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
+) -> None:
+    _, posted = two_questions_of_j3(drive, monkeypatch)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    for _ in range(2):
+        assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    answer_id = f"1c0ffee{'0' * 33}"
+    assert noted == [(drive, "Ring or knock?", "Ring")]
+    assert state.load(drive)["jobs"]["j3"]["questions"][1]["closed"]["noted"] == answer_id
+    assert [record["attr"]["noted"] for [record] in posted] == [answer_id] * 2
 
 
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:

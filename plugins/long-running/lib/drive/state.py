@@ -149,6 +149,7 @@ PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
+CARDS_NOTED = "card_answers_noted"
 PR_JOB_INDEX: ContextVar[tuple[dict, dict[str, list[str]]] | None] = ContextVar("pr_job_index", default=None)
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
@@ -551,6 +552,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "taps_dated": True,
         "holds_owed": True,
         "builder_goals_named": True,
+        CARDS_NOTED: True,
     }
 
 
@@ -845,6 +847,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             question.setdefault("closed", None)
             if question["closed"]:
                 question["closed"]["seq"] = bare_seq(question["closed"]["seq"])
+                question["closed"].setdefault("noted", None)
             question.setdefault("holds", None)
             question.setdefault("replaced", None)
             question.setdefault("recorded", [])
@@ -1904,10 +1907,10 @@ def tap_time(record_id: str | None) -> str | None:
 
 
 def new_close(
-    how: str, words: str | None, link: str | None, seq: str | None = None, answer: str | None = None, ruling: str | None = None, by: str | None = None, at: str | None = None
+    how: str, words: str | None, link: str | None, seq: str | None = None, answer: str | None = None, ruling: str | None = None, by: str | None = None, at: str | None = None, noted: str | None = None
 ) -> dict:
     """How a job's question ended, the one record of whether it still asks him that its card follows: answered by his tap, words or a ruling, withdrawn for his other words or by the asker, or superseded by his answer to another question; his words and their link, the record, recorded answer and ruling carrying them, the question whose answer superseded it, and when."""
-    return {"how": how, "words": words, "link": link, "seq": seq, "answer": answer, "ruling": ruling, "by": by, "at": at or stamp()}
+    return {"how": how, "words": words, "link": link, "seq": seq, "answer": answer, "ruling": ruling, "by": by, "at": at or stamp(), "noted": noted}
 
 
 def kept_in(job: dict, file: Path) -> dict | None:

@@ -770,8 +770,8 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
-    from drive import superseded, tools, view
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. His answer, unless it is the Already answered tap, whose words cc-notes holds already, is recorded in cc-notes as `drive answer` records one, the card's question as its title and his words as its body, once, its id kept on each question it ended and on the answer record, so `settled.matched` ranks it beside every answer he gave and a card asking it again in other words is told. An Undo reopens each question on the card his tap answered, which cc-slack redraws. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    from drive import settled, superseded, tools, view
 
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
@@ -807,6 +807,15 @@ def question_answered(ask: dict) -> dict:
                 for job_id, older, question in decided:
                     if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
                         superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+        if tapped and not recorded:
+            answer_id = next((question["closed"]["noted"] for _, question in tapped if question["closed"]["noted"]), None)
+            if answer_id is None:
+                asked = next((question for _, question in tapped if question["waits"] == ask["waits"]), tapped[0][1])
+                answer_id = settled.recorded(name, asked["title"], said, [], data["roles"]["coordinator"]["cwd"])
+                with state.edit(name) as data:
+                    for job_id, question in tapped:
+                        state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
+            item["attrs"] = item.get("attrs", {}) | {"noted": answer_id}
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])
     if undone:

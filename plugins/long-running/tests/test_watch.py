@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
-from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, slack, stage, stall, state, superseded, talk, view, watch
+from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -7410,6 +7410,25 @@ def test_a_stalls_watchdog_is_handed_the_watchs_own_read_of_each_release_wait_hi
         'Hold: he holds every release, by his words "no releases until I say we can again" (15c4de1): a release runs only on an answer of his recorded since that approves that one release',
         f'Card: "{asked}" {CARD}, asked by no job of the drive',
     ]
+
+
+def test_a_stalls_watchdog_is_handed_his_recorded_answers_ccn_ranks_nearest_its_jobs_goal_and_each_service_its_release_waits_wait_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]]
+) -> None:
+    wait = f"release:sand-next:{KEY}"
+    answer = {"id": "7030890", "asked": "May sand-next ship to Macs past the hold?", "said": "Keep the hold: Macs get none of the fixes until you lift it", "link": CARD}
+    ranked: list[list[str]] = []
+    monkeypatch.setattr(settled, "matched", lambda texts, data: ranked.append(texts) or [answer])
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="bd434a0f1b2c3d4e")
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [wait], "goal": "ship the Mac fixes"}
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(brief, _)] = watchdogs
+    assert [line for line in brief.splitlines() if line.startswith("Answered:")] == [f'Answered: 7030890 "{answer["asked"]}": "{answer["said"]}" {CARD}']
+    assert ranked == [["ship the Mac fixes", "sand-next"]]
 
 
 def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check_refuses_reaches_the_stuck_line_and_him_as_that_refusal(

@@ -1762,7 +1762,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     carried = [(answer, release) for release in recommends for answer in cited if not brief.approval_refusal(f"{release} --order {answer['id']}", data)]
     for answer, release in carried:
         print(settled.ORDERED.format(id=answer["id"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
-    broken, repeated = settled.judged(case, asked, [*settled.order_words(data, job["order"]), *settled.matched(text, data["roles"]["coordinator"]["cwd"])], cited, cards)
+    broken, repeated = settled.judged(case, asked, [*settled.order_words(data, job["order"]), *settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data)], cited, cards)
     if broken and not unsettled and broken[0]["id"] not in {answer["id"] for answer, _ in carried}:
         lifted, option = broken
         unsettled = f"{lifted['id']}: {settled.MARKED.format(option=option)}"
@@ -3964,8 +3964,8 @@ def answer(args: argparse.Namespace) -> int:
         if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         changes = settled.changed(args.title, args.words, asked)
-        labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
-        args.id = settled.recorded(args.title, args.words, labels, cwd)
+        tapped = next((closed["noted"] for _, question in view.drawn_on(data, *args.link) if (closed := question["closed"]) and closed["noted"] and [closed["link"]] == args.link and settled.plain(closed["words"] or "") == settled.plain(args.words)), None)
+        args.id = tapped or settled.recorded(name, args.title, args.words, args.label, cwd)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     if args.id not in data["answers"]:
         if marking:
