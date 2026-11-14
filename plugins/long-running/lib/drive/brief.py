@@ -59,10 +59,38 @@ CRITERIA_CHARS = 6000
 REPRO = re.compile(r"^REPRO:[ \t]*\S", re.MULTILINE)
 LEFT = re.compile(r"^(?:NEXT|UNPROVEN):.*$", re.MULTILINE)
 STEPS = r"(?:runs?|re-?runs?|fills?|back-?fills?|migrates?|applies|apply|executes?|triggers?|kicks?\s+off|flips?|enables?|patch(?:es)?|repairs?)"
+UNLANDED_STEPS = r"(?:redraws?|resumes?|closes?|pipes?|proves?)"
+MODAL = r"(?:must\s+|should\s+|needs?\s+to\s+|has\s+to\s+|will\s+|then\s+)?"
+MAC_LANE = r"(?:(?:a|the)\s+)?(?:Mac|local)\s+lane|(?:a\s+)?lane\s+on\s+(?:this|the)\s+Mac"
 LEFT_FOR = re.compile(
     r"\b(?:until|unless|once|after|when)\s+(?:the\s+)?(?:coordinator|communicator|meta\s+session|handler|owner|someone|another\s+(?:lane|agent|job))\b"
-    rf"|\b(?:coordinator|communicator|meta\s+session|handler|someone(?:\s+else)?)\s+(?:must\s+|should\s+|needs?\s+to\s+|has\s+to\s+|will\s+|then\s+)?{STEPS}\b",
+    rf"|\b(?:until|unless|once|after|when)\s+(?:{MAC_LANE})\b"
+    rf"|\b(?:coordinator|communicator|meta\s+session|handler|someone(?:\s+else)?)\s+{MODAL}{STEPS}\b"
+    rf"|\blander\s+{MODAL}{UNLANDED_STEPS}\b"
+    rf"|\b(?:{MAC_LANE})(?:\s+that\s+[^,;.]*?)?\s+{MODAL}(?:{STEPS}|{UNLANDED_STEPS}|posts?)\b",
     re.IGNORECASE,
+)
+INSTALLED = re.compile(r"\b(?:install|merg)\w*", re.IGNORECASE)
+AFTER_INSTALL_QUESTION = (
+    "Does this goal of a builder in one of his own repositories name a step to take once its change is merged and installed,"
+    " beyond proving that the installed change works, such as redrawing or posting a card, resuming or closing another job"
+    " or order, or rerunning another job's proof? Pick after when it does; none when its only step after the install is that"
+    " proof, or every step it names is part of the change itself."
+)
+AFTER_INSTALL_OPTIONS = {settled.UNDECIDED: "Its only step after the install is the proof that the change works.", "after": "It names another step to take once the change is installed."}
+MAC_STEP_QUESTION = (
+    'Its brief names "{step}" as a step only the Mac runs. Does the proof file below, run once the change is installed, take'
+    " that step and then read back what it changed, such as the card `cc-slack drive-cards --waits` reads, the thread"
+    " `cc-slack thread --url` reads or the job `drive status` prints, as its output shows? Pick none when it does both, or when"
+    " the step is one its lane took while it built, before the merge. Pick undone when it leaves the step to anyone else, only"
+    " names it, takes it without reading back what it changed, or only checks that the installed code holds the fix."
+)
+MAC_STEP_OPTIONS = {settled.UNDECIDED: "It takes the step and reads back what it changed, or the step came before the merge.", "undone": "It leaves the step undone or unread."}
+MAC_STEP_WAY = (
+    "a yasyf/* merge reaches no lane, and drive job prove runs the job's proof file on this Mac right after the install, so that file"
+    " takes the step once: a Slack post as one cci post --kind report --to communicator@<drive> under a fixed --id, which a handler"
+    " draws through say, and any other write only once a read finds it not yet done; then it reads back what the step changed,"
+    " such as cc-slack drive-cards --waits, cc-slack thread --url or drive status, printing WAIT <what> while it has not shown"
 )
 LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rate[- ]limit\w*|limit\w*|max(?:imum)?)\b", re.IGNORECASE)
 LEFT_STANDING = re.compile(r"\b(?:left\s+as[\s-]is|unchanged|hit(?:s|ting)?|exceed(?:s|ed|ing)?)\b", re.IGNORECASE)
@@ -440,7 +468,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs a Mac: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     tooling = SERVES_TOOLING.search(brief)
     runs = None if tooling else RUNS_AS.search(brief)
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
@@ -452,6 +480,8 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     if not tooling and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
         return f"{job_id}'s brief plans a sign-in of his: {asked[0]}"
     job = data["jobs"][job_id]
+    if tooling and job["kind"] == "builder" and not (HANDOFF.search(brief) or MAC.search(brief) or RELEASE.search(brief)) and (unplaced := after_install(job_id, brief)):
+        return unplaced
     order_id = job["order"]
     order = data["orders"][order_id]
     if order["incident"] and (rule := state.INCIDENT_CHOICE.get(job["kind"])):
@@ -478,6 +508,24 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     if not (named[1] in readers(data, order_id, job["parts"]) and filled(researched(state.report_text(name, named[1])))):
         return f"Researched: {named[1]} names no reader or design of {job_id}'s part of {order_id} that kept {BLOCK} in its report"
     return None
+
+
+def after_install(job_id: str, brief: str) -> str | None:
+    """Why a drive tooling builder's brief with no Mac: or Release: line may not start it: Jev reads its Goal, once it speaks of an install or a merge, as naming a step to take once its change is installed beyond proving it, at least settled.DECIDES sure, a step only the proof file drive job prove runs on this Mac can take, so its lane starts here, where it can write and read that file; Jev giving no reading lets it out, said on stderr."""
+    goal = " ".join(dict(fields(brief)).get("Goal", "").split())
+    if not INSTALLED.search(goal):
+        return None
+    try:
+        read = settled.jev({"state": {"goal": goal}, "questions": {"after": {"label": {"instructions": AFTER_INSTALL_QUESTION, "options": AFTER_INSTALL_OPTIONS}}}})["after"]
+    except settled.Unheard as failure:
+        print(f"drive: Jev did not read {job_id}'s Goal for a step after the install, so its brief goes out unchecked: {failure}", file=sys.stderr)
+        return None
+    if read["choice"] != "after" or read["probabilities"]["after"] < settled.DECIDES:
+        return None
+    return (
+        f'{job_id}\'s Goal "{cut(goal, 160)}" names a step to take once its change is installed, as Jev reads it, and no Mac: line declares it:'
+        f' {MAC_STEP_WAY}. Name the step with drive job brief {job_id} --mac "<the step>", which starts its lane on this Mac to write that file'
+    )
 
 
 def incident_refusal(job_id: str, order_id: str, brief: str, rule: str) -> str | None:
@@ -802,6 +850,22 @@ def unproven(text: str, job_id: str, job: dict) -> str | None:
     if not (he_sees(text) or surface(job)):
         return None
     return story_gap(job_id, job, real, text)
+
+
+def mac_gap(job: dict, evidence: str) -> str | None:
+    """Why a proof that exits 0 leaves the step its brief's Mac: line names undone: Jev reads its proof file and output as not taking that step once the change is installed, or not reading back what it changed, at least settled.DECIDES sure; None for a brief with no Mac: line, and Jev giving no reading leaves it proven, said on stderr."""
+    if not (step := (job.get("brief_flags") or {}).get("mac")):
+        return None
+    proof = Path(job["repro"]).read_text(errors="replace")[:CRITERIA_CHARS]
+    question = {"label": {"instructions": MAC_STEP_QUESTION.format(step=step), "options": MAC_STEP_OPTIONS}}
+    try:
+        read = settled.jev({"state": {"proof_file": proof, "output": evidence[-CRITERIA_CHARS:]}, "questions": {"step": question}})["step"]
+    except settled.Unheard as failure:
+        print(f"drive: Jev did not read the proof against its brief's Mac: step, so it stands unchecked: {failure}", file=sys.stderr)
+        return None
+    if read["choice"] != "undone" or read["probabilities"]["undone"] < settled.DECIDES:
+        return None
+    return f'its brief\'s Mac: line names "{cut(step, 120)}", and Jev reads its proof file as leaving that step undone or unread: {MAC_STEP_WAY}'
 
 
 def story_gap(job_id: str, job: dict, named: list[str], evidence: str) -> str | None:

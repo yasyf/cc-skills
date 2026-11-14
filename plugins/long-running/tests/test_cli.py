@@ -4900,6 +4900,24 @@ def test_a_done_or_ready_leaves_no_step_for_someone_else(
     assert keep(monkeypatch, capsys, "j1", f"{done}PROVE: after release, open the run page\n") == (0, "")
 
 
+def test_a_done_leaves_no_step_after_its_install_to_the_lander_or_a_mac_lane(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "redraw the stale card")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the redraw")
+    done = "DONE the redraw fix is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    for left in (
+        "NEXT: once the lander installs it, a Mac lane that may post pipes drive cards redraw into say",
+        "NEXT: the lander redraws the card after the install",
+        "UNPROVEN: the redraw, until a lane on this Mac runs it",
+    ):
+        code, err = keep(monkeypatch, capsys, "j1", f"{done}{left}\n")
+        assert code == 2
+        assert f'j1: refused, nothing kept: a DONE leaves a step for someone else: "{left}".' in err
+    for kept in ("NEXT: once the lander merges it, drive job prove runs the proof file, which redraws the card", "NEXT: no Mac lane runs it; the proof file posts the redraw"):
+        assert keep(monkeypatch, capsys, "j1", f"{done}{kept}\n") == (0, "")
+
+
 def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

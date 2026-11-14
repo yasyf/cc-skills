@@ -909,6 +909,25 @@ def test_a_brief_whose_runs_as_line_writes_a_teams_data_under_break_glass_starts
     assert brief.brief_refusal("demo", state.load("demo"), "j1", tooling) is None
 
 
+def test_a_tooling_builders_brief_whose_goal_names_a_step_after_the_install_starts_only_once_its_mac_line_declares_it(meta: str, run: Run, jev: Jev) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: redraw the stale card")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the redraw")
+    goal = "build the redraw fix; once installed, redraw j961's card through drive tool say"
+    planned = f"Order (his words): Drive tooling: redraw the stale card\nServes: drive tooling\nGoal: {goal}\n{{}}Drive: demo, order o1, job j1"
+    jev.picks("after")
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("")).startswith(
+        f'j1\'s Goal "{goal}" names a step to take once its change is installed, as Jev reads it, and no Mac: line declares it: a yasyf/* merge reaches no lane'
+    )
+    [asked] = [asked for asked in jev.asked if "after" in asked["questions"]]
+    assert asked["state"] == {"goal": goal}
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("Mac: redraw j961's card from the proof file\n")) is None
+    unworded = planned.format("").replace(goal, "build the redraw fix")
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", unworded) is None
+    assert len([asked for asked in jev.asked if "after" in asked["questions"]]) == 1
+    jev.picks("none")
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("")) is None
+
+
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
