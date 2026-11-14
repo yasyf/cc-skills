@@ -1770,6 +1770,33 @@ def test_a_proof_file_exiting_0_that_prints_the_demos_placeholder_slack_link_tak
 
 
 @pytest.mark.parametrize(
+    ("printed", "replaced"),
+    [
+        (
+            "story 2: read back https://acme.slack.com/archives/D123/p1794642114525849: *Replaced:* Asked again on a newer card · answer that one · 4:03am"
+            " · <https://acme.slack.com/archives/D123/p1794608618968959|what replaced it>",
+            "https://acme.slack.com/archives/D123/p1794608618968959",
+        ),
+        (
+            "empty, his words, j4222: no release or merge settled it; live card https://acme.slack.com/archives/D123/p1794652688485409 draws '*Replaced:* Keep"
+            " the hold: Macs get none of the fixes until you lift it · 2:39am · <https://acme.slack.com/archives/D123/p1794640366543949|what replaced it>', and"
+            " its link opens his post",
+            "https://acme.slack.com/archives/D123/p1794640366543949",
+        ),
+    ],
+)
+def test_a_proof_file_reading_a_card_back_word_for_word_names_the_post_its_slack_link_opens_never_that_link_joined_to_its_words_and_takes_done(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], unopened_links: dict[str, str], printed: str, replaced: str
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    unopened_links[f"{replaced}|what"] = "its thread is not in D123 (thread_not_found)"
+    script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{printed}\nEOF\n")
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
+
+
+@pytest.mark.parametrize(
     ("change", "refusal"),
     [
         ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
