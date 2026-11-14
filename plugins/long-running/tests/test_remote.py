@@ -3002,6 +3002,22 @@ def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
 
 
+def test_a_held_answer_of_his_reaches_a_live_lane_as_his_answer_and_a_coordinators_text_as_from_the_coordinator(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    ring, logs = 'His answer on card demo:j1-7, verbatim: "Ring"', "the red run's CI logs are lost; read its rerun's instead"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["undelivered"] = [
+            {"seq": "9", "words": ring, "at": state.stamp(), "said": None, "request": str(uuid.uuid4())},
+            {"seq": None, "words": logs, "sender": "coordinator", "at": state.stamp(), "said": None, "request": str(uuid.uuid4())},
+        ]
+    assert run("job", "resume", "j1")[0] == 0
+    assert [(args[6], args[8]) for args in sent if args[0] == "send"] == [("His answer", ring), ("From the coordinator", logs)]
+
+
 def test_a_relaunch_carries_each_held_text_in_its_handoff_ahead_of_its_own(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3155,7 +3171,7 @@ def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_l
 def test_a_resume_that_takes_the_jobs_lock_after_the_job_stopped_reads_wakes_sends_holds_and_starts_nothing(
     remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], text: str | None
 ) -> None:
-    held = [] if text else [{"seq": None, "words": "his answer", "at": state.stamp(T0), "said": None, "request": "r1"}]
+    held = [] if text else [{"seq": None, "words": "his answer", "at": state.stamp(T0), "said": None, "request": "r1", "sender": None}]
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(undelivered=held, workspace="pool-txgdh6qfdwhn72iy")
     locked = state.job_locked

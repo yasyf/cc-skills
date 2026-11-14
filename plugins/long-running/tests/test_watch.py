@@ -3348,6 +3348,27 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_bui
     assert landers == [(KEY,)]
 
 
+@pytest.mark.parametrize(
+    ("ran", "start"),
+    [(None, "not started yet: drive job launch j1 starts it"), ("/drive/scratch/j1/codex", "its codex-ask run ended: drive job launch j1 starts its next")],
+    ids=["never-launched", "run-ended"],
+)
+def test_a_freed_codex_job_reads_not_started_only_when_no_codex_ask_run_ended_since_its_launch_as_j3122_did_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ran: str | None, start: str
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j2"] = job(goal="release the service")
+        data["jobs"]["j1"].update(kind="codex", codex_run=ran, state="waiting", said="WAITING j2", waits=["j2"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [f"FREE j1 o1: j2 answered or done, nothing else holds it, {start}"]
+
+
 def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_stranded_once_a_change_to_it_settles(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

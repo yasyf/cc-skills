@@ -420,7 +420,7 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | No
             )
         )
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. {where}"
-    return taking_over(brief, f"a lane that {how}", held, end.branch, job, text and f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, f"a lane that {how}", held, end.branch, job, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n")
 
 
 def agent_handoff(brief: str, job: dict, text: str | None, died: str | None) -> str:
@@ -866,12 +866,12 @@ def session_of(workspace: str, dispatch: str) -> str | None:
 
 
 def resumed(ended: dict, text: str | None) -> str:
-    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, with the cause line read off its Sprite, what it resumes on, the dispatch it reports on now, and the coordinator's message it never read, when one came."""
+    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, with the cause line read off its Sprite, what it resumes on, the dispatch it reports on now, and the messages it never read, when any came, naming no sender, since they can be his answers as well as the coordinator's."""
     return (
         f"Your lane died at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
         " you left, so a tool call that was running then never finished. Read its git status and log, then carry the job on. Report on the task and dispatch"
         " the Orca preamble above this brief names, never on your earlier ones.\n"
-        + (f"\nThe coordinator's message you never read, which you act on now:\n\n{text.strip()}\n" if text else "")
+        + (f"\nThe messages you never read, which you act on now:\n\n{text.strip()}\n" if text else "")
     )
 
 
@@ -1010,17 +1010,17 @@ def completed(argv: list[str], command: subprocess.Popen) -> subprocess.Complete
     return subprocess.CompletedProcess(argv, command.returncode, stdout, stderr)
 
 
-def answer(drive: str, job: dict, text: str, request: str) -> str:
-    """Reply to the lane's open question, or send to its Dispatch when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch."""
+def answer(drive: str, job: dict, kept: dict) -> str:
+    """Reply to the lane's open question with the held text, or send it to its Dispatch under the subject state.sent_by gives its sender, His answer for his and From the coordinator for the coordinator's, when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch."""
     if job.get("ask"):
         try:
-            reply(drive, job["run"], job["ask"], text, request)
+            reply(drive, job["run"], job["ask"], kept["words"], kept["request"])
         except OrcaError as error:
             if error.code != ANSWERED_ELSEWHERE:
                 raise
         else:
             return woke(job, f"answered its question {job['ask']}")
-    return send(drive, job, "From the coordinator", text, str(uuid.uuid5(uuid.UUID(request), "send")))
+    return send(drive, job, state.sent_by(kept["sender"]), kept["words"], str(uuid.uuid5(uuid.UUID(kept["request"]), "send")))
 
 
 def send(drive: str, job: dict, subject: str, text: str, request: str | None = None) -> str:

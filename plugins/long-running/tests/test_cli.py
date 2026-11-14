@@ -5307,14 +5307,14 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     run("pr", "add", PR, "--job", "j1", *LEAD)
     code, err = keep(monkeypatch, capsys, "j1", "WAITING release: #54575 merged after the newest release was cut\n")
-    assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name the release as release:<service>" in err) == (2, True)
+    assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as release:<service>" in err) == (2, True)
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert keep(monkeypatch, capsys, "j1", "WAITING release:api:Forge-AI/monorepo#42 and release:api:Forge-AI/monorepo#9\n") == (0, "")
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["waits"]) == ("waiting", ["release:api:Forge-AI/monorepo#42"])
 
 
-def test_a_waiting_whose_first_line_names_no_link_waits_on_each_pr_and_release_its_body_names_as_j1485s_did(
+def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "read each table's stored slot")
@@ -5329,9 +5329,16 @@ def test_a_waiting_whose_first_line_names_no_link_waits_on_each_pr_and_release_i
         f"It follows {state.pr_url(keys[0])}, {state.pr_url(keys[1])} and {state.pr_url(keys[2])}.\n"
         f"A SandSQL release ships carrying release:sandsql:{keys[2]}.\n"
     )
-    assert keep(monkeypatch, capsys, "j1", report) == (0, "")
-    job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["waits"]) == ("waiting", [f"release:sandsql:{keys[2]}", *keys])
+    refused = "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from"
+    code, err = keep(monkeypatch, capsys, "j1", report)
+    assert (code, refused in err) == (2, True)
+    with state.edit(demo) as data:
+        data["prs"][keys[0]].update(state="merged", merged_sha="abc123")
+    code, err = keep(monkeypatch, capsys, "j1", f"WAITING the CI logs of {state.pr_url(keys[0])} are lost\n")
+    assert (code, refused in err, state.load(demo)["jobs"]["j1"]["state"]) == (2, True, "running")
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {state.pr_url(keys[0])} and {state.pr_url(keys[1])}, then release:sandsql:{keys[2]}\n") == (0, "")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["waits"]) == ("waiting", [f"release:sandsql:{keys[2]}", keys[1]])
 
 
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
