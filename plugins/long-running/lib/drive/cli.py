@@ -60,8 +60,9 @@ VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubErro
 STDIN: list[str] = []
 ANSWER_FIRST = (
     "his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one `report`"
-    " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`; then keep your"
-    " full report and return as usual"
+    " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`, with"
+    ' `"incident": "true"` added when it says a customer team\'s production runs are failing or stopped, so it posts while he is'
+    " away too; then keep your full report and return as usual"
 )
 PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE

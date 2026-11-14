@@ -5976,7 +5976,8 @@ def test_an_answer_orders_reader_brief_sends_his_answer_to_his_thread_before_its
     assert (
         "\nAnswer: his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one"
         " `report` record on the cci `post` tool, `to: [communicator@demo]`, `text: POST <the answer>`,"
-        f' `attrs: {{"thread": "{thread}", "order": "o1", "job": "j1", "progress": "true"}}`; then keep your full report and return as usual\n'
+        f' `attrs: {{"thread": "{thread}", "order": "o1", "job": "j1", "progress": "true"}}`, with `"incident": "true"` added when it says'
+        " a customer team's production runs are failing or stopped, so it posts while he is away too; then keep your full report and return as usual\n"
     ) in brief
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the run page")
