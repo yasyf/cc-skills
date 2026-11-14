@@ -603,12 +603,15 @@ def test_a_step_never_replaces_a_remote_jobs_dispatch(
     assert (job["agent"], job["where"], job["dispatch"]) == (None, "remote", "ctx_lane0001")
 
 
-@pytest.mark.parametrize(("agent_type", "holder"), [("codex:codex-wrapper", None), ("long-running:builder", "a-9")])
-def test_an_incidents_second_lane_builder_holds_the_codex_job_its_brief_names_and_a_codex_agent_never_does(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str, holder: str | None
+@pytest.mark.parametrize(
+    ("incident", "agent_type", "holder"), [(True, "codex:codex-wrapper", None), (True, "long-running:builder", "a-9"), (False, "long-running:builder", None)]
+)
+def test_only_an_incidents_second_lane_builder_holds_the_codex_job_its_brief_names_so_none_runs_beside_a_standing_pass_as_j5103s_line_asked(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], incident: bool, agent_type: str, holder: str | None
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("job", "add", "codex", "--order", "o1", "--goal", "fix it")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "errors on the api", *(["--incident", "--parts", "fix"] if incident else []))
+    if not incident:
+        run("job", "add", "codex", "--order", "o1", "--goal", "fix it")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, "Drive: demo, order o1, job j1", agent_type=agent_type)))
     assert state.load("demo")["jobs"]["j1"]["agent"] == holder
 

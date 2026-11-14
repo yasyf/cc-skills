@@ -2534,7 +2534,7 @@ def remote_job(data: dict, job_id: str) -> dict:
 def other_sessions_agent(data: dict, job: dict) -> str | None:
     """This session, when the job ran as an Agent another session started that ended with that session, which no role holds any more, so this one hands the job to a fresh agent or lane of its own."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    return session if session and job["where"] == "local" and job["agent"] and job["session"] != session and state.agent_gone(data, job) else None
+    return session if session and job["where"] == "local" and job["agent"] and job["session"] != session and state.session_role(data, job["session"]) is None else None
 
 
 def starters_lane(data: dict, job: dict) -> str | None:
@@ -6108,7 +6108,7 @@ def refused(args: argparse.Namespace, error: Exception, detached: str | None) ->
     print(f"drive: {error}", file=sys.stderr)
     if detached and relaunching(args):
         name = state.resolve(args.drive)
-        order = state.saved_job(name, args.id)["order"]
+        order = state.saved_row(name, "jobs", args.id)["order"]
         heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)
         state.append_event(name, watch.RELAUNCH_REFUSED, job=args.id, order=order, verb=args.action, refusal=str(error), log=detached, lane=heard)
     return 2

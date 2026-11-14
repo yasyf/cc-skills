@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, part_jobs, pass_due, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, part_jobs, pass_due, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -370,15 +370,6 @@ def incident_line(order_id: str, order: dict) -> str:
     return f"{order_id} {order['state']} incident: {order['text'][:80]}; {order['note'] or 'no record'}"
 
 
-def agentless_lines(drive: dict, orders: dict[str, dict] | None = None) -> list[str]:
-    """Each running job on this Mac whose session no role holds any more, of the orders given or of any, since its agent ended with that session; a fresh agent on its brief takes it over at its first step."""
-    return [
-        f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}"
-        for job_id, job in drive["jobs"].items()
-        if job["state"] == "running" and job.get("where") != "remote" and agent_gone(drive, job) and (orders is None or job["order"] in orders)
-    ]
-
-
 def pr_line(key: str, pr: dict, card: str | None) -> str:
     owed = None if exempted(pr) else REWORKING if pr["rework"] else "wants tap" if pr["wants_tap"] else None
     tap = pr["tap"]["label"] if pr.get("tap") else owed or "no tap needed"
@@ -628,10 +619,10 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Ca
 
 
 def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, runs: Callable[[dict], bool] | None = None) -> str:
-    """The drive page, one line per open order, a coordinator's, whose runs says which orders it runs, only those; with shown, the drive narrowed to the orders ids name, only those, each whole, open or closed, under one summary line and each of their running jobs with no live agent, who carries each part read on every order and job of the drive."""
+    """The drive page, one line per open order, a coordinator's, whose runs says which orders it runs, only those; with shown, the drive narrowed to the orders ids name, only those, each whole, open or closed, under one summary line, who carries each part read on every order and job of the drive."""
     if shown is not None:
         carrying = drive | {"prs": shown["prs"]}
-        lines = [f"{drive['name']}: {len(open_orders(shown))} open of {len(shown['orders'])} orders", *agentless_lines(shown)]
+        lines = [f"{drive['name']}: {len(open_orders(shown))} open of {len(shown['orders'])} orders"]
         lines.extend(line for order_id, order in shown["orders"].items() for line in order_block(carrying, order_id, order))
         return "\n".join(lines)
     lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
@@ -649,7 +640,6 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     if owed := drive["catch_up"]:
         started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
         lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
-    lines.extend(agentless_lines(drive, None if runs is None else orders))
     lines.append(
         f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"

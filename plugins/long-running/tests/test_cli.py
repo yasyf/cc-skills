@@ -450,27 +450,25 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
     run("order", "set", "o4", "--state", "done")
     with state.edit("demo") as data:
         data["orders"]["o3"]["owner"] = "meta"
-        for job in data["jobs"].values():
-            job.update(state="running", session="gone")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
 
-    def shown() -> tuple[list[str], list[str], str]:
+    def shown() -> tuple[list[str], str]:
         lines = run("status")[1].splitlines()
-        return [line.split()[1] for line in lines if line.startswith("- o")], [line.split()[0] for line in lines if "no live agent" in line], "\n".join(lines)
+        return [line.split()[1] for line in lines if line.startswith("- o")], "\n".join(lines)
 
-    orders, agentless, text = shown()
-    assert (orders, agentless) == (["o1"], ["j1"])
+    orders, text = shown()
+    assert orders == ["o1"]
     assert "Open orders you run: 1, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
     assert "build o1" not in text and "fix the invoice" not in text
     assert "fix the invoice" in run("status", "o2")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
-    orders, agentless, text = shown()
-    assert (orders, agentless) == (["o2"], ["j2"])
+    orders, text = shown()
+    assert orders == ["o2"]
     assert "ship the run page" not in text and "fix the watch" not in text
     assert set(json.loads(run("status", "--json")[1])["orders"]) == {"o2"}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bound-to-none")
-    assert shown()[:2] == (["o1", "o2", "o3"], ["j1", "j2", "j3"])
+    assert shown()[0] == ["o1", "o2", "o3"]
 
 
 def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
@@ -8139,24 +8137,26 @@ def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys
     assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
 
 
-def test_status_names_the_open_incidents_and_each_running_job_whose_session_ended(
+def test_status_names_the_open_incidents_and_tells_no_running_job_of_a_restarted_session_to_start_again_as_it_told_codex_job_j5103(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix", "first check")
     run("order", "set", "o1", "--note", "record 3fa2c1")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch")
-    run("job", "add", "builder", "--order", "o2", "--goal", "fix it")
+    run("job", "add", "builder", "--order", "o2", "--goal", "fix it", "--agent", "a-1")
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "review the watch")
+    run("job", "add", "codex", "--order", "o3", "--goal", "review it")
+    with state.edit("demo") as data:
+        data["jobs"]["j4"].update(session=None, codex_run="/x/scratch/j4/codex")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
+    run("start", "demo", "--role", "coordinator")
     lines = run("status")[1].splitlines()
     assert lines[4:6] == [
         "Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:",
         "o1 open incident: errors on the api; record 3fa2c1",
     ]
-    assert not [line for line in lines if "no live agent" in line]
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
-    run("start", "demo", "--role", "coordinator")
-    gone = [f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}" for job_id in ("j1", "j2", "j3")]
-    assert run("status")[1].splitlines()[6:9] == gone
-    assert run("status", "o2")[1].splitlines()[1] == gone[2]
+    assert lines[6].startswith("Open orders")
+    assert run("status", "j4")[1].splitlines()[1].startswith("- o3 ")
 
 
 def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
