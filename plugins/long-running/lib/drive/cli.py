@@ -1203,6 +1203,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
     unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, state.load(name)))
+    unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
@@ -1213,6 +1214,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
+            or unworded
             or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
@@ -2543,6 +2545,8 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
             " with --handoff <the PR, its head and the event line verbatim>"
         )
+    if refused := brief.unworded_return(job["kind"], {"--done-when": flags["done_when"]}):
+        raise DriveError(f"{job_id}: refused, no brief written: {refused}")
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     if state.starts_cut(job) and not job["release_build"]:

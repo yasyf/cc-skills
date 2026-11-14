@@ -324,7 +324,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
             waited = job["waits"]
             ended = released(data, job, job_id, watcher.cards, out | slot if turn else out)
-            job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out)]))
+            job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out and state.RELEASE_WAIT.fullmatch(wait))]))
             if ended and job["state"] not in state.FINISHED_JOB_STATES and not watch_proves(data, job_id):
                 job["updated"] = state.stamp(moment)
                 if turn:
@@ -399,14 +399,15 @@ def followed(watcher: Watcher, data: dict) -> list[str]:
 
 
 def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows, for waits_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit holding the PR's merge commit, by GitHub's compare, a service no cluster runs reading none, and None while the read fails."""
+    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows, and the soak commit of each staging wait, for waits_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit holding the PR's merge commit, by GitHub's compare, or, for a staging wait, the soak commit itself, a service no cluster runs reading none, and None while the read fails."""
     data = state.load(watcher.name)
     merged = {
         wait: (found["service"], sha)
         for wait in followed(watcher, data)
         if (found := state.RELEASE_WAIT.fullmatch(wait)) and (sha := data["prs"][found["pr"]]["merged_sha"]) and github.repo_of(found["pr"]).lower() == state.MONOREPO.lower()
     }
-    if not merged:
+    soaks = {wait: found for wait in followed(watcher, data) if (found := state.STAGING_WAIT.fullmatch(wait))}
+    if not merged and not soaks:
         watcher.serving = {}
         return []
     if watcher.live_at and moment - watcher.live_at < LIVE_EVERY:
@@ -419,7 +420,9 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
         holds = {pair: github.contains(state.MONOREPO, *pair) for pair in {(row["commit"], merged[wait][1]) for wait, found in rows.items() for row in found}}
     except (state.DriveError, reads.ReadError, github.GithubError) as error:
         return read_failed(watcher, "release live", error, moment)
-    watcher.serving = {wait: {row["env"]: holds[row["commit"], merged[wait][1]] for row in found} for wait, found in rows.items()}
+    watcher.serving = {wait: {row["env"]: holds[row["commit"], merged[wait][1]] for row in found} for wait, found in rows.items()} | {
+        wait: {row["env"]: row["commit"].startswith(found["commit"]) for row in live if row["target"] == found["target"]} for wait, found in soaks.items()
+    }
     watcher.live_at = moment
     watcher.failures.pop("release live", None)
     return []
@@ -719,14 +722,17 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
-    """Each release wait of a live job or open PR whose release is out, with what says so: release live reads its service on one cluster at least and behind names none of them."""
-    return {
-        wait: f"every cluster of {found['service']}, {', '.join(sorted(watcher.serving[wait]))}, serves {found['pr']} with no release running there"
-        for order_id, owner in release_owners(data)
-        if hears(watcher, data, order_id)
-        for wait in owner["waits"]
-        if (found := state.RELEASE_WAIT.fullmatch(wait)) and behind(watcher, wait) == []
-    }
+    """Each release wait of a live job or open PR whose release is out, and each staging wait whose env runs its soak commit, with what says so."""
+    return {wait: said for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (said := out_because(watcher, wait))}
+
+
+def out_because(watcher: Watcher, wait: str) -> str | None:
+    """What says a wait is out: a release wait's once release live reads its service on one cluster at least and behind names none of them, a staging wait's once release live reads its env's target serving its soak commit; None for any other wait."""
+    if (found := state.RELEASE_WAIT.fullmatch(wait)) and behind(watcher, wait) == []:
+        return f"every cluster of {found['service']}, {', '.join(sorted(watcher.serving[wait]))}, serves {found['pr']} with no release running there"
+    if (found := state.STAGING_WAIT.fullmatch(wait)) and (watcher.serving or {}).get(wait, {}).get(found["env"]):
+        return f"tools/ci release live reads {found['env']}'s {found['target']} serving the soak commit {found['commit'][:12]}"
+    return None
 
 
 def regained(watcher: Watcher, job: dict) -> list[str]:

@@ -5412,6 +5412,34 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
     assert (job["state"], job["waits"]) == ("waiting", ["release:api:Forge-AI/monorepo#42"])
 
 
+def test_a_staging_tests_pause_is_one_waiting_naming_its_soak_commit_which_is_kept_and_held_and_a_ready_for_the_freeze_line_is_refused(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "soak it on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "soak the stack")
+    code, err = keep(monkeypatch, capsys, "j1", "ready for the freeze: sandsql at 044e8552b694 on plat-usw2-staging\n")
+    assert (code, "a builder's report opens with DONE" in err) == (2, True)
+    wait = "staging:sandsql/plat-usw2-staging@044e8552b694"
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {wait} for the soak\n") == (0, "")
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], view.holding(data, [wait], {})) == ("waiting", [wait], [wait])
+
+
+def test_a_builders_goal_or_done_when_jev_reads_as_ordering_a_return_with_no_result_word_is_refused_and_one_quoting_such_a_line_is_kept(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "soak it on staging")
+    unworded = 'your turn ends on one plain line with no result word, opening "ready for the freeze:"'
+    jev.picks("unworded")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", unworded]) == 2
+    assert 'refused, no job added: its --goal "your turn ends on one plain line' in capsys.readouterr().err
+    jev.picks("none")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "refuse a brief ordering a return with no result word")[1] == "j1"
+    jev.picks("unworded")
+    assert cli.main(["job", "brief", "j1", "--serves", "his order", "--done-when", unworded, "--where", "yasyf/cc-skills main"]) == 2
+    assert "j1: refused, no brief written: its --done-when" in capsys.readouterr().err
+
+
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

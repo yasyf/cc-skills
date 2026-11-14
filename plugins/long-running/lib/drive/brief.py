@@ -78,6 +78,14 @@ AFTER_INSTALL_QUESTION = (
     " proof, or every step it names is part of the change itself."
 )
 AFTER_INSTALL_OPTIONS = {settled.UNDECIDED: "Its only step after the install is the proof that the change works.", "after": "It names another step to take once the change is installed."}
+RETURN_OPENING = re.compile(r"\bresult word\b|\b(?:open|opens|opening|start|starts|starting|begin|begins|beginning)\s+(?:with\s+|on\s+)?[\"“'`]", re.IGNORECASE)
+UNWORDED_QUESTION = (
+    "Does this line a coordinator wrote for a builder's or designer's brief tell the job to end its turn or return on a line whose"
+    " first word is none of DONE, READY, PUSHED, BUILT, WAITING, ASK, BLOCKED, DESIGN or HANDOFF, such as one plain line with no"
+    " result word, or one opening with a phrase of its own? Pick unworded when it does; none when every return it orders opens with"
+    " one of those words, or it orders no return and only describes or quotes such a line, as a fix refusing one does."
+)
+UNWORDED_OPTIONS = {settled.UNDECIDED: "Every return it orders opens with a result word, or it orders none.", "unworded": "It orders a return opening with no result word."}
 MAC_STEP_QUESTION = (
     'Its brief names "{step}" as a step only the Mac runs. Does the proof file below, run once the change is installed, take'
     " that step and then read back what it changed, such as the card `cc-slack drive-cards --waits` reads, the thread"
@@ -526,6 +534,27 @@ def after_install(job_id: str, brief: str) -> str | None:
         f'{job_id}\'s Goal "{cut(goal, 160)}" names a step to take once its change is installed, as Jev reads it, and no Mac: line declares it:'
         f' {MAC_STEP_WAY}. Name the step with drive job brief {job_id} --mac "<the step>", which starts its lane on this Mac to write that file'
     )
+
+
+def unworded_return(kind: str, lines: dict[str, str | None]) -> str | None:
+    """Why a builder's or designer's Goal or Done when may not be kept: Jev reads a line of them that speaks of a return's opening as ordering one that opens with no result word, at least settled.DECIDES sure, which the one_line_result stop hook sends back and drive job report refuses, so the job could never keep it, as six staging test briefs ending on "ready for the freeze:" could not; Jev giving no reading lets it out, said on stderr."""
+    if kind not in WORDED_KINDS:
+        return None
+    for flag, line in lines.items():
+        if not (line and RETURN_OPENING.search(line)):
+            continue
+        try:
+            read = settled.jev({"state": {"line": line}, "questions": {"unworded": {"label": {"instructions": UNWORDED_QUESTION, "options": UNWORDED_OPTIONS}}}})["unworded"]
+        except settled.Unheard as failure:
+            print(f"drive: Jev did not read {flag} for a return opening with no result word, so it is kept unchecked: {failure}", file=sys.stderr)
+            continue
+        if read["choice"] == "unworded" and read["probabilities"]["unworded"] >= settled.DECIDES:
+            return (
+                f'its {flag} "{cut(line, 160)}" orders a return opening with no result word, as Jev reads it, which the one_line_result stop hook'
+                f" sends back and drive job report refuses, so the job could never keep it: a {kind}'s return opens with {', '.join(OPENINGS[:-1])} or {OPENINGS[-1]},"
+                f" and a pause is a WAITING naming what frees it, a staging test's staging:<target>/<env>@<commit> for its soak commit; give {flag} again so it does"
+            )
+    return None
 
 
 def incident_refusal(job_id: str, order_id: str, brief: str, rule: str) -> str | None:
