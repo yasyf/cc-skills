@@ -13,7 +13,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from contextlib import closing
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from captain_hook import (
@@ -122,6 +122,9 @@ HIS_DM_HOME = FileFixture(
 HANDLER_SESSION = "handler-fixture"
 RELAYED_ORDER = "Post it in o598's thread if it has one, else at his DM root"
 THREAD = "1794378983.440769"
+THREAD_WORDS = 100
+OLDEST_WORDS = f"slack:{THREAD[:-6]}{0:06}"
+NEWEST_WORDS = f"slack:{THREAD[:-6]}{THREAD_WORDS - 1:06}"
 SAID_LINK = "https://acme.slack.com/archives/D123/p1794288799976279"
 SAID_CALL = "toolu_said"
 RESUMED = "drive job resume now works from a session that did not start the job's agent."
@@ -238,6 +241,15 @@ def refused_post(text: str, reason: str, counted: str = "") -> dict:
     """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for, and the finding again as counted when a count or a mark decides it."""
     denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
     return {"hookSpecificOutput": denied, "rule": f"1. {reason}", "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
+
+
+def long_thread(output: dict) -> str:
+    """What message_limits.py hands Jev for a post in a thread holding THREAD_WORDS messages of his, oldest first, each one minute after the last, 40,000 characters in all."""
+    words = [
+        {"id": f"slack:{THREAD[:-6]}{index:06}", "source": "slack", "quote": f"{index:03}" + "w" * 397, "said_at": (SAID_AT + timedelta(minutes=index)).isoformat(), "detail": "his message in the thread this post goes to"}
+        for index in range(THREAD_WORDS)
+    ]
+    return json.dumps(output | {"his_words": words})
 
 
 def sent_found(output: dict) -> list[WorkflowState]:
@@ -461,7 +473,7 @@ def sent_first(evt: BaseHookEvent, output: dict) -> None:
 
 
 def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post, before the post goes out, or with sent naming the say post Slack already has: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, and on a handler's post the read each of its claims names and each record it cites or carries, as its own calls read them. It passes when no finding's rule holds against the line it names, or his words lift it, and every claim of a handler's stands on the read it names, and is held with Jev's reason otherwise, never for saying more than his message asked: a post not yet sent stays back, and a sent one stands in his DM while its session hears to reword it in place, Jev taking all the time capt-hook's request leaves the hook. When Jev cannot finish, because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or a mark decides, such as the post's word count or his reading as away, still refuses, since no judgment lifts it, and every other finding only warns: the post goes out as written with every finding beside it for the session that posts it, by his pick "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". On a handler's post the checks found nothing in, the post is held only for a claim the read it names does not back, a read that matched none of its calls, or a line needing a read its claims leave out, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims", and passes with any warning the checks heard beside it otherwise. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
+    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post, before the post goes out, or with sent naming the say post Slack already has: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, the newest of them that fit its prompt as `fitted` keeps them, and on a handler's post the read each of its claims names and each record it cites or carries, as its own calls read them. It passes when no finding's rule holds against the line it names, or his words lift it, and every claim of a handler's stands on the read it names, and is held with Jev's reason otherwise, never for saying more than his message asked: a post not yet sent stays back, and a sent one stands in his DM while its session hears to reword it in place, Jev taking all the time capt-hook's request leaves the hook. When Jev cannot finish, because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or a mark decides, such as the post's word count or his reading as away, still refuses, since no judgment lifts it, and every other finding only warns: the post goes out as written with every finding beside it for the session that posts it, by his pick "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". On a handler's post the checks found nothing in, the post is held only for a claim the read it names does not back, a read that matched none of its calls, or a line needing a read its claims leave out, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims", and passes with any warning the checks heard beside it otherwise. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
     heard = found.get("additionalContext") or ""
@@ -478,7 +490,7 @@ def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | Non
     )
     stands = "stays as say sent it" if sent else "goes out as written"
     try:
-        if not (items := [*judge.items(ctx), *handed]):
+        if not (items := fitted(ctx, judge, [*judge.items(ctx), *handed])):
             return held(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below{again}.{shown}")
         verdict = judge.verdict(ctx, items)
     except (Undecided, EvidenceIncomplete, TranscriptLoadError) as exc:
@@ -519,11 +531,21 @@ def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, D
     return ctx, judge, [*words, *found]
 
 
+def fitted(ctx: Context, judge: Decide, items: list[Evidence]) -> list[Evidence]:
+    """The evidence Jev's prompt holds within JEV_PROMPT_CHARS: each item said at no time whole, every read, record, finding rule and ruling of his the checks add, and of his words said at a time, his messages and card answers in the post's thread and the order's other threads and his prompts in the transcripts, the newest first, each that still fits beside them, in the order they came, since those words grow with his threads, 41,070 characters in one incident's, and no post there could pass otherwise."""
+    kept = [item for item in items if item.said_at is None]
+    for item in sorted((item for item in items if item.said_at), key=lambda item: item.said_at.timestamp(), reverse=True):
+        if len(str(judge.framed(ctx, [*kept, item], DETAIL_SHOWN))) <= JEV_PROMPT_CHARS:
+            kept.append(item)
+    shown = {id(item) for item in kept}
+    return [item for item in items if id(item) in shown]
+
+
 def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
-    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules, own words and his already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
+    """Why a post waits for narrower reads: Jev's prompt for it, its frame, rules, evidence and action, with as many of his words said at a time as `fitted` keeps, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming each read and record by the characters it adds, largest first. A post its reads cannot bring under, one whose rules, own words and the rulings of his the checks add already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
     ctx, judge, handed = jev_reads(evt, output, reason)
     try:
-        prompt = str(judge.framed(ctx, [*judge.items(ctx), *handed], DETAIL_SHOWN))
+        prompt = str(judge.framed(ctx, fitted(ctx, judge, [*judge.items(ctx), *handed]), DETAIL_SHOWN))
     except (EvidenceIncomplete, TranscriptLoadError):
         return None
     reads = sorted(
@@ -752,6 +774,26 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": json.dumps(json.loads(handler_reads("x")) | {"his_words": [{"id": "ruling:1", "source": "his words", "quote": "y" * JEV_PROMPT_CHARS}]})},
         ): Block(pattern=r"(?s)over the 10,000 it takes, and its rules, the post and his words alone pass that\. Say less and name it on a `DEFECT` line"),
+        Input(
+            tool=SAY,
+            tool_input={"text": "The fix merged.", "dry_run": True},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": long_thread(refused_post("The fix merged.", AWAY))},
+            llm={"reason": "his newest message asks for this news", "allow": True, "relied_on": [NEWEST_WORDS]},
+        ): Warn(pattern="Jev read no finding's rule as holding against this post, so it goes out as written"),
+        Input(
+            tool=SAY,
+            tool_input={"text": "The fix merged.", "dry_run": True},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": long_thread(refused_post("The fix merged.", AWAY))},
+            llm={"reason": "his first message asks for this news", "allow": True, "relied_on": [OLDEST_WORDS]},
+        ): Block(pattern="Jev weighed this post by the drive's rules and held it back"),
         Input(
             tool=SAY,
             tool_input={"text": "The fix merged."},
