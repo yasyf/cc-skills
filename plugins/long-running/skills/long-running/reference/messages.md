@@ -393,7 +393,8 @@ When it is answered, replaced or redone:
   never recorded as his. A card that another open card of the drive asks again comes down the moment
   the drive settles on that card, such as two jobs' release questions once one card asks both.
   `drive cards withdraw <its waits id> --via <that card's waits id>` shows it "Asked again on a newer
-  card · answer that one" linking that card with no buttons, and each wait on it moves to that card.
+  card · answer that one" linking that card with no buttons, each wait on it moves to that card, and
+  its question rides on that card's, so his one answer there ends both.
   A card still worth a tap while its work is reworked keeps its buttons. One question has one card. `drive job ask` refuses a question another job's
   open card asks in the same words, naming the `drive job set --waits` that frees its job at his
   answer. `drive answer` lists every open card

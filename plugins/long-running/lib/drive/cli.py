@@ -1904,15 +1904,10 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
             for other in view.open_questions(data["jobs"][job_id])
             if other is not live and other["card"] and other["waits"] != live["waits"] and state.same_question(other["title"], live["title"])
         ]
-        riding = {id(other) for other in folded(data, live["file"])}
-        moved = [(owner, other) for owner, each in data["jobs"].items() for other in each["questions"] if id(other) in riding and other["card"] and other["waits"] != live["waits"]]
-        wait_on(data, [*doubled, *(other for _, other in moved)], live["waits"])
+        wait_on(data, doubled, live["waits"])
         for other in doubled:
             other["closed"] = asked_again(link, live["waits"])
-        ended = [(job_id, other) for other in doubled] + [(owner, other | {"closed": asked_again(link, live["waits"])}) for owner, other in moved]
-        for owner, other in moved:
-            other.update(waits=live["waits"], card=live["card"])
-            state.join_card(data, owner, live["card"])
+        ended = [(job_id, other) for other in doubled] + fold_onto(data, live)
     said = [f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)]
     if where and (incidents or not inside):
         blocks = f", and it blocks incident {', '.join(incidents)}: {job_id} builds its recommended option meanwhile, {card['recommended']}" if incidents else ""
@@ -1924,6 +1919,18 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
         except DriveError as error:
             said.append(f"its line in thread {where[1]} of channel {where[0]} did not go out, so post it there with say: {error}")
     return "; ".join(said)
+
+
+def fold_onto(data: dict, live: dict) -> list[tuple[str, dict]]:
+    """Move each open question folded into the live question, by `folded`, that is still on another card onto the live question's card and waits id, in the write the caller saves: each wait on its old card moves to the live waits id, it joins the live card's thread, and it stays open, so his answer on the live card ends it too, by `superseded.end`. The one way a question asked again on another card of the drive leaves its own card, which `drive job ask` and `drive cards withdraw --via` both take. Each as it ended on its old card, by its job, for `superseded.follow` to show ASKED_AGAIN there with a link to the live card and no buttons."""
+    riding = {id(other) for other in folded(data, live["file"])}
+    moved = [(owner, other) for owner, each in data["jobs"].items() for other in each["questions"] if id(other) in riding and other["card"] and other["waits"] != live["waits"]]
+    wait_on(data, [other for _, other in moved], live["waits"])
+    ended = [(owner, other | {"closed": asked_again(live["card"], live["waits"])}) for owner, other in moved]
+    for owner, other in moved:
+        other.update(waits=live["waits"], card=live["card"])
+        state.join_card(data, owner, live["card"])
+    return ended
 
 
 def asked_again(link: str, waits: str) -> dict:
@@ -2233,35 +2240,49 @@ def cards_redraw(args: argparse.Namespace) -> int:
 
 
 def cards_withdraw(args: argparse.Namespace) -> int:
-    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them, withdraw, or whose question or options they change, or that an event at --via overtook, as settled.unhappened reads it, so a tap has nothing left to pick, and its card follows: it shows his words, or what happened, and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it. The event's words are never recorded as his. With --via another open question card of the drive, by its waits id or permalink, each ends asked again there as `drive job ask` folds a duplicate into a newer card, its card showing ASKED_AGAIN and a link to that card with no buttons, and each wait on it moving to that card's waits id."""
+    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them, withdraw, or whose question or options they change, or that an event at --via overtook, as settled.unhappened reads it, so a tap has nothing left to pick, and its card follows: it shows his words, or what happened, and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it. The event's words are never recorded as his. With --via another open question card of the drive, by its waits id or permalink, each folds into the question that card asks, as `drive job ask` folds a question it reads as asked again into a newer card, by `fold_onto`: its card shows ASKED_AGAIN and a link to that card with no buttons, each wait on it moves to that card's waits id, and it stays open on that card, so his one answer there ends it too."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
     onto = next(
         (
-            question
-            for _, question in view.drawn_on(state.load(name), args.via)
-            if question["closed"] is None and question["card"] and question["waits"] != args.card and view.message_key(question["card"]) != view.message_key(args.card)
+            (job_id, question)
+            for job_id, question in view.drawn_on(state.load(name), args.via)
+            if question["closed"] is None
+            and question["card"]
+            and question["file"]
+            and not question["replaced"]
+            and question["waits"] != args.card
+            and view.message_key(question["card"]) != view.message_key(args.card)
         ),
         None,
     )
     if onto and args.words:
-        raise DriveError(f'{args.card}: refused, not withdrawn: --via {args.via} is the drive\'s open card {onto["card"]}, so the card shows "{ASKED_AGAIN}" linking it, never --words: drop --words')
+        raise DriveError(f'{args.card}: refused, not withdrawn: --via {args.via} is the drive\'s open card {onto[1]["card"]}, so the card shows "{ASKED_AGAIN}" linking it, never --words: drop --words')
     if not onto and not args.words:
         raise DriveError(f"{args.card}: refused, not withdrawn: --words is needed unless --via is another open question card of this drive, by its waits id or permalink")
     unsaid = None if onto else settled.unsaid([args.words], [args.via], view.live_cards(name), state.load(name))
     if unsaid and (unhappened := settled.unhappened(args.via)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}; nor did an event at {args.via} overtake it: {unhappened}")
     with state.edit(name) as data:
-        closed = asked_again(onto["card"], onto["waits"]) if onto else state.new_close("withdrawn", args.words, args.via)
-        ended = [each for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
-        if onto:
-            wait_on(data, [question for _, question in ended], onto["waits"])
-    if not ended:
+        drawn = [(job_id, question) for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None]
+        if onto and drawn:
+            live = state.question_in(data["jobs"][onto[0]], onto[1])
+            for _, question in drawn:
+                question["replaced"] = live["file"]
+            ended = fold_onto(data, live)
+        else:
+            closed = state.new_close("withdrawn", args.words, args.via)
+            ended = [each for job_id, question in drawn for each in superseded.end(data, job_id, question, closed)]
+    if not drawn:
         raise DriveError(f"{args.card}: no open question of this drive is drawn on that card, by its waits id or permalink; drive status <job> names the card each question is drawn on")
     if onto:
-        done = superseded.follow(name, ended, f'"{ASKED_AGAIN}" and a link to {onto["card"]}')
-        lines = [f"settled {len(ended)} question(s) drawn on his card {args.card} as asked again on his card {onto['card']}", *done, f"each wait on {args.card} now waits on {onto['waits']}"]
+        done = superseded.follow(name, ended, f'"{ASKED_AGAIN}" and a link to {live["card"]}')
+        lines = [
+            f"folded {len(drawn)} question(s) drawn on his card {args.card} into the question his card {live['card']} asks, which his answer there ends too",
+            *done,
+            f"each wait on {args.card} now waits on {live['waits']}",
+        ]
     else:
         done = superseded.follow(name, ended, "what happened" if unsaid else "his words")
         asked = sorted(
@@ -2327,11 +2348,11 @@ def keep_waits(data: dict, job_id: str, file: Path, waits: str, card: str | None
 
 
 def folded(data: dict, file: str) -> list[dict]:
-    """Each open question a `Replaces:` line folded into the question kept in this file, and each folded into those, which his card for this one asks too."""
+    """Each open question a `Replaces:` line folded into the question kept in this file, and each folded into those, which his card for this one asks too; a question kept in no file, as `hold_card` keeps a card no ASK drew, has none folded into it."""
     from drive import view
 
     direct = [other for job in data["jobs"].values() for other in view.open_questions(job) if other["replaced"] == file]
-    return [*direct, *(deeper for other in direct for deeper in folded(data, other["file"]))]
+    return [*direct, *(deeper for other in direct if other["file"] for deeper in folded(data, other["file"]))]
 
 
 def job_report(args: argparse.Namespace) -> int:
@@ -5785,9 +5806,10 @@ def parser() -> argparse.ArgumentParser:
             " words, or what happened, with no buttons, so a late tap records nothing, and what happened is never recorded as"
             " his; once the work is back, its job, or any job of its order carrying on that work, asks again with drive job ask"
             " <job> <file> --redraws <this card's waits id>, which redraws it under its waits id. With --via another open"
-            f' question card of the drive and no --words, it settles as asked again on that card, showing "{ASKED_AGAIN}" and a'
-            " link to it with no buttons, as drive job ask settles a duplicate it folds into a newer card, and each job's or"
-            " PR's wait on it moves to that card's waits id, so his answer there wakes them."
+            f' question card of the drive and no --words, it folds into the question that card asks, showing "{ASKED_AGAIN}"'
+            " and a link to it with no buttons, as drive job ask folds a question it reads as asked again into a newer card:"
+            " each job's or PR's wait on it moves to that card's waits id, and its question stays open on that card, so his"
+            " one answer there ends it too and wakes them."
         ),
     )
     verb.add_argument("card", help="the card, by its waits id or its permalink")
