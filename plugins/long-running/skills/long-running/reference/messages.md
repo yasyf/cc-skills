@@ -712,11 +712,12 @@ restating it.
   that read's id, so claims sharing a read add only their own words. Jev's prompt takes at most 10,000
   characters, by his words "jev should be getting like 10k chars at most for any call": of his words it gets only those the
   post answers, so a long thread refuses no post, and of the rules only those the post can trip, the findings' only beside a
-  finding, each with its own rule, and the reads', records' and ancestry reads' only beside such a read, while his prompts go
-  in newest first, each that fits beside the rules, the post and its reads; a post whose reads push it past that is refused
+  finding, each with its own rule, and the reads', records' and ancestry reads' only beside such a read, while each of his
+  words is cut to what fits beside the rules, the post and its reads, those the post answers, quotes or links first, then
+  his prompts, each newest first, so his own length never refuses a post; a post whose reads push it past that is refused
   before say runs, naming each
   read's size, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and names those; a post whose
-  rules, own words and the rulings of his the hook adds alone pass it is refused too, naming a `DEFECT` line. Jev holds
+  rules and own words alone pass it is refused too, naming a `DEFECT` line. Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
   checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,
