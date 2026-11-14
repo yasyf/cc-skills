@@ -329,10 +329,17 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     for part in parts.keys() & set(state.job_parts(job, order_id)):
                         parts[part].update(orphan_said=state.stamp(moment), orphan_gap=state.FREED)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
-                unlaunched = f", not started yet: drive job launch {job_id} starts it" if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch")) else ""
+                unlaunched = (
+                    f", its codex-ask run ended: drive job launch {job_id} starts its next"
+                    if job["kind"] == "codex" and job.get("codex_run")
+                    else f", not started yet: drive job launch {job_id} starts it"
+                    if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch"))
+                    else ""
+                )
                 unstarted = f"; Read your brief first: {job['brief']}" if job["kind"] != "codex" and job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
                 if job["undelivered"] and carrier(job_id, job, data, watcher.cards):
-                    unlaunched, unstarted = ", and the watch now carries it the texts it holds, his answers among them", ""
+                    his = ", his answers among them" if any(held["sender"] == state.HIM for held in job["undelivered"]) else ""
+                    unlaunched, unstarted = f", and the watch now carries it the texts it holds{his}", ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         redraws = []
         for key, pr in data["prs"].items():

@@ -111,6 +111,9 @@ OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
 REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 DETACHED_ENV = "LONG_RUNNING_DETACHED"
+HIM = "him"
+WATCH_SENDER = "watch"
+SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -758,6 +761,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         for kept in job["undelivered"]:
             kept.setdefault("request", str(uuid.uuid5(uuid.NAMESPACE_OID, f"{job['created']} {kept['seq']} {kept['at']}")))
             kept["seq"] = bare_seq(kept["seq"])
+            kept.setdefault("sender", HIM if kept["seq"] else None)
         if flags := job.get("brief_flags"):
             if "handoff" not in flags:
                 flags["handoff"] = briefed_handoff(job.get("brief"))
@@ -1227,7 +1231,9 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING names something the watch frees it on."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again."""
+    from drive import view
+
     job = data["jobs"][job_id]
     if job["state"] == "stopped":
         parts = set(job_parts(job, job["order"]))
@@ -1251,10 +1257,11 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
                 f" keeps none it can run{f', as {why}' if why else ''}: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
-    if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
+    if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, job["waits"], None) or result_waits(data, job["order"], line)):
         return (
-            "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n>, a PR the drive"
-            f" tracks or a part of an order as <order>:<part>, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
+            "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
+            " release:<service>:<owner>/<repo>#<n>, an open PR the drive tracks or a part of an order not yet delivered as <order>:<part>, since a PR"
+            f" that merged or closed and a part delivered free it at once, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
     return fix_refusal(data, job_id, line, report)
 
@@ -1333,18 +1340,17 @@ def part_wait(data: dict, wait: str) -> tuple[str, str] | None:
     return (named[1], named[2]) if named and named[1] in data["orders"] and named[2] in data["orders"][named[1]]["parts"] else None
 
 
-def wait_words(line: str, report: str) -> str:
-    """The words a result's waits are read from: a WAITING's whole report, which may name what it waits on only below its first line, and a READY's or PUSHED's first line, which names its own PRs while its body cites others."""
-    return f"{line}\n{report}" if re.match(r"WAITING\b", line) else line
+def result_waits(data: dict, order_id: str, line: str) -> list[str]:
+    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release and part a WAITING's line names that view.holds says still holds, since a merged PR or a delivered part would free it at once, and none for any other line."""
+    from drive import view
 
-
-def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list[str]:
-    """The waits a result gives its job: each PR and release a READY's or PUSHED's line names or a WAITING's whole report names, and none for any other line."""
-    return named_waits(data, order_id, wait_words(line, report)) if re.match(r"(?:READY|PUSHED|WAITING)\b", line) else []
+    if re.match(r"WAITING\b", line):
+        return view.holding(data, named_waits(data, order_id, line), None)
+    return named_waits(data, order_id, line) if REPORTED_LINE.match(line) else []
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1354,10 +1360,10 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         job["said"] = line
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
-    if waits := result_waits(data, job["order"], line, report):
+    if waits := result_waits(data, job["order"], line):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     if re.match(r"WAITING\b", line):
-        job["waited"] = stage.waited(data, job_id, wait_words(line, report))
+        job["waited"] = stage.waited(data, job_id, line)
         job["waits"] = list(dict.fromkeys([*job["waits"], *job["waited"]["waits"]]))
         for key in job["waited"]["red"]:
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *(wait for wait in job["waited"]["waits"] if not card_wait(data, wait))])
@@ -2283,6 +2289,27 @@ def session_role(data: dict, session: str | None) -> str | None:
     if session_project(data, session):
         return "coordinator"
     return "communicator" if handler_id(data, session) else None
+
+
+def held_sender(data: dict) -> str | None:
+    """Who sent a text a drive verb holds on a job: the role of the session running the verb, the watch for a verb the watch detached, which runs in no session, else None, a session holding no role in the drive."""
+    return session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or (WATCH_SENDER if os.environ.get(DETACHED_ENV) else None)
+
+
+def sent_by(sender: str | None) -> str:
+    """How every route handing a held text to a worker names who sent it: his answer by him, so nothing else is filed under his answers, and every other text by its sender's role, the drive's for a sender no role names."""
+    return "His answer" if sender == HIM else f"From {SENDER_NAMES.get(sender, 'the drive')}"
+
+
+def since_heading(sender: str | None) -> str:
+    """The heading a held text goes under: His answers since: for his, and From <its sender's role> since: for any other, such as From the coordinator since:."""
+    return f"{'His answers' if sender == HIM else sent_by(sender)} since:"
+
+
+def held_since(held: list[dict]) -> str:
+    """Held texts under the since_heading of who sent them, his answers first, each text a line in the order held, as a brief, a codex question and a handoff carry them."""
+    senders = sorted(dict.fromkeys(kept["sender"] for kept in held), key=lambda who: who != HIM)
+    return "".join(f"\n{since_heading(who)}" + "".join(f"\n- {kept['words']}" for kept in held if kept["sender"] == who) for who in senders)
 
 
 def handler_id(data: dict, session: str | None) -> str | None:

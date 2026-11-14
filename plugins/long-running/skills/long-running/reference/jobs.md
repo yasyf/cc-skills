@@ -136,7 +136,8 @@ every state but `stopped`, and `drive job report` refuses, naming the fix, a job
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>` and `<order>:<part>` a
-`READY`, `PUSHED` or `WAITING` line names becomes a wait, which the watch's `FREE` line ends once
+`READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, never one the lines below it name, so a
+`WAITING` naming only PRs that merged or closed or parts delivered is refused, by the one rule `drive job report` and a codex job's take share; the watch's `FREE` line ends a wait once
 the PR merges, the release is out or a builder or codex job on the part returns `DONE`, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
 moves either wait to that job's newest open PR, else to that job until its work is done; a release wait whose service `tools/ci release select
 --pr` finds the PR's changed paths never reach is refused, naming the components they reach:
@@ -157,7 +158,8 @@ scratch>/codex-result.json` on the job's brief, with `-m <model>` on a job added
 model his order names, and `--incident` on an incident, after the checks the Agent hooks run on
 every other job's brief, and records the run folder on the job in place of any agent an earlier
 lane left on it, so the watch never reads that agent's old turn as this run's result. Its brief carries each text the job
-holds and each answer of his it has not heard under `His answers since:`, as a first launch does,
+holds under a heading naming its sender, his answers under `His answers since:` and the coordinator's under
+`From the coordinator since:`, and each answer of his it has not heard under `His answers since:`, as a first launch does,
 and the launch drops those texts off the job and marks it sent those answers. A text held while
 the run goes waits for its end: the watch starts no launch while it goes, and its next launch
 carries the text. The `scratch_folder` hook refuses a
@@ -368,7 +370,7 @@ before it sends or starts.
   that one refuses them too, his answer still held.
 - A delivered message, sent to a live worker or carried in the brief or handoff a worker started
   on, marks the job sent each answer of his whose words it holds verbatim, and a first launch adds
-  each text the job holds and each answer it has not heard that its brief lacks under `His answers since:`; a `SendMessage`
+  each text the job holds that its brief lacks under the heading naming its sender, `His answers since:` for his alone, and each answer it has not heard that its brief lacks under `His answers since:`; a `SendMessage`
   from the coordinator session to its agent on this Mac does the same once that agent's transcript
   holds it, as a queued command while the agent works or a meta user row once it waits, which the
   watch and `drive answer` read before either says the job has not heard them.

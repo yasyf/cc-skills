@@ -29,7 +29,7 @@ RESULT = {
             "enum": [*state.RESULT_STATES, "BUILT"],
             "description": (
                 "The result your run ends on: DONE, finished and checked where it is used; READY or PUSHED, a PR is open; WAITING, it waits on a"
-                " release or PR; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
+                " release, an open PR or a part of an order not yet delivered; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
                 " on a branch while his card is open; BLOCKED, no route works; HANDOFF, the work is left for a builder to ship, such as edits left uncommitted."
             ),
         },
@@ -37,7 +37,9 @@ RESULT = {
             "type": "string",
             "description": (
                 "The rest of the result line after the state word, never repeating it, at most 400 characters: the proof for DONE, each PR link for"
-                " READY or PUSHED, `<branch>, waits on <cards>` for BUILT, the ASK block's file for ASK, what is in the way for BLOCKED, the worktree"
+                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>` and `<order>:<part>` it waits on for WAITING,"
+                " the only place its waits are read from, since a PR that merged or closed and a part delivered wait on nothing,"
+                " `<branch>, waits on <cards>` for BUILT, the ASK block's file for ASK, what is in the way for BLOCKED, the worktree"
                 " and branch holding your edits and what is left for HANDOFF."
             ),
         },

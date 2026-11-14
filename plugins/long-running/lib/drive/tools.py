@@ -757,7 +757,7 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
                 if "undone" in attrs:
                     superseded.unhold(data["jobs"][job_id], attrs["undone"])
                 elif all(answer["seq"] != seq for answer in kept):
-                    kept.append({"seq": seq, "words": verbatim(made, questions, found), "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
+                    kept.append({"seq": seq, "words": verbatim(made, questions, found), "at": state.stamp(), "said": None, "request": str(uuid.uuid4()), "sender": state.HIM})
 
 
 def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:

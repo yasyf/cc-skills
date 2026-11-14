@@ -213,13 +213,43 @@ def test_a_text_resumed_to_a_codex_job_waits_for_its_next_run_while_one_goes_and
     answer = "build option 2, the lazy copy"
     assert run("job", "resume", "j1", answer) == (
         0,
-        "j1: held for its next codex-ask run under His answers since:, since the run that goes reads no text; the watch starts that run with it once this one returns with the job still open",
+        "j1: held for its next codex-ask run under From the coordinator since:, since the run that goes reads no text; the watch starts that run with it once this one returns with the job still open",
     )
-    assert ([held["words"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]], "His answers since:" in (folder / "question").read_text()) == ([answer], False)
+    assert ([held["words"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]], "From the coordinator since:" in (folder / "question").read_text()) == ([answer], False)
     codex_ask.end(folder, "completed", codex_reply("ASK", "Should the fix drop the column?"))
     assert watched(demo)["state"] == "waiting"
-    assert run("job", "resume", "j1") == (0, f"j1: the message went to its next codex-ask run, started in {folder}, under His answers since:")
-    assert ((folder / "question").read_text().endswith(f"His answers since:\n- {answer}\n"), state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, [])
+    assert run("job", "resume", "j1") == (0, f"j1: the message went to its next codex-ask run, started in {folder}, under From the coordinator since:")
+    assert ((folder / "question").read_text().endswith(f"From the coordinator since:\n- {answer}\n"), state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, [])
+
+
+def test_a_codex_jobs_launch_files_a_coordinators_text_under_from_the_coordinator_and_only_his_answers_under_his_answers_since(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
+) -> None:
+    codex_job(run)
+    ring, logs = 'His answer on card demo:j1-7, verbatim: "Ring"', "the red run's CI logs are lost; read its rerun's instead"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = [
+            {"seq": None, "words": logs, "sender": "coordinator", "at": state.stamp(), "said": None, "request": "req-logs"},
+            {"seq": "9", "words": ring, "at": state.stamp(), "said": None, "request": "req-ring"},
+        ]
+    folder = launched(demo, run, tmp_path)
+    brief = (tmp_path / "j1.brief.md").read_text()
+    assert (folder / "question").read_text() == f"{brief}His answers since:\n- {ring}\nFrom the coordinator since:\n- {logs}\n"
+
+
+def test_a_codex_reply_waiting_on_lost_logs_that_names_only_merged_prs_is_taken_blocked_never_waiting_on_them_as_j3122s_was(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
+) -> None:
+    codex_job(run)
+    keys = [f"Forge-AI/monorepo#{number}" for number in (54607, 54665)]
+    with state.edit(demo) as data:
+        for key in keys:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
+    folder = launched(demo, run, tmp_path)
+    codex_ask.end(folder, "completed", codex_reply("WAITING", f"the CI logs of {state.pr_url(keys[0])} are lost", f"It cites {state.pr_url(keys[1])}, merged too."))
+    job = watched(demo)
+    refused = "BLOCKED codex-ask completed, its reply refused: its WAITING names nothing the watch frees it on"
+    assert (job["state"], job["waits"], job["said"].startswith(refused)) == ("failed", [], True)
 
 
 def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_bash_calls_trusted_in_its_config(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
