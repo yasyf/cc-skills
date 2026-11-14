@@ -3,15 +3,15 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from functools import cache, reduce
+from functools import cache, partial, reduce
 from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, land, limits, orca, state
+from drive import agents, brief, github, install, land, limits, orca, state
 from drive.orca import OrcaError
 from drive.shell import expanded, runnable, simple_commands, templates
 
@@ -26,11 +26,39 @@ SHIP = ("ccx", "vcs", "ship")
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
 PUSH_ONLY = {"--no-pr", "--dry-run"}
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
-FORCED_RERUN = ("ci", "bk", "rerun")
-RERUNS = (FORCED_RERUN, ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
-FORCED_RERUN_VALUED = {"--unit", "--count"}
-GREEN = "passed"
+RERUNS = {
+    ("ci", "bk", "rerun"): frozenset({"--unit", "-unit", "--count", "-count"}),
+    ("ci", "bk", "api"): frozenset({"-X", "--X", "-d", "--d"}),
+    ("bk", "api"): frozenset({"-X", "--method", "-H", "--headers", "-d", "--data", "-f", "--file"}),
+    ("bk", "build", "rebuild"): frozenset({"-p", "--pipeline", "-b", "--branch", "-u", "--user"}),
+    ("bk", "job", "retry"): frozenset(),
+    ("gh", "run", "rerun"): frozenset({"-R", "--repo", "-j", "--job"}),
+}
+HELP = frozenset({"-h", "--help", "-help"})
+DEV = "dev"
+RETRY_PATH = re.compile(r"(?:^|/)(?:organizations/(?P<org>[\w-]+)/)?pipelines/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/(?:jobs/(?P<job>[\w-]+)/retry|rebuild)/?$")
+PASSED = frozenset({"passed", *(conclusion.lower() for conclusion in github.PASSED)})
+FAILED = frozenset({"failed", "canceled", "timed_out", "expired", *(conclusion.lower() for conclusion in github.FAILED)})
 FLAKE = "--flake"
+FIX_THE_CAUSE = (
+    f"a check that fails is fixed at its cause, never retried past with {FLAKE} or a rerun. Read the failed job's own output"
+    " with `tools/ci bk log '<job URL>'`, or `gh run view <run> --log-failed` on GitHub Actions, fix the cause and push the"
+    " fix; a test that flakes gets a flake fix of its own"
+)
+RERUN_PASSED = (
+    "refused: `{step}` reruns {target}, which reads `{state}`, and a drive session reruns only a build, job or run that"
+    " passed, such as for a forced uncached regrade of a green build, since a rerun of one that did not pass retries past its"
+    " check, and one still running is waited out: " + FIX_THE_CAUSE
+)
+RERUN_FAILED = (
+    "refused: `{step}` reruns {target}, which reads `{state}`, and the watchdog reruns only a build that failed, by his pick"
+    ' "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; put `{command}` in your NEXT line'
+    " for the holder instead"
+)
+RERUN_UNREAD = (
+    "refused: whether the build, job or run `{step}` reruns passed could not be read, so it waits until it can: {error}."
+    " Run it again once it can be read"
+)
 BREW_RESTARTS = {"upgrade", "reinstall"}
 RESUME_TIMEOUT = 20000
 UNSEEN_PROMPT = (
@@ -244,47 +272,100 @@ def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
     return None
 
 
-def retried(found: list[list[str]]) -> str | None:
-    """Why a call retries past a failing check: `stack-enqueue --flake` requeues a PR past its failed verification, and a rerun runs the failed job again unchanged, but for a `ci bk rerun` of a build that reads passed, which regrades a green build with Go's test cache and the unit's witness off."""
+def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | None:
+    """Why a call retries past a failing check, or reruns what the watchdog may not: `stack-enqueue --flake` requeues a PR past its failed verification; a drive session's rerun names a build, job or run that reads anything but passed, and the watchdog's one that reads anything but failed, by his pick that it reruns a failed build; and a rerun whose target's state could not be read waits until it can."""
     for words in found:
-        named = verb(words)
-        if named[0] == "stack-enqueue" and any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words):
-            step, read = f"stack-enqueue {FLAKE}", ""
-        elif rerun := next((rerun for rerun in RERUNS if tuple(named[: len(rerun)]) == rerun), None):
-            step, read = " ".join(rerun), forced_rerun(words) if rerun == FORCED_RERUN else ""
-        else:
+        if verb(words)[0] == "stack-enqueue" and any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words):
+            return f"refused: `stack-enqueue {FLAKE}` retries past a failing check, and {FIX_THE_CAUSE}"
+        if (rerun := rerun_target(words, cwd)) is None:
             continue
-        if read is None:
-            continue
-        return (
-            f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause, never retried past"
-            f" with {FLAKE} or a rerun. Read the failed job's own output with `tools/ci bk log '<job URL>'`, or `gh run view <run>"
-            " --log-failed` on GitHub Actions, fix the cause and push the fix; a test that flakes gets a flake fix of its own"
-            + read
-        )
+        step, read = rerun
+        try:
+            target, reads = read()
+        except github.GithubError as error:
+            return RERUN_UNREAD.format(step=step, error=error)
+        if watchdog and reads not in FAILED:
+            return RERUN_FAILED.format(step=step, target=target, state=reads, command=" ".join(words))
+        if not watchdog and reads not in PASSED:
+            return RERUN_PASSED.format(step=step, target=target, state=reads)
     return None
 
 
-def forced_rerun(words: list[str]) -> str | None:
-    """Why a `ci bk rerun` may retry past a failing check, said as the clause the refusal ends on: the build it names does not read passed on Buildkite, could not be read, or it names none, such as dev's head; None when that build reads passed."""
-    named, rest = [], iter(words[words.index("rerun") + 1 :])
+def rerun_target(words: list[str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:
+    """The step a command reruns with and the read of what it reruns, which answers that build, job or run by name and its state: a `ci bk rerun` build, or with dev the newest dev build of its pipeline to finish, a `bk build rebuild` build, the job a `bk job retry` or a Buildkite API retry names and the build an API rebuild names, or a `gh run rerun` run or job; None for a command that reruns nothing, such as a help read or one naming no target, which its tool refuses."""
+    if HELP & set(words):
+        return None
+    head = "ci" if Path(words[0]).name in brief.CI_BINARIES else Path(words[0]).name
+    for path, valued in RERUNS.items():
+        positionals, values = operands(words[1:], valued)
+        if (head, *positionals[: len(path) - 1]) == path:
+            return rerun_read(path, positionals[len(path) - 1 :], values, cwd)
+    return None
+
+
+def rerun_read(path: tuple[str, ...], args: list[str], values: dict[str, str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:
+    step = " ".join(path)
+    if path == ("ci", "bk", "rerun"):
+        if len(args) != 2:
+            return None
+        pipeline = f"{github.BUILDKITE_ORG}/{args[0]}"
+        return step, partial(newest, pipeline, DEV) if args[1] == DEV else partial(built, pipeline, args[1])
+    if path[-1] == "api":
+        method = values.get("-X") or values.get("--X") or values.get("--method") or "GET"
+        if method.upper() == "GET" or not (found := RETRY_PATH.search(next(iter(args), ""))):
+            return None
+        org = found["org"] or (github.BUILDKITE_ORG if path[0] == "ci" else None)
+        pipeline = f"{org}/{found['pipeline']}" if org else found["pipeline"]
+        return step, partial(job_in, pipeline, found["number"], found["job"]) if found["job"] else partial(built, pipeline, found["number"])
+    if path == ("bk", "build", "rebuild"):
+        pipeline, number = values.get("-p") or values.get("--pipeline"), next(iter(args), None)
+        return step, partial(built, pipeline, number) if pipeline and number else unnamed
+    if path == ("bk", "job", "retry"):
+        return (step, partial(retried_job, args[0])) if args else None
+    run, job, repo = next(iter(args), None), values.get("-j") or values.get("--job"), values.get("-R") or values.get("--repo")
+    return (step, partial(ran, run, job, repo, cwd)) if run or job else None
+
+
+def operands(words: list[str], valued: frozenset[str]) -> tuple[list[str], dict[str, str]]:
+    """A command's positional words and the last value of each flag it gives, a flag in valued taking the next word unless written `<flag>=<value>`, any other flag none."""
+    positionals, values, rest = [], {}, iter(words)
     for word in rest:
-        if word == "--":
-            named += rest
-            break
-        if word in FORCED_RERUN_VALUED:
-            next(rest, None)
-        elif not word.startswith("-"):
-            named.append(word)
-    green = f". A `tools/ci bk rerun <pipeline> <build>` runs once that build reads {GREEN}, a forced uncached regrade of a green build"
-    if len(named) != 2 or not named[1].isdigit():
-        return f"{green}, and this one names no build number"
-    pipeline = f"{github.BUILDKITE_ORG}/{named[0]}"
-    try:
-        built = github.build(pipeline, named[1])["state"]
-    except github.GithubError as error:
-        return f"{green}, and {pipeline} build {named[1]} could not be read from Buildkite: {error}"
-    return None if built == GREEN else f"{green}, and {pipeline} build {named[1]} reads {built}"
+        flag, given, value = word.partition("=")
+        if not word.startswith("-"):
+            positionals.append(word)
+        elif given:
+            values[flag] = value
+        else:
+            values[word] = next(rest, "") if word in valued else ""
+    return positionals, values
+
+
+def built(pipeline: str, number: str) -> tuple[str, str]:
+    return f"{pipeline} build {number}", github.build(pipeline, number)["state"]
+
+
+def newest(pipeline: str, branch: str) -> tuple[str, str]:
+    found = github.finished(pipeline, branch)
+    return f"{pipeline} build {found['number']}, its newest {branch} build to finish", found["state"]
+
+
+def job_in(pipeline: str, number: str, job: str) -> tuple[str, str]:
+    if (ran := next((each for each in github.build(pipeline, number)["jobs"] if each["id"] == job), None)) is None:
+        raise github.GithubError(f"{pipeline} build {number} holds no job {job}")
+    return f"job {job} of {pipeline} build {number}", ran["state"]
+
+
+def retried_job(job: str) -> tuple[str, str]:
+    return job_in(*github.job_build(job), job)
+
+
+def ran(run: str | None, job: str | None, repo: str | None, cwd: str) -> tuple[str, str]:
+    named = f"GitHub Actions job {job}" if job else f"GitHub Actions run {run}"
+    return f"{named} of {repo}" if repo else named, github.run_conclusion(run, job, repo, cwd)
+
+
+def unnamed() -> tuple[str, str]:
+    raise github.GithubError("it names no build number or no pipeline, so the build it rebuilds is unknown; name both, as `bk build rebuild <number> -p <org/pipeline>`")
 
 
 def watchdog_call(found: list[list[str]]) -> str | None:
@@ -602,7 +683,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check, or a watchdog agent runs anything but its reads and two acts; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check or reruns a build, job or run that did not pass, or a watchdog agent runs anything but its reads and two acts or reruns one that did not fail; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -612,9 +693,10 @@ def deny_reason(payload: dict) -> str | None:
     if payload["tool_name"] != "Bash":
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
     found = commands(runnable(call["command"]))
+    cwd = payload.get("cwd") or os.getcwd()
     if os.environ.get(state.WATCHDOG_ENV):
-        return watchdog_call(found)
-    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], payload.get("cwd") or os.getcwd())):
+        return watchdog_call(found) or reran(found, cwd, watchdog=True)
+    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], cwd)):
         return touched
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
         return lane_held(found)
@@ -622,7 +704,7 @@ def deny_reason(payload: dict) -> str | None:
         return helper_install(found, drives)
     scripts = terminal_scripts(found)
     reasons = (
-        lambda: datadog_cli(call["command"], payload.get("cwd") or os.getcwd()),
+        lambda: datadog_cli(call["command"], cwd),
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found) if kind == BUILDER else None,
         lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,
@@ -630,7 +712,7 @@ def deny_reason(payload: dict) -> str | None:
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),
         lambda: mid_incident(found),
-        lambda: retried(found),
+        lambda: reran(found, cwd),
         lambda: helper_install(found, drives),
     )
     return next(filter(None, (reason() for reason in reasons)), None)

@@ -522,7 +522,7 @@ def release_verb(words: list[str]) -> str | None:
 
 def release_cut(number: str | None) -> bool:
     """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a write naming no build, such as one creating a build, counts as one."""
-    return not (number and number.isdigit()) or bool(github.build_env(RELEASE_BUILDKITE, number).get(RELEASE_START_ENV))
+    return not (number and number.isdigit()) or bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
 
 
 def lane_release_reason(release: str) -> str | None:

@@ -5,7 +5,6 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-from functools import cache
 from itertools import groupby, takewhile
 from pathlib import Path
 
@@ -334,17 +333,48 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
 
 
 def build(pipeline: str, number: str) -> dict:
-    """A Buildkite build as `bk build view` reads it now, such as its state, env and jobs."""
-    return json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))
-
-
-@cache
-def build_env(pipeline: str, number: str) -> dict[str, str]:
-    """The environment a Buildkite build started with, such as a go/ci release's RELEASE_START or a cluster job's CLUSTER_JOB, read once a process, since a build's env never changes."""
+    """A Buildkite build as `bk build view` reads it now: its state, its jobs and the environment it started with, such as a go/ci release's RELEASE_START or a cluster job's CLUSTER_JOB."""
     try:
-        return build(pipeline, number)["env"]
+        return json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))
     except GithubError as error:
-        raise GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: {error}") from None
+        raise GithubError(f"could not read {pipeline} build {number} from Buildkite: {error}") from None
+
+
+def finished(pipeline: str, branch: str) -> dict:
+    """The newest build of a Buildkite pipeline on a branch that passed or failed, as `bk build list --summary` reads it: the branch's latest verdict, past the builds still running there."""
+    try:
+        found = json.loads(run(["bk", "build", "list", "-p", pipeline, "--branch", branch, "--state", "passed,failed", "--limit", "1", "--summary", "-o", "json"]))
+    except GithubError as error:
+        raise GithubError(f"could not read {pipeline}'s newest finished {branch} build from Buildkite: {error}") from None
+    if not found:
+        raise GithubError(f"{pipeline} has no finished {branch} build")
+    return found[0]
+
+
+def job_build(job: str) -> tuple[str, str]:
+    """The pipeline, as <org>/<slug>, and number of the Buildkite build a command job belongs to, by one GraphQL read of the job's UUID, the only key `bk job retry` gives."""
+    query = f"query JobBuild {{ job(uuid: {json.dumps(job)}) {{ ... on JobTypeCommand {{ build {{ number pipeline {{ slug organization {{ slug }} }} }} }} }} }}"
+    try:
+        found = (json.loads(run(["bk", "api", "-f", "/dev/stdin"], stdin=query))["data"]["job"] or {}).get("build")
+    except GithubError as error:
+        raise GithubError(f"could not read the build of Buildkite job {job}: {error}") from None
+    if not found:
+        raise GithubError(f"Buildkite holds no command job {job}")
+    return f"{found['pipeline']['organization']['slug']}/{found['pipeline']['slug']}", str(found["number"])
+
+
+def run_conclusion(run_id: str | None, job: str | None, repo: str | None, cwd: str) -> str:
+    """A GitHub Actions run's conclusion as `gh run view --json` reads it, or with job that job's, its status while it has none, such as in_progress; with no repo, gh reads the repository of the checkout at cwd."""
+    named = f"job {job}" if job else f"run {run_id}"
+    cmd = ["gh", "run", "view", *([run_id] if run_id else []), *(["--job", job] if job else []), *(["-R", repo] if repo else []), "--json", "conclusion,status,jobs"]
+    try:
+        read = json.loads(run(cmd, cwd=cwd))
+    except GithubError as error:
+        raise GithubError(f"could not read GitHub Actions {named} from GitHub: {error}") from None
+    ran = next((each for each in read["jobs"] if str(each["databaseId"]) == job), None) if job else read
+    if ran is None:
+        raise GithubError(f"GitHub Actions holds no job {job}")
+    return ran["conclusion"] or ran["status"]
 
 
 def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
