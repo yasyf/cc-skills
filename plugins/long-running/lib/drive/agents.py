@@ -678,9 +678,14 @@ def brief(payload: dict) -> str:
 
 def opening(transcript: Path) -> str:
     """The prompt a session's transcript opens with, the brief it started on."""
-    with transcript.open() as handle:
-        content = next(row for line in handle if (row := json.loads(line)).get("type") == "user")["message"]["content"]
+    content = opening_row(transcript)["message"]["content"]
     return content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
+
+
+def opening_row(transcript: Path) -> dict:
+    """The row a session's transcript opens with, holding the prompt it started on and when that prompt reached it."""
+    with transcript.open() as handle:
+        return next(row for line in handle if (row := json.loads(line)).get("type") == "user")
 
 
 def record(seq: str) -> str:
@@ -739,4 +744,4 @@ def hold(payload: dict) -> None:
             if returned:
                 job["resumed"] = state.stamp(resumed.astimezone())
             state.start(job)
-            superseded.hear(data, job_id, prompt)
+            superseded.hear(data, job_id, prompt, state.parse_time(opening_row(transcript_of(payload))["timestamp"]))

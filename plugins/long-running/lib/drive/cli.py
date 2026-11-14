@@ -1370,6 +1370,7 @@ def job_set(args: argparse.Namespace) -> int:
             job.update(where="local", session=os.environ.get("CLAUDE_CODE_SESSION_ID"))
             if args.agent != known["jobs"][args.id]["agent"]:
                 state.start(job)
+            superseded.hear_start(data, args.id)
         if args.repro:
             job["repro"] = keep_repro(name, args.id, args.repro)
         for url in urls:
@@ -2451,7 +2452,7 @@ def codex_launch(args: argparse.Namespace, name: str) -> int:
                 undelivered=[held for held in job["undelivered"] if not superseded.carries(written, held["words"])],
             )
             state.start(job)
-            superseded.hear(data, args.id, written)
+            superseded.hear(data, args.id, written, state.now())
     return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
 
 
@@ -2601,7 +2602,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
             )
             if "tools_on" in sent:
                 fresh["tools_on"] = sent["tools_on"]
-            superseded.hear(data, job_id, sent["words"])
+            superseded.hear(data, job_id, sent["words"], state.parse_time(sent["at"]))
         return fresh
     except state.NewerDrive:
         if not (newer := install.upgraded()):
@@ -2676,7 +2677,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
 def answers_since(data: dict, job_id: str, written: str) -> str:
     """The brief a job's next worker or codex-ask run starts on: under His answers since:, each text the job holds and each answer of his it has not heard whose words the brief lacks."""
     held = [kept["words"] for kept in data["jobs"][job_id]["undelivered"] if not superseded.carries(written, kept["words"])]
-    owed = [f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for kept in superseded.owed(data, job_id) if not superseded.carries("\n".join([written, *held]), kept["words"])]
+    owed = [f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "") for _, kept in superseded.owed(data, job_id) if not superseded.carries("\n".join([written, *held]), kept["words"])]
     if since := [*held, *owed]:
         return written.rstrip() + "\nHis answers since:" + "".join(f"\n- {line}" for line in since) + "\n"
     return written
@@ -2711,10 +2712,9 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
             if started is None:
                 job["launching"] = None
             else:
-                kept = {"handoff": handoff, "reads": {}} if handoff else {}
-                job.update(started, **kept, undelivered=[], ask=None, report=None, tools_on=started["workspace"], turn_open=True)
+                job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), undelivered=[], ask=None, report=None, tools_on=started["workspace"], turn_open=True)
                 state.start(job)
-                superseded.hear(data, job_id, orca.brief_of(Path(handoff or job["brief"]).read_text()))
+                superseded.hear_start(data, job_id)
         return job
     except state.NewerDrive:
         if not (newer := install.upgraded()):
@@ -3737,7 +3737,7 @@ def answer(args: argparse.Namespace) -> int:
             changes = settled.changed(cited["title"], args.words, asked)
         bound = superseded.binding(data, args.link, asked, cwd)
         with state.edit(name) as data:
-            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, changes, bound, state.stamp())
+            superseded.record(data, args.id, args.words, args.link, asked, changes, bound, state.stamp())
     done = []
     if not marking:
         with state.edit(name) as data:
@@ -3777,9 +3777,8 @@ def answer(args: argparse.Namespace) -> int:
         raise DriveError(why)
     with state.edit(name) as data:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
-        data["answers"][args.id]["jobs"].update({job_id: {"mark": "sent"} for job_id in sent} | {job_id: {"mark": "untouched"} for job_id in args.untouched})
         for job_id in told:
-            superseded.unhold(data["jobs"][job_id], kept["words"])
+            superseded.heard(data, job_id, data["answers"][args.id], "sent" if job_id in sent else "untouched")
     cleared: set[str] = set()
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
@@ -3809,7 +3808,7 @@ def answer(args: argparse.Namespace) -> int:
             with state.edit(name) as data:
                 data["answers"][args.id]["cards"][key] = {"mark": "dropped", "job": entry["job"], "card": card}
                 if entry["job"] and data["jobs"][entry["job"]]["state"] not in state.FINISHED_JOB_STATES:
-                    data["answers"][args.id]["jobs"].setdefault(entry["job"], None)
+                    superseded.owe(data, args.id, entry["job"])
                 done += [*([f"{key}: its card {card} now shows his words and a link to them, with no buttons, its question withdrawn"] if card else []), *superseded.unasked(data, key, entry)]
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]

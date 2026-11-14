@@ -574,7 +574,7 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
             )
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            kept = data["answers"][ruling] = superseded.record(data, made["text"], made["url"], asked, changes, bound, state.stamp())
+            kept = superseded.record(data, ruling, made["text"], made["url"], asked, changes, bound, state.stamp())
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 
