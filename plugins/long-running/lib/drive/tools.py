@@ -792,6 +792,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
             )
         made["re"] = [re]
     if waits := item.get("waits"):
+        waits = state.waits_of(drive, waits)
         if not (named := state.WAITS_ID.fullmatch(waits)):
             raise DriveError(f"{waits} is no question card's waits id, <drive>:<j>-<n>; a PR card's tap needs no record")
         if named[1] != drive:

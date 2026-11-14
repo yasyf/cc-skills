@@ -459,11 +459,12 @@ def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_re
     assert f"ops[].add.order.words (string, required): {words['description']}" in lines
 
 
-def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("drive", ["demo:", ""])
+def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_from_the_waits_id(demo: str, drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
     ok = subprocess.CompletedProcess([], 0, '{"seq": 41}\n{"seq": 42}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
-    records = [{"kind": "answer", "text": "Ring", "waits": "demo:j2-7", "undone": True}, {"kind": "defect", "text": "cc-slack delete hides --url"}]
+    records = [{"kind": "answer", "text": "Ring", "waits": f"{drive}j2-7", "undone": True}, {"kind": "defect", "text": "cc-slack delete hides --url"}]
     assert tools.run("record", demo, {"records": records}) == "1 answer 41\n2 defect 42"
     assert posted == [
         (
