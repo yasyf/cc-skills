@@ -897,6 +897,19 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
     assert state.load(demo)["orders"]["o1"]["kept"] is not None
 
 
+def test_a_due_report_names_a_job_carrying_orders_joined_to_its_order_once_in_its_jobs_and_at_work(demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread") -> None:
+    serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60)))
+        data["orders"]["o2"] = order(text="the same ask again", joins="o1")
+        data["jobs"]["j1"]["carries"] = {"o2": ["the same ask again"]}
+    [report, _] = owed(watcher(demo), T0, said)
+    lines = report["body"].splitlines()
+    assert [line.rpartition(". At work: ")[2] for line in lines if line.startswith("Moved since")] == ["j1."]
+    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line('j1', state.load(demo)['jobs']['j1'])}"]
+
+
 @pytest.mark.parametrize(
     ("source", "from_thread", "thread", "where"),
     [
@@ -1230,12 +1243,11 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
     [(report, body), (start, _)] = calls
     assert (report["text"], report["topic"]) == ("POST incidents o1, o3 have had no line to him in 5 minutes: post where each stands now in its thread", "watch-quiet-o1")
     lines = body.splitlines()
-    assert lines[: lines.index("Incident o3, o3: checkout is down too") + 2] == [
+    assert lines[:4] == [
         "Incident o1, o1, o2: ship the watch",
+        "Incident o3, o3: checkout is down too",
         "PRs, as the watch last read them from GitHub: 1",
         shown_pr(demo, KEY),
-        "Incident o3, o3: checkout is down too",
-        "PRs, as the watch last read them from GitHub: 0",
     ]
     assert f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}" in lines
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
@@ -1243,6 +1255,34 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
     assert [{key: orders[head]["quiet"][key] for key in ("record", "at", "handler")} for head in ("o1", "o3")] == 2 * [{"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}]
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=11, seconds=59)) == []
     assert len(calls) == 2
+
+
+def test_a_quiet_report_names_each_job_and_pr_of_its_thread_once_however_many_of_its_orders_list_or_name_them(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    quiet_incident(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j1")
+        data["orders"]["o3"] = order(
+            text=f"checkout is down too, since {KEY}", incident=True, joins=None, thread=["D123", INCIDENT_THREAD], jobs=["j3", "j1"], last_line=state.stamp(T0 + timedelta(minutes=1))
+        )
+        data["jobs"]["j1"]["carries"] = {"o2": ["the same alert again"], "o3": ["checkout is down too"]}
+        data["jobs"]["j3"] = job(order="o3", kind="codex")
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["prs"][KEY]["checks"] = "fail"
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    [(_, body), _] = calls
+    lines = body.splitlines()
+    jobs = state.load(demo)["jobs"]
+    assert lines[:4] == [
+        "Incident o1, o1, o2: ship the watch",
+        f"Incident o3, o3: checkout is down too, since {KEY}",
+        "PRs, as the watch last read them from GitHub: 1",
+        shown_pr(demo, KEY),
+    ]
+    assert f"Moved since the thread's last line or the watch's last report on it: {KEY}. At work: j1, j2, j3." in lines
+    assert lines[lines.index("Jobs: 3") + 1 :] == [f"- {render.job_line(job_id, jobs[job_id])}" for job_id in ("j1", "j2", "j3")]
 
 
 def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns_or_his_card_is_answered_and_none_while_every_job_waits(

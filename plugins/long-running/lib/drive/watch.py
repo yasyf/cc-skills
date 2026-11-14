@@ -1113,7 +1113,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
         order = data["orders"][order_id]
         group = [order_id, *state.joined_orders(data).get(order_id, [])]
         facts = line_facts(data, group, registered, moment)
-        working = [job_id for each in group for job_id in data["orders"][each]["jobs"] if data["jobs"][job_id]["state"] == "running"]
+        working = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] == "running"]
         try:
             seq = quiet_report(watcher, data, {order_id: group}, quiet_since(data, group), moment, untold(order, facts) if order["quiet"] else list(facts), working, state.owed_at(order))
         except (reads.ReadError, state.DriveError) as error:
@@ -1148,7 +1148,7 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
 
 def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], moment: datetime) -> dict[str, list]:
     """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, head, checks, Trunk ejection and tap as the watch last read them, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or started; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
-    jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["order"] in group}
+    jobs = {job_id: job for job_id, job in state.orders_jobs(data, group).items() if job["order"] in group}
     prs = {key: data["prs"][key] for key in incident_prs(data, group, jobs, registered) if key in data["prs"]}
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
@@ -1184,8 +1184,8 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         incident = any(data["orders"][head]["incident"] for head in heads)
         since = max(quiet_since(data, groups[head]) for head in heads)
-        moved = [key for head in heads for key in untold(data["orders"][head], facts[head])]
-        working = [job_id for head in heads for order_id in groups[head] for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["state"] == "running"]
+        moved = list(dict.fromkeys(key for head in heads for key in untold(data["orders"][head], facts[head])))
+        working = [job_id for job_id, job in state.orders_jobs(data, [order_id for head in heads for order_id in groups[head]]).items() if job["state"] == "running"]
         if moment - since < QUIET_THREAD or not moved and not (incident and working):
             continue
         source = f"quiet {heads[0]}"
@@ -1226,7 +1226,7 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
 
 
 def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], due: str | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.incident_orders names for it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; its seq."""
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.incident_orders names for it, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
@@ -1235,8 +1235,9 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     present = int(state.present(data, state.parse_time(due), moment).total_seconds() // 60) if due else 0
     late = timedelta(minutes=present) >= DUE_EVERY
     absence = data["owner"]["absence"] if present < past else None
-    jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
-    handoffs = [handoff for group in groups.values() for handoff in quiet_handoffs(data, group, moment)]
+    orders = [order_id for group in groups.values() for order_id in group]
+    jobs = [f"- {render.job_line(job_id, job)}" for job_id, job in state.orders_jobs(data, orders).items()]
+    handoffs = quiet_handoffs(data, orders, moment)
     if due:
         opening = (
             ", opening with that line being late"
@@ -1253,11 +1254,8 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     else:
         asked = "post what changed since its last line in its thread: the finding a job returned, each PR that went up or changed stage with his card on it linked, his tap, and who owes the next step, such as the session that re-lands a PR Trunk ejected."
     facts = [
-        *(
-            line
-            for head, group in groups.items()
-            for line in (f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {head}, {', '.join(group)}: {data['orders'][head]['text']}", *incident_pr_lines(watcher.name, group))
-        ),
+        *(f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {head}, {', '.join(group)}: {data['orders'][head]['text']}" for head, group in groups.items()),
+        *incident_pr_lines(watcher.name, orders),
         f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
         *(
             [
@@ -1375,7 +1373,7 @@ def incident_pr_lines(name: str, group: list[str]) -> list[str]:
     from drive import cli
 
     data = cli.with_cards(name, state.load(name))
-    jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"]}
+    jobs = state.orders_jobs(data, group)
     lines = [render.pr_line(key, data["prs"][key], data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in incident_prs(data, group, jobs, render.prs_by_job(data))]
     return [f"PRs, as the watch last read them from GitHub: {len(lines)}", *(f"- {line}" for line in lines)]
 
