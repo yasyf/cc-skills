@@ -356,13 +356,15 @@ def unheard(data: dict, kept: dict) -> list[str]:
     ]
 
 
-def delivery(data: dict, job_id: str, job: dict) -> str:
-    """How his words reach the job by a delivery that marks it sent them: a SendMessage from the coordinator session whose agent runs it on this Mac, which drive answer --sent records since the drive cannot see it; drive job resume for a job any other worker runs or ran, which carries them to its lane or its next worker; drive job launch for a job no worker runs yet, which carries them to its first worker."""
-    if lane := state.agent_lane(data, job):
-        return f"SendMessage it his words verbatim from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}"
+def delivery(data: dict, job_id: str, job: dict, what: str = "his words") -> str:
+    """The one step by which the session holding the job gets a text to its worker: a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which drive answer --sent records for his words since the drive cannot see it; drive job resume for a job any other worker runs or ran, which sends the text to its lane, or hands the job and the text to a fresh worker of the holder for an agent another session started or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
+    from drive import place
+
+    if (lane := state.agent_lane(data, job)) and not place.woken(data, job_id, state.now()):
+        return f"SendMessage it {what} verbatim from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}"
     if job.get("agent") or job.get("dispatch"):
-        return f"drive job resume {job_id} with his words verbatim"
-    return f"drive job launch {job_id} on its FREE line, which carries his words to its first worker"
+        return f"drive job resume {job_id} with {what} verbatim"
+    return f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 
 
 def hear(data: dict, job_id: str, text: str, written: datetime) -> None:

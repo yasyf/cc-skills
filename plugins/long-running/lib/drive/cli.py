@@ -3287,7 +3287,7 @@ def releaded(pr: dict) -> str:
 
 
 def pr_wake(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to a builder this Mac's session holds as a handoff record to the session holding its order, which sends it to that agent. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes to that session the same way, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one; and to any other builder as a handoff record to the session holding its order, naming superseded.delivery's step that reaches the builder from there. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes to that session the same way, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
@@ -3311,7 +3311,7 @@ def pr_wake(args: argparse.Namespace) -> int:
     job = data["jobs"][job_id or pr["job"]]
     lane = state.job_lane(data, job)
     said = (
-        f"STAGE {text}; its builder {job_id} is agent {job.get('agent')} of session {job.get('session')}: send it this line verbatim and alone"
+        f"STAGE {text}; its builder {job_id} takes this line alone: {superseded.delivery(data, job_id, job, 'this line')}"
         if job_id
         else f"STAGE {text}; no live job answers for it and its job {pr['job']} is {job['state']}, so no wake starts it: close it, or move it to a live job with drive pr add {pr['url']} --job <j>"
     )

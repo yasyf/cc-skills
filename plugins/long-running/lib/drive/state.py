@@ -2374,11 +2374,11 @@ def session_lane(data: dict, session: str | None) -> str | None:
 
 
 def agent_lane(data: dict, job: dict) -> str | None:
-    """The cci lane of the coordinator session whose agent runs a job on this Mac while that session hears the job, the top's for a job starting a production cut and else the one hearing its order, since only its SendMessage reaches the agent and only it hears the job's lines; None for a job no such agent runs, such as a Sprite lane's, one not started yet, one whose agent ended with its session, or one whose order moved to another coordinator session, which drive job resume hands to a fresh agent of that session."""
+    """The cci lane of the session holding a job, by job_lane, when that session started the agent running the job on this Mac, since only the starting session's SendMessage reaches the agent and only the holding session takes the job's lines; None for a job no such agent runs, such as a Sprite lane's, one not started yet, one whose agent ended with its session, or one whose holder is not the session that started its agent, such as a coordinator's agent on an order the meta session holds or one whose order moved to another coordinator session, which drive job resume from the holder hands to a fresh agent of its own."""
     if job["where"] != "local" or not job["agent"]:
         return None
     lane = session_lane(data, job["session"])
-    return lane if lane == ("root" if starts_cut(job) else order_lane(data, data["orders"][job["order"]])) else None
+    return lane if lane == job_lane(data, job) else None
 
 
 def starts_cut(job: dict) -> bool:
