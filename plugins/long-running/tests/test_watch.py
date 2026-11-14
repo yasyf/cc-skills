@@ -5044,6 +5044,27 @@ def test_a_built_line_waits_on_the_cards_holding_its_work_by_the_landers_rule_ne
     assert (state.part_cards(built, "j1"), land.open_cards(built, "j1", built["prs"][KEY])) == (["demo:j2-1-a"], ["demo:j2-1-a"])
 
 
+def test_a_design_card_whose_holds_line_names_one_of_its_changes_holds_that_changes_builder_from_opening_and_landing_its_pr_while_another_builder_carries_the_design_first(
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+        data["orders"]["o1"]["jobs"].extend(["j2", "j3"])
+        data["orders"]["o1"]["parts"] |= {"the watch store": state.new_part() | {"design": "j2"}, "the watch page": state.new_part() | {"design": "j2"}}
+        data["jobs"]["j1"]["parts"] = ["the watch page"]
+        asked = state.new_question(None, "Which page?", state.stamp(T0), holds="the watch page") | {"waits": "demo:j2-1-a"}
+        data["jobs"]["j2"] = job(kind="design", parts=["ship the watch"], carries={}, state="done", questions=[asked])
+        data["jobs"]["j3"] = job(parts=["the watch store"], carries={}, state="done")
+    drive = state.load(demo)
+    assert (state.design_builder(drive, "j2"), state.design_builders(drive, "j2")) == ("j3", ["j3", "j1"])
+    assert (land.open_cards(drive, "j1", drive["prs"][KEY]), land.open_cards(drive, "j3", None)) == (["demo:j2-1-a"], [])
+    assert land.start(demo, [KEY], NO_CARDS | {"questions": [question("demo:j2-1-a")]}) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["prs"] = []
+    assert land.ship_held(state.load(demo), "j1") == ["demo:j2-1-a"]
+
+
 @pytest.mark.parametrize(("holds", "held"), [("", False), (None, False), ("the windowed open, on #42", True)])
 def test_a_builder_whose_built_line_names_its_own_card_leaves_its_approved_green_pr_at_stage_ready_unless_the_cards_holds_line_names_that_pr(
     demo: str, landers: list[tuple[str, ...]], holds: str | None, held: bool

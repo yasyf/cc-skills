@@ -23,7 +23,9 @@ Contents:
   `Read your brief first:` line.
 - At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
   `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
-  turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each agent here still in its turn, and each Orca
+  turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`
+  hook let an Agent call start here, from that call until its agent's first step records it, so a burst of starts fills the
+  cap rather than passing it, each agent here still in its turn, and each Orca
   worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
   does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
   while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and

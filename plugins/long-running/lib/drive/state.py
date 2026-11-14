@@ -1459,8 +1459,8 @@ def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id:
 
 
 def asks_for(data: dict, asker_id: str, job_id: str) -> bool:
-    """Whether a job's questions ask on another's behalf: its own, a reader's or design's the job was built on, by brief.research_links, or a design job's whose design the job builds."""
-    return asker_id == job_id or asker_id in data["jobs"][job_id]["researched"] or design_builder(data, asker_id) == job_id
+    """Whether a job's questions ask on another's behalf: its own, a reader's or design's the job was built on, by brief.research_links, or a design job's whose design the job builds, each builder design_builders names, since change_builders gives each change a design lists a builder of its own."""
+    return asker_id == job_id or asker_id in data["jobs"][job_id]["researched"] or job_id in design_builders(data, asker_id)
 
 
 def required_verdict(prs: dict[str, dict]) -> tuple[str, list[tuple[str, str]]]:
@@ -1564,20 +1564,27 @@ def end_carried_designs(data: dict, order_id: str, moment: str) -> None:
 
 
 def design_builder(data: dict, design_id: str) -> str | None:
-    """The builder carrying a design job's parts, or a change its DESIGN listed, on its order, the one that returned DONE first, else one still at work, since a design ends once its builder takes it on: its cards answered or built on meanwhile."""
+    """The builder carrying a design job's parts, or a change its DESIGN listed, on its order, the first design_builders names, since a design ends once its builder takes it on: its cards answered or built on meanwhile."""
+    return next(iter(design_builders(data, design_id)), None)
+
+
+def design_builders(data: dict, design_id: str) -> list[str]:
+    """Each builder carrying a design job's parts, or a change its DESIGN listed, on its order, those that returned DONE first, then those still at work."""
     design = data["jobs"][design_id]
     if design["kind"] != "design":
-        return None
+        return []
     changes = designed(data, design_id, design["order"])
-    builders = [
-        (job["state"] != "done", job_id)
-        for job_id, job in data["jobs"].items()
-        if job["kind"] == "builder"
-        and job["order"] == design["order"]
-        and job["state"] not in ENDED_JOB_STATES
-        and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
+    return [
+        job_id
+        for _, job_id in sorted(
+            (job["state"] != "done", job_id)
+            for job_id, job in data["jobs"].items()
+            if job["kind"] == "builder"
+            and job["order"] == design["order"]
+            and job["state"] not in ENDED_JOB_STATES
+            and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
+        )
     ]
-    return min(builders)[1] if builders else None
 
 
 def designed(data: dict, job_id: str, order_id: str) -> set[str]:
