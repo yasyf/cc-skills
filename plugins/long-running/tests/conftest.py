@@ -190,6 +190,11 @@ def staged(stage: Callable[[watch.Watcher, datetime], list[str]], watching: watc
     return [*made, *returned]
 
 
+def said_lines(stage: Callable[[watch.Watcher, datetime], list[str]], watching: watch.Watcher, moment: datetime) -> list[str]:
+    """A watch stage's lines as its coordinator hears them: its staged lines, then those of the returned events it wrote."""
+    return [*staged(stage, watching, moment), *watch.event_lines(watching)]
+
+
 def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
     for name, text in files.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)

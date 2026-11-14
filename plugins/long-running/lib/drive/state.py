@@ -28,6 +28,7 @@ ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 REPORT_REPLY = "report_"
+RETURNED = "returned"
 TURN_ENDS = ("worker_done", "escalation")
 EARLIER_RETURN = "--- an earlier return, kept {at} ---"
 EARLIER_LINE = "an earlier return, kept {at}: {line}"
@@ -2658,6 +2659,19 @@ def agent_lane(data: dict, job: dict) -> str | None:
 def starts_cut(job: dict) -> bool:
     """Whether a job starts a production cut, its brief carrying a Release line: the top coordinator's job on any order, since the top alone starts, approves and rolls back cuts, by his words "the top starts, approves and rolls back production cuts, one at a time"."""
     return bool((job.get("brief_flags") or {}).get("release"))
+
+
+def heard_job_lane(data: dict, job: dict) -> str:
+    """The cci lane of the one watch hearing a job, which makes every line about it: the coordinator session's whose agent runs it on this Mac, by agent_lane, whatever coordinator session holds its order now, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; else the top's for one starting a production cut, whatever order it serves, by his words "the top hears unfiled orders and releases"; else the one hearing its own order, by heard_lane, never one only carrying it, so a Sprite or Orca lane whose order moves to another coordinator session moves with it, running on."""
+    if (lane := agent_lane(data, job)) in coordinator_lanes(data):
+        return lane
+    return "root" if starts_cut(job) else heard_lane(data, job["order"])
+
+
+def returned(name: str, data: dict, job_id: str, line: str) -> None:
+    """Write the event the watch hearing a job says as `JOB <j> <o> <line>`, the one maker of a return's line wherever it was taken: by `drive job report` in any process on this Mac, by the watch from a lane's mail, or by the watch from a codex-ask run."""
+    job = data["jobs"][job_id]
+    append_event(name, RETURNED, job=job_id, order=job["order"], line=line, lane=heard_job_lane(data, job))
 
 
 def job_lane(data: dict, job: dict) -> str:

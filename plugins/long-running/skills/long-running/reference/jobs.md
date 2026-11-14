@@ -256,7 +256,7 @@ lane on this Mac.
 `drive job ask <j> <file>`, each refusing it as it refuses yours, then ends its turn through Orca
 mail: a `worker_done` carrying the report it kept, or an `ASK <path> [<path>…]` question naming each
 block `drive job ask` kept. Each is a `JOB <j> <o> <line>` event, as a job's own return is: the report's
-result line the moment the watch sends the lane its `drive job report` answer, a `PUSHED` aside,
+result line the moment `drive job report` takes it, on a Sprite or on this Mac, a `PUSHED` aside,
 which waits on its checks, so the `worker_done` after it is no second event, and `ASK <path>` when
 that question comes. A report `drive job report` never took, such as one
 from a lane launched before its Sprite had `drive`, the watch takes itself, setting the job's state

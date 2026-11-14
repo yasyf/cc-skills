@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, staged
+from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -1992,11 +1992,11 @@ def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_dri
     for number, order_id in ((42, "o1"), (43, "o2")):
         state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=number, label="Approve", lane=state.heard_lane(state.load(demo), order_id))
     state.append_event(demo, "refused", question="Which?", pick="Yes")
-    assert watch.run_pass(iris, T0) == [f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]", 'ORPHAN o3 "the logs page": no job']
+    assert watch.run_pass(iris, T0) == [f"TAP Approve {KEY} [o1 j1]", f"PR {KEY}: checks failed [o1 j1]", 'ORPHAN o3 "the logs page": no job']
     assert watch.run_pass(top, T0) == [
-        f"PR {OTHER}: checks failed [o2 j2]",
         f"TAP Approve {OTHER} [o2 j2]",
         "EVENT refused question=Which? pick=Yes",
+        f"PR {OTHER}: checks failed [o2 j2]",
         'ORPHAN o4 "a page for alerts": no job',
     ]
     assert calls == [[KEY], [OTHER]]
@@ -2022,8 +2022,8 @@ def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_boun
     later = T0 + timedelta(minutes=2)
     assert watch.run_pass(top, later) == [f"TAP Hold {KEY} [o1 j1]"]
     assert watch.run_pass(iris, later) == [
-        f"PR {KEY}: merged [o1 j1]",
         f"TAP Approve {KEY} [o1 j1]",
+        f"PR {KEY}: merged [o1 j1]",
         'ORPHAN o1 "ship the watch": j1 waits on "nothing named" and no open PR, card or due time can wake it',
     ]
     assert calls == [[KEY], [KEY]]
@@ -3191,7 +3191,7 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
 ) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     incident_codex_running(demo, codex_ask.run("completed", reply), state.INCIDENT_FIX)
-    lines = staged(watch.agent_lines, watcher(demo), state.now())
+    lines = said_lines(watch.agent_lines, watcher(demo), state.now())
     data = state.load(demo)
     written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
     assert lines == [
@@ -3206,7 +3206,7 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
 def test_an_incident_codex_jobs_return_on_a_part_other_than_its_fix_adds_no_builder(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     incident_codex_running(demo, codex_ask.run("completed", codex_reply("HANDOFF", "the first check is left on branch first-check")), "first check")
-    lines = staged(watch.agent_lines, watcher(demo), state.now())
+    lines = said_lines(watch.agent_lines, watcher(demo), state.now())
     data = state.load(demo)
     assert (lines, list(data["jobs"])) == ([f"JOB j1 o1 {data['jobs']['j1']['said']}"], ["j1"])
 
