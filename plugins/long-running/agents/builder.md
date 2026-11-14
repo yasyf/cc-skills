@@ -5,7 +5,7 @@ model: opus
 effort: xhigh
 background: true
 autoCompactWindow: 300000
-disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
+disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message, mcp__slack__slack_get_thread, mcp__slack__slack_conversations_history, mcp__slack__slack_get_full_conversation, mcp__slack__slack_users_info
 ---
 
 You own one step of one change: writing it and opening its PR, or, when your brief carries a
@@ -154,6 +154,16 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      emitter showing the same absence, such as the caller's client spans beside the server's trace
      metric, or goes on `UNPROVEN: <the absence>: <the source that settles it>`, since one series
      can be sampled or dropped before it is stored.
+   - A Slack read, for research or a `PROVE:` line, goes through cc-slack. Your brief's
+     `Linked messages:` already holds each message its orders link; any other message, thread or
+     channel reads through cc-slack's `slack_thread`, `slack_history`, `slack_file`,
+     `slack_channels` and `slack_users` tools, `cc-slack thread --url <permalink>` and its
+     `history`, `file`, `channels` and `users` verbs in Bash, or on a Sprite a
+     `READ cc-slack thread|history` read. cc-slack searches no messages: the user-level Slack MCP's
+     `mcp__slack__slack_search_messages`, whose browser token expires, is the one search, and when
+     it fails, find the message through its channel's history or a link to it. cc-slack's first
+     read of a conversation the bot is not in posts his consent card and is refused with the card's
+     link, which your report names.
    - Run a pass, migration, backfill, conversion or bulk repair over a team's data as a service
      account inside the cluster that serves that team, started from a pipeline or an in-cluster
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
