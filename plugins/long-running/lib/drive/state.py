@@ -142,6 +142,7 @@ OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
 SHEBANG_BYTES = 512
+SHELLS = frozenset({b"sh", b"bash", b"zsh"})
 READER_QUESTION_GOAL = re.compile(r"build what j\d+'s research finds: ")
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
@@ -361,6 +362,26 @@ def unrunnable(path: str) -> str | None:
     if not (os.path.isfile(interpreter) and os.access(interpreter, os.X_OK)):
         return f"{path}'s #! line names {interpreter!r} as its interpreter, no program on this Mac, so the kernel cannot exec it"
     return None
+
+
+def pin_interpreter(path: Path) -> None:
+    """Put the folder of the drive's own interpreter, which hooks/installed.py records in the state root's interpreter file, first on the PATH of the script at path, so its bare python3 imports what the drive imports whoever runs it on whatever PATH: as a `PATH=<folder>:$PATH` line after a sh, bash or zsh #! line, which runs after any startup file of the shell, and as env's own `-S PATH=<folder>:${PATH}` assignment in an env python3 #! line; a script pinned already, or with any other first line, an interpreter named by its absolute path included, stays as it is. The pinned script replaces the file whole, its mode kept, so a shell running the old one reads on undisturbed."""
+    script = path.read_bytes()
+    line, _, body = script.partition(b"\n")
+    words = line[2:].split() if line.startswith(b"#!") else []
+    via_env = bool(words) and os.path.basename(words[0]) == b"env"
+    command = words[1 + (words[1:2] == [b"-S"]) :] if via_env else words
+    shell = bool(command) and os.path.basename(command[0]) in SHELLS
+    if not shell and not (via_env and command[:1] == [b"python3"]):
+        return
+    folder = os.fsencode(os.path.dirname((root() / "interpreter").read_text().strip()))
+    if shell and body.startswith(b"PATH=%s:$PATH\n" % folder):
+        return
+    pinned = b"%s\nPATH=%s:$PATH\n%s" % (line, folder, body) if shell else b"#!%s -S PATH=%s:${PATH} %s\n%s" % (words[0], folder, b" ".join(command), body)
+    fresh = path.with_name(f".{path.name}.{os.getpid()}")
+    fresh.write_bytes(pinned)
+    fresh.chmod(path.stat().st_mode & 0o7777)
+    fresh.replace(path)
 
 
 def returns(name: str, job_id: str) -> list[dict]:

@@ -257,8 +257,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      record, which a handler draws through `say`, and any other write only once a read finds it not yet
      done; it then reads back what that step changed, such as `cc-slack drive-cards --waits`,
      `cc-slack thread --url` or `drive status`, printing `WAIT <what>` while it has not shown; run
-     with each changed plugin's `bin/` first on `PATH` and the drive's own interpreter's folder next, so a
-     bare `python3` imports what the drive imports, printing a line for each check it passed and
+     with each changed plugin's `bin/` first on `PATH`, its bare `python3` the drive's own interpreter
+     wherever it runs, since `drive job set --repro` pins that interpreter's folder first on the kept
+     file's `PATH`, so it imports what the drive imports, printing a line for each check it passed and
      `FAIL <check>: <why>` for each that failed, the line the watch quotes:
      `drive job prove` takes `BLOCKED` on an exit 0 that prints nothing, or whose Slack post or
      picture link does not open, such as a stand-in permalink. When only his next word can
