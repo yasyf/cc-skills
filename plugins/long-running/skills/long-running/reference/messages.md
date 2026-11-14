@@ -685,9 +685,11 @@ restating it.
   PR's state; any other words after its `|` are the handler's own claim. The say hook hands Jev every call those
   words name with its whole result, each call once, and each record the post cites or carries as the handler's newest call
   naming its seq, never the record's whole body. Jev's prompt takes at most 10,000 characters, by his words "jev should be
-  getting like 10k chars at most for any call": a post whose reads push it past that is refused before say runs, naming each
+  getting like 10k chars at most for any call": his words said at a time, his messages and card answers in the post's thread
+  and the order's other threads and his prompts, go in newest first, each that fits beside the rules, the post and its reads,
+  so a long thread refuses no post; a post whose reads push it past that is refused before say runs, naming each
   read's size, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and names those; a post whose
-  rules, own words and his alone pass it is refused too, naming a `DEFECT` line. Jev holds
+  rules, own words and the rulings of his the hook adds alone pass it is refused too, naming a `DEFECT` line. Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
   checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,
