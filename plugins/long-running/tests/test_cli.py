@@ -935,6 +935,34 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     assert state.load("demo")["orders"]["o3"]["joins"] is None
 
 
+def test_an_order_joining_any_order_of_a_joined_group_rides_on_each_unfinished_job_the_groups_orders_list(run: Run, meta: str) -> None:
+    filed = ("order", "add", "--title", "Install lock stall", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "build")
+    run(*filed, LOCK_STALL)
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the install lock")
+    with state.edit("demo") as data:
+        for job in data["jobs"].values():
+            job["state"] = "done"
+    assert run(*filed, LOCK_STALL_AGAIN, "--joins", "o1") == (0, "o2\njoins o1: no record; no unfinished job on o1 carries it, so its jobs are added on o2")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the install stall")
+    assert run(*filed, "Drive tooling: a break-glass on an older install still holds every newer verb", "--joins", "o2") == (
+        0,
+        "o3\njoins o2: no record; carried by j3, j4, so no job starts on it",
+    )
+    assert run(*filed, "Drive tooling: the older install's lock still stalls new jobs", "--joins", "o1") == (0, "o4\njoins o1: no record; carried by j3, j4, so no job starts on it")
+    run(*filed, "Drive tooling: cards say why")
+    run("job", "add", "reader", "--order", "o5", "--goal", "research: why cards say why")
+    run(*filed, "Drive tooling: cards say why twice")
+    run("job", "set", "j6", "--carries", "o6")
+    assert run(*filed, "Drive tooling: cards say why again", "--joins", "o6") == (0, "o7\njoins o6: no record; carried by j6, so no job starts on it")
+    data = state.load("demo")
+    assert [(order_id, data["orders"][order_id]["joins"], data["orders"][order_id]["jobs"]) for order_id in ("o3", "o4", "o7")] == [
+        ("o3", "o1", ["j3", "j4"]),
+        ("o4", "o1", ["j3", "j4"]),
+        ("o7", "o6", ["j6"]),
+    ]
+    assert list(data["jobs"]) == ["j1", "j2", "j3", "j4", "j5", "j6"]
+
+
 def test_a_tooling_order_is_read_against_the_open_tooling_orders_sharing_most_words_with_it_however_many_are_open(run: Run, meta: str, jev: Jev) -> None:
     with state.edit("demo") as data:
         for number in range(1, 300):
