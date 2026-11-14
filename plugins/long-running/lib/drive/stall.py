@@ -31,7 +31,7 @@ def chains(data: dict, cards: dict, moment: datetime, heard: Callable[[str], boo
 
 
 def chain(data: dict, cards: dict, subject: str, seen: set[str]) -> list[tuple[str, str]] | None:
-    """Each link from a job, PR or wait to the ends it waits on, by id and in words that change only when it moves: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it; None once it reaches a running job."""
+    """Each link from a job, PR or wait to the ends it waits on, by id and in words that change only when it moves: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it, a question card with the time cc-slack last drew it, so a redraw moves the chain; None once it reaches a running job."""
     if subject in seen:
         return []
     seen.add(subject)
@@ -47,7 +47,8 @@ def chain(data: dict, cards: dict, subject: str, seen: set[str]) -> list[tuple[s
         here = f"{subject} {job['state']}" + (f" on {', '.join(nexts)}" if nexts else "")
     else:
         entry = view.wait_entry(data, subject, cards)
-        here, nexts = " ".join(filter(None, (entry["title"], entry["url"]))), []
+        drawn = (card := view.asked_card(cards, subject)) and f"drawn {card['asked']}"
+        here, nexts = " ".join(filter(None, (entry["title"], entry["url"], drawn))), []
     links = [(subject, here)]
     for wait in nexts:
         if (more := chain(data, cards, wait, seen)) is None:

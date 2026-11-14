@@ -79,6 +79,11 @@ SUPERSEDES_QUESTION = (
     " moot, so that card asks him nothing his answer leaves open? Pick none when each of them still asks something his answer"
     " does not settle."
 )
+DECIDES_QUESTION = (
+    'His answer {id}, given to another question, asked "{asked}", he said "{said}". Does it decide this card\'s question or make it'
+    " moot, so the card asks him nothing his answer leaves open? Pick {id} when it does, or none when the card still asks something"
+    " his answer does not settle." + UNSAID_HERE
+)
 APPROVES_QUESTION = (
     "Does this answer, in his own words, approve the action? It does when, read with the card it answers, it has the"
     " release the action starts run: his order to ship or release that work, or his pick on a card about that work reaching"
@@ -330,6 +335,28 @@ def judged(case: str, asked: limits.Question, words: list[dict]) -> None:
             item = items[found["choice"]]
             rule = f" Its rule: {item['rule']}" if "rule" in item else ""
             print(ADVISED.format(part=parts[key], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
+
+
+def deciding(asked: limits.Question, answers: list[dict]) -> list[dict]:
+    """The recorded answers of his Jev reads, at least DECIDES sure, as deciding the card's question or making it moot, read in one request against the card's question and options, one question per answer holding its words, as `judged` asks one per option; none when Jev gives no reading, said on stderr."""
+    if not answers:
+        return []
+    card = {"question": asked.title, "options": [option for option in asked.options if option != limits.ALREADY_ANSWERED]}
+    questions = {
+        f"decides{number}": {
+            "label": {
+                "instructions": DECIDES_QUESTION.format(id=answer["answer"], asked=answer["asked"], said=answer["words"][:BODY_CHARS]),
+                "options": {UNDECIDED: "It leaves the card asking.", answer["answer"]: None},
+            }
+        }
+        for number, answer in enumerate(answers, 1)
+    }
+    try:
+        read = jev({"state": {"card": card}, "questions": questions})
+    except Unheard as failure:
+        print(f"drive: Jev gave no reading of which recorded answers of his decide this question, so its card draws no {limits.ALREADY_ANSWERED} option: {failure}", file=sys.stderr)
+        return []
+    return [answer for number, answer in enumerate(answers, 1) if (found := read[f"decides{number}"])["choice"] == answer["answer"] and found["probabilities"][answer["answer"]] >= DECIDES]
 
 
 def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:

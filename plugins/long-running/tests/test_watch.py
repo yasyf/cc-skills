@@ -6707,3 +6707,17 @@ def test_no_chain_is_aged_past_his_hold_his_card_a_time_to_come_or_a_running_job
         data["prs"][KEY]["stage"] = RED_STAGE
         stops(data)
     assert list(stall.chains(state.load(demo), NO_CARDS, T0, lambda order_id: True)) == subjects
+
+
+def test_a_chain_ending_at_his_question_card_moves_once_cc_slack_redraws_that_card_in_place_so_no_stall_outlives_the_redraw(demo: str) -> None:
+    card = {"question": "Which inbox lands first?", "options": ["First", "Last"], "recommended": "First", "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which inbox lands first?", "waits": "demo:j1-7"}}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": ["demo:j1-7"]}
+
+    def aged(kept: dict | None, drawn: datetime, moment: datetime) -> dict:
+        links = stall.chains(state.load(demo), NO_CARDS | {"questions": [card | {"asked": state.stamp(drawn)}]}, moment, lambda order_id: True)["j1"]
+        return stall.aged(kept, links, moment)
+
+    first = aged(None, T0, T0)
+    assert aged(first, T0, T0 + timedelta(minutes=50)) is first
+    assert aged(first, T0 + timedelta(minutes=40), T0 + timedelta(minutes=50))["since"] == state.stamp(T0 + timedelta(minutes=50))
