@@ -2039,11 +2039,16 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Age the chain of waits behind each job and PR the watch hears, and act on each chain that stood unmoved past its deadline, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first; once that agent answers, or ten minutes pass, say one STUCK line naming the chain to its ends with what the agent found, a NEXT brief.release_ask_refusal() refuses replaced by its refusal, or the chain alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with its chain unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is kept on its job's or PR's row, so a watch restart adopts its agent and nothing is said twice; a chain that moves starts a fresh one."""
+    """Age the chain of waits behind each job and PR the watch hears, and act on each chain that stood unmoved past its deadline, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first, never on a chain ending at a step of his, his hold on every release read once a pass; once that agent answers, or ten minutes pass, say one STUCK line naming the chain to its ends with what the agent found, a NEXT brief.release_ask_refusal() refuses replaced by its refusal, or the chain alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with its chain unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is kept on its job's or PR's row, so a watch restart adopts its agent and nothing is said twice; a chain that moves starts a fresh one."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
-    links = stall.chains(data, watcher.cards, moment, lambda order_id: hears(watcher, data, order_id))
+    try:
+        on_hold = bool(settled.hold(data["roles"]["coordinator"]["cwd"]))
+    except state.DriveError as error:
+        return failed(watcher, "stall hold", "stall read of his hold on every release", error, moment)
+    watcher.failures.pop("stall hold", None)
+    links = stall.chains(data, watcher.cards, on_hold, moment, lambda order_id: hears(watcher, data, order_id))
     rows = data["jobs"] | data["prs"]
     kept = {subject: stall.aged(rows[subject]["stall"], found, moment) for subject, found in links.items()}
     running, started = stall.starts(data, moment)
@@ -2096,7 +2101,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple[str, str]], held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, his hold on every release as settled.hold() reads it, a Card line per open card of his on the chain or naming a service it waits on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
+    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, a Card line per open card of his on the chain or naming a service it waits on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
     job_id, order_id = stall.owner(data, subject)
     job = data["jobs"][job_id]
     holder, holding = state.holding_role(data, data["orders"][order_id])
@@ -2119,7 +2124,6 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
             "Read:",
             *(f"- {line}" for line in reading),
             *(f"Release: {release_line(watcher, data, link)}" for link, _ in links if state.RELEASE_WAIT.fullmatch(link)),
-            f"Hold: {hold_line(data)}",
             *(f"Card: {card}" for card in stall_cards(data, links, watcher.cards)),
             *(f"Answered: {answer}" for answer in stall_answers(data, job, links)),
         ]
@@ -2140,14 +2144,6 @@ def release_line(watcher: Watcher, data: dict, wait: str) -> str:
     if not clusters:
         return f"{wait}: every cluster of {service}, {', '.join(sorted(watcher.serving[wait]))}, serves {key}'s merge commit {pr['merged_sha'][:12]} with no release running there"
     return f"{wait}: {service} on {', '.join(clusters)} is behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build or a release still running there"
-
-
-def hold_line(data: dict) -> str:
-    """His hold on every release as settled.hold() reads it, quoted, or that none stands."""
-    if not (hold := settled.hold(data["roles"]["coordinator"]["cwd"])):
-        return "none: no answer of his labelled release-hold stands"
-    said, where = brief.hold_words(hold, data)
-    return f'he holds every release, by his words "{said}" ({where}): a release runs only on an answer of his recorded since that approves that one release'
 
 
 def stall_cards(data: dict, links: list[tuple[str, str]], cards: dict) -> list[str]:
