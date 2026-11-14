@@ -35,9 +35,9 @@ SECOND_REPORT = (
 )
 SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since; a report on an open incident order always goes."
 UNPREVENTED = (
-    "record_lines: this report goes out as written, but these POST lines may tell him the drive failed with no word on how that"
-    " is prevented. If one does, start its fix and send that line again naming the tool change and the order or PR URL"
-    " carrying it; a line about what the product does needs nothing.\n```\n{lines}\n```"
+    "record_lines: this report goes out as written, but these POST lines may tell him the drive failed or ran late, naming no"
+    " prevention. If one does, start its fix and resend that line naming the order or PR URL fixing it, not the"
+    " report's own; a line about what the product does needs nothing.\n```\n{lines}\n```"
 )
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
@@ -111,7 +111,7 @@ def unprevented(drive: dict, record: dict) -> str | None:
     text = (record.get("text") or "").strip()
     if kind(record) != "report" or not addressed(record, "communicator") or not text.startswith("POST"):
         return None
-    if not (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told))):
+    if not (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told), refs.subject(drive, state.report_order(drive, attrs(record))))):
         return None
     return UNPREVENTED.format(lines="\n".join(lines))
 

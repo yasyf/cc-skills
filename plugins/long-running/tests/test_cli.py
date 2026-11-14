@@ -835,7 +835,7 @@ def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_st
     order = state.load("demo")["orders"]["o1"]
     assert render.when(order["due"]) in later[0]
     assert later[-1] == (
-        f"stored {render.when(order['next_due'])} behind the line already owed for {due}: that time keeps firing DUE until the next"
+        f"stored {render.when(order['next_due'])} behind the line already owed for {due}: the watch keeps starting a handler on that line until the next"
         f" drive post in D123 thread 1.2 lands, which tells him {render.when(order['next_due'])} and makes it the time owed"
     )
 

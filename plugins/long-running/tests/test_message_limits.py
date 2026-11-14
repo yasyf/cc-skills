@@ -1398,9 +1398,9 @@ def test_a_post_telling_him_the_drive_failed_goes_out_warning_the_session_until_
             'You asked "why was the card refused"; the card is up now.',
         )
     )
-    assert refs.unprevented(said, {}) == []
+    assert refs.unprevented(said, {}, set()) == []
     told = f"{failed}\n{disconnected}"
-    assert refs.unprevented(told, {}) == [failed, disconnected]
+    assert refs.unprevented(told, {}, set()) == [failed, disconnected]
     assert say(transcript, text=told) is None
     warned = warning(transcript, text=told)
     assert warned.startswith("message_limits: this post goes out as written") and "6a6edbf" in warned
@@ -1447,11 +1447,31 @@ def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_warns_the_s
     defect = "Tables post as Slack tables again, {record:671981}."
     fix = "<https://github.com/yasyf/cc-skills/pull/4486|the say fix>"
     said = "\n".join((proof, uncited, cited, passive, defect, "SandSQL's answer is in {record:672190}."))
-    assert refs.unprevented(said, refs.resolved("demo", said)) == [proof, uncited, cited, passive, defect]
-    assert refs.unprevented(f"{said}\n{cited} {fix} counts each table row on its own.", refs.resolved("demo", said)) == []
+    assert refs.unprevented(said, refs.resolved("demo", said), set()) == [proof, uncited, cited, passive, defect]
+    assert refs.unprevented(f"{said}\n{cited} {fix} counts each table row on its own.", refs.resolved("demo", said), set()) == []
     told = f"{cited}\n{defect}"
     assert say(transcript, text=told) is None
     assert warning(transcript, text=told).endswith(f"The lines: {cited} | {defect}")
+
+
+def test_a_late_line_naming_only_the_order_or_pr_it_reports_on_owes_the_order_fixing_it() -> None:
+    data = {
+        "orders": {
+            "o550": {"text": "Watch the cluster rollout", "joins": None},
+            "o551": {"text": "Page on a stuck rollout", "joins": "o550"},
+            "o1484": {"text": f"{state.TOOLING} a promised line never went out", "joins": None},
+        },
+        "prs": {"Forge-AI/monorepo#4242": {"order": "o550"}, "yasyf/cc-skills#5170": {"order": "o1484"}},
+    }
+    late = "The 6:00 PM line on {pr:4242} is 40 minutes late."
+    assert refs.subject(data, "o551") == {"o550", "o551", "#4242"}
+    assert refs.unprevented(late, {}, refs.subject(data, "o550")) == [late]
+    assert refs.unprevented(f"{late}\nOverdue since o551 paged.", {}, refs.subject(data, "o551")) == [late, "Overdue since o551 paged."]
+    assert refs.unprevented(f"{late} {{order:o1484}} has the watch post it on time.", {}, refs.subject(data, "o550")) == []
+    fixed = "The line promised by 6:00 PM went out late; <https://github.com/yasyf/cc-skills/pull/5170|the watch fix> posts it on time."
+    assert refs.subject(data, "o1484") == set()
+    assert refs.unprevented(fixed, {}, refs.subject(data, "o1484")) == []
+    assert refs.unprevented("The latest build is green.", {}, set()) == []
 
 
 def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_line_doing_it_is_not(talker: str, transcript: Path) -> None:

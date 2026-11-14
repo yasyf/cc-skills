@@ -128,7 +128,7 @@ SAY = {
         " a post carrying a record goes on the order its report is about, a handler's post with none on the order of the message"
         " of his or the record it holds, and an edit, a card, a PR card, his catch-up and an answer in a teammate's watched thread"
         " on none; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and a clock time"
-        " its words promise his next line by, such as \"Next line by 9:45\", becomes the order's due, but on an incident, whose"
+        " its words promise his next line by, such as \"Next line by 9:45\" or \"Next line by 10:00 AM tomorrow\", becomes the order's due, from which the watch starts a handler on the line it owes until one is posted, but on an incident, whose"
         " next line the watch owes five quiet minutes after this one once it has news. A refusal posts nothing and names its fix: a reference that names nothing,"
         " an order or job id such as j1700, or a post over its length, to him while he is away, or out of turn in the thread"
         " a bug report or question came from, that Jev does not lift: make the fix and call again. Jev judges every other post once say has posted it, and"

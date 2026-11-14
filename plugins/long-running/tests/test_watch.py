@@ -767,37 +767,58 @@ def said_due(watching: watch.Watcher, moment: datetime) -> list[str]:
     return [line for line in watch.run_pass(watching, moment) if line.startswith("DUE")]
 
 
-def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_thread_and_holds_the_order_open(
+def due_owed(monkeypatch: pytest.MonkeyPatch) -> list[dict | str]:
+    """Each report the watch writes owing a promised line, then the brief of each handler it starts, a report answering 901."""
+    said: list[dict | str] = []
+    monkeypatch.setattr(watch, "reported", lambda watcher, records: said.extend(records) or ["901"])
+    monkeypatch.setattr(watch.agents, "handle", lambda name, brief: said.append(brief) or ("h1", False))
+    return said
+
+
+def owed(watching: watch.Watcher, moment: datetime, said: list[dict | str]) -> list[dict | str]:
+    said.clear()
+    assert watch.due_lines(watching, moment) == []
+    return list(said)
+
+
+def test_a_promised_time_owes_him_a_report_and_a_handler_every_ten_minutes_until_a_drive_post_is_in_its_thread_and_holds_the_order_open(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
     serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    due = state.stamp(T0 - timedelta(minutes=30))
     with state.edit(demo) as data:
-        data["orders"]["o1"].update(
-            thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
-        )
+        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=due, promised=state.stamp(T0 - timedelta(minutes=60)))
         data["orders"]["o3"] = order(state="done", due=state.stamp(T0 - timedelta(hours=1)))
     slack_thread.post(T0 - timedelta(minutes=90), from_claude=True)
     slack_thread.post(T0 - timedelta(minutes=61), from_user=True)
     watching = watcher(demo)
-    [line] = said_due(watching, T0)
-    assert line.startswith('DUE o1 "ship the watch" was due ') and ": no line in its thread since " in line
-    assert said_due(watching, T0 + timedelta(minutes=5)) == []
-    assert said_due(watching, T0 + timedelta(minutes=10))[0].startswith("DUE o1")
+    [report, brief] = owed(watching, T0, said)
+    assert (report["text"], report["topic"]) == (
+        f"POST order o1's line promised by {render.when(due)} is 30 minutes late: post where it stands now in its thread, saying it is late",
+        "watch-due-o1",
+    )
+    assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "due": due, "thread": "1794200000.000100"}
+    assert f"Its line was promised him by {render.when(due)}, 30 minutes ago." in report["body"].splitlines()
+    assert brief == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'due-901'}"
+    assert owed(watching, T0 + timedelta(minutes=5), said) == []
+    assert owed(watching, T0 + timedelta(minutes=10), said)[0]["text"].startswith("POST order o1's line promised by ")
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=11))
     assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
     assert cli.main(["order", "set", "o1", "--due", state.stamp(T0 + timedelta(hours=2)), "--drive", demo]) == 0
-    assert said_due(watching, T0 + timedelta(minutes=20))[0].startswith("DUE o1")
+    assert owed(watching, T0 + timedelta(minutes=20), said)[0]["text"].startswith("POST order o1's line promised by ")
     late_line = T0 + timedelta(minutes=21)
     slack_thread.post(late_line, from_claude=True)
-    assert said_due(watching, T0 + timedelta(minutes=30)) == []
+    assert owed(watching, T0 + timedelta(minutes=30), said) == []
     moved = state.load(demo)["orders"]["o1"]
     assert (moved["due"], state.parse_time(moved["promised"]), moved["kept"]) == (state.stamp(T0 + timedelta(hours=2)), late_line, None)
     assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
-    assert said_due(watching, T0 + timedelta(hours=2))[0].startswith("DUE o1")
+    [report, _] = owed(watching, T0 + timedelta(hours=2), said)
+    assert report["text"] == f"POST order o1 owes him the line it promised by {render.when(moved['due'])}: post where it stands now in its thread"
     slack_thread.post(T0 + timedelta(hours=2, minutes=1), from_claude=True)
     assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 0
     assert state.load(demo)["orders"]["o1"]["state"] == "done"
-    assert said_due(watching, T0 + timedelta(hours=3)) == []
+    assert owed(watching, T0 + timedelta(hours=3), said) == []
     assert slack_thread.reads == [
         ("--channel", "D123", "--thread", "1794200000.000100", "--since-ts", str(int(promised.timestamp())), "--limit", "1000")
         for promised in [T0 - timedelta(minutes=60)] * 5 + [late_line] * 3
@@ -829,6 +850,7 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
     card = f"{(T0 - timedelta(minutes=10)).timestamp():.6f}"
     threads: dict[str, list[dict]] = {"1794200000.000100": [], card: [{"ts": card, "from_claude": True}]}
     monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[3]]))
@@ -839,9 +861,9 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(T0), card=f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"))
         state.join_thread(data["orders"]["o1"], ("D123", card), state.stamp(T0), "question")
     watching = watcher(demo)
-    assert said_due(watching, T0)[0].startswith("DUE o1")
+    assert owed(watching, T0, said)[0]["topic"] == "watch-due-o1"
     threads[card].append({"ts": f"{(T0 + timedelta(minutes=5)).timestamp():.6f}", "thread_ts": card, "from_claude": True})
-    assert said_due(watching, T0 + timedelta(minutes=10)) == []
+    assert owed(watching, T0 + timedelta(minutes=10), said) == []
     assert state.load(demo)["orders"]["o1"]["kept"] is not None
 
 
@@ -858,6 +880,7 @@ def test_a_due_order_an_older_install_saved_reads_its_thread_in_the_channel_that
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", source: str, from_thread: str | None, thread: str | None, where: tuple[str, str]
 ) -> None:
     serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
     card = "1794350000.000500"
     with state.edit(demo) as data:
         data["orders"]["o1"].update(
@@ -870,8 +893,8 @@ def test_a_due_order_an_older_install_saved_reads_its_thread_in_the_channel_that
                 "promised": state.stamp(T0 - timedelta(minutes=60)),
             }
         )
-    [line] = said_due(watcher(demo), T0)
-    assert line.startswith('DUE o1 "ship the watch" was due ')
+    [report, _] = owed(watcher(demo), T0, said)
+    assert report["topic"] == "watch-due-o1"
     since = str(int((T0 - timedelta(minutes=60)).timestamp()))
     assert slack_thread.reads == [("--channel", channel, "--thread", ts, "--since-ts", since, "--limit", "1000") for channel, ts in (where, ("D123", card))]
 
@@ -892,6 +915,32 @@ def test_a_due_order_from_his_dm_whose_own_thread_is_an_alerts_and_keeps_none_of
     [line] = said_due(watcher(demo), T0)
     assert line.startswith('DUE o1 "ship the watch" was due ') and line.endswith(watch.UNTHREADED)
     assert slack_thread.reads == []
+
+
+def test_a_promised_time_passing_while_he_is_away_owes_one_report_and_a_thread_it_cannot_read_is_said_as_a_failed_read_owing_none(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0 - timedelta(hours=3)), "away": True}
+        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=5)), promised=state.stamp(T0 - timedelta(minutes=60)))
+    watching = watcher(demo)
+    [report, _] = owed(watching, T0, said)
+    assert report["text"].startswith("POST order o1 owes him the line it promised by ")
+    assert owed(watching, T0 + timedelta(minutes=30), said) == []
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["due_said"] = None
+
+    def unread(*where: str) -> list[dict]:
+        raise slack.SlackError("cc-slack thread exited 1: ratelimited")
+
+    monkeypatch.setattr(slack, "thread", unread)
+    for minute in range(2):
+        assert owed(watching, T0 + timedelta(minutes=40 + minute), said) == []
+    [failing] = watch.due_lines(watching, T0 + timedelta(minutes=42))
+    assert failing.startswith("WATCH read of o1's threads for the line promised him by ") and "ratelimited" in failing
+    assert said == []
 
 
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4395,7 +4444,7 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
     sent = posts(monkeypatch)
     waking = [
         f"TAP Hold {KEY} [o1 j1]",
-        'DUE o1 "ship" was due 10:00 AM: no line in its thread since 9:00 AM',
+        f'DUE o1 "ship" was due 10:00 AM: {watch.UNTHREADED}',
         'ORPHAN o1 "ship": no job',
         'ANSWER a1 "one new tool": 1 card with no mark',
         "JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/42",
