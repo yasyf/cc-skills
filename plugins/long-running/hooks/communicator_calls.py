@@ -17,7 +17,8 @@ OWN_TOOLS = {
 PICKUP = render.SLACK_TOOLS + "slack_pickup"
 POSTS = {render.SLACK_TOOLS + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")}
 OWN_SKILLS = {"long-running", "long-running:long-running"}
-OWN_COMMAND = re.compile(r"\s*(?:drive|cci|cc-slack)\s")
+OWN_COMMAND = re.compile(r"\s*(?:drive|cc-slack|cci drive use)\s")
+CCI_COMMAND = re.compile(r"\s*cci\s")
 RESUME = re.compile(r"\bdrive job resume\b.*?\b(j\d+)\b")
 STATE_CLAIM = re.compile(
     r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bunless )\byou(?:'ve| have| are|'re| seem(?: to be)?| look| were| got)?(?: been| gone| went)?"
@@ -33,7 +34,7 @@ READ_WINDOW = timedelta(minutes=10)
 
 
 def own_call(payload: dict) -> bool:
-    """Whether a call is one the communicator makes itself: the ack through say, a +1, its DM's watch, SendMessage, ToolSearch, this skill, the drive's heard, handler, record, order and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
+    """Whether a call is one the communicator makes itself: the ack through say, a +1, its DM's watch, SendMessage, ToolSearch, this skill, the drive's heard, handler, record, order and job tools, a `drive` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list, and `cci drive use`, which its start block orders."""
     name = payload["tool_name"]
     call = payload["tool_input"]
     if name == "Skill":
@@ -44,16 +45,19 @@ def own_call(payload: dict) -> bool:
 
 
 def communicator_call(payload: dict) -> str:
-    if payload["tool_name"] == PICKUP:
+    name = payload["tool_name"]
+    if name.startswith(render.CCI_TOOLS) or name == "Bash" and CCI_COMMAND.match(payload["tool_input"].get("command") or ""):
+        return agents.Unjudged(f"Refused on purpose: {render.RECORDING}")
+    if name == PICKUP:
         return f"Refused on purpose: {render.EYES} Go on with the ack."
-    if payload["tool_name"] in POSTS:
+    if name in POSTS:
         return agents.Unjudged(
-            f"Refused on purpose: {payload['tool_name']} holds the post until cc-slack's Slack permission check and Jev"
+            f"Refused on purpose: {name} holds the post until cc-slack's Slack permission check and Jev"
             " have read it, seconds past the 5 to 10 his ack has. Post the ack with say(thread_ts=<his thread>, text=<the ack>),"
             " which posts at once and has Jev read it afterwards, and reword a post of yours with say(edit=<its permalink>, text=…)."
         )
     return (
-        f"Refused on purpose: the communicator does not run {payload['tool_name']} itself, since work in its turn holds his"
+        f"Refused on purpose: the communicator does not run {name} itself, since work in its turn holds his"
         f" next message behind it: a read, draft or post of any kind is a handler's. Its own calls are {render.OWN_CALLS}."
         f" Start a handler with the drive's handler tool, briefed with this step in its lines, {', '.join(render.HANDLER_LABELS)};"
         " it does the read, draft or post and its line comes back as one cci record."

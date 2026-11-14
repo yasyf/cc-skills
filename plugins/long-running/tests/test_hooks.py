@@ -1525,7 +1525,7 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
     assert made == {"permissionDecision": "deny", "permissionDecisionReason": unordered}
     assert agents.ruled(made["permissionDecisionReason"]) == {"judged": False}
     posted = f"cci post --kind handoff --lane communicator --to platform@demo --attr order=o1 '{RELEASE_ASK.format('')}'"
-    assert landing_guard.deny_reason(bash(posted) | {"session_id": "talker"}) == unordered
+    assert landing_guard.deny_reason(bash(posted) | {"session_id": "talker", "agent_id": "a1"}) == unordered
     reads.clear()
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data).startswith(
         "refused: Jev did not say whether this record asks a session to take a step of a production release (no jev decision within 20s)"

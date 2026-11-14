@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, card, github, land, limits, public_check, reports, settled, slack, state, superseded
+from drive import agents, brief, card, github, land, limits, public_check, render, reports, settled, slack, state, superseded
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.shell import expanded, runnable, templates
@@ -81,7 +81,6 @@ UNREAD = (
     " went unread. Once GitHub answers, read them with `drive status <PR url>`. The read said: {error}"
 )
 CCI_SERVER = "plugin:cc-inbox:cci"
-CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 CLI_POST = (
     "Refused on purpose: this session's cci MCP server is connected, so it posts, answers and closes records with the cci"
     " `post` and `close` tools (ToolSearch `select:mcp__plugin_cc-inbox_cci__post,mcp__plugin_cc-inbox_cci__close` loads"
@@ -652,7 +651,7 @@ def cci_change(attachment: dict, connected: bool | None) -> bool | None:
         field
         for field in ("addedNames", "removedNames", "failedMcpServers")
         for entry in attachment.get(field) or []
-        if (name := entry if isinstance(entry, str) else entry.get("name", "")) == CCI_SERVER or name.startswith(CCI_TOOLS)
+        if (name := entry if isinstance(entry, str) else entry.get("name", "")) == CCI_SERVER or name.startswith(render.CCI_TOOLS)
     }
     if "addedNames" in ours:
         return True
@@ -681,10 +680,12 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def cli_posted(payload: dict) -> str | None:
-    """Why a drive session's or agent's `cci post` in Bash must not run whatever its words say, a refusal capt-hook's Jev never weighs again: it posts the communicator's owner record about the drive, which only the drive's `record` tool sends, adding its order first, or its cci MCP server is connected, so the cci `post` and `close` tools send the record and their hook checks its words, and no refusal of its words comes first to be fixed in a command this one then refuses."""
+    """Why a drive session's or agent's `cci post` in Bash must not run whatever its words say, a refusal capt-hook's Jev never weighs again: the communicator's own turn sends every record on the drive's `record` tool, a handler's `cci post` posting the communicator's owner record about the drive, which only that tool sends, adding its order first, or its cci MCP server is connected, so the cci `post` and `close` tools send the record and their hook checks its words, and no refusal of its words comes first to be fixed in a command this one then refuses."""
     names, shell = shell_of(payload)
     posts = cci_posts(payload["tool_input"]["command"], shell) if shell.driving else []
     role = state.session_role(state.saved(names[0]), shell.session) if names and posts else None
+    if role == "communicator" and not payload.get("agent_id"):
+        return f"Refused on purpose: {render.RECORDING}"
     if unordered := next(filter(None, (state.unrecorded(role, post["kind"], post["attrs"]) for post in posts)), None):
         return unordered
     return CLI_POST if posts and cci_connected(payload) else None

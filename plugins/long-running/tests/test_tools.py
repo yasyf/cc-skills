@@ -995,6 +995,29 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     assert said[6:] == ['3 would end j1\'s question "Which ring?" answered, closing its card']
 
 
+def test_the_communicators_own_answer_to_a_record_goes_out_while_his_cards_cannot_be_read_and_his_answer_to_a_card_waits_for_them(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 46}\n', ""))
+
+    def unreadable(name: str) -> dict:
+        raise slack.SlackError("cc-slack drive-cards timed out")
+
+    monkeypatch.setattr(view, "cards", unreadable)
+    own = {"kind": "answer", "text": "started a handler for it", "re": "706660", "to": "meta"}
+    assert tools.run("record", demo, {"records": [own]}) == "1 answer 46"
+    assert [(sent["to"], sent["re"]) for [sent] in posted] == [(["meta@demo"], ["706660"])]
+    for his in ({"url": HIS}, {"waits": "demo:j1-7"}):
+        with pytest.raises(DriveError, match="his cards could not be read"):
+            tools.run("record", demo, {"records": [own | his]})
+    assert len(posted) == 1
+
+
 def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_answers_else_the_session_holding_the_order_its_order_attr_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -70,7 +70,7 @@ RECORD = {
         },
         "text": {
             "type": "string",
-            "description": "his words verbatim for owner, the tapped label or his words for answer, the step asked for handoff, the refusal verbatim for defect, each time it quotes as it stands",
+            "description": "his words verbatim for owner, the tapped label, his words or this session's own answer for answer, the step asked for handoff, the refusal verbatim for defect, each time it quotes as it stands",
         },
         "url": {
             "type": "string",
@@ -203,7 +203,7 @@ def verb_tools() -> list[dict]:
         {
             "name": "record",
             "description": (
-                "Send his words (owner), his answer to a card (answer), a step the session holding an order owes on it"
+                "Send his words (owner), his answer to a card or this session's own answer to a record, re <seq> (answer), a step the session holding an order owes on it"
                 " (handoff) or a tool's refusal (defect) to another session of the drive in one call, as this session's role,"
                 " a handler's included: a defect reaches the meta session, an answer or handoff naming a job the coordinator session"
                 " whose agent runs it on this Mac, the communicator's handoff naming no job the coordinator that wrote the record its"
@@ -530,7 +530,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     project = state.session_project(data, session)
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
     posts = [post(item, data, other, session) for item in records]
-    found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
+    found = his_cards(name) if any(made["kind"] == "owner" or made["kind"] == "answer" and (made.get("url") or "waits" in (made.get("attr") or {})) for made in posts) else view.NO_CARDS
     closes = [closed_by(data, index, made, item.get("order")) for index, (item, made) in enumerate(zip(records, posts, strict=True), start=1)]
     ruled = rulings(posts)
     for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):

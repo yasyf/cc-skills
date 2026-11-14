@@ -11,11 +11,12 @@ from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERS
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
+CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 COMMUNICATOR_SLACK = ("slack_react", "slack_watch")
 COMMUNICATOR_DRIVE = ("say", "heard", "handler", "record", "order", "job")
 OWN_CALLS = (
     "the ack through the drive's say, a +1, the watch on his DM, SendMessage, ToolSearch, this skill, the drive's heard,"
-    " handler, record, order and job tools, and a drive, cci or cc-slack command in Bash"
+    " handler, record, order and job tools, a drive or cc-slack command in Bash, and `cci drive use`"
 )
 EYES = (
     "cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the communicator"
@@ -24,6 +25,12 @@ EYES = (
 REACHING = (
     "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
     " while cci is down, SendMessage `<drive>-<role>` after ListAgents: a disconnect never excuses a message."
+)
+RECORDING = (
+    "Every record you send goes on the drive's record tool: owner for his words, answer with re <seq> for a session's"
+    " record you answer, handoff and defect. Make no other cci call, a cci tool or a `cci` command, but `cci drive use`,"
+    " since a record's body is a handler's to read; while cci is down, SendMessage `<drive>-<role>` after ListAgents: a"
+    " disconnect never excuses a message."
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
 STAMPS = (
@@ -121,7 +128,7 @@ COMMUNICATOR_RULES = (
         " the coordinator what changes for its work,"
         " and a handoff, a step only the session holding an order takes on it, to that session by its order attr."
     ),
-    REACHING,
+    RECORDING,
     (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
         " each thread where he waits on a handler whose line has not come back: what is happening and when he hears next."
