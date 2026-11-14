@@ -117,6 +117,7 @@ LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
+MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 SLOT_WAIT = "builder-slot"
@@ -1174,8 +1175,8 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             )
     if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
         return (
-            "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n> or a PR the drive"
-            f" tracks, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
+            "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n>, a PR the drive"
+            f" tracks or a part of an order as <order>:<part>, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
     return fix_refusal(data, job_id, line, report)
 
@@ -1232,9 +1233,26 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, and each other drive PR it names."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each other drive PR it names, and each part it names as <order>:<part>."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
-    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line))]))
+    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line)]))
+
+
+def named_parts(data: dict, words: str) -> list[str]:
+    """Each part of an order of the drive the words name as <order>:<part>, the part word for word, as a part wait stores it."""
+    return [
+        f"{order_id}:{part}"
+        for order_id in dict.fromkeys(re.findall(r"\b(o\d+):", words))
+        if order_id in data["orders"]
+        for part in data["orders"][order_id]["parts"]
+        if re.search(rf"\b{order_id}:\s*{re.escape(part)}", words)
+    ]
+
+
+def part_wait(data: dict, wait: str) -> tuple[str, str] | None:
+    """The order and part a wait names as <order>:<part>, held until that part is delivered; None for any other wait."""
+    named = ORDER_PART.fullmatch(wait)
+    return (named[1], named[2]) if named and named[1] in data["orders"] and named[2] in data["orders"][named[1]]["parts"] else None
 
 
 def wait_words(line: str, report: str) -> str:
@@ -1248,7 +1266,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each card and each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR, release and card it names, which his card on that PR then names and links, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1267,7 +1285,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *job["waited"]["waits"]])
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
-            data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])])
+            data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"]), *named_parts(data, waiting["cards"])])
     if taken == "done" and job["kind"] == "builder":
         for order_id in open_incidents(data, [job["order"], *job["carries"]]):
             if {INCIDENT_STOP, INCIDENT_ROLLBACK} & set(job_parts(job, order_id)):
@@ -1489,8 +1507,8 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
-    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done"}
+    """Whether a part is delivered: work he ordered once a builder or codex job on it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not MERGED_LINE.match(job["said"] or "")}
     posted = data["orders"][order_id]["parts"][part]["posted"]
     if work(data, order_id, part):
         return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
@@ -2735,8 +2753,8 @@ def open_prs(data: dict) -> list[dict]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a release of the drive or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

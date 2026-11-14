@@ -3588,6 +3588,9 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
         pr = release["pr"] if (release := state.RELEASE_WAIT.fullmatch(wait)) else wait
         if state.PR_KEY.fullmatch(pr) and pr not in data["prs"]:
             raise DriveError(f"--waits {wait}: the drive tracks no PR {pr}; drive pr add it to its job first")
+        if (named := state.ORDER_PART.fullmatch(wait)) and named[1] in data["orders"] and not (state.part_wait(data, wait) and view.holds(data, wait, None)):
+            left = [part for part in data["orders"][named[1]]["parts"] if view.holds(data, f"{named[1]}:{part}", None)]
+            raise DriveError(f"--waits {wait}: name a part of {named[1]} still to be delivered, word for word, as {named[1]}:<part>: {'; '.join(left) or 'none is left'}")
     cards = [wait for wait in waits if state.card_wait(data, wait)]
     found = view.live_cards(name)
     if not all(view.card_open(wait, found) for wait in cards):
@@ -4577,9 +4580,10 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|JOB|PR|RELEASE",
+        metavar="CARD|JOB|PR|RELEASE|PART",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
+            " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE, never the DONE the watch takes at a merge,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
             " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
@@ -4909,9 +4913,9 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|PR|RELEASE|JOB",
+        metavar="CARD|PR|RELEASE|JOB|PART",
         help=(
-            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, or a job"
+            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a part of an open order as <order>:<part>, or a job"
             " of this drive still at work, of any kind, a reader that just started included, as job set takes them, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),
