@@ -577,6 +577,33 @@ def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owne
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
 
 
+def test_his_answer_to_a_job_whose_agent_the_top_started_reaches_the_top_not_the_sub_coordinator_hearing_its_order_as_683494_did_not(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    run("job", "set", "j1", "--agent", "a4667d5c611bb5233")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", demo, "--role", "coordinator", "--project", "Platform")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append((argv[argv.index("--lane") + 1], records))
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    open_cards(monkeypatch, "demo:j1-7")
+    tools.run("record", demo, {"records": [{"kind": "answer", "text": "Option 1", "waits": "demo:j1-7"}]})
+    card.question_answered({"waits": "demo:j1-8", "label": "Option 1", "url": "https://acme.slack.com/archives/D123/p1794200000000100"})
+    assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
+        ("communicator", [("answer", ["root@demo"])]),
+        ("communicator", [("answer", ["root@demo"])]),
+    ]
+
+
 def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_and_each_owner_record_names_what_it_is_about(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -974,10 +1001,10 @@ def test_the_meta_sessions_handoff_goes_to_the_session_holding_the_order_it_serv
     assert [json.loads(line.split(": ", 1)[1])["to"] for line in said] == [["iris@demo"], ["root@demo"], ["communicator@demo"], ["communicator@demo"]]
 
 
-def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_hearing_its_order_whichever_session_started_its_agent(
+def test_an_answer_or_handoff_naming_a_job_goes_to_the_coordinator_session_whose_agent_runs_it_whatever_coordinator_holds_its_order(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """His words on binding SandSQL's own sub-coordinator, "dont kill any existing handlers or workers just reparent them": the top's agent on an order a sub-coordinator now hears is that session's, which drive job resume hands to a fresh agent of its own."""
+    """His picks "Send them to the agent's starter" on card durable-agents:j2660-685219 and "Keep with the starter: the agent finishes its job, your answers reach it at once" on card durable-agents:j2693-1794581556218: answer 683494 on j2600's card went to platform, which cannot SendMessage the top's agent, and waited on a forward; a job no agent runs, and his owner words, follow its order."""
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
     run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it", "--agent", "agent-1")
     run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
@@ -992,13 +1019,15 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_session_hearing_its_order
     records = [
         {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "to": "root", "waits": "demo:j1-7"},
         {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "to": "root", "attrs": {"job": "j1", "order": "o1"}},
-        {"kind": "handoff", "text": "Resume j2 now: its gate is met", "to": "root", "attrs": {"job": "j2", "order": "o1"}},
+        {"kind": "handoff", "text": "Resume j2 now: its gate is met", "to": "iris", "attrs": {"job": "j2", "order": "o1"}},
+        {"kind": "owner", "text": "also the logs page", "to": "iris", "attrs": {"job": "j1"}, "about": "his work"},
     ]
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
     assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said if ": {" in line] == [
-        ("answer", ["iris@demo"]),
+        ("answer", ["root@demo"]),
+        ("handoff", ["root@demo"]),
         ("handoff", ["iris@demo"]),
-        ("handoff", ["iris@demo"]),
+        ("owner", ["iris@demo"]),
     ]
 
 

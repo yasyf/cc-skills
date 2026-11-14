@@ -88,7 +88,7 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
 
 
-def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts_a_fresh_one(
+def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts_a_fresh_one_but_sends_it_his_answers_from_the_session_that_started_it(
     demo: str, builder: Callable[..., None], tmp_path: Path
 ) -> None:
     builder(agent="a-7", state="built")
@@ -99,6 +99,12 @@ def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts
     assert "which takes each PR j1 opened and stops it" in reason
     fresh = "Handoff: red check on https://github.com/Forge-AI/monorepo/pull/4244 Drive: demo, order o1, job j2"
     assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:builder", prompt=fresh)) is None
+    words = 'His answer on card demo:j1-7, verbatim: "Ring"'
+    builder(where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], undelivered=[{"seq": "9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}])
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["owner"] = None
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=words)) is None
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")).startswith("Refused on purpose: j1's builder")
     builder(state="waiting")
     assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
     builder(state="done")

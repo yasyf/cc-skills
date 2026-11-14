@@ -8540,7 +8540,7 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     assert (drive["answers"]["a1"]["jobs"], [kept["words"] for kept in drive["jobs"]["j3"]["undelivered"]]) == ({"j3": {"mark": "sent"}}, [other])
 
 
-def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_his_answer_through_drive_job_resume_never_the_tops_sendmessage(
+def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_his_answer_by_the_tops_sendmessage(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], send_message: Callable[..., None]
 ) -> None:
     cards_asking(monkeypatch, PR)
@@ -8550,10 +8550,11 @@ def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
     assert run("start", "demo", "--role", "coordinator", "--project", "The drive")[0] == 0
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
-    assert "  j3 waits on o1 and has not heard a1: drive job resume j3 with his words verbatim, or mark it untouched" in capsys.readouterr().err
+    sender = "from root@demo, the session session-under-test that started its agent agent-3"
+    assert f"  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim {sender}, or mark it untouched" in capsys.readouterr().err
     send_message("demo", "j3", WORDS)
-    assert cli.main(["answer", "a1", "--stands", designing]) == 2
-    assert "  j3 waits on o1 and has not heard a1: drive job resume j3 with his words verbatim" in capsys.readouterr().err
+    assert run("answer", "a1", "--stands", designing)[0] == 0
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
 
 
 def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_only_once_a_resume_delivered_his_words(

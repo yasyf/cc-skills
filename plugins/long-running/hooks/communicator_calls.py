@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, place, render, state
+from drive import agents, place, render, state, superseded
 
 OWN_TOOLS = {
     *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
@@ -81,18 +81,21 @@ def messages(payload: dict, data: dict) -> list[tuple[str, str, str]]:
     ]
 
 
-def resumed_builder(payload: dict, data: dict, job_id: str) -> str | None:
-    """Why a SendMessage to a builder that returned BUILT or DONE carries no PR event: a resumed builder re-reads everything it ever did on every event, so a fresh one takes it; an incident's job is resumed for every event."""
+def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | None:
+    """Why a SendMessage to a builder that returned BUILT or DONE carries no PR event: a resumed builder re-reads everything it ever did on every event, so a fresh one takes it; an incident's job is resumed for every event, and his answers the job holds go to its agent from the session that started it, by state.agent_lane and his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"."""
     job = data["jobs"][job_id]
     if payload["tool_name"] != "SendMessage" or job["kind"] != "builder" or job["state"] not in FRESH_STATES or data["orders"][job["order"]]["incident"]:
+        return None
+    held = [kept["words"] for kept in job["undelivered"]] + [kept["words"] for _, kept in superseded.owed(data, job_id)]
+    if (lane := state.agent_lane(data, job)) and lane == state.session_lane(data, payload.get("session_id")) and any(superseded.carries(said, words) for words in held):
         return None
     takes = f"which takes each PR {job_id} opened and stops it" if job["state"] == "built" else "`drive pr add <url> --job <new>` for each PR it takes over"
     return (
         f"Refused on purpose: {job_id}'s builder already returned ({job['state']}), and a PR event after a builder returns goes"
         " to a fresh builder, since a resumed one re-reads everything it ever did on every event. Run `drive job add builder`"
         f" for order {job['order']} and its parts, {takes}, and brief it with a"
-        f" `Handoff:` line naming the event and {job_id}'s transcript under `Transcripts:`. His answers need no message: the drive holds each"
-        " on every builder it frees, and the watch carries it to them."
+        f" `Handoff:` line naming the event and {job_id}'s transcript under `Transcripts:`. His answers it holds go to it verbatim in a"
+        " SendMessage from the session that started its agent, which the watch's ANSWER undelivered line names."
     )
 
 
@@ -168,7 +171,7 @@ def deny_reason(payload: dict) -> str | None:
         return None
     data = state.load(names[0])
     for job_id, said, before in messages(payload, data):
-        if why := resumed_builder(payload, data, job_id) or woken_builder(payload, data, job_id) or unread_job(payload, data, job_id, said, before):
+        if why := resumed_builder(payload, data, job_id, said) or woken_builder(payload, data, job_id) or unread_job(payload, data, job_id, said, before):
             return why
     return None
 

@@ -50,11 +50,12 @@ def misaddressed(payload: dict, record: dict) -> str | None:
     return None
 
 
-def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[str | None]:
+def refusals(payload: dict, names: list[str], drives: dict[str, dict], records: list[dict]) -> Iterator[str | None]:
     """Each check of each record, as cci stores it, in turn, so a refusal stops the rest from running."""
-    drive = state.load(names[0])
+    drive = drives[names[0]]
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
+        yield state.unread(drives, listed(record.get("to")), payload["tool_input"].get("drive") or names[0])
         yield stray_parts(kind(record), attrs(record))
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.HAND_ASK if kind(record) == "ask" else None
@@ -69,7 +70,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
-    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote the record it answers, and its other owner, answer, handoff or refused record, and any other session's handoff, to the session holding the order it serves."""
+    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, the communicator's answer, handoff or refused record, and any other session's handoff, naming a job a coordinator session's agent runs on this Mac to that session, the communicator's answer, handoff or refused record naming no job to the coordinator that wrote the record it answers, and its other owner, answer, handoff or refused record, and any other session's handoff, to the session holding the order it serves."""
     entries = listed(record.get("to"))
     to = state.routed(drives, session, kind(record), attrs(record), entries, listed(record.get("re")))
     return record if to == entries else record | {"to": to}
@@ -92,14 +93,14 @@ def decision(payload: dict) -> dict | None:
         return None
     tool_input = payload["tool_input"]
     given = posted(tool_input)
-    drive = state.load(names[0])
+    drives = state.bound_drives(names)
+    drive = drives[names[0]]
     records = [trimmed(record) for record in given]
     stored = [limits.as_stored(record) for record in records]
-    if refused := next(filter(None, refusals(payload, names, stored)), None):
+    if refused := next(filter(None, refusals(payload, names, drives, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
     warned = [warning for record in stored if (warning := unprevented(drive, record))]
     context = {"additionalContext": "\n".join(warned)} if warned else {}
-    drives = state.bound_drives(names)
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     lane = posting_lane(drive, payload, made)
     if made == given and tool_input.get("lane") == lane:
