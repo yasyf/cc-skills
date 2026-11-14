@@ -1044,9 +1044,9 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             return {"illustrates": {"type": "binary", "p_yes": p_yes, "confidence": 0.9}}
         if limits.LOOKS in questions:
             return {limits.LOOKS: label(limits.LOOKS if judged.looks >= 0.5 else "none", {"none": round(1 - judged.looks, 2), limits.LOOKS: judged.looks})}
-        if "changes" in request["questions"]:
-            read = {"none": 0.9} | judged.changes
-            return {"changes": label(max(read, key=read.__getitem__), read)}
+        if "changes1" in questions:
+            pages = {key: {"none": 0.9} | {short: probability for short, probability in judged.changes.items() if short in spec["label"]["options"]} for key, spec in questions.items()}
+            return {key: label(max(read, key=read.__getitem__), read) for key, read in pages.items()}
         if "card" in questions:
             return judged.judges(questions)
         ruled = {part: label(word_id, {"none": round(1 - probability, 2), word_id: probability}) for part, (word_id, probability) in judged.ruled.items() if part in questions}

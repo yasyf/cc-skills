@@ -96,6 +96,7 @@ WORKED_QUESTION = (
 WORKED_OUT = "The card works it out, or offers no design."
 UNBROKEN = "His words do not rule it out."
 CHANGES = 0.15
+LABEL_OPTIONS = 255
 CHANGES_QUESTION = (
     "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
     " options of, or make moot, so that card must change or stop asking him? His answer may be a standing rule for a kind of work,"
@@ -471,24 +472,28 @@ def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dic
 
 
 def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
-    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, so each card is weighed beside the others: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
+    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, a label question for each page of them, since one label question takes at most LABEL_OPTIONS options, none included, however many cards are open, the pages as even as they split and each in the order they are asking him, so each card is weighed beside the others of its page: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
     cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
     if not cards:
         return set()
-    options = {short: f'{asked[key]["title"]} Options: {" | ".join(asked[key]["options"])}' for short, key in cards.items()}
-    label = {"instructions": instructions, "options": {UNDECIDED: "It changes none of them.", **options}}
+    options = [(short, f'{asked[key]["title"]} Options: {" | ".join(asked[key]["options"])}') for short, key in cards.items()]
+    pages = -(-len(options) // (LABEL_OPTIONS - 1))
+    questions = {
+        f"changes{page}": {"label": {"instructions": instructions, "options": {UNDECIDED: "It changes none of them.", **dict(options[len(options) * (page - 1) // pages : len(options) * page // pages])}}}
+        for page in range(1, pages + 1)
+    }
     try:
-        read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": {"changes": {"label": label}}})["changes"]
+        read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": questions})
     except Unheard as failure:
         raise DriveError(
             f"nothing recorded in the drive: Jev did not read his answer against his {len(cards)} open {'card' if len(cards) == 1 else 'cards'} ({failure}), so each"
             " card it settles would keep asking him; run this drive answer again"
         ) from None
-    return {cards[short] for short, probability in read["probabilities"].items() if short in cards and probability >= bar}
+    return {cards[short] for page in read.values() for short, probability in page["probabilities"].items() if short in cards and probability >= bar}
 
 
 def repeats(data: dict, words: str) -> str | None:
-    """The open drive tooling order these new tooling words ask for again, as Jev reads them in one call against the REPEATS_ASKED open tooling orders whose title and words share the most rare words with them, each order's title and words an option, picked at the DECIDES bar, since one label question takes at most 255 options however many tooling orders are open; None when no tooling order is open or Jev picks none, refused when Jev gives no answer."""
+    """The open drive tooling order these new tooling words ask for again, as Jev reads them in one call against the REPEATS_ASKED open tooling orders whose title and words share the most rare words with them, each order's title and words an option, picked at the DECIDES bar, since one label question takes at most LABEL_OPTIONS options however many tooling orders are open; None when no tooling order is open or Jev picks none, refused when Jev gives no answer."""
     said = rare(words)
     orders = [(order_id, order) for order_id, order in state.open_orders(data).items() if order["text"].startswith(state.TOOLING)]
     closest = sorted(orders, key=lambda item: len(said & rare(f'{item[1]["title"] or ""} {item[1]["text"]}')), reverse=True)[:REPEATS_ASKED]
