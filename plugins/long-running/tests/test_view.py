@@ -1035,16 +1035,22 @@ def closed(url: str, minutes: int, waits: str = "", prs: list[str] = (), answer:
     return {"waits": waits, "title": "", "prs": list(prs), "asked": at(minutes), "url": url, "answer": answer, "tapped": tapped, "replaced_by": replaced_by}
 
 
+WRITTEN_IN = "We were supposed to move them by hand, why didn't we? Skip the release and move every one of them\nnow"
+ON_ONE_LINE = "We were supposed to move them by hand, why didn't we? Skip the release and move every one of them now"
+
+
 def test_card_words_name_each_question_card_as_cc_slacks_store_holds_it_open_answered_withdrawn_or_redrawn() -> None:
-    first, again, other = (f"{TEAM}archives/D123/p17943808{n}" for n in (45, 50, 55))
+    first, again, other, words = (f"{TEAM}archives/D123/p17943808{n}" for n in (45, 50, 55, 60))
     ledger = found(
         [question("Pick a store?", -5, "demo:j9-3")],
         closed=[
             closed(first, -60, "demo:j7-1", answer={"label": "his order replaced it", "at": at(-40), "withdrawn": True}),
             closed(again, -30, "demo:j7-2", answer={"label": "Yes", "at": at(-20)}),
             closed(other, -50, "demo:j8-1", answer={"label": "his order changed it", "at": at(-45), "withdrawn": True}, replaced_by=again),
+            closed(words, -10, "demo:j7-3", answer={"label": WRITTEN_IN, "at": at(-8), "other": True}),
         ],
     )
+    assert view.card_words(ledger, "live", "demo:j7-3") == f'card {words} answered "{ON_ONE_LINE}" at {when(at(-8))}'
     assert view.card_words(ledger, "live", "demo:j9-3") == f"card {TEAM}archives/D123/p-5 open since {when(at(-5))}"
     assert view.card_words(ledger, "live", first) == f"card {first} withdrawn at {when(at(-40))}: his order replaced it"
     assert view.card_words(ledger, "live", "demo:j7-2") == f'card {again} answered "Yes" at {when(at(-20))}'
@@ -1061,6 +1067,8 @@ def test_a_question_card_cc_slacks_store_forgot_reads_as_the_drives_question_sta
     assert view.question_card_words(found(), "live", asked) == f"card {forgotten} open since {when(at(-2000))}"
     asked["closed"] = state.new_close("answered", "Merge", None, at=at(-5))
     assert view.question_card_words(found(), "live", asked) == f'card {forgotten} answered "Merge" at {when(at(-5))}'
+    asked["closed"] = state.new_close("answered", WRITTEN_IN, None, at=at(-4))
+    assert view.question_card_words(found(), "live", asked) == f'card {forgotten} answered "{ON_ONE_LINE}" at {when(at(-4))}'
     asked["closed"] = state.new_close("withdrawn", None, None, at=at(-3))
     assert view.question_card_words(found(), "live", asked) == f"card {forgotten} withdrawn at {when(at(-3))}"
     assert view.question_card_words(None, "unavailable: not signed in", asked) == "his cards could not be read (unavailable: not signed in)"
