@@ -2514,15 +2514,16 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
     earlier_flags = job.get("brief_flags") or {}
-    kept = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or not named.get(flag))]
+    kept = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or named.get(flag) is None)]
+    dropped = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and named.get(flag) == ""]
     bound = [answer_id for other in order["jobs"] for answer_id in (data["jobs"][other].get("brief_flags") or {}).get("ruling") or []]
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
-    flags = {flag: named.get(flag) or earlier_flags.get(flag) for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
+    flags = {flag: earlier_flags.get(flag) if named.get(flag) is None else named[flag] or None for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
     flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
@@ -2542,7 +2543,9 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     line, payload = written
     if kept:
         line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
-    return line, payload | {"kept": kept}
+    if dropped:
+        line += "\ndropped from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in dropped)
+    return line, payload | {"kept": kept, "dropped": dropped}
 
 
 def rebriefed(name: str, job_id: str) -> str:
@@ -5271,7 +5274,7 @@ def parser() -> argparse.ArgumentParser:
             " settled a question of the reader or design its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
-            " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept;"
+            " the flags name. A flag left out keeps the job's earlier brief's, a flag given an empty value, such as --mac \"\", drops the earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept and each dropped;"
             " a brief naming no --serves serves drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
             " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
