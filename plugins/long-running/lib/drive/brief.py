@@ -107,13 +107,15 @@ RELEASE_HELD = (
     " approve, rerun or rollback reads from its brief's `Release:` line. Once he says"
     " releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
-HIS_KINDS = ("owner", "answer")
 RELEASE_WORDS = re.compile(r"\b(?:releas|hotfix|rollback|roll(?:ed|ing|s)?[\s-]+(?:\w+[\s-]+)?back\b)", re.IGNORECASE)
 RELEASE_ASK_QUESTION = (
     "Does this record ask the session it goes to, or a job or agent that session runs, to take a step of a production release"
     " itself: start, hotfix, resume, approve, rerun or roll back a release, now or once something holds? Pick asks when it does,"
-    " whatever words of his it quotes. Pick none when it only reports a release that ran or is running, quotes a command, plan or"
-    " refusal, asks for a plan or a dry run, or asks that session to put the release to him and start nothing until he answers."
+    " whatever words of his it quotes. A step of drive work, such as resuming a job, rebasing a pull request or redrawing a card,"
+    " is no release step. Pick none when it only reports a release that ran, is running or a teammate says they will"
+    " run, states as a fact that an approval or answer of his is pending, his Approve on a pull request included, which merges"
+    " code and is no release step, or says nothing starts; when it quotes a command, plan or refusal, asks for a plan, a dry run"
+    " or a card redrawn, or asks that session to put the release to him and start nothing until he answers."
 )
 RELEASE_ASK_OPTIONS = {settled.UNDECIDED: "It asks no session to take a release step.", "asks": "It asks a session to take one."}
 RELEASE_ASKED = "refused: Jev reads this record as asking a session to take a step of a production release"
@@ -236,8 +238,8 @@ def hold_words(hold: dict, data: dict) -> tuple[str, str]:
 
 
 def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str | None:
-    """Why a record may not go out: Jev reads it as asking the session it goes to for a step of a production release, at least settled.DECIDES sure, or gives no reading, and it names in backticks no `ci release start` or `hotfix`, or one `drive job add --release` would refuse, his hold included; his owner and answer records, and a record that is no release record and names no release, hotfix or rollback, pass unread."""
-    if kind in HIS_KINDS or not (kind == "release" or RELEASE_WORDS.search(words)):
+    """Why a handoff or release record may not go out: Jev reads it as asking the session it goes to for a step of a production release, at least settled.DECIDES sure, or gives no reading, and it names in backticks no `ci release start` or `hotfix`, or one `drive job add --release` would refuse, his hold included; a record of any other kind, such as a report, note or evidence record or his owner and answer records, and a handoff naming no release, hotfix or rollback, pass unread."""
+    if not (kind == "release" or kind == "handoff" and RELEASE_WORDS.search(words)):
         return None
     record = {"kind": kind, "to": to, "text": words[: settled.BODY_CHARS]}
     try:
