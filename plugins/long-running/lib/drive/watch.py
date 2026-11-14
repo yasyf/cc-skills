@@ -1697,7 +1697,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its JOB line telling the coordinator the return, failed or not, and an incident fix job's taken run names the builder that ships its fix."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
@@ -1777,7 +1777,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for job_id, gap in taken.items():
                 if builder_id := gap.take(watcher.name, data, job_id):
                     shippers[job_id] = builder_id
-    lines += [line for job_id in taken for line in codex_asks(watcher.name, job_id)]
+    for job_id in taken:
+        job = data["jobs"][job_id]
+        lines += codex_asks(watcher.name, job_id) or ([] if job_id in shippers else [f"JOB {job_id} {job['order']} {job['said']}"])
     lines += [fix_shipped(watcher.name, job_id, builder_id) for job_id, builder_id in shippers.items()]
     watcher.made += lines
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}

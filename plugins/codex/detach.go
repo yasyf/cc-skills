@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -124,6 +127,13 @@ func runWorker(sdir string) {
 		}
 		defer func() { _ = logf.Close() }()
 		rc = runCodex(cmd.Argv, qin, logf)
+		if rc != 0 && mcpStartFailed(cmd.Log) {
+			_, _ = logf.WriteString("codex-ask: a required MCP server did not start; rerunning with no MCP server required\n")
+			if _, err := qin.Seek(0, io.SeekStart); err != nil {
+				return
+			}
+			rc = runCodex(notRequired(cmd.Argv), qin, logf)
+		}
 		if rc == 0 && nonempty(cmd.ReplyTmp) {
 			_ = os.Rename(cmd.ReplyTmp, cmd.Reply)
 		}
@@ -140,6 +150,41 @@ func runWorker(sdir string) {
 		reapOwnSession(sid)
 	}
 	os.Exit(0)
+}
+
+// mcpStartFailed reports whether codex exited because a required MCP server did not
+// start before its thread began: the log holds that error and no thread.started event.
+func mcpStartFailed(logPath string) bool {
+	f, err := os.Open(logPath) //nolint:gosec // reads the lane's own codex log by path, by design
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	rd := bufio.NewReader(f)
+	for {
+		line, rerr := rd.ReadString('\n')
+		if strings.Contains(line, `"thread.started"`) {
+			return false
+		}
+		if strings.Contains(line, "required MCP servers failed to initialize") {
+			return true
+		}
+		if rerr != nil {
+			return false
+		}
+	}
+}
+
+// notRequired is argv with each mounted MCP server no longer required, so codex
+// starts the thread at once and adds a slow server's tools once it is up.
+func notRequired(argv []string) []string {
+	out := slices.Clone(argv)
+	for i, a := range out {
+		if strings.HasPrefix(a, "mcp_servers.") && strings.HasSuffix(a, ".required=true") {
+			out[i] = strings.TrimSuffix(a, "true") + "false"
+		}
+	}
+	return out
 }
 
 // runCodex resolves argv[0] to an executable PATH candidate and execs it, returning
