@@ -550,12 +550,13 @@ restating it.
   messages itself, and the message arrives with `acked`, so it gets no second ack.
 - Each later step of an order with a thread is the watch's to say there, by his pick "A handler
   posts each step, started by the watch on news": a job returning its finding, a PR going up with his
-  card, getting a new head, its checks settling, Trunk ejecting it from the merge queue or taking his
-  tap, a card of his opening or closing, and a `handoff` the communicator's side sent five minutes
-  before with no job of the order made or started since. A PR's stage relabelled with none of those changed, such
-  as red to behind once a PR below it in its stack goes red, is no step, nor is a release or answer ending one wait of a job that still
-  waits on another. Once five minutes have passed since the thread's last line or the
-  watch's last report on it, the watch sends one `report` carrying `quiet=true` and the thread,
+  card, its state or checks settling, Trunk ejecting it from the merge queue or taking his tap, a card
+  of his opening or closing, and a `handoff` the communicator's side sent five minutes before with no
+  job of the order made or started since. A PR's stage relabelled with none of those changed, such as
+  red to behind once a PR below it in its stack goes red, is no step, nor is a new commit whose checks
+  fail as before, nor a release or answer ending one wait of a job that still waits on another. Once
+  five minutes have passed since the thread's last line or the watch's last report on it, the watch
+  sends one `report` carrying `quiet=true` and the thread,
   naming every step that moved in that time, and starts one handler, which posts what changed in that
   thread, so no session writes a progress line of its own and a thread lined minutes before gets none. None goes out while he is away, since his catch-up
   carries it, nor once a report closing the order is kept or posted, whose post is its line. A job

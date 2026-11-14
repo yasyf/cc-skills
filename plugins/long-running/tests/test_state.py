@@ -1016,6 +1016,23 @@ def test_the_news_an_older_install_kept_with_each_jobs_waits_loads_as_the_facts_
     }
 
 
+def test_the_news_an_older_install_kept_with_each_prs_head_or_card_loads_as_the_facts_the_watch_compares_now(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    news = {"yasyf/cc-skills#7": ["open", "2809a4c", "fail", False, None], "yasyf/cc-skills#8": ["open", "2809a4c", "fail", False, "card", "Approve"], "j1": ["done", [], [], "DONE it"]}
+    quiet = {"record": None, "at": None, "handler": None, "heard": None, "news": news}
+    order = state.new_order("fix it", "terminal", None, {"fix it": state.new_part()}, state.stamp())
+    data["orders"] = {"o1": order | {"jobs": ["j1"], "quiet": quiet}}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "fix it", ["fix it"], state.stamp())}
+    data["prs"] = {f"yasyf/cc-skills#{n}": state.new_pr(f"https://github.com/yasyf/cc-skills/pull/{n}", "j1", "o1") for n in (7, 8)}
+    state.create(data)
+    assert state.load("demo")["orders"]["o1"]["quiet"]["news"] == {
+        "yasyf/cc-skills#7": ["open", "fail", False, None],
+        "yasyf/cc-skills#8": ["open", "fail", False, "Approve"],
+        "j1": ["done", False, [], "DONE it"],
+    }
+
+
 def test_a_part_an_older_install_saved_with_a_kind_loads_without_it(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")

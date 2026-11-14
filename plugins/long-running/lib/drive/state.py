@@ -739,6 +739,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             for key in order["quiet"]["news"].keys() & data["prs"].keys():
                 if len(news := order["quiet"]["news"][key]) == 6:
                     del news[4]
+                if len(news) == 5:
+                    del news[1]
             for key in order["quiet"]["news"].keys() & data["jobs"].keys():
                 if isinstance((news := order["quiet"]["news"][key])[1], list):
                     news[:] = job_news(*news)
