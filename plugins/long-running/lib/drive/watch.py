@@ -697,13 +697,14 @@ def first_line(text: str) -> str:
 
 
 def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, naming when to start each builder a design's DESIGN added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, or any such message from a lane `drive job end` ended, only ends that question, since its line went with that command's answer; any other escalation is a STOPPED quoting on one line the whole of Orca's last output, or its first line when it names none; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, naming when to start each builder a design's DESIGN added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, only ends that question, since its line went with that command's answer, and any such message from a lane `drive job end` ended changes nothing, so its question stays open for the next worker's handoff; any other escalation is a STOPPED quoting on one line the whole of Orca's last output, or its first line when it names none; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
     job["updated"] = state.stamp(moment)
     if taken:
-        job.update(report=body, ask=None)
+        if not state.lane_ended(job):
+            job.update(report=body, ask=None)
         return None
     if kind == "escalation":
         output = body.partition("Last output:")[2].partition("\nFull output:")[0] or first_line(body)
@@ -2121,7 +2122,7 @@ def stranded(job_id: str, data: dict, gap: str, unlisted: dict[str, dict]) -> st
 
 
 def release_lanes(watcher: Watcher, moment: datetime) -> None:
-    """Free what each job it hears is done with still holds, never what a running job holds. First, by one rule, a remote job that is not running holds no Sprite: the own lane of each job whose line set it waiting, built, done, failed or stopped is ended by `drive job end` in a process of its own, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, once HANDOFF has passed since that line so the lane finishes its last turn, at most two a pass, the newest line first so an end that keeps failing never holds up the rest, and each lane once a watch, its Sprite then left to that end alone, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each of those goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails reclaims nothing, saying why there."""
+    """Free what each job it hears is done with still holds, never what a running job holds. First, by one rule, a remote job that is not running holds no Sprite: the own lane of each job whose line set it waiting, built, done, failed or stopped, but never a live lane waiting on its own question, is ended by `drive job end` in a process of its own, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, once HANDOFF has passed since that line so the lane finishes its last turn, at most two a pass, the newest line first so an end that keeps failing never holds up the rest, and each lane once a watch, its Sprite then left to that end alone, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold. Each of those goes with the reclaimer in a process of its own run from the drive's checkout, moved to its default branch's head first, at most two at once and each once a watch; what each run printed goes to the watch log, and a pass whose move fails reclaims nothing, saying why there."""
     if state.scratch():
         return
     watcher.releasing = {held: run for held, run in watcher.releasing.items() if run.poll() is None}
@@ -2147,9 +2148,10 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
 
 
 def unended(job: dict, moment: datetime) -> bool:
-    """Whether the job's own lane on a Sprite cc-remote still records is due its `drive job end`: the job is not running, no end ended that lane, and HANDOFF has passed since the line that stopped it, or since it was stopped with none."""
+    """Whether the job's own lane on a Sprite cc-remote still records is due its `drive job end`: the job is not running, its live lane asks no open question, which only that lane's next turn answers, no end ended that lane, and HANDOFF has passed since the line that stopped it, or since it was stopped with none."""
     settled = not job["returned"] or moment - state.parse_time(job["returned"]) >= HANDOFF
-    return job["state"] != "running" and settled and not state.lane_ended(job) and orca.holds_sprite(job)
+    asking = job.get("ask") and not state.lane_death(job)
+    return job["state"] != "running" and not asking and settled and not state.lane_ended(job) and orca.holds_sprite(job)
 
 
 def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:

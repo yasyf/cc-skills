@@ -3255,7 +3255,7 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
     try:
         with state.edit(name) as data:
             ended = data["jobs"][job_id]
@@ -3270,7 +3270,6 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
                     ended["deaths"][-1]["saved"] = result["saved"]
                 if result.get("transcript"):
                     ended["deaths"][-1]["transcript"] = result["transcript"]
-                ended["ask"] = None
         return ended
     except state.NewerDrive:
         if not (newer := install.upgraded()):
@@ -5152,7 +5151,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     verb.add_argument(
         "--mac",
-        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox, ci db-read or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
     )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")

@@ -3355,6 +3355,27 @@ def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earl
     assert (released, ended_lanes) == (["sprite-old"], ["j1"])
 
 
+def test_the_watch_keeps_a_sprite_lane_waiting_on_its_own_question_and_ends_it_once_its_returned_line_settles(
+    remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
+) -> None:
+    deliver(monkeypatch, [message("question", "Which npm name?", id="msg_q1")], [message("worker_done", "READY #53090 head b6f66c236d70")])
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["workspace"] = "pool-one"
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    staged(watch.lane_lines, watching, T0)
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["ask"]) == ("waiting", "msg_q1")
+    watch.release_lanes(watching, state.parse_time(job["returned"] or job["updated"]) + watch.HANDOFF + timedelta(hours=1))
+    assert ended_lanes == []
+    staged(watch.lane_lines, watching, T0 + timedelta(minutes=10))
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["ask"]) == ("waiting", None)
+    watch.release_lanes(watching, state.parse_time(job["returned"]) + watch.HANDOFF)
+    assert ended_lanes == ["j1"]
+
+
 def refused(code: str, message: str) -> Callable[[str], dict]:
     def show(dispatch: str) -> dict:
         reply = {"ok": False, "error": {"code": code, "message": message}}
@@ -5245,7 +5266,8 @@ def test_the_exit_of_a_lane_drive_job_end_ended_while_it_waited_on_its_question_
     stopped = "Worker term_1 exited (Terminal closed by operator request) without sending worker_done.\nLast output:\nASK which npm name?"
     deliver(monkeypatch, [message("escalation", stopped, subject="Worker exited without reporting")])
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
-    assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"]["said"]) == ("waiting", "ASK which npm name?")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["said"], job["ask"]) == ("waiting", "ASK which npm name?", "msg_q1")
 
 
 def test_a_lanes_ready_on_a_yasyf_pr_it_added_with_its_proof_file_kept_ships_it_untapped_once_the_watch_takes_it(

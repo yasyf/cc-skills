@@ -135,11 +135,12 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      nobody checked for: "its a terieble duplicatgion and was clerarly not throught through".
    - A result that stays wrong until someone runs another step, such as a flag nothing clears, is not
      done: ship that step here or return `ASK`.
-   - An AWS action, such as starting a pass box and reading its key, break-glass, `db-read` or a
-     devbox, runs on this Mac's own credentials first, its AWS calls under a profile
+   - An AWS action, such as starting a pass box and reading its key, break-glass or a devbox, runs
+     on this Mac's own credentials first, its AWS calls under a profile
      `~/.aws/config` chains to the machine certificate, such as
      `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass through `drive break-glass`,
-     from a lane on this Mac. Nobody signs in, taps Touch ID or approves cc-sudo for
+     from a lane on this Mac; `ci db-read` runs where its lane runs, a Sprite's through the sprite
+     door. Nobody signs in, taps Touch ID or approves cc-sudo for
      it, so no card, brief or `WAITING` asks him to, by his words "1 but you could have used machine
      profile for this" and "Use break glass with machine profile then you don't need sso, I tell
      you this once a day". A team's data is the exception: its SandSQL rows, bucket objects, Iris
@@ -519,7 +520,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
 | `INSTALL:` and `PROVE:` | once the PR is open, the install command and the check that proves it live, so a later handoff runs them without your transcript |
-| `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as `ci db-read` or a signed-in app here, written as `drive job brief --mac` writes it, so the job's next lane starts on this Mac |
+| `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as a signed-in app here, written as `drive job brief --mac` writes it, so the job's next lane starts on this Mac |
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |
 | `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents |
