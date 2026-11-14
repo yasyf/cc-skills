@@ -631,6 +631,16 @@ def merged_ready(data: dict, job_id: str) -> bool:
     )
 
 
+def proved_prs(data: dict, job_id: str) -> list[str]:
+    """The drive PRs drive job prove proves on a job: its READY or PUSHED's once all merged, as merged_ready reads it, else, on a builder that opened no PR, waits on nothing and is neither done nor stopped, the PRs its brief's merge handoff names once all merged, the job briefed to prove another job's merge live, which state.prover reads once it is done; none for any other job."""
+    job = data["jobs"][job_id]
+    if merged_ready(data, job_id):
+        return reported_prs(data, job_id)
+    keys = state.named_prs(data, job["order"], (job.get("brief_flags") or {}).get("handoff") or "")
+    handed = job["kind"] == "builder" and not job["prs"] and not job["waits"] and job["state"] not in ("done", "stopped")
+    return keys if handed and all(data["prs"][key]["merged_sha"] for key in keys) else []
+
+
 def take_back(name: str, data: dict, job_id: str) -> None:
     """Put a job that took BLOCKED, such as the BLOCKED its own proof took, back on the newest READY or PUSHED its history keeps, its proof marked as this process's as the watch marks one it starts, so drive job prove proves that line again on the job that owns it and no watch starts a second proof on it meanwhile."""
     job = data["jobs"][job_id]
@@ -646,12 +656,13 @@ def product(data: dict, job_id: str) -> bool:
 
 
 def proof_gap(data: dict, job_id: str) -> str | None:
-    """What keeps `drive job prove` from proving a builder whose PRs merged, naming who proves it instead, or None when it runs on its yasyf/* merges, its others merged at once: a job whose every merge is outside yasyf/* goes live only in its repository's release, and a job keeping no executable proof file leaves nothing to run."""
+    """What keeps `drive job prove` from proving a builder whose PRs merged, naming who proves it instead, or None when it runs on its yasyf/* merges, its others merged at once, or on the merges a builder's merge handoff names: a READY or PUSHED whose every merge is outside yasyf/* goes live only in its repository's release, which the builder its merge handoff names proves, and a job keeping no executable proof file leaves nothing to run."""
     job = data["jobs"][job_id]
-    if product(data, job_id):
+    if merged_ready(data, job_id) and product(data, job_id):
         return (
             f"{', '.join(reported_prs(data, job_id))} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install"
-            " puts on this Mac: a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines once that release is out"
+            " puts on this Mac: a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, keeps a proof file written from its INSTALL: and PROVE: lines"
+            " once that release is out and runs drive job prove on itself"
         )
     if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
         return f"{job_id} keeps no proof file to run: keep one with drive job set {job_id} --repro <file>, written from its PROVE: line, then drive job prove {job_id} runs it on the installed plugins"
@@ -745,15 +756,15 @@ def ci_verdict(repo: str, sha: str) -> list[tuple[str, bool]]:
     return runs + [(f"{names[workflow]}: no run since {sha[:12]} that was not cancelled", False) for workflow in names.keys() - firsts.keys()]
 
 
-def merges_of(data: dict, job_id: str) -> dict[str, str]:
-    return {key: data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)}
+def merges_of(data: dict, keys: list[str]) -> dict[str, str]:
+    return {key: data["prs"][key]["merged_sha"] for key in keys}
 
 
 def finish(name: str, data: dict, job_id: str, line: str, check: list[str], seen: bool, post: str, facts: str) -> bool:
     """Take the line drive job prove sets on its builder, its report naming its PRs and CHECK:, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles and post; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
     from drive import cli
 
-    job, keys = data["jobs"][job_id], reported_prs(data, job_id)
+    job, keys = data["jobs"][job_id], proved_prs(data, job_id)
     order_id, urls = job["order"], " ".join(map(state.pr_url, keys))
     order = data["orders"][order_id]
     whole = f"{line}\nPR: {urls}\nCHECK: {' '.join(check)}\n"
@@ -784,9 +795,9 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
 
 
 def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; that builder's id."""
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there with drive job prove, which keeps its proof and the order's: building nothing, so it starts on this Mac, where drive job prove runs, past the builder cap, on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff and a Done when naming drive job prove, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; that builder's id."""
     job = data["jobs"][job_id]
-    merges = merges_of(data, job_id)
+    merges = merges_of(data, reported_prs(data, job_id))
     order_id, urls = job["order"], " ".join(map(state.pr_url, merges))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     commits = " ".join(merge_commits(merges))
@@ -796,10 +807,15 @@ def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> s
     state.take_result(data, job_id, line, whole)
     builder_id = state.next_id(data["jobs"], "j")
     handoff = f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
+    done_when = (
+        f"drive job prove {builder_id} takes its DONE, keeping reports/{builder_id}.proof.txt, from the proof file drive job set {builder_id} --repro keeps,"
+        f" written from {job_id}'s INSTALL: and PROVE: lines"
+    )
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(merges)} live", job["parts"], state.stamp()) | {
         "session": job.get("session"),
+        "builds_nothing": True,
         "waits": [f"release:{component}:{key}" for key, answer in reach.items() if key in merges for component in answer["touched"]],
-        "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff},
+        "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff, "done_when": done_when},
     }
     state.hold_unstarted(builder)
     data["orders"][order_id]["jobs"].append(builder_id)
@@ -814,7 +830,7 @@ def merged_said(name: str, job_id: str, builder_id: str) -> str:
 
     data = state.load(name)
     job, builder = data["jobs"][job_id], data["jobs"][builder_id]
-    merges = merges_of(data, job_id)
+    merges = merges_of(data, reported_prs(data, job_id))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     held = ", ".join(sha[:12] for sha in merges.values())
     seen = f" on {surface}, where he sees it," if (surface := brief.surface(job)) else ""
@@ -837,7 +853,7 @@ def proofless(name: str, data: dict, job_id: str) -> None:
         f"BLOCKED {' '.join(map(state.pr_url, reported_prs(data, job_id)))} merged, and {job_id} keeps no proof file to run, so nothing proves it live:"
         f" keep one with drive job set {job_id} --repro <file>, written from its PROVE: line, then drive job prove {job_id} proves it on {job_id}"
     )
-    finish(name, data, job_id, line, merge_commits(merges_of(data, job_id)), True, "", "")
+    finish(name, data, job_id, line, merge_commits(merges_of(data, reported_prs(data, job_id))), True, "", "")
 
 
 def merge_commits(merges: dict[str, str]) -> list[str]:
@@ -845,17 +861,20 @@ def merge_commits(merges: dict[str, str]) -> list[str]:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, or the merges a builder's merge handoff names, which that builder runs on itself, as proved_prs reads them, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has not completed its first run from the merge on that was not cancelled, the run drive pr ci judges the merge by, follow that run to its end with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job proved_prs finds no merges on, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive job proved` keeps the result, which proof_kept hands it."""
     from drive import brief, dashboard
 
     with state.edit(name) as data:
         take_back(name, data, job_id)
-        if not merged_ready(data, job_id):
-            raise state.DriveError(f"{job_id} waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove")
+        if not (keys := proved_prs(data, job_id)):
+            raise state.DriveError(
+                f"{job_id} waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove, and it is no builder proving another job's merge:"
+                " one that opened no PR, waits on nothing, and whose brief's Handoff names PRs that all merged"
+            )
         if why := proof_gap(data, job_id):
             raise state.DriveError(why)
     job = data["jobs"][job_id]
-    merges = merges_of(data, job_id)
+    merges = merges_of(data, keys)
     urls = " ".join(map(state.pr_url, merges))
     untapped = {key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     try:
@@ -947,9 +966,8 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
     try:
         with state.edit(name) as data:
             job = data["jobs"][job_id]
-            if job["state"] != "waiting" or not state.REPORTED_LINE.match(job["said"] or ""):
+            if not (keys := proved_prs(data, job_id)):
                 return f"{job_id}: another proof took its result first"
-            keys = reported_prs(data, job_id)
             proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
             kept.parent.mkdir(exist_ok=True)
             kept.write_text(output)

@@ -5657,7 +5657,8 @@ def test_a_merged_ready_product_job_on_an_open_incidents_fix_waits_for_its_relea
         data["jobs"]["j1"]["parts"] = ["fix"]
     why = (
         f"{OTHER} merged outside yasyf/*, where a merge goes live only in its repository's release, which no drive install puts on this Mac:"
-        " a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, proves it from its INSTALL: and PROVE: lines once that release is out"
+        " a fresh builder with a merge handoff, added with drive job add builder --builds-nothing, keeps a proof file written from its INSTALL: and PROVE: lines"
+        " once that release is out and runs drive job prove on itself"
     )
     assert f'ORPHAN o1 "fix": j1\'s PRs all merged and nothing proves them live: {why}' in watch.run_pass(watcher(demo), T0)
     assert (state.load(demo)["jobs"]["j1"]["state"], provers) == ("waiting", [])

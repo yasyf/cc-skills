@@ -1304,6 +1304,40 @@ def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_the_yasyf_one_
     assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7", "Forge-AI/monorepo#9"]
 
 
+def test_a_builder_proving_another_jobs_product_merge_runs_its_proof_file_installing_nothing_and_its_done_gives_the_order_its_proof_and_close_report(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 1)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="done", said=f"DONE {product} merged: Forge-AI/monorepo#9 at fedcba987654", prs=[product], repro=None)
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
+        handoff = "Forge-AI/monorepo#9 at fedcba987654 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "prove Forge-AI/monorepo#9 live", data["jobs"]["j1"]["parts"], state.stamp()) | {
+            "repro": str(script),
+            "builds_nothing": True,
+            "brief_flags": {"handoff": handoff},
+        }
+        data["orders"]["o1"]["jobs"].append("j2")
+    kept = state.proof_path("demo", "j2")
+    blocked = f"BLOCKED {product}: {script} exits 1 on no plugin of this Mac, its output {kept}: it printed no FAIL line"
+    assert install.prove("demo", "j2", 900) == f"j2: {install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}"
+    data = state.load("demo")
+    assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["said"], data["orders"]["o1"]["proof"]) == ("failed", blocked, None)
+    script.write_text("#!/bin/sh\necho 'ok the run page shows the migration applied'\n")
+    install.prove("demo", "j2", 900)
+    data = state.load("demo")
+    assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["said"]) == ("done", f"DONE {product} live: {script} exits 0 on no plugin of this Mac")
+    assert kept.read_text() == "ok the run page shows the migration applied\n"
+    assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]["text"]) == (str(kept), "POST Fix: the page is live in no plugin of this Mac")
+    assert not [call for call in git.calls if call[:3] == ["claude", "plugin", "update"]]
+    assert [key for key, _ in proof_events()] == ["Forge-AI/monorepo#9", "Forge-AI/monorepo#9"]
+    assert state.prover(data, "o1", ["Forge-AI/monorepo#9"], "j1") == "j2"
+    with pytest.raises(state.DriveError, match=re.escape("j2 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove")):
+        install.prove("demo", "j2", 900)
+
+
 def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_done_and_adds_one_builder_waiting_on_each_release_its_paths_reach(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
@@ -1325,6 +1359,10 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert (builder["parts"], builder["carries"]) == ([shipped], {"o2": [carried]})
     assert builder["waits"] == ["release:api:Forge-AI/monorepo#9", "release:sandsql:Forge-AI/monorepo#9"]
     assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    assert builder["brief_flags"]["done_when"] == (
+        "drive job prove j2 takes its DONE, keeping reports/j2.proof.txt, from the proof file drive job set j2 --repro keeps, written from j1's INSTALL: and PROVE: lines"
+    )
+    assert builder["builds_nothing"] is True
     assert (builder["brief_flags"]["native"], builder["brief_flags"]["interactions"]) == (page, "open a run's page")
     assert ("j2" in data["orders"]["o1"]["jobs"], "j2" in data["orders"]["o2"]["jobs"]) == (True, True)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
@@ -1360,7 +1398,9 @@ def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_star
     )
     assert asked == f'{head}: it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
     assert "to prove it there, its DONE giving o1 its proof: it waits on no release go/ci makes" in merged
-    assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it and prove it live" in Path(data["jobs"]["j3"]["brief"]).read_text()
+    briefed = Path(data["jobs"]["j3"]["brief"]).read_text()
+    assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it and prove it live" in briefed
+    assert "Done when: drive job prove j3 takes its DONE, keeping reports/j3.proof.txt" in briefed
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "running", "running"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
@@ -1725,6 +1765,15 @@ def test_a_proof_file_exiting_0_that_prints_the_demos_placeholder_slack_link_tak
         ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
         ({"said": "PUSHED https://github.com/Forge-AI/monorepo/pull/9", "prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
         ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
+        (
+            {
+                "said": "waits on release:api:Forge-AI/monorepo#9",
+                "prs": [],
+                "waits": ["release:api:Forge-AI/monorepo#9"],
+                "brief_flags": {"handoff": "Forge-AI/monorepo#9 at fedcba merged: install it and prove it live"},
+            },
+            "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove, and it is no builder proving another job's merge",
+        ),
     ],
 )
 def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_only_merges_outside_yasyf_or_no_merged_ready(
