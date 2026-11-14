@@ -1481,6 +1481,32 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
     assert kept.read_text() == "1. run it\n"
 
 
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        ("\n#!/bin/sh\n# Read-only proof of the fix\n", "{script} opens '\\n#!/bin/sh\\n# Read-only p', with no #! at its first byte, so the kernel cannot exec it as a script"),
+        ("#!/nonexistent/sh\nexit 0\n", "{script}'s #! line names '/nonexistent/sh' as its interpreter, no program on this Mac, so the kernel cannot exec it"),
+    ],
+)
+def test_job_set_repro_refuses_a_builders_executable_file_the_kernel_cannot_exec_and_keeps_a_readers(
+    run: Run, demo: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str], text: str, why: str
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "count them")
+    script = tmp_path / "proof.sh"
+    script.write_text(text)
+    script.chmod(0o755)
+    capsys.readouterr()
+    assert cli.main(["job", "set", "j1", "--repro", str(script)]) == 2
+    assert (
+        f"j1: refused, nothing kept: drive job prove runs a builder's executable file as its proof once its PRs merge, and {why.format(script=script)}:"
+        " make its first line its #! line, naming a program on this Mac, such as #!/bin/sh, then keep it again with drive job set j1 --repro <file>"
+    ) in capsys.readouterr().err
+    assert (state.load("demo")["jobs"]["j1"].get("repro"), (state_root / "demo" / "repro" / "j1.sh").exists()) == (None, False)
+    assert run("job", "set", "j2", "--repro", str(script))[0] == 0
+
+
 @pytest.fixture
 def asking(run: Run, demo: str) -> str:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
@@ -4032,6 +4058,14 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
     steps.write_text("1. run it\n")
     run("job", "set", "j1", "--repro", str(steps))
     assert keep(monkeypatch, capsys, "j1", ready)[0] == 2
+    blank = tmp_path / "blank.sh"
+    blank.write_text("\n#!/bin/sh\nexit 0\n")
+    blank.chmod(0o755)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["repro"] = str(blank)
+    code, err = keep(monkeypatch, capsys, "j1", ready)
+    assert code == 2
+    assert f"and j1 keeps none it can run, as {blank} opens '\\n#!/bin/sh\\nexit 0\\n', with no #! at its first byte, so the kernel cannot exec it as a script: keep an executable script" in err
     kept_proof(tmp_path, "j1")
     assert keep(monkeypatch, capsys, "j1", ready) == (0, "")
 

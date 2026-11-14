@@ -137,6 +137,7 @@ DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
+SHEBANG_BYTES = 512
 READER_QUESTION_GOAL = re.compile(r"build what j\d+'s research finds: ")
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
@@ -338,6 +339,23 @@ def proof_path(name: str, job_id: str) -> Path:
 
 def repro_path(name: str, job_id: str, suffix: str) -> Path:
     return drive_dir(name) / "repro" / f"{job_id}{suffix}"
+
+
+def unrunnable(path: str) -> str | None:
+    """Why the kernel cannot exec the file at path as the script a proof file is, run by drive job prove as a program with no shell to fall back on, or None when it can: no regular file there, its exec bit unset, its first two bytes other than `#!`, or its `#!` line naming as its interpreter no executable file on this Mac, read as the kernel reads it, from after any spaces and tabs up to the first space, tab, newline or NUL within its first SHEBANG_BYTES."""
+    file = Path(path)
+    if not file.is_file():
+        return f"no file is at {path}"
+    if not os.access(file, os.X_OK):
+        return f"{path} has no exec bit, so the kernel cannot exec it"
+    with file.open("rb") as opened:
+        head = opened.read(SHEBANG_BYTES)
+    if not head.startswith(b"#!"):
+        return f"{path} opens {head[:24].decode(errors='replace')!r}, with no #! at its first byte, so the kernel cannot exec it as a script"
+    interpreter = re.split(rb"[ \t\n\0]", head[2:].lstrip(b" \t"), maxsplit=1)[0].decode(errors="replace")
+    if not (os.path.isfile(interpreter) and os.access(interpreter, os.X_OK)):
+        return f"{path}'s #! line names {interpreter!r} as its interpreter, no program on this Mac, so the kernel cannot exec it"
+    return None
 
 
 def returns(name: str, job_id: str) -> list[dict]:
@@ -1190,7 +1208,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, and a WAITING names something the watch frees it on."""
+    """Why a job's returned line may not set its state, naming the fix: a stopped job's work goes on in another job, the newest open one carrying one of its parts, which drive job resume hands the return to wherever its worker runs, a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING names something the watch frees it on."""
     job = data["jobs"][job_id]
     if job["state"] == "stopped":
         parts = set(job_parts(job, job["order"]))
@@ -1206,10 +1224,12 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if not result_state(job, line):
         return "its first line sets no state: it opens DONE, READY, PUSHED, `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
     if job["kind"] == "builder" and REPORTED_LINE.match(line) and (merging := [pr_key(found[0]) for found in PR_URL.finditer(line) if merges_untapped(pr_key(found[0]))]):
-        if not (job.get("repro") and os.access(job["repro"], os.X_OK)):
+        repro = job.get("repro")
+        why = unrunnable(repro) if repro else None
+        if not repro or why:
             return (
                 f"it names {', '.join(merging)}, which merges once this is taken and the watch proves by running {job_id}'s proof file, and {job_id}"
-                f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
+                f" keeps none it can run{f', as {why}' if why else ''}: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
     if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
