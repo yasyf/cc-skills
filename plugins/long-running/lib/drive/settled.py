@@ -94,21 +94,27 @@ SUPERSEDES_QUESTION = (
     " moot, so that card asks him nothing his answer leaves open? Pick none when each of them still asks something his answer"
     " does not settle."
 )
-APPROVES_QUESTION = (
-    "Does this answer, in his own words, approve the action? It does when, read with the card it answers, it has the"
-    " release the action starts run: his order to ship or release that work, or his pick on a card about that work reaching"
+ORDERS_QUESTION = (
+    "Do his words order the release the action starts? They do when, read with the card they answer where it is given, they"
+    " have that release run: his order to ship or release that work, or his pick on a card about that work reaching"
     " production, such as whether, when or how to release it or what the release carries or does as it runs, whose option"
-    " has the release run. A card asking how a release runs, such as whether it hands a service over, asks about that"
-    " release and is no design to build, so his yes approves the release with that part in it. A pick that names a"
-    " condition, such as once tests pass or after a fix merges, approves the release once it holds, which the drive sees to"
-    " before it starts, and the drive writes the release's targets, envs and flags from his pick, so his words need not name"
-    " them. Pick none when his pick has no release run: his Approve or tap on a pull request, or a pick to land, merge or"
-    " enqueue one, lands it and releases nothing, and so does a pick of which code or data layout to build, how to repair"
-    " something, or whether a check holds. Pick none when unsure."
-    ' His words past the option number he picks are part of his pick: "1 and then bring <a team> to the same" picks option 1'
-    " and orders the release that next brings that team to where option 1 put the others, such as the same service's hotfix"
-    " with every target but that team's left out."
+    " has that release run. A pick that names a condition, such as once tests pass or after a fix merges, orders the release"
+    " once it holds, which the drive sees to before it starts. A bare option number picks that option of the card he typed it"
+    " on, and his words past it order only what they name, such as \"and then bring <a team> to the same\", which orders that"
+    " team brought to where the picked option put the others. Pick none when the release ships more than his words order,"
+    " another change, more components or other places; when his pick has no release run: his Approve or tap on a pull"
+    " request, or a pick to land, merge or enqueue one, lands it and releases nothing, and so does a pick of which code or"
+    " data layout to build, how to repair something, or whether a check holds; and when unsure."
 )
+UNORDERED = "Jev does not read it as approving this release"
+ORDERED = (
+    'drive job ask: his answer {id}, {asked}, orders the recommended option\'s `{release}`, which `drive job add --release'
+    ' "{release} --order {id}"` starts with no card, so this card is kept unsettled on none of his words it carries out.'
+)
+LEADING_NUMBER = re.compile(r"\s*(\d+)\b(?![.,]\d)")
+UNCHANGED = frozenset({"env", "without", "from", "order"})
+TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
+TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 REPEATS_QUESTION = (
     "A drive tooling order is being added in the words below. Does it ask for what one of these open drive tooling orders already"
     " asks, the same fault or the same change in other words, so it joins that order and the job building it instead of starting a"
@@ -335,7 +341,7 @@ def matched(text: str, cwd: str) -> list[dict]:
 
 
 def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dict], cards: dict[str, str]) -> tuple[dict | None, list[str]]:
-    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his Jev picks for the recommended option on Jev's choice whatever its probability, the cited answer the card says it goes against first, else one his words show it breaks, which the card then asks him to lift; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading."""
+    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings with the rule each sets beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his Jev picks for the recommended option at least DECIDES sure, the cited answer the card says it goes against first, else one his words show it breaks, which the card then asks him to lift; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading."""
     rules = limits.rule_words(case)
     near = {word["id"] for word in words}
     heard_words = [*words, *(answer for answer in cited if answer["id"] not in near)]
@@ -369,7 +375,7 @@ def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dic
             item = items[found["choice"]]
             rule = f" Its rule: {item['rule']}" if "rule" in item else ""
             print(ADVISED.format(part=parts[key], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
-    picks = (read[key]["choice"] for key in ("says", recommended) if key in read)
+    picks = (found["choice"] for key in ("says", recommended) if (found := read.get(key)) and found["probabilities"][found["choice"]] >= DECIDES)
     return next((items[choice] for choice in picks if limits.ANSWER_ID.fullmatch(choice.removeprefix("ruling:"))), None), repeated
 
 
@@ -409,9 +415,67 @@ def repeats(data: dict, words: str) -> str | None:
     return pick["choice"] if pick["choice"] in options and pick["probabilities"][pick["choice"]] >= DECIDES else None
 
 
-def approving(action: str, answers: list[dict]) -> bool:
-    """Whether Jev reads one of these answers of his as his order or card pick approving the action, at the 0.8 bar; Unheard when Jev gave no answer."""
-    return picked(APPROVES_QUESTION, "It approves no such action.", {"action": action}, answers) is not None
+def unordered(answer: dict, release: str, data: dict) -> str | None:
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. Any other answer Jev reads once, his words beside that card, ordering only what they name, at the DECIDES bar; Unheard when Jev gave no answer."""
+    from drive import brief
+
+    said = his(answer["body"])
+    asked = answered_card(data, answer["id"])
+    if asked and (pick := picked_option(asked, said)):
+        number, rest = pick
+        option = asked.options[number - 1]
+        if commands := brief.card_releases(f"{option}\n{asked.hints.get(option, '')}"):
+            [flags] = brief.started(release)
+            whys = [placed(flags, brief.started(command)[0], rest, data["roles"]["coordinator"]["cwd"]) for command in commands]
+            if None in whys:
+                return None
+            return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
+    card = {"card": "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])} if asked else {}
+    found = picked(ORDERS_QUESTION, "His words order no such release.", {"action": f"start this production release: `{release}`"} | card, [{"id": answer["id"][:7], "asked": answer["title"], "said": said}])
+    return None if found else UNORDERED
+
+
+def answered_card(data: dict, answer_id: str) -> limits.Question | None:
+    """The card his answer answers, as `drive job ask` kept it: a question drawn on the card at the link `drive answer` kept for his answer, ended answered, whose ASK file stands; None when none does."""
+    link = (data["answers"].get(answer_id) or {}).get("link")
+    files = [Path(question["file"]) for _, question in view.drawn_on(data, link) if question["file"] and (question["closed"] or {}).get("how") == "answered"] if link else []
+    kept = next((file for file in files if file.is_file()), None)
+    return limits.question_problems(limits.ask_block(kept.read_text()), kept=True)[0] if kept else None
+
+
+def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
+    """The option of the card his words pick, by its number leading them or by his tap, which keeps its words, with his words past the number; None when they pick none."""
+    if (number := LEADING_NUMBER.match(said)) and 1 <= int(number[1]) <= len(asked.options):
+        return int(number[1]), said[number.end() :]
+    tapped = next((index for index, option in enumerate(asked.options, 1) if plain(option) == plain(said)), None)
+    return (tapped, "") if tapped else None
+
+
+def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
+    """Why a release does not ship what a card option's release ships, on the option's places and those his words past its number name; None when it does."""
+    if {name: values for name, values in release.items() if name not in UNCHANGED} != {name: values for name, values in option.items() if name not in UNCHANGED}:
+        return "and this release ships another change"
+    if (added := beyond(release, option)) is None:
+        return "and this release runs on every place it does not leave out, where that option names its own"
+    words = f" {plain(rest)} "
+    if unnamed := sorted(place for place in added if not any(f" {plain(name)} " in words for name in (place, *team_names(place, cwd)))):
+        return f"and this release also runs on {', '.join(unnamed)}, which his words past its number do not name"
+    return None
+
+
+def beyond(release: dict, option: dict) -> set[str] | None:
+    """The places a release runs on that a card option's does not, each by its env id; None when the release runs on every place but those it leaves out and the option names its own."""
+    if not release.get("env"):
+        return None if option.get("env") else set(option.get("without", ())) - set(release.get("without", ()))
+    runs = set(release["env"]) - set(release.get("without", ()))
+    return runs - (set(option["env"]) - set(option.get("without", ()))) if option.get("env") else runs & set(option.get("without", ()))
+
+
+def team_names(place: str, cwd: str) -> list[str]:
+    """The names of a place's team, each tenant's name and displayName in the place's infra/envs file of the drive's checkout; none for a place with no such file."""
+    env = Path(cwd) / "infra" / "envs" / f"{place}.yaml"
+    block = TENANTS.search(env.read_text()) if env.is_file() else None
+    return TEAM_NAME.findall(block[1]) if block else []
 
 
 def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> dict | None:

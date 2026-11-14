@@ -476,7 +476,12 @@ the patch.
 - His order or his pick on a card to release, or the coordinator's record of either, approves starting
   that release, never the migrations, deletes and replaces its approve hold holds. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
-  fuckl around kjust appriove it". The top starts it with `--order <his answer id>` in the
+  fuckl around kjust appriove it". The release gate and `drive job ask` read his answer one way: his
+  option number or tap on a kept card whose option names a release in backticks orders a release
+  shipping that option's change, on that option's places and on those his words past the number name,
+  by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the
+  same" orders option 1's hotfix on Acme's env; Jev reads any other answer beside the card it answers,
+  ordering only what his words name. The top starts it with `--order <his answer id>` in the
   `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
   top reads the release's plan and asks him with `drive job ask` whether to start that exact command,
   and his go is the answer it names. A resume or re-plan of a release he ordered passes the same

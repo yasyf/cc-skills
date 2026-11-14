@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import CARD_BODY, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -3342,6 +3342,30 @@ def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replace
     assert f'drive job ask: kept the card unsettled as "7a1c0de: {settled.MARKED}", asking him to lift 7a1c0de, {NIGHTLY_EXPORT["title"]}, so it holds its PR from landing on an incident too' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
     assert (question["unsettled"], land.ship_held(state.load("demo"), "j3", {})) == (f"7a1c0de: {settled.MARKED}", [question["card"]])
+
+
+def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
+) -> None:
+    answered_cut(run, demo, [CUT_PICK, CUT_TAP])
+    recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP)}
+    builder = next(job_id for job_id, job in state.load(demo)["jobs"].items() if job["kind"] == "builder")
+    release = ACME_CUT.removesuffix(" --order {}")
+    described = "  When a run finishes, the uploader in `journal/snapshot.go` writes one snapshot.ltx to the team's bucket with its page map at a fixed place, and the run page's reader in `site/journal.js` reads that map, then 2 page ranges; a backfill writes one for each old run."
+    holds = "Holds: none: no option changes code any job builds"
+    asked = SHORT_ASK.replace(described, f"  Starts `{release}`, which brings Acme's cluster to the api hotfix the others run.")
+    block = tmp_path / "ask.md"
+    block.write_text(asked.replace(holds, f"{holds}\n5d17d9c: option 1 carries out his pick"))
+    jev.breaks("says", "5d17d9c")
+    assert cli.main(["job", "ask", builder, str(block)]) == 0
+    advice = capsys.readouterr().err
+    assert (settled.ORDERED.format(id="5d17d9c", asked=CUT_PICK["title"], release=release) in advice, "kept the card unsettled" in advice) == (True, False)
+    assert state.load(demo)["jobs"][builder]["questions"][-1]["unsettled"] is None
+    block.write_text(asked.replace(holds, f"{holds}\n7ab1e20: option 1 leaves out the full release"))
+    jev.breaks("says", "7ab1e20")
+    assert cli.main(["job", "ask", builder, str(block)]) == 0
+    advice = capsys.readouterr().err
+    assert ("orders the recommended option's" in advice, f'kept the card unsettled as "7ab1e20: {settled.MARKED}"' in advice) == (False, True)
 
 
 def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_block_his_words_alone_never_a_tap_approving_a_pr(
@@ -8121,7 +8145,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
     assert "story" not in settled.CARD_QUESTION
 
 
-def test_jev_names_the_recorded_answer_or_ruling_it_picks_for_the_recommended_option_on_its_choice_the_cited_answer_the_card_says_it_goes_against_first(
+def test_jev_names_the_recorded_answer_or_ruling_it_picks_for_the_recommended_option_at_least_0_8_sure_the_cited_answer_the_card_says_it_goes_against_first(
     jev: Jev, capsys: pytest.CaptureFixture[str]
 ) -> None:
     text = AGENT_START.replace("(1) `go/sand", f"{DEPARTS}\n(1) `go/sand")
@@ -8141,8 +8165,10 @@ def test_jev_names_the_recorded_answer_or_ruling_it_picks_for_the_recommended_op
     capsys.readouterr()
     jev.ruled = {}
     jev.picks("7a1c0de", 0.55)
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == cited
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     assert capsys.readouterr().err == ""
+    jev.picks("7a1c0de", 0.8)
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == cited
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
