@@ -347,15 +347,20 @@ def returns(name: str, job_id: str) -> list[dict]:
 
 
 def turn_ends(kept: list[dict]) -> set[str]:
-    """The id of each lane message in a job's history that ends the turn of a return `drive job report` kept, whatever its body: the first worker_done or escalation after that return, which carries it and adds none of its own."""
+    """The id of each lane message in a job's history that ends the turn of a return `drive job report` kept, whatever its body: the first worker_done or escalation after that return, which carries it and adds none of its own, never an escalation on a permission prompt, which ends no turn."""
     ends, open_return = set(), False
     for reply in kept:
         if reply["id"].startswith(REPORT_REPLY):
             open_return = True
-        elif open_return and reply["type"] in TURN_ENDS:
+        elif open_return and reply["type"] in TURN_ENDS and not prompted(reply):
             ends.add(reply["id"])
             open_return = False
     return ends
+
+
+def prompted(message: dict) -> bool:
+    """Whether a lane message is Orca's word on a permission prompt its worker sat on, the escalation while the prompt waits or the status once it closed, by the approval its payload carries: Claude Code's two-minute timer or the bash_guard hook answers every such prompt on a drive lane, and the lane carries on, so it neither ends the lane's turn nor says anything of its work."""
+    return "approval" in json.loads(message.get("payload") or "{}")
 
 
 def opening(text: str) -> str:
@@ -405,12 +410,13 @@ def keep_return(name: str, job_id: str, whole: str, at: datetime) -> None:
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
-    """Append one message a remote lane sent, or one return a job on this Mac kept, to its job's history, which a later result never replaces."""
+    """Append one message a remote lane sent, with Orca's payload when it carries one, or one return a job on this Mac kept, to its job's history, which a later result never replaces."""
     path = replies_path(name, job_id)
     path.parent.mkdir(exist_ok=True)
     fields = ("created_at", "id", "type", "subject", "body")
+    payload = {"payload": message["payload"]} if message.get("payload") else {}
     with open(path, "a") as handle:
-        handle.write(json.dumps({field: message[field] for field in fields}) + "\n")
+        handle.write(json.dumps({field: message[field] for field in fields} | payload) + "\n")
 
 
 def replies(name: str, job_id: str) -> list[dict]:

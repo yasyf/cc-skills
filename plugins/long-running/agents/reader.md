@@ -67,9 +67,11 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   back; only when every route refuses does the read go on `UNPROVEN:` with each refusal.
 - Prefer `ccx` reads and one batched call over many small ones.
 - Nobody watches your terminal, so the `bash_guard` hook refuses each permission prompt Claude
-  Code raises on any of your calls. Bypass permissions mode still asks when Claude Code's parser
-  cannot read a Bash command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write such
-  a command, and any multi-step logic, to a scratch script by quoted heredoc and run the file. No
+  Code shows it on any of your calls. Claude Code's own dangerous-rm safety check reaches no hook and
+  asks in bypass permissions mode too. On a Bash command its parser cannot read, such as a loop around
+  a nested `$( … || ( …; … ))` or a zsh expansion flag like `${(s:,:)tables}`, it holds the call 2:00
+  at its prompt, then refuses it. Write a loop, a nested substitution and any multi-step logic to a
+  scratch script by quoted heredoc from the first call, and run the file. No
   question reaches him there either: you have no AskUserQuestion, and a fork for him is your `DESIGN`
   return, which `drive job report` keeps as his card.
 - Stop once the answer is proven, each fact citing a read you made at its `path:line` or command;

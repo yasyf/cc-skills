@@ -708,7 +708,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history, where the mail of a worker a relaunch replaced only stays: reports become JOB lines, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
+    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports become JOB lines, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes = lane_handles(watcher, data)
@@ -735,7 +735,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 state.keep_reply(watcher.name, job_id, message)
                 job = data["jobs"][job_id]
-                if message["from_handle"] in replaced(job):
+                if message["from_handle"] in replaced(job) or state.prompted(message):
                     continue
                 if message["type"] == "question" and (question := reads.request(message["body"] or "")):
                     job.setdefault("reads", {})[message["id"]] = question
