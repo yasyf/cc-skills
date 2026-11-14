@@ -5199,6 +5199,32 @@ def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serv
     assert state.load("demo")["prs"][key]["exempt"] is None
 
 
+def test_pr_add_takes_a_pr_someone_else_opened_once_he_answers_a_question_card_of_its_order_linking_it_above_its_findings(
+    run: Run, demo: str, on_github: dict, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    key = "Forge-AI/monorepo#42"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land the fix he approved")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    on_github["author"] = {"login": "rowan", "is_bot": False}
+    asked = tmp_path / "j1-c960362c.md"
+    asked.write_text(f"ASK Should the drive merge the teammate's fix?\nFor {{order:o1}}: your pick decides whether it lands.\nFindings:\n- {PR}: green\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(
+            state.new_question(str(asked), "Should the drive merge the teammate's fix?", state.stamp(), card=slack_card(1), closed=state.new_close("answered", "Merge it", slack_card(1)))
+        )
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
+    asked.write_text(f"ASK Should the drive merge the teammate's fix?\nFor {{order:o1}}: your pick decides whether <{PR}|the teammate's fix> lands.\nFindings:\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = None
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    assert f"{key}: refused, nothing added: {state.foreign(key, 'rowan', [])}" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Merge it", slack_card(1))
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert state.foreign_pr(state.load("demo"), key) is None
+
+
 def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_or_a_sessionless_sprite_lane_and_its_opener_takes_it_back(
     run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -376,11 +376,11 @@ def judged_by(key: str, session: str) -> tuple[str, dict] | None:
 
 
 def foreign_reason(key: str, shell: Shell) -> str | None:
-    """Why a drive session may not land a PR: someone other than him opened it, and no order of his the drive tracks it for names it, read from GitHub since the drive drops such a PR."""
+    """Why a drive session may not land a PR: someone other than him opened it, and none of his words on the orders the drive tracks it for names it, read from GitHub since the drive drops such a PR."""
     if (read := card.read(key)) is None:
         raise github.GithubError(f"could not read who opened {key}")
     judged = judged_by(key, shell.session)
-    why = state.foreign(key, read["author"]["login"], state.served(state.load(judged[0]), judged[1]) if judged else [])
+    why = state.foreign(key, read["author"]["login"], state.his_words_on(data := state.load(judged[0]), state.served(data, judged[1])) if judged else [])
     return why and f"Refused on purpose: {why}. Land, enqueue, label and rebase nothing of it"
 
 

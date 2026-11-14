@@ -3326,14 +3326,14 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR no order of his names is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and a PR his card asks his tap on is refused, nothing written, until its lead tells him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and a PR his card asks his tap on is refused, nothing written, until its lead tells him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
     from drive import stage
 
     url = state.pr_url(key)
     known = state.load(name)
     added = find(known["jobs"], job_id, "job")
     author = read["author"]["login"]
-    if why := state.foreign(key, author, [known["orders"][added["order"]]]) or state.pr_held_elsewhere(known, key, job_id):
+    if why := state.foreign(key, author, state.his_words_on(known, [known["orders"][added["order"]]])) or state.pr_held_elsewhere(known, key, job_id):
         raise DriveError(f"{key}: refused, nothing added: {why}")
     refuse_an_unkinded_title(key, read, port_of)
     refuse_an_undrawn_show_me(name, key, read)
