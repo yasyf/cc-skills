@@ -22,9 +22,10 @@ RULED = {
             {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}]}},
             {"type": "NON_FAST_FORWARD", "parameters": None},
         ]
-    }
+    },
+    "name": "main",
 }
-UNRULED = {"rules": {"nodes": []}}
+UNRULED = {"name": "main", "rules": {"nodes": []}}
 
 
 def node(**overrides: object) -> dict:
@@ -45,6 +46,7 @@ def node(**overrides: object) -> dict:
         "timelineItems": {"nodes": []},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
         "stack": None,
+        "baseRef": None,
     }
     return {**base, **overrides}
 
@@ -54,7 +56,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -79,7 +81,7 @@ def test_fetch_asks_each_repositorys_default_branch_rules_once_in_the_same_query
     monkeypatch.setattr(github, "run", lambda cmd, **_: sent.append(cmd[4]) or json.dumps({"data": {}}))
     FETCH(["b/two#7", "a/one#1", "a/one#2"])
     assert (len(sent), sent[0].count(github.RULES), sent[0].count("defaultBranchRef")) == (1, 2, 2)
-    assert 'r0: repository(owner: "a", name: "one") { defaultBranchRef { rules(first: 50)' in sent[0]
+    assert 'r0: repository(owner: "a", name: "one") { defaultBranchRef { name rules(first: 50)' in sent[0]
 
 
 def test_rule_reviews_reads_the_approvals_a_default_branchs_pull_request_rule_requires_and_none_without_one() -> None:
@@ -131,6 +133,8 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "trunk": None,
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
+            "default": "main",
+            "base_pr": None,
         },
         "a/one#2": {
             "state": "MERGED",
@@ -152,6 +156,8 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "trunk": "main",
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
+            "default": "main",
+            "base_pr": None,
         },
     }
 
@@ -280,6 +286,9 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
     read = pr_read([*GREEN, {"context": "buildkite/deploy", "state": "ERROR"}], reviewDecision="CHANGES_REQUESTED", mergeable="CONFLICTING", native=native, trunk="main")
     assert github.live(read, stored()) == {
         "state": "open",
+        "into": None,
+        "merged_sha": None,
+        "default": "main",
         "checks": "fail",
         "failed_checks": ["buildkite/deploy"],
         "review": "changes",
@@ -295,6 +304,38 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "conflict": True,
         "required": {"checks": "none", "failed": {}},
     }
+
+
+FOLDED_INTO = {"state": "folded", "into": "a/one#9", "merged_sha": None}
+FOLDED_READ = pr_read([], state="MERGED", mergeCommit="fff000", baseRefName="lane-9")
+
+
+@pytest.mark.parametrize(
+    ("read", "stored", "followed", "landed"),
+    [
+        (pr_read([]), None, None, {"state": "open", "into": None, "merged_sha": None}),
+        (pr_read([], state="MERGED", mergeCommit="fff000"), None, None, {"state": "merged", "into": None, "merged_sha": "fff000"}),
+        (FOLDED_READ | {"base_pr": "a/one#9"}, None, None, FOLDED_INTO),
+        (FOLDED_READ, None, None, {"state": "merged", "into": None, "merged_sha": "fff000"}),
+        (FOLDED_READ, FOLDED_INTO, pr_read([]), FOLDED_INTO),
+        (FOLDED_READ, FOLDED_INTO, pr_read([], state="MERGED", mergeCommit="999aaa"), {"state": "merged", "into": "a/one#9", "merged_sha": "999aaa"}),
+        (FOLDED_READ, FOLDED_INTO, pr_read([], state="CLOSED"), {"state": "closed", "into": "a/one#9", "merged_sha": None}),
+        (FOLDED_READ, FOLDED_INTO, pr_read([], state="MERGED", baseRefName="lane-4", base_pr="a/one#4"), {"state": "folded", "into": "a/one#4", "merged_sha": None}),
+        (FOLDED_READ, FOLDED_INTO, None, FOLDED_INTO),
+    ],
+)
+def test_landing_holds_a_pr_merged_into_an_open_prs_branch_folded_until_that_pr_lands_with_its_merge_commit_or_closes(read: dict, stored: dict | None, followed: dict | None, landed: dict) -> None:
+    assert github.landing(read, stored, followed) == landed
+
+
+def test_fetch_reads_the_open_pr_whose_head_is_a_prs_base_and_the_fold_line_names_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = []
+    folded = node(state="MERGED", baseRefName="lane-9", baseRef={"associatedPullRequests": {"nodes": [{"number": 9}]}})
+    monkeypatch.setattr(github, "run", lambda cmd, **_: sent.append(cmd[4]) or json.dumps({"data": {"r0": {"defaultBranchRef": UNRULED, "p1": folded, "p2": node()}}}))
+    reads, _ = FETCH(["a/one#1", "a/one#2"])
+    assert github.BASE_PR in sent[0]
+    assert [(reads[key]["default"], reads[key]["base_pr"]) for key in ("a/one#1", "a/one#2")] == [("main", "a/one#9"), ("main", None)]
+    assert github.fold_line(github.live(reads["a/one#1"], stored())) == "merged into lane-9 (#9), not main"
 
 
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"

@@ -238,6 +238,8 @@ def hold_labeled(pr: dict) -> bool:
 
 def tap_refused(pr: dict, entry: dict, picked: Iterable[str]) -> str | None:
     """Why his card on the PR offers no Approve, by GitHub's read of it now and by state.tap_refused with the waits ids of the cards his Approve would pick on it now; None when it does."""
+    if pr["state"] == "FOLDED":
+        return github.fold_line(entry)
     if pr["state"] != "OPEN":
         return f"GitHub reads it {pr['state'].lower()}"
     if hold_labeled(pr):
@@ -246,11 +248,13 @@ def tap_refused(pr: dict, entry: dict, picked: Iterable[str]) -> str | None:
 
 
 def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    """What his card says under the PR: merged or closed as GitHub reads it, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it."""
+    """What his card says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it."""
     now, approved, key = entry["now"], tap_label(entry) == "Approve", state.pr_key(pr["url"])
     match pr["state"], now.name:
         case "MERGED", _:
             return "Merged"
+        case "FOLDED", _:
+            return f"Not landed: {github.fold_line(entry)}"
         case "CLOSED", _:
             return "Closed without merging"
         case _, "held" if tap_label(entry) == "Hold":
@@ -432,7 +436,7 @@ def skip(key: str, reason: str) -> dict:
 
 
 def read(key: str, entry: dict | None = None) -> dict | None:
-    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; None only for a PR never read. Its checks come from the drive's entry, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
+    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; a PR GitHub reads merged that the entry holds folded reads FOLDED, by github.landing; None only for a PR never read. Its checks come from the drive's entry, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
     repo, number = key.split("#")
     kept = state.root() / KEPT_READS / repo / f"{number}.json"
     try:
@@ -448,7 +452,7 @@ def read(key: str, entry: dict | None = None) -> dict | None:
     written = kept.with_name(f"{kept.name}.{os.getpid()}")
     written.write_text(json.dumps(pr))
     os.replace(written, kept)
-    return pr
+    return pr | {"state": "FOLDED"} if entry and pr["state"] == "MERGED" and entry["state"] == github.FOLDED else pr
 
 
 def watched(entry: dict) -> dict | None:

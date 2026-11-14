@@ -147,6 +147,8 @@ def read(**overrides: object) -> dict:
         "trunk": None,
         "required_checks": ["buildkite/test"],
         "required_reviews": 1,
+        "default": "main",
+        "base_pr": None,
     }
     return {**base, **overrides}
 
@@ -383,6 +385,26 @@ def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_produ
     assert not watch.wakes(f"PR {KEY}: merged [o1 j1]", data, NO_CARDS)
     assert (data["orders"]["o1"]["proof"], [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]) == (None, [])
     assert provers == []
+
+
+def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_and_its_job_takes_done_with_that_prs_merge_commit_once_it_lands(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    folded = read(state="MERGED", mergeCommit="ccc333", baseRefName="the-base")
+    serve(monkeypatch, {KEY: folded | {"base_pr": OTHER}, OTHER: read(headRefName="the-base")})
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
+    watching = watcher(demo)
+    fold = f"PR {KEY}: merged into the-base (#43), not main [o1 j1]"
+    assert fold in watch.run_pass(watching, T0)
+    data = state.load(demo)
+    assert (data["prs"][KEY]["state"], data["prs"][KEY]["into"], data["prs"][KEY]["merged_sha"], data["jobs"]["j1"]["state"]) == ("folded", OTHER, None, "waiting")
+    assert view.holding(data, [KEY], None) == [KEY]
+    assert not watch.wakes(fold, data, NO_CARDS)
+    calls = serve(monkeypatch, {KEY: folded, OTHER: read(state="MERGED", mergeCommit="ddd444")})
+    assert f"PR {KEY}: merged [o1 j1]" in watch.run_pass(watching, T0 + timedelta(seconds=61))
+    assert [KEY, OTHER] in calls
+    data = state.load(demo)
+    assert (data["prs"][KEY]["state"], data["prs"][KEY]["merged_sha"], data["jobs"]["j1"]["state"]) == ("merged", "ddd444", "done")
+    assert data["jobs"]["j1"]["said"] == f"DONE {state.pr_url(KEY)} merged: {KEY} at ddd444"
 
 
 def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_frees_it_once_that_pr_merges_and_its_line_names_the_wait_no_more(
@@ -2659,7 +2681,7 @@ def test_a_merged_pr_delivers_a_work_part_through_drive_order_posted_which_refus
     assert f'--part "{lands}": refused, ' + state.UNPOSTED_WORK.format(order="o2", part=lands, holder="root@demo") in capsys.readouterr().err
     serve(monkeypatch, {YASYF: read(), OTHER: read(state="MERGED")})
     assert cli.main(["order", "posted", "o2", state.pr_url(YASYF), "--part", lands, "--drive", demo]) == 2
-    assert f'--part "{lands}": refused, GitHub reads {YASYF} open, and only a merged PR delivers work he ordered' in capsys.readouterr().err
+    assert f'--part "{lands}": refused, {YASYF} is open, and only a PR merged into its default branch delivers work he ordered' in capsys.readouterr().err
     assert cli.main(["order", "posted", "o2", landed, "--part", lands, "--drive", demo]) == 0
     assert capsys.readouterr().out == f'o2 "{lands}": posted {landed}, the merged PR that delivered it\n'
     serve(monkeypatch, {})

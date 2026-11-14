@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import IO
 
-from drive import picture, procs
+from drive import github, picture, procs
 
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
@@ -821,6 +821,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("trunk", None)
         pr.setdefault("reviews_required", 1)
         pr.setdefault("base", None)
+        pr.setdefault("default", None)
+        pr.setdefault("into", None)
         pr.setdefault("branch", None)
         pr.setdefault("lander", None)
         pr.setdefault("checker", None)
@@ -3089,7 +3091,7 @@ def open_pr_keys(data: dict) -> list[str]:
 
 
 def unmerged_pr_keys(data: dict) -> list[str]:
-    """The PRs GitHub can still change the state of: every one not merged, since a closed PR can be reopened and a merged one never unmerged."""
+    """The PRs GitHub can still change the state of: every one not merged, since a closed PR can be reopened, a folded one lands or closes with the PR it folded into, and a merged one never unmerged."""
     return [key for key, pr in data["prs"].items() if pr["state"] != "merged"]
 
 
@@ -3118,10 +3120,10 @@ def waited_pr(wait: str) -> str:
 
 
 def change_wait(data: dict, wait: str) -> str:
-    """What a job's wait on the change another job builds names: that job's newest open PR, free once it merges, else the job, which view.coming holds on while its work is still to come, so a PR of it closing unmerged frees nobody waiting on its change; a wait naming no job as given."""
+    """What a job's wait on the change another job builds names: that job's newest PR not yet landed, open or folded into another open PR's branch, free once it merges, else the job, which view.coming holds on while its work is still to come, so a PR of it closing unmerged frees nobody waiting on its change; a wait naming no job as given."""
     if wait not in data["jobs"]:
         return wait
-    return next((key for url in reversed(data["jobs"][wait]["prs"]) if (key := pr_key(url)) in data["prs"] and data["prs"][key]["state"] == "open"), wait)
+    return next((key for url in reversed(data["jobs"][wait]["prs"]) if (key := pr_key(url)) in data["prs"] and data["prs"][key]["state"] in github.UNLANDED), wait)
 
 
 def take_pr(data: dict, job_id: str, key: str) -> None:
@@ -3395,6 +3397,8 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "trunk": None,
         "reviews_required": 1,
         "base": None,
+        "default": None,
+        "into": None,
         "branch": None,
         "draft": False,
         "merged_sha": None,
