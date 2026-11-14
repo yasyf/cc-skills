@@ -27,6 +27,7 @@ COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
 CANDIDATE = "rc/"
 BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
 PROD_ENV = re.compile(r"^prod: true$", re.MULTILINE)
+STAGING_ENV = re.compile(r"^stage: staging$", re.MULTILINE)
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
@@ -344,6 +345,11 @@ def release_of(key: str, service: str, commit: str) -> str | None:
 def contains(repo: str, ref: str, commit: str) -> bool:
     """Whether ref holds commit, by GitHub's compare of the two read through ccx's cache up to an hour old, since neither changes."""
     return read(f"whether {repo}'s {ref} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{ref}", "--jq", ".status"], max_age="1h").strip() in HOLDS
+
+
+def env_stage(spec: str) -> str | None:
+    """The stage a release wait reads an env at from its infra/envs file: prod for one flagged prod: true, staging for one staged staging, None for any other."""
+    return "prod" if PROD_ENV.search(spec) else "staging" if STAGING_ENV.search(spec) else None
 
 
 def ships(release: dict, service: str) -> bool:

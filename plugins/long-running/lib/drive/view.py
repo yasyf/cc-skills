@@ -280,16 +280,16 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def shipped_by(drive: dict, wait: str, running: list[dict]) -> str | None:
-    """What ships a release wait's merged PR: for a Forge-AI/monorepo PR, every row of running, the `tools/ci release live` rows of the envs flagged prod: true, that runs its service, there being one at least, serving a commit holding the PR's merge commit, a row printing no commit, a stack whose switch never passed, holding nothing, so a release build that switched it on each and then failed a later step ships it too; for another repository's, the newest GitHub release of its service holding it."""
+    """What ships a release wait's merged PR: for a Forge-AI/monorepo PR, every row of running, the `tools/ci release live` rows cli.release_live reads, that runs its service on an env of the wait's stage, staging for a wait written @staging and prod for any other, there being one at least, serving a commit holding the PR's merge commit, a row printing no commit, a stack whose switch never passed, holding nothing, so a release build that switched it on each and then failed a later step ships it too; for another repository's, the newest GitHub release of its service holding it."""
     found = state.RELEASE_WAIT.fullmatch(wait)
     key, service, merged = found["pr"], found["service"], drive["prs"][found["pr"]]["merged_sha"]
     if github.repo_of(key).casefold() != state.MONOREPO.casefold():
         release = github.release_of(key, service, merged)
         return f"release {release} ships {key} on {service}" if release else None
-    rows = [row for row in running if row["target"] == service]
+    rows = [row for row in running if row["target"] == service and row["stage"] == (found["stage"] or "prod")]
     if not rows or not all(row.get("commit") and github.contains(state.MONOREPO, row["commit"], merged) for row in rows):
         return None
-    return f"{service} runs {key} on every production env it runs on: {', '.join(sorted(row['env'] for row in rows))}"
+    return f"{service} runs {key} on every {found['stage'] or 'production'} env it runs on: {', '.join(sorted(row['env'] for row in rows))}"
 
 
 def wait_words(drive: dict, wait: str, found: dict | None) -> str:
@@ -300,7 +300,7 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         pr = drive["prs"][wait]
         return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
-        return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
+        return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out" + (" on staging" if release["stage"] else "")
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
@@ -695,7 +695,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if wait in drive["prs"]:
         return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
     if release := state.RELEASE_WAIT.fullmatch(wait):
-        return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
+        return {"title": f"the release of {release['service']} carrying {release['pr']}" + (" to staging" if release["stage"] else ""), "url": state.pr_url(release["pr"])}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
     if card := asked_card(found, wait):

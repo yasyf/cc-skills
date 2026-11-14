@@ -200,7 +200,7 @@ def waited(data: dict, job_id: str, line: str) -> dict:
     asked = [card for card in view.stored_waits(data, state.BUILT_CARD.findall(declared["cards"])) if view.drawn_on(data, card)] if declared else []
     return {
         "red": {key: failing for key in own if data["prs"][key]["state"] == "open" and (failing := red(key, data["prs"][key]))},
-        "waits": [wait for wait in [*state.named_waits(data, job["order"], line), *asked] if wait not in own and view.holds(data, wait, None)],
+        "waits": [wait for wait in [*state.named_waits(data, job, line), *asked] if wait not in own and view.holds(data, wait, None)],
     }
 
 

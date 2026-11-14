@@ -1302,7 +1302,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None, parts=[shipped], carries={"o2": [carried]}, brief_flags=flags, session="s-1")
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         reach = {"Forge-AI/monorepo#9": {"components": ["api", "sandsql", "web"], "touched": ["api", "sandsql"]}, "Forge-AI/monorepo#10": {"components": ["web"], "touched": ["web"]}}
-        builder_id = install.merged_done("demo", data, "j1", reach)
+        builder_id = install.merged_done("demo", data, "j1", reach, set())
     merged = "Forge-AI/monorepo#9 at fedcba987654"
     data = state.load("demo")
     builder = data["jobs"][builder_id]
@@ -1314,6 +1314,26 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert ("j2" in data["orders"]["o1"]["jobs"], "j2" in data["orders"]["o2"]["jobs"]) == (True, True)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("goal", "staging", "waits"),
+    [
+        ("prove the blob store reads on staging", {"sandsql", "web"}, ["release:sandsql:Forge-AI/monorepo#9@staging"]),
+        ("prove the blob store reads on staging", {"web"}, ["release:api:Forge-AI/monorepo#9", "release:sandsql:Forge-AI/monorepo#9"]),
+        ("prove the blob store reads on staging, then production", {"sandsql"}, ["release:api:Forge-AI/monorepo#9", "release:sandsql:Forge-AI/monorepo#9"]),
+    ],
+)
+def test_a_product_merge_whose_job_proves_on_staging_adds_a_builder_waiting_on_staging_running_each_release_its_paths_reach_that_staging_runs(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], goal: str, staging: set[str], waits: list[str]
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(goal=goal, said=f"READY {product}", prs=[product], repro=None)
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
+        builder_id = install.merged_done("demo", data, "j1", {"Forge-AI/monorepo#9": {"components": ["api", "sandsql", "web"], "touched": ["api", "sandsql"]}}, staging)
+    assert state.load("demo")["jobs"][builder_id]["waits"] == waits
 
 
 def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_start_now_on_the_surface_its_own_brief_names(
@@ -1334,8 +1354,8 @@ def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_star
         data["jobs"]["j1"].update(said=f"READY {port}", prs=[port], repro=None, brief_flags={"native": "none"})
         for url, job_id, sha in ((port, "j1", "fedcba9876543210"), (shown, "j2", "0123456789abcdef")):
             data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
-        asking = install.merged_done("demo", data, "j2", {})
-        merging = install.merged_done("demo", data, "j1", {})
+        asking = install.merged_done("demo", data, "j2", {}, set())
+        merging = install.merged_done("demo", data, "j1", {}, set())
     asked, merged = install.merged_said("demo", "j2", asking), install.merged_said("demo", "j1", merging)
     data = state.load("demo")
     assert (asking, merging, data["jobs"][asking]["waits"], data["jobs"][merging]["waits"]) == ("j3", "j4", [], [])

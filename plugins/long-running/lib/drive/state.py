@@ -116,7 +116,10 @@ DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
-RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
+RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<stage>staging))?")
+STAGING_WORD = re.compile(r"\bstaging\b", re.IGNORECASE)
+PRODUCTION_WORD = re.compile(r"\bprod(?:uction)?\b", re.IGNORECASE)
+PROVE_LINE = re.compile(r"^PROVE:.*$", re.MULTILINE)
 SLOT_WAIT = "builder-slot"
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -1069,7 +1072,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
                 f" keeps none it can run: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
-    if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job["order"], wait_words(line, report))):
+    if re.match(r"WAITING\b", line) and not (job["waits"] or job["due"] or named_waits(data, job, wait_words(line, report))):
         return (
             "its WAITING names nothing the watch frees it on: name the release as release:<service>:<owner>/<repo>#<n> or a PR the drive"
             f" tracks, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
@@ -1128,10 +1131,10 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
     return None
 
 
-def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, and each other drive PR it names."""
-    releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
-    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line))]))
+def named_waits(data: dict, job: dict, line: str) -> list[str]:
+    """The waits a result line of the job names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, written by staged for the env its proof needs, and each other drive PR it names."""
+    releases = staged([found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]], job["goal"], line)
+    return list(dict.fromkeys([*releases, *named_prs(data, job["order"], RELEASE_WAIT.sub("", line))]))
 
 
 def wait_words(line: str, report: str) -> str:
@@ -1139,9 +1142,9 @@ def wait_words(line: str, report: str) -> str:
     return f"{line}\n{report}" if re.match(r"WAITING\b", line) else line
 
 
-def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list[str]:
+def result_waits(data: dict, job: dict, line: str, report: str = "") -> list[str]:
     """The waits a result gives its job: each PR and release a READY's or PUSHED's line names or a WAITING's whole report names, and none for any other line."""
-    return named_waits(data, order_id, wait_words(line, report)) if re.match(r"(?:READY|PUSHED|WAITING)\b", line) else []
+    return named_waits(data, job, wait_words(line, report)) if re.match(r"(?:READY|PUSHED|WAITING)\b", line) else []
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
@@ -1155,7 +1158,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         job["said"] = line
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
-    if waits := result_waits(data, job["order"], line, report):
+    if waits := result_waits(data, job, line, report):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     if re.match(r"WAITING\b", line):
         job["waited"] = stage.waited(data, job_id, wait_words(line, report))
@@ -2609,6 +2612,19 @@ def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
         if wait in data["jobs"] and not view.holds(data, wait, None):
             return f"--waits {wait}: {wait} is {data['jobs'][wait]['state']}, so nothing of it is left to wait on"
     return None
+
+
+def on_staging(goal: str, report: str = "") -> bool:
+    """Whether a job's proof needs staging: its goal or the newest PROVE: line of its report names staging and not production."""
+    words = " ".join([goal, *PROVE_LINE.findall(report)[:1]])
+    return bool(STAGING_WORD.search(words)) and not PRODUCTION_WORD.search(words)
+
+
+def staged(waits: list[str], goal: str, report: str = "") -> list[str]:
+    """Each release wait among waits written release:<service>:<owner>/<repo>#<n>@staging, which ends once staging runs the PR's merge, when on_staging reads the job's proof needing staging, cli.unreached refusing one for a service no staging env runs; waits as given otherwise."""
+    if not on_staging(goal, report):
+        return waits
+    return [f"{wait}@staging" if (found := RELEASE_WAIT.fullmatch(wait)) and not found["stage"] else wait for wait in waits]
 
 
 def waited_pr(wait: str) -> str:

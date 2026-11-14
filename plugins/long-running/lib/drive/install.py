@@ -782,10 +782,14 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
         state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
 
 
-def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; that builder's id."""
+def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict], staging: set[str]) -> str:
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; a job whose proof needs staging by state.on_staging waits instead on staging running each of those components staging, the services cli.staging_runs read, holds, when it holds one at least; that builder's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
+    report = state.report_text(name, job_id)
+    waits = [f"release:{component}:{key}" for key, answer in reach.items() if key in merges for component in answer["touched"]]
+    if state.on_staging(job["goal"], report) and (ran := [wait for wait in waits if state.RELEASE_WAIT.fullmatch(wait)["service"] in staging]):
+        waits = state.staged(ran, job["goal"], report)
     order_id, urls = job["order"], " ".join(map(state.pr_url, merges))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     commits = " ".join(merge_commits(merges))
@@ -797,7 +801,7 @@ def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict]) -> s
     handoff = f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(merges)} live", job["parts"], state.stamp()) | {
         "session": job.get("session"),
-        "waits": [f"release:{component}:{key}" for key, answer in reach.items() if key in merges for component in answer["touched"]],
+        "waits": waits,
         "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff},
     }
     state.hold_unstarted(builder)

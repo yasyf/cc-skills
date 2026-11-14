@@ -1139,6 +1139,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         raise DriveError("--release starts its release as the job is added, so it waits on nothing: add the job once what it waits on has landed")
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
+    args.waits = state.staged(args.waits, args.goal)
     found = check_waits(name, args.waits)
     unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, state.load(name)))
     with state.edit(name) as data:
@@ -1323,6 +1324,8 @@ def job_set(args: argparse.Namespace) -> int:
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     if refused := state.job_wait_refusal(known, args.waits):
         raise DriveError(refused)
+    if args.waits:
+        args.waits = state.staged(args.waits, found["goal"], state.report_text(name, args.id))
     found = check_waits(name, args.waits)
     told_him(name, args)
     for order_id in args.carries:
@@ -2136,7 +2139,7 @@ def job_report(args: argparse.Namespace) -> int:
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job["order"], line, whole)):
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, job, line, whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(
             cited.removeprefix("DESIGN:").partition(":")[0].strip() != "none" and not served.named(cited) for cited in whole.splitlines() if cited.startswith("DESIGN:")
@@ -3434,7 +3437,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
                 " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, held until the release of that service carrying"
-                " that PR is out, either one moving to the change of the job that opened the PR once it closes unmerged"
+                " that PR is out, on staging when written @staging, either one moving to the change of the job that opened the PR once it closes unmerged"
             )
     if refused := unreached(name, data, waits):
         raise DriveError(f"--waits {refused}")
@@ -3442,7 +3445,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
 
 
 def unreached(name: str, data: dict, waits: list[str]) -> str | None:
-    """Why a release wait among waits names a service whose release never carries its PR's change, by release_reach: the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR release_reach reads nothing for, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
+    """Why a release wait among waits names a service whose release never carries its PR's change, by release_reach: the service is no component go/ci releases, the paths reach components and the service is none of them, or the wait is written @staging and no staging env runs the service, by staging_runs. None for a PR release_reach reads nothing for, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
     releases = [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]
     if not releases:
         return None
@@ -3451,6 +3454,10 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
         answers = release_reach(name, data, [found["pr"] for found in releases])
     except github.GithubError as error:
         raise DriveError(f"could not read which components the paths each PR of {named} changes reach, so nothing was taken: {error}; run this again") from None
+    try:
+        staging = staging_runs(name, data) if any(found["stage"] and found["pr"] in answers for found in releases) else set()
+    except reads.ReadError as error:
+        raise DriveError(f"could not read which services staging runs for {named}, so nothing was taken: {error}; run this again") from None
     for found in releases:
         if not (answer := answers.get(found["pr"])):
             continue
@@ -3460,6 +3467,12 @@ def unreached(name: str, data: dict, waits: list[str]) -> str | None:
             return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
         if answer["touched"] and service not in answer["touched"]:
             return f"{found[0]}: {service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
+        if found["stage"] and service not in staging:
+            ran = ", ".join(sorted(staging & set(answer["touched"]))) or "none of them"
+            return (
+                f"{found[0]}: no staging env runs {service}, by `tools/ci release live`, so staging never carries {key}, and its job's goal or PROVE: line"
+                f" names staging; {reach}, of which staging runs {ran}: wait on the release of one staging runs"
+            )
     return None
 
 
@@ -3476,6 +3489,19 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
         key: json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": github.files(key)})))
         for key in ours
     }
+
+
+def release_live(name: str, data: dict) -> list[dict]:
+    """The rows `tools/ci release live --json` prints, run in the drive's checkout as orca.checkout moves it, of each env its infra/envs file stages prod or staging by github.env_stage, each with that stage: a row's commit is the one serving its env, which for a component release/targets.yaml gives a `promotes:` switch, such as api or a Restate worker, is the newest release whose switch passed there, and none while none did."""
+    checkout = orca.checkout(name, data)
+    live = json.loads(reads.run([str(checkout / GO_CI), "release", "live", "--json"], checkout))
+    stages = {env: github.env_stage((checkout / "infra" / "envs" / f"{env}.yaml").read_text()) for env in {row["env"] for row in live}}
+    return [row | {"stage": stages[row["env"]]} for row in live if stages[row["env"]]]
+
+
+def staging_runs(name: str, data: dict) -> set[str]:
+    """The services a staging env runs, by release_live."""
+    return {row["target"] for row in release_live(name, data) if row["stage"] == "staging"}
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:
@@ -4388,9 +4414,11 @@ def parser() -> argparse.ArgumentParser:
             "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
             " release:<service>:<owner>/<repo>#<n>, that service running that PR's merge on every production env it runs on, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
-            " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
+            " service is none of them or is no component at all, written release:<service>:<owner>/<repo>#<n>@staging, every staging env"
+            " running it instead, on a job whose goal or newest PROVE: line names staging and not production, refused when no staging env"
+            " runs that service, or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
-            " stops or fails, each part it carries is delivered, or every env flagged prod: true that runs that service runs it at a"
+            " stops or fails, each part it carries is delivered, or every env flagged prod: true, or staged staging for a wait written @staging, that runs that service runs it at a"
             " commit holding the PR's merge commit, as tools/ci release live reads it at most every five minutes, the commit it"
             " prints serving there, the newest GitHub release of that service"
             " holding it for a PR outside Forge-AI/monorepo, and says FREE once when the last is gone, which wakes the"

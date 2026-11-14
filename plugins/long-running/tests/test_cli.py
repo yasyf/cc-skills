@@ -818,6 +818,46 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming
     assert state.load("demo")["jobs"]["j1"]["waits"] == ["release:cloudrunner-next:Forge-AI/monorepo#7", "release:k8s:Forge-AI/monorepo#7"]
 
 
+def test_a_release_wait_of_a_job_proving_on_staging_is_written_at_staging_and_refused_for_a_service_no_staging_env_runs(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)
+    clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
+    for folder in (clone / "tools", checkout / "tools", checkout / "infra" / "envs"):
+        folder.mkdir(parents=True)
+    for env, spec in {"plat-usw2-staging": "stage: staging", "plat-usw2-prod": "prod: true", "core-usw2-auto": "prod: true"}.items():
+        (checkout / "infra" / "envs" / f"{env}.yaml").write_text(f"id: {env}\n{spec}\n")
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"]["cwd"] = str(clone)
+    (clone / "tools" / "ci").write_text("")
+    request, answer, live = tmp_path / "request.json", tmp_path / "answer.json", tmp_path / "live.json"
+    (checkout / "tools" / "ci").write_text(FAKE_SELECT.replace("|| exit 64", f'|| exec cat "{live}"').format(request=request, answer=answer))
+    (checkout / "tools" / "ci").chmod(0o755)
+    answer.write_text(json.dumps({"components": ["cloudrunner-next", "sand-next"], "touched": ["cloudrunner-next", "sand-next"]}))
+    rows = [("cloudrunner-next", "plat-usw2-staging"), ("cloudrunner-next", "plat-usw2-prod"), ("sand-next", "core-usw2-auto")]
+    live.write_text(json.dumps([{"target": target, "env": env, "commit": "aaa111"} for target, env in rows]))
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
+    monkeypatch.setattr(orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"])
+    goal = "prove Forge-AI/monorepo#7 live once a release carries it to staging"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", goal, "--waits", "release:sand-next:Forge-AI/monorepo#7"]) == 2
+    reach = "`tools/ci release select --pr` lists the paths Forge-AI/monorepo#7 changes reaching cloudrunner-next, sand-next"
+    assert (
+        "--waits release:sand-next:Forge-AI/monorepo#7@staging: no staging env runs sand-next, by `tools/ci release live`, so staging never carries"
+        f" Forge-AI/monorepo#7, and its job's goal or PROVE: line names staging; {reach}, of which staging runs cloudrunner-next: wait on the"
+        " release of one staging runs"
+    ) in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o1", "--goal", goal, "--waits", "release:cloudrunner-next:Forge-AI/monorepo#7")[0] == 0
+    assert run("job", "set", "j1", "--waits", "release:sand-next:Forge-AI/monorepo#7")[0] == 0
+    proving = "WAITING release:cloudrunner-next:Forge-AI/monorepo#7 rides the next release\nPROVE: open the run page on staging\n"
+    assert keep(monkeypatch, capsys, "j1", proving) == (0, "")
+    jobs = state.load("demo")["jobs"]
+    assert jobs["j2"]["waits"] == ["release:cloudrunner-next:Forge-AI/monorepo#7@staging"]
+    assert jobs["j1"]["waits"] == ["release:sand-next:Forge-AI/monorepo#7", "release:cloudrunner-next:Forge-AI/monorepo#7@staging"]
+
+
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

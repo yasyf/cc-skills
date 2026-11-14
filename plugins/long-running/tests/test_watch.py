@@ -3142,6 +3142,28 @@ def test_a_monorepo_release_wait_frees_once_every_prod_env_running_its_service_r
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
 
+def test_a_release_wait_written_at_staging_frees_once_every_staging_env_running_its_service_runs_its_merge_while_a_bare_one_waits_for_production(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    checkout = live_checkout(tmp_path)
+    live = [{"target": "runtime-api-next", "env": "plat-usw2-staging", "commit": "aaa111"}, {"target": "runtime-api-next", "env": "plat-usw2-prod", "commit": "bbb222"}]
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: checkout)
+    monkeypatch.setattr(watch.reads, "run", lambda argv, at, **_: json.dumps(live))
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: "ahead\n" if cmd[2].endswith("...aaa111") else "behind\n")
+    staged, bare = f"release:runtime-api-next:{KEY}@staging", f"release:runtime-api-next:{KEY}"
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="d6b2eaf6")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING staging runs it", waits=[staged], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "prove it on production", [], state.stamp(T0 - timedelta(minutes=10))) | {"state": "waiting", "said": "WAITING production runs it", "waits": [bare]}
+        data["orders"]["o1"]["jobs"].append("j2")
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f"FREE j1 o1: runtime-api-next runs {KEY} on every staging env it runs on: plat-usw2-staging, nothing else holds it"]
+    assert state.load(demo)["jobs"]["j2"]["waits"] == [bare]
+    live[1]["commit"] = "aaa111"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [f"FREE j2 o1: runtime-api-next runs {KEY} on every production env it runs on: plat-usw2-prod, nothing else holds it"]
+
+
 def test_a_release_wait_stays_held_while_a_prod_env_running_its_service_serves_no_commit_since_its_switch_never_passed(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

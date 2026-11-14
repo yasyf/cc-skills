@@ -611,7 +611,9 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each release wait of a live job or open PR whose change is out, with what ships it, by view.shipped_by. A wait whose Forge-AI/monorepo PR merged is read from `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since that read takes most of a minute, each row's commit being the one serving its env, which for a component release/targets.yaml gives a `promotes:` switch, such as api or a Restate worker, is the newest release whose switch passed there, and none while none did; one whose PR in another repository merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it."""
+    """Each release wait of a live job or open PR whose change is out, with what ships it, by view.shipped_by. A wait whose Forge-AI/monorepo PR merged is read from cli.release_live at most once every LIVE_EVERY, since that read takes most of a minute; one whose PR in another repository merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it."""
+    from drive import cli
+
     waits = {
         wait: found["pr"]
         for order_id, owner in release_owners(data)
@@ -623,10 +625,7 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
     out = {}
     if applied and not (watcher.live_at and moment - watcher.live_at < LIVE_EVERY):
         try:
-            checkout = orca.checkout(watcher.name, data)
-            live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
-            prod = {env for env in {row["env"] for row in live} if github.PROD_ENV.search((checkout / "infra" / "envs" / f"{env}.yaml").read_text())}
-            running = [row for row in live if row["env"] in prod]
+            running = cli.release_live(watcher.name, data)
             out = {wait: shipping for wait in applied if (shipping := view.shipped_by(data, wait, running))}
         except (state.DriveError, reads.ReadError, github.GithubError) as error:
             return {}, read_failed(watcher, "release live", error, moment)
@@ -2179,7 +2178,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> list[str]:
-    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until the builder merged_done adds proves it live on the release holding its merge, each release its PRs' paths reach read by cli.release_reach before the drive's lock, a read that fails leaving the job to the next pass, said on the job's PRs' lines; one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines too; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads."""
+    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until the builder merged_done adds proves it live on the release holding its merge, each release its PRs' paths reach read by cli.release_reach, and the services staging runs by cli.staging_runs when one of them proves on staging by state.on_staging, before the drive's lock, a read that fails leaving the job to the next pass, said on the job's PRs' lines; one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines too; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -2190,8 +2189,10 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     lines: list[str] = []
     try:
         reach = cli.release_reach(watcher.name, data, [key for job_id in merging for key in reported_prs(data, job_id)])
-    except (github.GithubError, state.DriveError) as error:
-        merging, reach, lines = [], {}, failed(watcher, "release select", "`tools/ci release select --pr` read of the releases a merged PR reaches", error, moment)
+        staging = cli.staging_runs(watcher.name, data) if any(state.on_staging(data["jobs"][job_id]["goal"], state.report_text(watcher.name, job_id)) for job_id in merging) else set()
+    except (github.GithubError, state.DriveError, reads.ReadError) as error:
+        merging, reach, staging = [], {}, set()
+        lines = failed(watcher, "release select", "`tools/ci release select --pr` and `tools/ci release live` reads of the releases a merged PR reaches", error, moment)
     else:
         watcher.failures.pop("release select", None)
     added = {}
@@ -2200,7 +2201,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
             if not heard_job(watcher, data, job):
                 continue
             if job_id in merging and at_merge(data, job_id):
-                added[job_id] = merged_done(watcher.name, data, job_id, reach)
+                added[job_id] = merged_done(watcher.name, data, job_id, reach, staging)
             elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
             elif unproven(data, job_id):
