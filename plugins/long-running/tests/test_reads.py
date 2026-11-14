@@ -279,6 +279,19 @@ def test_a_read_naming_several_drive_files_answers_each_and_one_the_folder_lacks
     )
 
 
+def test_a_read_naming_a_drive_folder_lists_each_file_under_it_by_the_path_a_read_takes_and_an_empty_one_says_so(state_root: Path, tmp_path: Path) -> None:
+    folder = state.drive_dir("demo")
+    transcripts = folder / "jobs" / "j3441.d7.transcripts"
+    (transcripts / "subagents").mkdir(parents=True)
+    (transcripts / "main.jsonl").write_text("{}\n{}\n")
+    (transcripts / "subagents" / "agent-a1.jsonl").write_text("{}\n")
+    (folder / "scratch" / "j4290").mkdir(parents=True)
+    assert reads.answer("READ ls jobs/j3441.d7.transcripts/ and scratch/j4290", tmp_path, "demo", "j4290") == (
+        "# Drive folder jobs/j3441.d7.transcripts/\n\njobs/j3441.d7.transcripts/main.jsonl (6 bytes)\njobs/j3441.d7.transcripts/subagents/agent-a1.jsonl (3 bytes)\n\n\n"
+        "# Drive folder scratch/j4290\n\nan empty folder"
+    )
+
+
 def test_a_read_reaching_outside_the_drive_folder_gets_none_of_the_outside_file(state_root: Path, tmp_path: Path) -> None:
     folder = state.drive_dir("demo")
     outside = tmp_path / "key.pem"

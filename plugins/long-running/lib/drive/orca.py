@@ -365,7 +365,7 @@ def sprite_transcripts(drive: str, brief: str) -> str:
 
 
 def drive_files(drive: str, brief: str) -> dict[str, str | None]:
-    """Each file of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: each path under the folder's reports, asks, repro, scratch and jobs folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report as `drive job report` prints it and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, carries nothing, a file that is not UTF-8 text or holds NUL, such as a screen recording, is a line naming its path and size, and a path resolving outside the folder, through `..` or a symlink, has no text, since a lane's READ names its path."""
+    """Each file and folder of the drive's state folder the brief names, by the heading its text goes under, with that text or None when the drive keeps none: each path under the folder's reports, asks, repro, scratch and jobs folders it names anywhere, absolute or from the folder, a reports/<job>.md being that job's report as `drive job report` prints it and a repro/<job>, with any suffix or none, the repro file drive job set --repro kept for it; a folder it names, such as its Scratch: line's, lists each file under it by folder_text, a file that is not UTF-8 text or holds NUL, such as a screen recording, is a line naming its path and size, and a path resolving outside the folder, through `..` or a symlink, has no text, since a lane's READ names its path."""
     folder = state.drive_dir(drive)
     roots = [folder, *([Path("~") / folder.relative_to(Path.home())] if folder.is_relative_to(Path.home()) else [])]
     prefix = "|".join(re.escape(f"{root}/") for root in roots)
@@ -377,9 +377,20 @@ def drive_files(drive: str, brief: str) -> dict[str, str | None]:
             continue
         if (repro := REPRO_FILE.fullmatch(name)) and (kept := state.load(drive)["jobs"].get(repro[1], {}).get("repro")):
             name = f"repro/{Path(kept).name}"
-        if not (file := folder / name).is_dir():
-            files[f"Drive file {name}"] = file_text(file) if file.is_file() and file.resolve().is_relative_to(folder.resolve()) else None
+        file = folder / name
+        inside = file.resolve().is_relative_to(folder.resolve())
+        if file.is_dir():
+            files[f"Drive folder {name}"] = folder_text(folder, file) if inside else None
+            continue
+        files[f"Drive file {name}"] = file_text(file) if file.is_file() and inside else None
     return files
+
+
+def folder_text(folder: Path, named: Path) -> str:
+    """Each file under a folder of the drive's, at any depth, a line each by its path from the drive's folder, which a READ of that path reads, and its size; an empty folder says so."""
+    inside = folder.resolve()
+    held = sorted(entry for entry in named.rglob("*") if entry.is_file() and entry.resolve().is_relative_to(inside))
+    return "\n".join(f"{entry.relative_to(folder)} ({entry.stat().st_size:,} bytes)" for entry in held) or "an empty folder"
 
 
 def file_text(file: Path) -> str:
