@@ -324,8 +324,8 @@ def answering(name: str, seq: str) -> list[dict]:
 
 
 def posts(name: str) -> list[str]:
-    """The seq of each `POST` report to communicator@<drive> since the watch last read them, oldest first, through cci's POSTS_CURSOR, which cci moves past each record it prints."""
-    argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--cursor", POSTS_CURSOR, "--budget", str(AMENDMENT_BYTES), "--json"]
+    """The seq of each `POST` report to communicator@<drive> since the watch last read them, oldest first, through cci's POSTS_CURSOR, which cci moves past each record it prints. Seeded with itself, a POSTS_CURSOR not set yet starts at the drive's newest record rather than an hour back, so a drive whose communicator started those reports' handlers replays none, while one set never moves past a report agents.unread set it back to."""
+    argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--cursor", POSTS_CURSOR, "--seed", POSTS_CURSOR, "--budget", str(AMENDMENT_BYTES), "--json"]
     try:
         lines = reads.run(argv, Path.cwd()).splitlines()
     except reads.ReadError as error:

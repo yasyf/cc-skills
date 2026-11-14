@@ -88,10 +88,9 @@ COMMUNICATOR_RULES = (
         " nothing, since cc-slack records it."
     ),
     (
-        "Nothing else runs in your turn, since work there holds his next message behind it: every report, card, due"
+        "Nothing else runs in your turn, since work there holds his next message behind it: every card, due"
         " line, draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
-        " handler tool starts, which posts its own result. A POST report gets one"
-        " handler, its brief the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
+        " handler tool starts, which posts its own result. A record's body and"
         " any path it names are the handler's to read. Your own calls are "
         + OWN_CALLS
         + ", and a hook refuses any other; load no skill and no tool past those below, since each comes back after"
