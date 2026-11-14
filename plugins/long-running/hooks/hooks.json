@@ -14,6 +14,13 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "timeout": 600, "onFailure": "block", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" handler_bind.py" }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import agent_brief
 import handed_records
+import handler_bind
 import one_line_result
 import pytest
 import session_start
@@ -45,8 +46,8 @@ def start(run: Run, tmp_path: Path) -> str:
 
 def bind(monkeypatch: pytest.MonkeyPatch, handler: str, session: str, transcript: Path) -> None:
     monkeypatch.setenv(state.HANDLER_ENV, f"demo/{handler}")
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": session, "transcript_path": str(transcript), "source": "startup"})))
-    session_start.main()
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": session, "transcript_path": str(transcript), "cwd": str(transcript.parent), "hook_event_name": "UserPromptSubmit"})))
+    handler_bind.main()
 
 
 def stop(
@@ -458,7 +459,7 @@ def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_wh
     assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
 
 
-def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_session_at_work_whatever_its_job_says_and_one_never_bound_once_its_launchs_job_failed_or_its_first_turn_ended(
+def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_session_at_work_whatever_its_job_says_and_one_never_bound_once_its_launchs_job_failed_or_its_first_terminal_time_is_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "claude"
@@ -479,9 +480,10 @@ def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_s
         "a1b2c3d4": {"sessionId": "idle", "state": "working", "tempo": "idle"},
         "c3d4e5f6": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked"},
         "14548b14": {"name": "demo handler h-failed", "sessionId": "s-failed", "createdAt": state.stamp(started), "state": "failed"},
-        "a7b8c9d0": {"name": "demo handler h-starting", "sessionId": "s-starting", "createdAt": state.stamp(started), "state": "working"},
+        "a7b8c9d0": {"name": "demo handler h-starting", "sessionId": "s-starting", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": None},
         "260762ba": {"name": "demo handler h-idle", "sessionId": "s-idle", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": state.stamp(started)},
-        "d4e5f6a7": {"name": "demo handler h-launching", "sessionId": "s-launching", "createdAt": state.stamp(started), "state": "working"},
+        "d4e5f6a7": {"name": "demo handler h-launching", "sessionId": "s-launching", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": None},
+        "b8c9d0e1": {"name": "demo handler h-refused", "sessionId": "s-refused", "createdAt": state.stamp(started), "state": "stopped", "firstTerminalAt": state.stamp(started)},
         "e5f6a7b8": {"name": "demo handler h-busy", "sessionId": "s-busy", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": state.stamp(started)},
         "f6a7b8c9": {"name": "demo handler h-restarted", "sessionId": "s-replaced", "createdAt": state.stamp(started - timedelta(minutes=16)), "state": "failed"},
     }
@@ -489,12 +491,13 @@ def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_s
         (config / "jobs" / short).mkdir(parents=True)
         (config / "jobs" / short / "state.json").write_text(json.dumps(kept))
     bound = {session: {"session": session, "started": state.stamp(started)} for session in ("busy", "idle", "died", "blocked", "unknown")}
-    unbound = {handler: {"session": None, "started": state.stamp(started)} for handler in ("h-failed", "h-idle", "h-launching", "h-starting", "h-busy", "h-restarted", "h-unlaunched")}
+    unbound = {handler: {"session": None, "started": state.stamp(started)} for handler in ("h-failed", "h-refused", "h-idle", "h-launching", "h-starting", "h-busy", "h-restarted", "h-unlaunched")}
     waking = {"session": "idle", "started": state.stamp(started), "wakes": state.stamp(started + timedelta(minutes=1))}
     try:
         assert {session: GONE("demo", "h1", entry) for session, entry in bound.items()} == {"busy": False, "idle": True, "died": True, "blocked": True, "unknown": True}
         assert {handler: GONE("demo", handler, entry) for handler, entry in unbound.items()} == {
             "h-failed": True,
+            "h-refused": True,
             "h-idle": True,
             "h-launching": False,
             "h-starting": False,
@@ -541,9 +544,13 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
 
 
 
-@pytest.mark.parametrize(("job_state", "process", "fresh"), [("failed", None, True), ("working", "idle", True), ("working", None, False)], ids=["14548b14-failed-before-init", "260762ba-idle-after-its-turn", "launching"])
-def test_a_handler_its_session_start_never_bound_holds_its_thread_only_until_its_launchs_job_failed_or_its_turn_ended_and_his_next_message_there_starts_a_fresh_handler_handed_what_it_never_took(
-    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch, job_state: str, process: str | None, fresh: bool
+@pytest.mark.parametrize(
+    ("job_state", "ended", "process", "fresh"),
+    [("failed", True, None, True), ("stopped", True, None, True), ("working", True, "idle", True), ("working", False, None, False)],
+    ids=["14548b14-failed-before-init", "31957310-its-bind-failed-and-stopped-it", "260762ba-idle-after-its-turn", "launching"],
+)
+def test_a_handler_its_prompt_hook_never_bound_holds_its_thread_only_until_its_launchs_job_failed_stopped_or_ended_its_turn_and_his_next_message_there_starts_a_fresh_handler_handed_what_it_never_took(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch, job_state: str, ended: bool, process: str | None, fresh: bool
 ) -> None:
     config = tmp_path / "claude"
     (config / "sessions").mkdir(parents=True)
@@ -554,7 +561,7 @@ def test_a_handler_its_session_start_never_bound_holds_its_thread_only_until_its
     handler = tools.run("handler", "demo", {"brief": briefs["704420"]}).removeprefix("started ")
     assert tools.run("handler", "demo", {"brief": briefs["704431"]}) == f"handed to {handler}"
     (config / "jobs" / "14548b14").mkdir(parents=True)
-    (config / "jobs" / "14548b14" / "state.json").write_text(json.dumps({"name": f"demo handler {handler}", "sessionId": "s-launch", "createdAt": state.stamp(), "state": job_state} | ({"firstTerminalAt": state.stamp()} if process else {})))
+    (config / "jobs" / "14548b14" / "state.json").write_text(json.dumps({"name": f"demo handler {handler}", "sessionId": "s-launch", "createdAt": state.stamp(), "state": job_state, "firstTerminalAt": state.stamp() if ended else None}))
     spare = subprocess.Popen(["sleep", "60"])
     if process:
         (config / "sessions" / f"{spare.pid}.json").write_text(json.dumps({"sessionId": "s-launch", "kind": "bg", "status": process}))
@@ -568,7 +575,27 @@ def test_a_handler_its_session_start_never_bound_holds_its_thread_only_until_its
         return
     assert {key: entry["handed"] for key, entry in handlers.items()} == {then.removeprefix("started "): [briefs["704431"]]}
 
-API_ERROR = "Please run /login · API Error: 403 Attention Required! | Cloudflare"
+
+def test_a_handler_binds_at_its_brief_not_its_session_start_and_one_the_drive_no_longer_holds_has_its_brief_refused_and_its_session_stopped(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = start(run, tmp_path)
+    monkeypatch.setenv(state.HANDLER_ENV, f"demo/{handler}")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "h-session", "transcript_path": str(tmp_path / "h-session.jsonl"), "source": "startup"})))
+    session_start.main()
+    assert (capsys.readouterr().out, state.load("demo")["handlers"][handler]["session"]) == ("", None)
+
+    with state.edit("demo") as data:
+        del data["handlers"][handler]
+    stopped: list[list[str]] = []
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: stopped.append(argv))
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    with pytest.raises(KeyError, match=handler):
+        bind(monkeypatch, handler, "h-session", tmp_path / "h-session.jsonl")
+    assert (stopped, state.session_drives("h-session")) == ([["claude", "stop", BACKGROUND_JOB]], [])
+
+
+API_ERROR ="Please run /login · API Error: 403 Attention Required! | Cloudflare"
 EARLIER = "2026-11-13T09:46:00.000Z"
 DIED = {
     "type": "assistant",
