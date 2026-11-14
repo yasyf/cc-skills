@@ -1634,6 +1634,12 @@ def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in job_parts(data["jobs"][job_id], order_id)]
 
 
+def orphan_stands(data: dict, order_id: str, part: str) -> bool:
+    """Whether the ORPHAN or FREE line the watch said of a part still stands: said, and no job on the part created or updated after it, a job's updated starting at its created, since the gap it said read none of that move, which the watch's next settled pass says again or heals; so drive status and the dashboard drop the line the moment a job joins the part or moves."""
+    said = data["orders"][order_id]["parts"][part]["orphan_said"]
+    return bool(said) and all(parse_time(job["updated"]) <= parse_time(said) for _, job in part_jobs(data, order_id, part))
+
+
 def part_builders(data: dict, order_id: str, part: str) -> list[str]:
     """Each builder or codex job that builds a part of an order: on it and neither failed nor stopped, as design_builder reads its builder, since a job that ended so builds nothing; one done or built counts, so a design read again builds no change twice."""
     return [job_id for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] not in ENDED_JOB_STATES]

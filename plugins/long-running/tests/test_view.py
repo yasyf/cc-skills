@@ -869,6 +869,22 @@ def test_incidents_list_his_open_incident_orders_oldest_first_but_one_the_watch_
     ]
 
 
+def test_an_incidents_watch_said_orphan_stands_beside_a_job_moving_on_another_part_and_drops_once_a_job_on_its_own_part_moves_or_it_heals() -> None:
+    said = state.new_part() | {"orphan_said": at(-20), "orphan_gap": "no job"}
+    data = drive_of(
+        {
+            "o1": order("runs fail for one team", ["j1"], incident=True, parts={"fix": said, "first check": state.new_part()}),
+            "o2": order("deploys hang", [], incident=True, parts={"fix": said | {"orphan_said": None, "orphan_gap": None}}),
+        },
+        {"j1": job("o1", "running", parts=["first check"], updated=-10)},
+        [],
+    )
+    orphaned = lambda: {entry["id"]: entry["orphaned"] for entry in view.board(data, found(), "live", [], T0, set(), {})["incidents"]}
+    assert orphaned() == {"o1": at(-20), "o2": None}
+    data["jobs"]["j1"]["parts"].append("fix")
+    assert orphaned() == {"o1": None, "o2": None}
+
+
 def test_bug_reports_list_each_shown_reported_order_oldest_first_at_the_stage_it_reached_until_its_reporter_is_told_and_no_shared_question() -> None:
     def reported(told: str | None = None) -> dict:
         return state.reporter("https://acme.slack.com/archives/C1/p1794200000000100") | {"told": told}

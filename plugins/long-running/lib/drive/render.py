@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, owed_at_return, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -466,7 +466,7 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
 
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
     lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
-    lines.extend(orphans(order, WHOLE))
+    lines.extend(orphans(drive, order_id, WHOLE))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
         lines.append(f"  - {job_line(job_id, job, WHOLE)}")
@@ -477,9 +477,13 @@ def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
     return lines
 
 
-def orphans(order: dict, limit: int) -> list[str]:
-    """Each part of the order whose ORPHAN line the watch said, with the gap it said, until the part heals or a FREE line hands it to its job."""
-    return [f'  ORPHAN "{cut(part, limit)}", said {when(held["orphan_said"])}: {cut(held["orphan_gap"], limit)}' for part, held in order["parts"].items() if held["orphan_gap"] not in (None, FREED)]
+def orphans(drive: dict, order_id: str, limit: int) -> list[str]:
+    """Each part of the order whose ORPHAN line the watch said, with the gap it said, while it stands: until the part heals, a FREE line hands it to its job or a job on the part moves, by orphan_stands."""
+    return [
+        f'  ORPHAN "{cut(part, limit)}", said {when(held["orphan_said"])}: {cut(held["orphan_gap"], limit)}'
+        for part, held in drive["orders"][order_id]["parts"].items()
+        if held["orphan_gap"] not in (None, FREED) and orphan_stands(drive, order_id, part)
+    ]
 
 
 def part_line(drive: dict, order_id: str, part: str) -> str:
@@ -617,10 +621,10 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
         lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
     lines.extend(agentless_lines(drive, None if runs is None else orders))
     lines.append(
-        f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals;"
+        f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"
     )
-    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(order))}", *orphans(order, 80)])
+    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(order))}", *orphans(drive, order_id, 80)])
     repros = sorted(
         (
             (job["updated"], job_id, job)
