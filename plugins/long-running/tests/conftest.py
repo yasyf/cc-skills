@@ -56,6 +56,7 @@ REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
 REAL_CHECKOUT = orca.checkout
 REAL_SPRITE_CONFIG = orca.sprite_config
+REAL_UNREAD = orca.unread
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
