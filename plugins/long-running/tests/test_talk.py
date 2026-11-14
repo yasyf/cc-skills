@@ -345,7 +345,7 @@ def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_
 
 def building(demo: str) -> None:
     with state.edit(demo) as data:
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", [state.whole_order(data["orders"]["o1"]["text"])], state.stamp())
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", list(data["orders"]["o1"]["parts"]), state.stamp())
         data["orders"]["o1"]["jobs"].append("j1")
 
 
@@ -838,12 +838,12 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
         talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "664348"})
     assert (sent, said(demo)) == ([], [])
     report(monkeypatch, {"close": "o1"}, lane="communicator")
-    assert talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "664350"}) == f'POSTED {answer}; o1 "which page shows a run\'s history?": posted {answer}'
+    assert talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "664350"}) == f'POSTED {answer}; o1 "Short title": posted {answer}'
     report(monkeypatch, {"close": "o2"}, lane="communicator")
     with pytest.raises(DriveError, match=r"refused, the report is the communicator's and o2 is the coordinator's order, so it delivers nothing there: pass the coordinator's own report on o2"):
         talk.say(demo, {"text": "The run page is live.", "thread_ts": thread, "record": "664351"})
     report(monkeypatch, {"close": "o2"})
-    assert talk.say(demo, {"text": "The run page is live.", "thread_ts": thread, "record": "664352"}) == f'POSTED {answer}; o2 "show a run\'s history": posted {answer}'
+    assert talk.say(demo, {"text": "The run page is live.", "thread_ts": thread, "record": "664352"}) == f'POSTED {answer}; o2 "Short title": posted {answer}'
     assert len(sent) == 2
 
 
@@ -1259,7 +1259,7 @@ def test_a_report_closing_its_order_in_another_orders_thread_his_message_started
     report(monkeypatch, {"close": "o1"})
     answer = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True, text="The incident badge counts only live incidents: 3 right now.")
     assert run("order", "posted", "o1", answer, "--record", "677110") == (
-        0, f'o1 "the incident badge counts only live incidents": posted {answer}, in thread {his}, now one of its threads'
+        0, f'o1 "Short title": posted {answer}, in thread {his}, now one of its threads'
     )
     data = state.load(demo)
     assert [where[:2] for where in data["orders"]["o1"]["threads"]] == [["D123", his]] and state.thread_order(data, his) == "o1"

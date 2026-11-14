@@ -2534,7 +2534,7 @@ def running_stops(data: dict, order_id: str) -> list[str]:
 def incident_job(data: dict, name: str, order_id: str, part: str, created: str) -> str:
     order = data["orders"][order_id]
     job_id = next_id(data["jobs"], "j")
-    data["jobs"][job_id] = new_job(order_id, "codex", f"{part}: {whole_order(order['text'])}", [part], created)
+    data["jobs"][job_id] = new_job(order_id, "codex", f"{part}: {order['title']}", [part], created)
     order["jobs"].append(job_id)
     return f'{job_id} on "{part}": start it now with drive job launch {job_id} -, its brief on stdin ending Drive: {name}, order {order_id}, job {job_id}'
 

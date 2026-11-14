@@ -969,7 +969,7 @@ def part_entry(drive: dict, order_id: str, part: str) -> dict:
     newest = max(state.carriers(drive, order_id, part), key=lambda pair: state.parse_time(pair[1]["updated"]), default=None)
     return {
         "name": part,
-        "whole": part == state.whole_order(order["text"]),
+        "whole": part in (order["title"], state.whole_order(order["text"])),
         "delivered": state.delivered(drive, order_id, part),
         "posted": None if state.work(drive, order_id, part) else order["parts"][part]["posted"],
         "job": newest and newest[0],

@@ -76,7 +76,7 @@ record it with `drive job set <your job> --repro <file>`, which keeps a copy `dr
 so a share reads it instead of your transcript.
 
 A `Research:` line or a `research:` goal asks what a build needs; its builder or designer is
-refused until your kept `DONE` or `DESIGN` report carries a line `Researched:` alone and three
+refused until your kept `DONE` or `DESIGN` report carries a line `Researched:` alone and four
 lines not starting `- `. `rulings:` holds, by id and quote, each answer of his `ccn answer match`
 returns for the order's whole words and each `scope:durable` answer on its area, his words alone: a
 question he asked settles nothing, whatever premise it states. `exists:` names each table, column,
@@ -89,8 +89,10 @@ check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` 
 the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to
 them, never to the one post.
 `open:` gives each question the order implies that he has not answered, with any open card's link.
-Each says `none` when empty. `drive job report` refuses your report without that block filled,
-naming each line missing.
+Each says `none` when empty. `build:` names in one line the change your research recommends its
+builder make, the deliverable rather than the order's subject, since your kept report makes it that
+builder's `Goal: build <that line>`. `drive job report` refuses your report without that block
+filled, naming each line missing.
 
 A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending

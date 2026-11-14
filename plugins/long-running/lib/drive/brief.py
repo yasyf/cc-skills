@@ -71,6 +71,7 @@ CHOICE_OPENINGS = ("ASK", "DESIGN")
 READY_OPENINGS = ("READY", "PUSHED")
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
 KEYS = ("rulings", "exists", "open")
+BLOCK_KEYS = (*KEYS, "build")
 RESEARCHED_KINDS = ("builder", "design", "codex")
 FOLLOW_UP_RULING = '"start deisgnng the follow p right awya motherfucker dont wait"'
 LANE_KINDS = ("reader", "builder", "design")
@@ -222,21 +223,21 @@ def gives_tooling(job_id: str, order_id: str) -> str:
 
 
 def block_lines(text: str) -> list[str]:
-    """The lines of the Researched: block a reader returned under its Researched: line, bulleted or not, up to the first line that is none of rulings, exists and open."""
+    """The lines of the Researched: block a reader returned under its Researched: line, bulleted or not, up to the first line that is none of rulings, exists, open and build."""
     found = RESEARCHED.search(text)
     if not found:
         return []
     taken = []
     for line in text[found.end() :].lstrip("\n").splitlines():
         key, colon, _ = line.strip().removeprefix("- ").partition(":")
-        if not colon or key.strip().casefold() not in KEYS:
+        if not colon or key.strip().casefold() not in BLOCK_KEYS:
             break
         taken.append(line.strip())
     return taken
 
 
 def researched(text: str) -> dict[str, str]:
-    """The Researched: block a reader returned: its rulings, exists and open lines, by key."""
+    """The Researched: block a reader returned: its rulings, exists, open and build lines, by key."""
     block = {}
     for line in block_lines(text):
         key, _, value = line.removeprefix("- ").partition(":")
@@ -295,6 +296,20 @@ def unstarted_builders(data: dict, reader_id: str) -> list[str]:
         for job_id in data["orders"][order_id]["jobs"]
         if (job := data["jobs"][job_id])["kind"] == "builder" and job["order"] == order_id and state.untaken(job) and reader_id in readers(data, order_id, job["parts"])
     ]
+
+
+def name_goals(name: str, data: dict, builder_ids: list[str], report: str) -> None:
+    """Give each of these builders whose goal its parts or an earlier reader's build: line named the goal this reader's build: line names, so its brief's Goal: names the change the newest research of its parts recommends, while a goal its coordinator or a design gave it stays."""
+    if not (goal := build_goal(report)):
+        return
+    for job_id in builder_ids:
+        job = data["jobs"][job_id]
+        if job["goal"] in {state.parts_goal(job["parts"]), *(build_goal(text) for _, text in researches(name, data, job["order"], job["parts"]))}:
+            job["goal"] = goal
+
+
+def build_goal(report: str) -> str | None:
+    return f"build {build}" if (build := researched(report).get("build")) else None
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
@@ -487,11 +502,11 @@ def reader_refusal(data: dict, job_id: str, job: dict, order: dict, text: str, l
     """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and offering the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
     block = researched(text)
     if order["kind"] == "build" and not order["incident"] and job["goal"].casefold().startswith("research") and (
-        missing := [f"{key}:" for key in KEYS if not block.get(key)]
+        missing := [f"{key}:" for key in BLOCK_KEYS if not block.get(key)]
     ):
         return (
             f"{job_id} researches a build order, so its report carries {BLOCK}, each filled or none, which its builder's"
-            f" brief names; it lacks {', '.join(missing)}"
+            f" brief names, and a build: line naming in one line the change its builder makes, its Goal:; it lacks {', '.join(missing)}"
         )
     if not lines[0].startswith("DESIGN"):
         return None

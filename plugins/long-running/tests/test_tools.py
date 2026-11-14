@@ -58,7 +58,7 @@ def test_a_job_call_whose_inline_tooling_order_repeats_one_no_unfinished_job_car
     said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
     assert said.splitlines()[0] == "1 order add: o2; joins o1: no record; no unfinished job on o1 carries it, so its jobs are added on o2"
     assert said.splitlines()[1].startswith("1 job add: j3; j4 builder on")
-    part = state.whole_order(LOCK_STALL_AGAIN)
+    part = filed["title"]
     data = state.load(meta)
     assert [(data["jobs"][job_id]["kind"], data["jobs"][job_id]["parts"], data["jobs"][job_id]["waits"]) for job_id in data["orders"]["o2"]["jobs"]] == [
         ("reader", [part], []),
@@ -119,7 +119,7 @@ def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_befor
 def test_o1009_a_defects_one_job_call_records_its_builder_waiting_on_the_reader_so_the_watch_says_no_orphan_while_it_reads(meta: str) -> None:
     words = "Drive tooling: the watch asked for proof of a PR on the dashboard"
     order = {"words": words, "kind": "build", "project": "The drive", "workstream": "Drive tooling", "title": "Proof on the dashboard"}
-    part = state.whole_order(words)
+    part = order["title"]
     said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "research: the proof the watch asked for"}}]})
     assert said.splitlines()[1:] == [
         f'1 job add: j1; j2 builder on "{part}" waits on j1: start no agent for it until the watch\'s FREE line says its last wait ended'
@@ -615,8 +615,8 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
         {"order": None, "part": None},
     ]
     orders = state.load(demo)["orders"]
-    assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Drive tooling: cards say why", "the dashboard drops my cards"])
-    assert list(orders["o1"]["parts"]) == ["ship the run page", "and the logs page"]
+    assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Short title", "the dashboard drops my cards"])
+    assert list(orders["o1"]["parts"]) == ["Short title", "and the logs page"]
 
 
 def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_and_words_he_never_typed_there_are_refused(
@@ -722,7 +722,7 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
     more = asked | {"text": "and count the ones from yesterday too", "url": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480200000100?thread_ts={thread}"}
     assert tools.run("record", demo, {"records": [more]}).splitlines()[-1] == "1 owner 672016"
     assert tools.run("record", demo, {"records": [more]}).splitlines() == ["1 owner 672017"]
-    assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [state.whole_order(badge["words"]), more["text"]])
+    assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [badge["title"], more["text"]])
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
         (["meta@demo"], "o1", None),
         (["meta@demo"], "o1", f"o1:{more['text']}"),
@@ -763,12 +763,12 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3; o3 already holds these words, so no order was added", "1 owner 677104"]
     orders = state.load(demo)["orders"]
     assert [(order_id, orders[order_id]["owner"], orders[order_id]["kind"], list(orders[order_id]["parts"])) for order_id in ("o2", "o3")] == [
-        ("o2", "meta", "answer", [state.whole_order(words)]),
-        ("o3", "meta", "answer", [later["text"]]),
+        ("o2", "meta", "answer", ["Drive tooling: hierarchical coordinators"]),
+        ("o3", "meta", "answer", [question["title"]]),
     ]
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
-        (["meta@demo"], "o2", f"o2:{state.whole_order(words)}"),
-        (["meta@demo"], "o2", f"o2:{state.whole_order(words)}"),
+        (["meta@demo"], "o2", "o2:Drive tooling: hierarchical coordinators"),
+        (["meta@demo"], "o2", "o2:Drive tooling: hierarchical coordinators"),
         (["meta@demo"], "o3", None),
         (["meta@demo"], "o3", None),
     ]
@@ -860,7 +860,7 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], [held["link"] for held in own["reporters"]]) == (
         shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", [first_report]
     )
-    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporters"], carries) == (["o1", "o2"], [fixing], [], {"o2": [state.whole_order(shared["text"])]})
+    assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporters"], carries) == (["o1", "o2"], ["Run page browser views"], [], {"o2": ["Browser views on run details"]})
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)] * 2
     second = shared | {
         "text": f"<{second_report}> Shared in <#C0TEAM>: the run page shows no screenshots either",
@@ -886,7 +886,7 @@ def test_a_report_he_shares_in_the_message_an_open_order_came_from_gives_that_or
     said = tools.run("record", demo, {"records": [shared]}).splitlines()
     assert (said[0].startswith("1 order set: "), said[-1]) == (True, "1 owner 1")
     orders = state.load(demo)["orders"]
-    assert (list(orders), list(orders["o1"]["parts"]), [held["link"] for held in orders["o1"]["reporters"]], posted[0]["attr"]["order"]) == (["o1"], [state.whole_order(words)], [report], "o1")
+    assert (list(orders), list(orders["o1"]["parts"]), [held["link"] for held in orders["o1"]["reporters"]], posted[0]["attr"]["order"]) == (["o1"], ["Cloud agent PR list"], [report], "o1")
     another = "https://acme.slack.com/archives/C0TEAM/p1794533400000100"
     tools.run("record", demo, {"records": [shared | {"attrs": shared["attrs"] | {"reporter": another}}]})
     orders = state.load(demo)["orders"]
@@ -914,7 +914,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     ]
     open_cards(monkeypatch, "demo:j1-7")
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
-    assert said[:2] == ["1 drive order set o1 --parts 'ship the run page' 'also the logs page'", "2 drive order set o2 --parts 'fix the alert' 'and the alert'"]
+    assert said[:2] == ["1 drive order set o1 --parts 'Short title' 'also the logs page'", "2 drive order set o2 --parts 'Short title' 'and the alert'"]
     assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said[2:6]] == [
         ("owner", ["iris@demo"]),
         ("owner", ["root@demo"]),

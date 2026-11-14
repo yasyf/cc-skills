@@ -3305,7 +3305,7 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
         death = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch}
         data["jobs"]["j1"].update(deaths=[death], updated=state.stamp(T0 - timedelta(minutes=2)))
     [line] = watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
-    assert line.startswith('ORPHAN o1 "ship the remote builder": j1\'s lane ended 2 minutes ago (its worker exited) and the watch\'s drive job resume at ')
+    assert line.startswith('ORPHAN o1 "Short title": j1\'s lane ended 2 minutes ago (its worker exited) and the watch\'s drive job resume at ')
     assert line.endswith("started no next lane, its output in the drive's relaunches.log")
 
 
@@ -3333,7 +3333,7 @@ def test_a_lane_whose_resume_refused_a_second_death_since_its_jobs_last_line_is_
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(workspace="sprite-old", deaths=[first, second], updated=state.stamp(T0 - timedelta(minutes=2)))
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
-        f'ORPHAN o1 "ship the remote builder": j1\'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite sprite-first at {render.when(first["at"])}'
+        f'ORPHAN o1 "Short title": j1\'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite sprite-first at {render.when(first["at"])}'
         f" (its worker exited; {NBD_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac"
     ]
 
@@ -3356,7 +3356,7 @@ def test_a_finished_lane_whose_job_still_runs_is_said_once_until_its_result_is_r
     with state.edit(remote) as data:
         data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
     said = (
-        'ORPHAN o1 "ship the remote builder": j1\'s lane succeeded and its result is not recorded; Forge-AI/monorepo#53447 '
+        'ORPHAN o1 "Short title": j1\'s lane succeeded and its result is not recorded; Forge-AI/monorepo#53447 '
         "on its branch ci-mac-box-prove is not in the drive: checks pass, review approved"
     )
     watching = watch.Watcher(remote, offset=state.events_end(remote))
@@ -3367,7 +3367,7 @@ def test_a_finished_lane_whose_job_still_runs_is_said_once_until_its_result_is_r
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING CI", due=state.stamp(T0 + timedelta(hours=2)), updated=state.stamp(T0))
     assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
-    assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
+    assert state.load(remote)["orders"]["o1"]["parts"]["Short title"]["orphan_said"] is None
 
 
 def test_a_lane_whose_report_lands_between_the_mail_read_and_the_worker_read_is_not_an_orphan(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3381,7 +3381,7 @@ def test_a_lane_whose_report_lands_between_the_mail_read_and_the_worker_read_is_
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ["JOB j1 o1 WAITING CI on #53935"]
     data = state.load(remote)
-    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"]) == ("waiting", None)
+    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["parts"]["Short title"]["orphan_said"]) == ("waiting", None)
     assert data["jobs"]["j1"]["waits"] == ["Forge-AI/monorepo#53935"]
 
 
@@ -3422,7 +3422,7 @@ def test_a_pr_added_while_github_reads_a_finished_lanes_branches_is_not_said_unt
     with state.edit(remote) as data:
         data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
-        'ORPHAN o1 "ship the remote builder": j1\'s lane succeeded and its result is not recorded'
+        'ORPHAN o1 "Short title": j1\'s lane succeeded and its result is not recorded'
     ]
 
 
@@ -3432,7 +3432,7 @@ def test_a_pr_added_while_github_reads_a_finished_lanes_branches_is_not_said_unt
         (timedelta(minutes=10), []),
         (
             timedelta(minutes=31),
-            ['ORPHAN o1 "ship the remote builder": j1\'s lane ended 31 minutes ago (its worker exited), was not resumed and its result is not recorded'],
+            ['ORPHAN o1 "Short title": j1\'s lane ended 31 minutes ago (its worker exited), was not resumed and its result is not recorded'],
         ),
     ],
 )
@@ -3691,7 +3691,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     goals = ("on this mac", "still at work", "its run lives on", "just finished", "stopped by hand")
-    run("order", "set", "o1", "--parts", "ship the remote builder", *goals)
+    run("order", "set", "o1", "--parts", "Short title", *goals)
     for goal in goals:
         run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     quiet = state.stamp(T0 - watch.QUIET_LANE)
@@ -3727,7 +3727,7 @@ def test_the_watch_ends_every_lane_on_a_sprite_two_minutes_after_its_line_ahead_
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
 ) -> None:
     goals = ("returned built", "returned done", "returned pushed", "still at work", "already ended")
-    run("order", "set", "o1", "--parts", "ship the remote builder", *goals)
+    run("order", "set", "o1", "--parts", "Short title", *goals)
     for goal in goals:
         run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     earlier = state.stamp(T0 - timedelta(minutes=10))
@@ -4269,7 +4269,7 @@ def test_the_six_eleven_burst_replayed_after_an_orca_prune_and_a_watch_restart_s
     merged = range(2, 32)
     said_before = state.stamp(T0 - timedelta(minutes=40))
     with state.edit(remote) as data:
-        data["orders"]["o1"]["parts"]["ship the remote builder"].update(
+        data["orders"]["o1"]["parts"]["Short title"].update(
             orphan_said=said_before, orphan_gap='j1 waits on "WAITING on the nightly store copy" and no open PR, card or due time can wake it'
         )
         data["jobs"]["j1"].update(workspace="sprite-old", state="waiting", said="WAITING on the nightly store copy", updated=state.stamp(T0 - timedelta(hours=2)))
@@ -4304,7 +4304,7 @@ def test_the_six_eleven_burst_replayed_after_an_orca_prune_and_a_watch_restart_s
     data = state.load(remote)
     assert {data["jobs"][f"j{n}"]["state"] for n in merged} == {"failed"}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["reads"], [death["dispatch"] for death in data["jobs"]["j1"]["deaths"]], relaunches) == ("waiting", {}, [DISPATCH], [])
-    assert data["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] == said_before
+    assert data["orders"]["o1"]["parts"]["Short title"]["orphan_said"] == said_before
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_closed", "--run", RUN, "--body", "log")]
 
 
@@ -4502,7 +4502,7 @@ def test_a_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_wit
     with state.edit(remote) as data:
         data["prs"]["Forge-AI/monorepo#4127"] = state.new_pr(state.pr_url("Forge-AI/monorepo#4127"), "j1", "o1")
     question = cli.keep_ask(remote, "j1", asked, None)[2]
-    assert question["holds"] == f"{held}; ship the remote builder"
+    assert question["holds"] == f"{held}; Short title"
     assert state.load(remote)["jobs"]["j1"]["questions"][-1]["holds"] == question["holds"]
 
 
@@ -4538,7 +4538,7 @@ def test_a_lane_question_nothing_answers_is_an_orphan_once_as_its_minutes_grow_w
     assert watch.run_pass(watching, T0) == ["JOB j1 o1 Which fixture keeps the hold test deterministic?"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
     said = (
-        'ORPHAN o1 "ship the remote builder": j1\'s lane asked "Which fixture keeps the hold test deterministic?" {} minutes ago'
+        'ORPHAN o1 "Short title": j1\'s lane asked "Which fixture keeps the hold test deterministic?" {} minutes ago'
         ' and nothing answered it: drive job resume j1 "<the answer>" answers it'
     )
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [said.format(30)]
@@ -4548,16 +4548,16 @@ def test_a_lane_question_nothing_answers_is_an_orphan_once_as_its_minutes_grow_w
     with state.edit(remote) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which fixture?", state.stamp(newer), card=newer_card))
     assert watch.run_pass(watching, T0 + timedelta(minutes=95)) == []
-    assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
+    assert state.load(remote)["orders"]["o1"]["parts"]["Short title"]["orphan_said"] is None
 
 
 @pytest.mark.parametrize(
     ("blocks", "pointer", "parts"),
     [
-        ([ASK_IN_SHAPE, SECOND_ASK], True, ["ship the remote builder"]),
-        ([ASK_IN_SHAPE], True, ["ship the remote builder"]),
-        ([ASK_IN_SHAPE], True, ["ship the remote builder", "the root fix"]),
-        ([ASK_IN_SHAPE], False, ["ship the remote builder"]),
+        ([ASK_IN_SHAPE, SECOND_ASK], True, ["Short title"]),
+        ([ASK_IN_SHAPE], True, ["Short title"]),
+        ([ASK_IN_SHAPE], True, ["Short title", "the root fix"]),
+        ([ASK_IN_SHAPE], False, ["Short title"]),
     ],
     ids=["j2329-two-paths", "j2310-one-path", "j2303-two-parts", "j2857-said-question"],
 )
@@ -4806,7 +4806,7 @@ def test_lane_names_fit_a_sprite() -> None:
 
 
 def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "set", "o1", "--parts", "ship the remote builder", "second lane")
+    run("order", "set", "o1", "--parts", "Short title", "second lane")
     run("job", "add", "builder", "--order", "o1", "--part", "second lane", "--goal", "second lane", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None)
@@ -4821,7 +4821,7 @@ def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: 
 
 
 def test_a_run_a_finished_job_shares_gives_the_live_job_only_its_own_workers_mail(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "set", "o1", "--parts", "ship the remote builder", "an earlier lane")
+    run("order", "set", "o1", "--parts", "Short title", "an earlier lane")
     run("job", "add", "builder", "--order", "o1", "--part", "an earlier lane", "--goal", "an earlier lane on the drive's old shared Run", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", state="done")
