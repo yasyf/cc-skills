@@ -533,7 +533,7 @@ session started, which `SendMessage` cannot reach: there it prints a handoff bri
 `Read your brief first:` line, and the agent you start on it takes the job as yours. A PR event after a builder
 returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
 `communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
-an incident. Run `drive job add builder` for the same order and parts, which takes each PR the old job opened and stops it
+an incident unless it carries an answer of his the job holds, by `superseded.delivery`, the rule each watch line names its step by. Run `drive job add builder` for the same order and parts, which takes each PR the old job opened and stops it
 `handed to <new>`, since a part has one change job, then write its brief with the `Handoff:` line and every earlier
 job's transcript under `Transcripts:`.
 

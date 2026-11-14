@@ -29,7 +29,6 @@ STATE_CLAIM = re.compile(
     re.IGNORECASE,
 )
 STATE_RULE = "A message that states or asks a running job's own state, such as that it stopped, stalled or went quiet, sent with no read of its transcript."
-FRESH_STATES = ("built", "done")
 READ_WINDOW = timedelta(minutes=10)
 
 
@@ -82,21 +81,10 @@ def messages(payload: dict, data: dict) -> list[tuple[str, str, str]]:
 
 
 def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | None:
-    """Why a SendMessage to a builder that returned BUILT or DONE carries no PR event: a resumed builder re-reads everything it ever did on every event, so a fresh one takes it; an incident's job is resumed for every event, and his answers the job holds go to its agent from the session that started it, by state.agent_lane and his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"."""
-    job = data["jobs"][job_id]
-    if payload["tool_name"] != "SendMessage" or job["kind"] != "builder" or job["state"] not in FRESH_STATES or data["orders"][job["order"]]["incident"]:
+    """Why a SendMessage does not reach a builder: the step superseded.delivery names for its text, the one every watch line names, is a fresh builder, as for a PR event to a builder that returned BUILT or DONE outside an incident, so each SendMessage a watch line names goes through and none it does not name for a returned builder does."""
+    if payload["tool_name"] != "SendMessage" or not (step := superseded.fresh_builder(data, job_id, data["jobs"][job_id], said, "this message")):
         return None
-    held = [kept["words"] for kept in job["undelivered"]] + [kept["words"] for _, kept in superseded.owed(data, job_id)]
-    if (lane := state.agent_lane(data, job)) and lane == state.session_lane(data, payload.get("session_id")) and any(superseded.carries(said, words) for words in held):
-        return None
-    takes = f"which takes each PR {job_id} opened and stops it" if job["state"] == "built" else "`drive pr add <url> --job <new>` for each PR it takes over"
-    return (
-        f"Refused on purpose: {job_id}'s builder already returned ({job['state']}), and a PR event after a builder returns goes"
-        " to a fresh builder, since a resumed one re-reads everything it ever did on every event. Run `drive job add builder`"
-        f" for order {job['order']} and its parts, {takes}, and brief it with a"
-        f" `Handoff:` line naming the event and {job_id}'s transcript under `Transcripts:`. His answers it holds go to it verbatim in a"
-        " SendMessage from the session that started its agent, which the watch's ANSWER undelivered line names."
-    )
+    return f"Refused on purpose: {step}. His answers it holds go to it verbatim in a SendMessage from the session that started its agent, which the watch's ANSWER undelivered line names."
 
 
 def woken_builder(payload: dict, data: dict, job_id: str) -> str | None:

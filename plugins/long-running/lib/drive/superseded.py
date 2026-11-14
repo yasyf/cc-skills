@@ -15,6 +15,7 @@ OTHERS_STAND = 3
 SUBJECT_TERMS = 3
 GENERIC_TITLES = 10
 PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
+FRESH_STATES = ("built", "done")
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -359,10 +360,12 @@ def unheard(data: dict, kept: dict) -> list[str]:
     ]
 
 
-def delivery(data: dict, job_id: str, job: dict, what: str = "his words") -> str:
-    """The one step by which the session holding the job gets a text to its worker: a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which the drive reads from that agent's transcript; drive job resume for a job any other worker runs or ran, which sends the text to its lane, posts it as a handoff record to the session that started a live agent and still holds it, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
+def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his words") -> str:
+    """The one step by which the session holding the job gets this text to its worker, which every watch line names and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which the drive reads from that agent's transcript; drive job resume for a job any other worker runs or ran, which sends the text to its lane, posts it as a handoff record to the session that started a live agent and still holds it, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
     from drive import place
 
+    if fresh := fresh_builder(data, job_id, job, text, what):
+        return fresh
     if (lane := state.agent_lane(data, job)) and not place.woken(data, job_id, state.now()):
         return f"SendMessage it {what} verbatim from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}"
     if job.get("agent") or job.get("dispatch"):
@@ -370,13 +373,32 @@ def delivery(data: dict, job_id: str, job: dict, what: str = "his words") -> str
     return f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 
 
+def fresh_builder(data: dict, job_id: str, job: dict, text: str, what: str) -> str | None:
+    """The fresh builder that takes a text in place of the job's agent: a builder that returned BUILT or DONE on an order no incident is takes each PR event, a red check, a stage line or a wake, on a fresh builder, since a resumed one re-reads everything it ever did on every event, by his pick "Fresh Opus fixer", while a text carrying an answer of his it holds or owes, read as hear reads it by delivered, reaches its agent as any job's does, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; None for any other job or text."""
+    if job["kind"] != "builder" or job["state"] not in FRESH_STATES or data["orders"][job["order"]]["incident"] or any(delivered(data, job_id, text, state.now())):
+        return None
+    takes = f"which takes each PR {job_id} opened and stops it" if job["state"] == "built" else "`drive pr add <url> --job <new>` for each PR it takes over"
+    return (
+        f"{job_id}'s builder already returned ({job['state']}), and a PR event after a builder returns goes to a fresh builder, since a resumed one"
+        f" re-reads everything it ever did on every event: run `drive job add builder` for order {job['order']} and its parts, {takes}, and brief it"
+        f" with a `Handoff:` line naming {what} and {job_id}'s transcript under `Transcripts:`"
+    )
+
+
+def delivered(data: dict, job_id: str, text: str, written: datetime) -> tuple[list[dict], list[dict]]:
+    """What a text reaching the job's worker, written at that moment, delivers of what the job waits to hear: each answer of his it owes whose words the text holds verbatim, and each text it holds whose held_answer words the text holds, his words alone for his answer, each once given by then, since a text written before, such as a brief quoting a card's option ahead of his tap, carried words he had not said yet."""
+    owes = [kept for answer_id, kept in owed(data, job_id) if carries(text, kept["words"]) and given(data, answer_id) <= written]
+    holds = [held for held in data["jobs"][job_id]["undelivered"] if carries(text, (said := held_answer(data, held))[0]) and said[1] <= written]
+    return owes, holds
+
+
 def hear(data: dict, job_id: str, text: str, written: datetime) -> None:
-    """Mark the job sent each answer of his it has not heard whose words the text delivered to its worker holds, a message sent to it or the brief, handoff or launch text it started on, written once he gave that answer: a text written before it, such as a brief quoting a card's option ahead of his tap, carried words he had not said yet; and take off the job each text it holds that the text delivers by the same reading, his words alone for his answer, so a SendMessage relaying them verbatim clears the copy as a resume does."""
-    for answer_id, kept in owed(data, job_id):
-        if carries(text, kept["words"]) and given(data, answer_id) <= written:
-            heard(data, job_id, kept, "sent")
+    """Mark the job sent each answer of his it owes, and take off the job each text it holds, that the text delivered to its worker carries by delivered, a message sent to it or the brief, handoff or launch text it started on, so a SendMessage relaying his words verbatim clears the copy as a resume does."""
+    owes, holds = delivered(data, job_id, text, written)
+    for kept in owes:
+        heard(data, job_id, kept, "sent")
     job = data["jobs"][job_id]
-    job["undelivered"] = [held for held in job["undelivered"] if not (carries(text, (said := held_answer(data, held))[0]) and said[1] <= written)]
+    job["undelivered"] = [held for held in job["undelivered"] if held not in holds]
 
 
 def held_answer(data: dict, held: dict) -> tuple[str, datetime]:
@@ -458,7 +480,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
     ]
     jobs = [
         f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: "
-        + delivery(data, job_id, job)
+        + delivery(data, job_id, job, kept["words"])
         + ", or mark it untouched"
         for job_id in unheard(data, kept)
         for job in [data["jobs"][job_id]]

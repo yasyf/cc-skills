@@ -3477,7 +3477,7 @@ def pr_wake(args: argparse.Namespace) -> int:
     job = data["jobs"][job_id or pr["job"]]
     lane = state.job_lane(data, job) if job_id else state.holding_job_lane(data, job)
     said = (
-        f"STAGE {text}; its builder {job_id} takes this line alone: {superseded.delivery(data, job_id, job, 'this line')}"
+        f"STAGE {text}; for its builder {job_id}, with this line alone: {superseded.delivery(data, job_id, job, text, 'this line')}"
         if job_id
         else f"STAGE {text}; no live job answers for it and its job {pr['job']} is {job['state']}, so no wake starts it: close it, or move it to a live job with drive pr add {pr['url']} --job <j>"
     )
