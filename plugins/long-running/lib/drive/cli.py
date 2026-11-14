@@ -113,15 +113,16 @@ def due_stamp(text: str) -> str:
 def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
+    kept = Path.cwd() if state.scratch() else orca.checkout(args.name, os.getcwd())
     if not orca.in_terminal():
         raise DriveError(
             f"drive start {args.name} --role {args.role}: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
-            f" start the session under cci and show it in one with {' then '.join(agents.launch(args.name, args.role, args.project, os.getcwd()))}"
+            f" start the session under cci and show it in one with {' then '.join(agents.launch(args.name, args.role, args.project, str(kept)))}"
         )
     if args.project and args.role != "coordinator":
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), orca.own_terminal())
+    fresh = state.new_drive(args.name, args.role, session, str(kept), orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
@@ -140,7 +141,8 @@ def start(args: argparse.Namespace) -> int:
     meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
     watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
-    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{seat}: session {held['session']}, {seen}"
+    elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
+    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
 
 
@@ -438,7 +440,7 @@ def incident_freeze(args: argparse.Namespace) -> int:
     order = find(data["orders"], args.id, "order")
     if not state.open_incidents(data, [args.id]):
         raise DriveError(f"{args.id}: refused, it is no open incident order")
-    checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
+    checkout_dir = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     until = state.stamp(state.now() + FREEZE_FOR)
     reason = f"{args.id}, {render.cut(order['text'], 80)}: held until its root fix releases"
     argv = [str(checkout_dir / "tools" / "ci"), "release", "freeze", *args.components, "--reason", reason, "--until", until, "--json"]
@@ -1240,10 +1242,10 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names from the top coordinator's checkout, leave it running once `ci release` names the build it started, and brief the job on that build; a start naming none stops the job with what it said."""
+    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, and brief the job on that build; a start naming none stops the job with what it said."""
     said: list[str] = []
     answer: dict = {}
-    with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=state.load(name)["roles"]["coordinator"]["cwd"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
+    with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
         for line in release.stdout:
             said.append(line)
             if answer := release_answer(said):
@@ -2794,7 +2796,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         write_brief(name, job_id, {})
         data = state.load(name)
         job = data["jobs"][job_id]
-    root = orca.checkout(name, data)
+    root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     written = answers_since(data, job_id, rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file"))
     if taker or died:
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
@@ -2955,7 +2957,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     finished = end.worktree and not here
     same = finished and state.on_mac(job)
     unreached = end.unreached and not (here or end.unfit)
-    root = None if same else orca.checkout(name, data)
+    root = None if same else orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     if finished and not same and (made := job.get("sprite_config")) != (now := orca.sprite_config(root)):
         was = f"the cc-remote config with SHA-256 {made[:12]}" if made else "a cc-remote config the drive never recorded"
         stale = f"its Sprite {job['workspace']} was made from {was}, and the one the default branch holds now has SHA-256 {now[:12]}"
@@ -3183,7 +3185,7 @@ def job_end(args: argparse.Namespace) -> int:
                 f"{args.id}: refused, nothing ended: it is running, so its lane has returned no line to end it on; drive job resume {args.id} sends a lane that stopped"
                 f" without one its next event, and drive job set {args.id} --state stopped ends it unfinished"
             )
-        root = orca.checkout(name, data)
+        root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
             ended = data["jobs"][args.id]
             if not (already := state.lane_ended(ended)):
@@ -3636,7 +3638,7 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
     repo = github.checkout_repo(clone).casefold()
     if not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == repo))):
         return {}
-    checkout = orca.checkout(name, data)
+    checkout = orca.checkout(name, clone)
     return {
         key: json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": github.files(key)})))
         for key in ours
@@ -4251,7 +4253,7 @@ def status(args: argparse.Namespace) -> int:
 
 
 def with_build(place: str, held: dict) -> str:
-    path = watch.config_dir() / "projects" / watch.NOT_SLUG.sub("-", held["cwd"]) / f"{held['session']}.jsonl"
+    path = watch.session_transcript(held)
     note = watch.unknown_model(*watch.running_build(path), CLAUDE_BUILDS) if path.exists() else None
     return f"{place}; {note}" if note else place
 
@@ -4471,7 +4473,7 @@ def break_glass(args: argparse.Namespace) -> int:
 
 
 def move(args: argparse.Namespace) -> int:
-    """Step 1 of moving a role's session under cci and into a fresh Orca terminal: his word naming the move, recorded on the role, and the session registered with cci, which resumes it in its tmux session once it exits; steps 2 to 4 printed, run by hand."""
+    """Step 1 of moving a role's session under cci and into a fresh Orca terminal: his word naming the move, recorded on the role, and the session registered with cci in the drive's checkout, which resumes it there in its tmux session once it exits; steps 2 to 4 printed, run by hand."""
     name = state.resolve(args.drive)
     if not args.his_word:
         raise DriveError(
@@ -4484,9 +4486,11 @@ def move(args: argparse.Namespace) -> int:
             " move it once the fix is live"
         )
     his_words(args.his_word, "move a session")
+    was = find(known["roles"], args.role, "role")["cwd"]
+    kept = was if state.scratch() else str(orca.checkout(name, was))
     with state.edit(name) as data:
         held = find(data["roles"], args.role, "role")
-        held["move_word"] = args.his_word
+        held.update(move_word=args.his_word, cwd=kept)
     registered = "" if state.scratch() else f"; {agents.register(name, args.role, None, held['cwd'], held['session'])}"
     lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
     mover = lanes[next(role for role in state.ROLES if role != args.role)]

@@ -53,6 +53,7 @@ REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
+REAL_CHECKOUT = orca.checkout
 REAL_SPRITE_CONFIG = orca.sprite_config
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
@@ -744,6 +745,12 @@ class Receiver:
     unadministered: set[str] = field(default_factory=set)
     refused: dict[str, Exception] = field(default_factory=dict)
     tried: list[str] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def checkout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A drive whose coordinator runs in a folder no git repository holds keeps that folder as its checkout, as a test's drive started in its own tmp folder does; a clone's drive moves its checkout as a real one does."""
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: REAL_CHECKOUT(drive, clone) if (Path(clone) / ".git").exists() else Path(clone))
 
 
 @pytest.fixture(autouse=True)

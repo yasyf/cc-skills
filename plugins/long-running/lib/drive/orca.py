@@ -443,9 +443,8 @@ def tool(name: str) -> str:
     return str(Path(newest["installPath"]) / "bin" / name)
 
 
-def checkout(drive: str, data: dict) -> Path:
-    """The checkout each lane's launch, save and release runs the orca plugin's scripts in, so every Sprite claim, refill and cleanup runs the cc-remote, config and tool payload its repository's default branch pins now: the worktree of the coordinator checkout's repository holding the branch drive-<drive>, which only the drive uses, moved with one fetch to that branch's head before each, never a session's working tree at whatever commit and edits it carries. git's worktree list finds it; the first launch cuts drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
-    clone = data["roles"]["coordinator"]["cwd"]
+def checkout(drive: str, clone: str) -> Path:
+    """The checkout every session of the drive runs in and each lane's launch, save and release runs the orca plugin's scripts in, so each tools/ci a session or its agents run and every Sprite claim, refill and cleanup run the code and the cc-remote, config and tool payload its repository's default branch pins now: the worktree of clone's repository holding the branch drive-<drive>, which only the drive uses, moved with one fetch to that branch's head at each drive start, release start and freeze and before each launch, save and release, never a branch a lane checked out there at whatever commit and edits it carries. git's worktree list finds it; the first call cuts drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
     lane = f"drive-{drive}"
     try:
         branch = github.default_branch(github.checkout_repo(clone))
@@ -457,7 +456,7 @@ def checkout(drive: str, data: dict) -> Path:
                 kept = holder(clone, lane)
             github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "-B", lane, sha], timeout=CHECKOUT_SECONDS)
     except github.GithubError as error:
-        raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, was not moved to the head of its default branch, so nothing launched, saved or released from it: {error}") from None
+        raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, was not moved to the head of its default branch, so nothing ran from it: {error}") from None
     if not (kept / ".orca.json").is_file():
         raise DriveError(f"{kept}, the drive's checkout at {branch} {sha[:12]}, has no .orca.json, so no lane can be cloned from it")
     return kept
@@ -691,7 +690,7 @@ def out_of_reach(error: OrcaError) -> bool:
 def woken(drive: str, job: dict, unreached: str) -> LaneEnd | None:
     """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: an unfit end when it answers with nothing listening on the port Orca's runtime serves on there, as when a full disk crash-loops that runtime, which saves the lane and restarts it on a fresh Sprite; the refusal again when something listens there, since Orca then fails on this Mac and no lane restarts for it; and when it does not answer, an end marked unreached, which restarts the lane on that Sprite in the checkout it left, where the launcher's prepare --existing wakes it when this wake did not."""
     try:
-        reclaimer(checkout(drive, state.load(drive)), "--wake", job["workspace"])
+        reclaimer(checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"]), "--wake", job["workspace"])
         end = shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
         unreached = f"{unreached}, and its wake read {error}"

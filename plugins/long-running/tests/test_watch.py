@@ -6007,7 +6007,7 @@ def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], li
         return ""
 
     monkeypatch.setattr(watch.reads, "run", run)
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: DRIVE_CHECKOUT)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
     return calls
 
 
@@ -6063,7 +6063,7 @@ def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head
     serve(monkeypatch, {})
     calls = incident_reads(monkeypatch, {}, {"42": True})
 
-    def unmoved(name: str, data: dict) -> Path:
+    def unmoved(name: str, clone: str) -> Path:
         raise state.DriveError("the drive's checkout was not moved to the head of its default branch")
 
     monkeypatch.setattr(watch.orca, "checkout", unmoved)
@@ -6650,6 +6650,16 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
     watch.stall_lines(watching, T0 + timedelta(minutes=98))
     [[report]] = ready_records
     assert report["text"] == f"POST {KEY} has not moved in 98 minutes and the meta session was told 30 minutes ago: post one line on it in its thread"
+
+
+def test_a_sessions_transcript_is_read_from_the_folder_it_first_ran_in_after_its_role_moved_to_the_drives_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    first = tmp_path / "projects" / "-Users-me-src-monorepo" / "s-1.jsonl"
+    first.parent.mkdir(parents=True)
+    first.write_text("{}\n")
+    moved = {"session": "s-1", "cwd": "/Users/me/worktrees/monorepo/drive-demo"}
+    assert watch.session_transcript(moved) == first
+    assert watch.session_transcript(moved | {"session": "s-2"}) == tmp_path / "projects" / "-Users-me-worktrees-monorepo-drive-demo" / "s-2.jsonl"
 
 
 def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
