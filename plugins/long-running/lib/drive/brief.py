@@ -418,7 +418,7 @@ def build_goal(report: str) -> str | None:
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
-    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder landing PRs he approved, or as a follow-up's design, each of which starts at once."""
+    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder that builds nothing, one landing PRs he approved, starting a release or marked --builds-nothing such as a staging test of a built PR, or as a follow-up's design, each of which starts at once."""
     return (
         order["kind"] == "build"
         and not order["incident"]
@@ -476,7 +476,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs a Mac: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs a Mac: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix, builds nothing as a --builds-nothing builder such as a staging test of a built PR, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     tooling = SERVES_TOOLING.search(brief)
     runs = None if tooling else RUNS_AS.search(brief)
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
@@ -505,7 +505,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
                 " transcripts, records and his answers itself, so its brief carries no Researched: line"
             )
         return None
-    if job["kind"] not in RESEARCHED_KINDS:
+    if job["kind"] not in RESEARCHED_KINDS or job.get("builds_nothing"):
         return None
     named = RESEARCHED_BY.search(brief)
     if named is None:

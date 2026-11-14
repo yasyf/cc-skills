@@ -804,6 +804,30 @@ def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_builder
     assert f"--waits {wait}: name a part of o2 still to be delivered, word for word, as o2:<part>: none is left" in capsys.readouterr().err
 
 
+def test_a_part_wait_open_prs_of_another_job_outside_its_stack_share_is_refused_on_pr_set_and_on_a_waiting_return_naming_a_part_of_its_own(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the fix", "the follow-on")
+    run("order", "add", "--title", "Staging rule", "--project", "The drive", "--workstream", "Drive tooling", "hold each PR", "--parts", "every dangerous PR is held")
+    run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the follow-on", "--goal", "ship more")
+    first, second, third = (f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (7, 8, 9))
+    for url, job_id in ((first, "j1"), (third, "j1"), (second, "j2")):
+        run("pr", "add", url, "--job", job_id, *LEAD)
+    wait = "o2:every dangerous PR is held"
+    before = state.load(demo)["jobs"]["j2"]
+    assert run("pr", "set", first, "--waits", wait)[0] == 0
+    assert run("pr", "set", third, "--waits", wait)[0] == 0
+    assert cli.main(["pr", "set", second, "--waits", wait]) == 2
+    refused = "Forge-AI/monorepo#7, Forge-AI/monorepo#9, of other jobs outside Forge-AI/monorepo#8's stack, wait on o2:every dangerous PR is held already"
+    err = capsys.readouterr().err
+    assert (refused in err, 'drive order set o2 --parts <its parts> "staging test of #8 before it lands"' in err) == (True, True)
+    code, err = keep(monkeypatch, capsys, "j2", f"WAITING {second} waits on {wait}\n")
+    assert (code, f"its WAITING puts Forge-AI/monorepo#8 on {wait}: {refused}" in err) == (2, True)
+    data = state.load(demo)
+    assert (data["prs"]["Forge-AI/monorepo#8"]["waits"], data["jobs"]["j2"]) == ([], before)
+
+
 def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming_the_components_go_ci_finds_they_reach(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4054,7 +4078,8 @@ def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     assert cli.main(["job", "report", "j1"]) == 2
     assert "j1 kept no report and has returned nothing yet" in capsys.readouterr().err
-    run("job", "set", "j1", "--said", "DONE installed 1.0.76")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["said"] = "DONE installed 1.0.76"
     assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\n(j1 kept no report; this one-line result is all it returned)")
     assert json.loads(run("job", "report", "j1", "--json")[1]) == {"id": "j1", "report": None, "said": "DONE installed 1.0.76"}
 
@@ -4648,6 +4673,20 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
     assert "--lands Forge-AI/monorepo#43: no drive PR" in capsys.readouterr().err
     run("pr", "set", PR, "--tapped", "Approve", "--tap-source", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589")
     assert run("job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it")[0] == 0
+
+
+def test_a_builds_nothing_builder_on_a_build_orders_staging_test_part_starts_and_launches_with_no_research(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", "the store", "staging test of #42 before it lands")
+    soak = ["job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "soak #42 on staging"]
+    assert cli.main(soak) == 2
+    assert "o1 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
+    assert run(*soak, "--builds-nothing")[1].splitlines()[0] == "j1"
+    data = state.load("demo")
+    assert brief.brief_refusal("demo", data, "j1", "Drive: demo, order o1, job j1") is None
+    data["jobs"]["j1"]["builds_nothing"] = False
+    assert "its brief carries the line Researched:" in brief.brief_refusal("demo", data, "j1", "Drive: demo, order o1, job j1")
 
 
 def test_a_drive_tooling_yasyf_pr_wanting_no_tap_may_land_untapped_as_the_lander_lands_it(run: Run, with_pr: str, meta: str) -> None:
@@ -5489,7 +5528,8 @@ def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_neve
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--agent", "a-1")
-    run("job", "set", "j1", "--said", "DONE The lane comes from bookkeeping")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["said"] = "DONE The lane comes from bookkeeping"
     for taken in ("waiting", "built", "done", "failed"):
         assert cli.main(["job", "set", "j1", "--state", taken, "--said", f"asked {taken}"]) == 2
         assert capsys.readouterr().err == (
@@ -5502,6 +5542,20 @@ def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: 
     assert (job["state"], job["said"]) == ("running", "DONE The lane comes from bookkeeping")
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+
+
+def test_job_set_refuses_a_said_line_whose_result_sets_another_state_than_the_job_keeps(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--agent", "a-1")
+    before = state.load(demo)["jobs"]["j1"]
+    for said in ("DONE followed release 16042", "BUILT j1-branch, waits on demo:j1-1", "BLOCKED the branch is gone"):
+        assert cli.main(["job", "set", "j1", "--said", said]) == 2
+        assert "refused, nothing changed: --said opens with a result that sets" in capsys.readouterr().err
+    assert state.load(demo)["jobs"]["j1"] == before
+    for said in ("following release 16042", "DONEISH is no result word"):
+        assert run("job", "set", "j1", "--said", said)[0] == 0
+    assert run("job", "set", "j1", "--state", "stopped", "--said", "HANDOFF handed to j2")[0] == 0
+    assert state.load(demo)["jobs"]["j1"]["said"] == "HANDOFF handed to j2"
 
 
 def test_a_design_job_ends_once_the_builder_its_return_or_his_pick_adds_takes_its_part_or_one_of_its_changes(

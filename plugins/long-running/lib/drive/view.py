@@ -234,7 +234,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -244,12 +244,41 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] == "open"
     if part := state.part_wait(drive, wait):
-        return drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
+        return shared(drive, wait) or drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return drive["prs"][release["pr"]]["state"] != "closed"
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
     return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait)) or card_open(wait, found)
+
+
+def shared(drive: dict, wait: str) -> bool:
+    """Whether open PRs of two jobs outside one stack wait on the part, so one job's DONE on it would free PRs it never proved."""
+    return any(job != other_job and bottom != other_bottom for (job, bottom), (other_job, other_bottom) in itertools.combinations(kin(drive, wait).values(), 2))
+
+
+def pooled(drive: dict, key: str, wait: str) -> str:
+    """Why key may not wait on the part, which drive pr set and a WAITING line refuse alike, naming the part of its own that holds it; "" when no open PR of another job outside its stack waits on it."""
+    kins = kin(drive, wait, key)
+    job, bottom = kins[key]
+    strangers = [other for other, (other_job, other_bottom) in kins.items() if other_job != job and other_bottom != bottom]
+    if not strangers:
+        return ""
+    order_id, number = wait.split(":", 1)[0], key.rsplit("#", 1)[1]
+    return (
+        f"{', '.join(strangers)}, of other jobs outside {key}'s stack, wait on {wait} already, and that part never frees while they do, since one job's DONE on it"
+        f' proves none of them: give {key} a part of its own, as drive order set {order_id} --parts <its parts> "staging test of #{number} before it lands",'
+        f' carried by the job that proves it, then wait on "{order_id}:<that part>", or wait on the job or PR doing the work by its id or <owner>/<repo>#<n>'
+    )
+
+
+def kin(drive: dict, wait: str, *named: str) -> dict[str, tuple[str | None, str]]:
+    """Each open PR waiting on the wait, and each PR named, mapped to its job and the bottom of its stack, as land.chain reads it."""
+    from drive import land
+
+    keys = [key for key, pr in drive["prs"].items() if key in named or pr["state"] == "open" and wait in pr["waits"]]
+    under = land.unders(drive) if len(keys) > 1 else {}
+    return {key: (drive["prs"][key]["job"], land.chain(under, key)[0]) for key in keys}
 
 
 def coming(drive: dict, job_id: str) -> bool:
