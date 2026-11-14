@@ -16,6 +16,14 @@ RESUMED = "d8677ab9-1e8c-4adb-a3bb-3f661dc45b77"
 CREATE = f'orca terminal create --worktree path:/work --title demo-coordinator --command "claude --resume {RESUMED} -n demo-coordinator" --json'
 CACHED = "~/.claude/plugins/cache/x/long-running/1.0.1/skills/long-running/reference"
 LIVE_PID = orca.live_pid
+IDENTITY = (
+    "/** Where every internal release drops its versioned tarballs and `latest.json`. */\n"
+    'export const RELEASE_ARTIFACTS_BUCKET = "frg-core-usw2-artifacts-internal-release-artifacts"\n\n'
+    'export const RELEASE_ARTIFACTS_ROLE_ARN =\n  "arn:aws:iam::484907489518:role/frg-plat-usw2-prod-internal-release-artifacts-buildkite"\n\n'
+    "/** The auto-updater's release origin; desktop and iris share it under separate key prefixes. */\n"
+    'export const DESKTOP_RELEASE_BUCKET = "frg-plat-usw2-prod-desktop-release-origin"\n'
+)
+STATE = 'export const STATE_BUCKET = "frg-core-usw2-root-pulumi-state"\n\nexport const STATE_BUCKET_ARN = `arn:aws:s3:::${STATE_BUCKET}`\n'
 
 
 @pytest.fixture(autouse=True)
@@ -461,7 +469,8 @@ def test_a_bucket_call_is_judged_by_the_team_bucket_list_of_its_sessions_folder_
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     reason = bash_guard.deny_reason(bash(CI_POINTER, **builder))
     assert reason.startswith("refused: this reads or writes `frg-ci-cache/cache-seeds/ci-go-pointer/dev` where the job runs, and `/work`, the folder its session runs in, holds no `release/team-buckets.generated.json` at origin/dev")
-    assert "Run it from a session in a Forge-AI/monorepo checkout" in reason
+    assert "`AWS_PROFILE=<env profile> tools/ci pass-box launch --purpose <job>" in reason
+    assert "git fetch" not in reason
     assert bash_guard.deny_reason(bash(f"cd {monorepo} && {CI_POINTER}", **builder)) == reason
     release = "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/0.162.3983/latest.json -"
     assert bash_guard.deny_reason(bash(f"cd {tmp_path} && {release}", cwd=monorepo, **builder)) is None
@@ -472,11 +481,12 @@ def test_a_bucket_call_is_judged_by_the_team_bucket_list_of_its_sessions_folder_
     assert f'"{limits.IRIS_BLOBS_QUOTE}"' in bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/sessions/", **builder))
 
 
-def test_a_wrapper_whose_scripts_reach_only_cis_cache_runs_while_the_team_bucket_list_is_missing(demo: str, tmp_path: Path) -> None:
+def test_the_buckets_the_monorepo_names_as_build_and_release_output_pass_while_the_team_bucket_list_is_missing(demo: str, tmp_path: Path) -> None:
     checkout = tmp_path / "stale"
     checkout.mkdir()
     git_in(checkout, "init", "-q", "-b", "dev")
-    git_in(checkout, "update-ref", "refs/remotes/origin/dev", commit_files(checkout, "the artifact table", {"tools/artifacts.json": json.dumps({"bucket": "frg-ci-cache"})}))
+    outputs = {"tools/artifacts.json": json.dumps({"bucket": "frg-ci-cache"}), "infra/ci/src/pipelines/identity.ts": IDENTITY, "infra/ci/src/contract/state.ts": STATE}
+    git_in(checkout, "update-ref", "refs/remotes/origin/dev", commit_files(checkout, "the build and release outputs", outputs))
     tools = checkout / "tools"
     (tools / "cc-remote" / "bin").mkdir(parents=True)
     (tools / "cc-remote" / "bin" / "cc-remote").write_text(
@@ -491,8 +501,18 @@ def test_a_wrapper_whose_scripts_reach_only_cis_cache_runs_while_the_team_bucket
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(checkout)}
     wrapped = ["tools/cc-remote/bin/cc-remote --help", "tools/cc-remote/bin/cc-remote destroy durable-agents-j4517"]
     assert [bash_guard.deny_reason(bash(command, **builder)) for command in wrapped] == [None, None]
-    assert bash_guard.deny_reason(bash(CI_POINTER, **builder)) is None
-    assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/", **builder)).startswith(f"refused: this reads or writes `artifacts-prod/` where the job runs, and `{checkout}`, the folder its session runs in, holds no")
+    released = [
+        CI_POINTER,
+        "aws --profile core-artifacts-read s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/next.json -",
+        "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/0.162.5074/sandnext_0.162.5074_darwin_arm64.tar.gz .",
+        "aws --profile plat-prod-read s3api list-objects-v2 --bucket frg-plat-usw2-prod-desktop-release-origin --prefix iris-desktop/by-key/",
+        "AWS_PROFILE=plat-prod aws s3 ls s3://frg-core-usw2-root-pulumi-state/pulumi/.pulumi/history/k8s/plat-usw2-prod/",
+    ]
+    assert [bash_guard.deny_reason(bash(command, **builder)) for command in released] == [None] * len(released)
+    unlisted = bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/", **builder))
+    assert unlisted.startswith(f"refused: this reads or writes `artifacts-prod/` where the job runs, and `{checkout}`, the folder its session runs in, holds no")
+    assert "git fetch" not in unlisted
+    assert bash_guard.deny_reason(bash("aws s3 ls s3://frg-core-usw2-artifacts-internal-release-artifacts/iris/teams/t/runs/", **builder)).startswith("refused: this reads or writes")
     assert "It holds a team's data" in bash_guard.deny_reason(bash("aws s3 ls s3://frg-ci-cache/iris/teams/t/runs/", **builder))
     (tools / "artifacts.json").write_text(json.dumps({"bucket": "artifacts-prod"}))
     assert bash_guard.deny_reason(bash(wrapped[0], **builder)).startswith("refused: this reads or writes `artifacts-prod/$object` where the job runs")
