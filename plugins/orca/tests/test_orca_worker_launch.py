@@ -195,14 +195,11 @@ class Launch:
         self.brief = self.briefs / f"{LANE}.md"
         self.brief.write_text(BRIEF)
         self.attempt = self.briefs / f"{LANE}.worker"
-        self.home = root / "home"
-        self.home.mkdir()
         self.path = [str(self.bin), *(path for path in os.environ["PATH"].split(os.pathsep) if path)]
         self.env = {
             **{key: value for key, value in os.environ.items() if not key.startswith(("WORKER_", "ORCA_", "CC_REMOTE_"))},
             "PATH": os.pathsep.join(self.path),
             "FAKE_STATE": str(self.fake),
-            "HOME": str(self.home),
             "PYTHONPYCACHEPREFIX": str(root / "python-cache"),
             "WORKER_RUN": RUN,
             "CC_REMOTE_CONFIG": str(self.config),
@@ -387,7 +384,7 @@ class PreAllocationTest(LaunchTest):
                 self.assert_refused(launch, launch.run(WORKER_EXPECT_BASE=value), "WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared", [])
 
     def test_a_missing_cc_remote_refuses(self):
-        missing = self.launch.home / "absent" / "cc-remote"
+        missing = self.launch.root / "absent" / "cc-remote"
         self.launch.sprite()
         self.assert_refused(self.launch, self.launch.run(WORKER_CC_REMOTE=str(missing)), f"WORKER_CC_REMOTE names no cc-remote command at {missing}; nothing was prepared", [])
 
@@ -628,10 +625,12 @@ class SpriteTest(LaunchTest):
         )
 
     def test_receipts_stay_in_the_attempt(self):
+        cwd = self.launch.root / "cwd"
+        cwd.mkdir()
         self.launch.sprite()
-        self.assertEqual(self.launch.run().returncode, 0)
+        self.assertEqual(self.launch.run(cwd=cwd).returncode, 0)
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
-        self.assertEqual(list(self.launch.home.iterdir()), [])
+        self.assertEqual(list(cwd.iterdir()), [])
 
     def test_an_unset_cli_runs_cc_remote_from_path_against_the_given_config(self):
         self.launch.sprite()
