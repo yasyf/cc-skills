@@ -1109,6 +1109,23 @@ def unstarted_builder(data: dict, job: dict) -> bool:
     )
 
 
+def stopped_untaken(job: dict) -> bool:
+    """Whether a job is a builder stopped before any agent or lane took it, as one whose reader found nothing to build or found a PR already carrying its parts."""
+    return job["kind"] == "builder" and job["state"] == "stopped" and not job.get("agent") and not job.get("dispatch")
+
+
+def untracked_carriers(data: dict, job: dict) -> list[str]:
+    """The keys of the PRs the drive does not track that carry a builder's parts: those drive job set --pr kept on a builder stopped before any agent or lane took it, such as a teammate's open PR its reader found already doing its work, while the drive tracks none of its PRs; none for any other job."""
+    if not stopped_untaken(job):
+        return []
+    keys = [pr_key(url) for url in job["prs"]]
+    return [] if any(key in data["prs"] for key in keys) else keys
+
+
+def carrier_keys(data: dict) -> list[str]:
+    return list(dict.fromkeys(key for job in data["jobs"].values() for key in untracked_carriers(data, job)))
+
+
 def result_state(job: dict, line: str) -> str | None:
     """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line, which its run's state field opens, maps as every other job's does, so its HANDOFF stops it and its READY or PUSHED waits on its PR."""
     opening = re.match(r"[A-Z]*", line)[0]

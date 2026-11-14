@@ -107,6 +107,15 @@ def test_the_reopen_of_a_pr_a_drive_holds_closed_is_written_to_that_drive_while_
     receiver.took(REPO, 9, "g2", "pull_request", {"action": "edited", "pull_request": {"number": 41}})
     assert delivered(demo) == [{"repo": REPO, "numbers": [42], "event": "pull_request", "guid": "g1"}]
 
+
+def test_the_close_of_a_pr_the_drive_does_not_track_that_carries_a_stopped_builders_part_is_written_to_that_drive_while_its_check_run_is_not(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "port the fixes", [], state.stamp()) | {"state": "stopped", "prs": [state.pr_url(f"{REPO}#44")]}
+    receiver.took(REPO, 9, "g1", "check_run", {"check_run": {"head_sha": "ccc", "pull_requests": [{"number": 44}]}})
+    receiver.took(REPO, 9, "g2", "pull_request", {"action": "closed", "pull_request": {"number": 44}})
+    assert delivered(demo) == [{"repo": REPO, "numbers": [44], "event": "pull_request", "guid": "g2"}]
+
+
 @pytest.fixture
 def listening(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, list[tuple]]]:
     taken: list[tuple] = []

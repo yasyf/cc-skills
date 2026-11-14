@@ -95,6 +95,7 @@ class Watcher:
     sending: dict[str, int] = field(default_factory=dict)
     resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
+    untracked: dict[str, str] = field(default_factory=dict)
 
     @property
     def lane(self) -> str:
@@ -160,7 +161,7 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap, and saying nothing of it."""
     data = state.load(watcher.name)
     pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
     keys = [
@@ -168,12 +169,15 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key in state.unmerged_pr_keys(data)
         if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or (data["prs"][key]["required"] is None and key not in watcher.stale))
     ]
+    carried = [key for key in state.carrier_keys(data) if watcher.owed is None or key not in watcher.untracked or key in watcher.owed]
     watcher.owed = set()
-    if not keys:
+    if not keys and not carried:
         return []
-    reads, refused = github.fetch(keys)
+    reads, refused = github.fetch([*keys, *carried])
+    carrying = {key: reads.pop(key)["state"] for key in carried if key in reads}
+    watcher.untracked |= carrying
     unread = set(keys) - set(reads)
-    watcher.owed = (unread if refused else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"}
+    watcher.owed = (unread | set(carried) - set(carrying) if refused else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"}
     watcher.stale = watcher.stale - set(reads) | unread
     lines = read_failed(watcher, "github", refused, moment) if refused else []
     if not refused:
@@ -2106,8 +2110,8 @@ def carded(job: dict, asked: datetime) -> bool:
     return any(state.parse_time(question["asked"]) >= asked for question in drawn)
 
 
-def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """Why the job leaves its parts with no one, None when it carries them or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a waiting job nothing can wake also names what its line names that ended or moved."""
+def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
+    """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
     if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
@@ -2138,7 +2142,25 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         drawn = [question for question in job["questions"] if question["card"]]
         answered = "card is" if len(drawn) == 1 else "cards are"
         return None if view.open_cards(job) else f"{job_id}'s {answered} answered and no job carries his answer"
+    if keys := state.untracked_carriers(data, job):
+        return untracked_gap(watcher, job_id, job, order_id, part, keys)
     return f"{job_id} {job['state']}"
+
+
+def untracked_gap(watcher: Watcher, job_id: str, job: dict, order_id: str, part: str, keys: list[str]) -> str | None:
+    """Why the PRs the drive does not track that a builder stopped before any agent took it holds leave its part with no one, by GitHub's state of each as github_lines last read it: None while one reads open, SETTLING until each was read, then the merged one as the part's delivery, which drive order posted records, or else each closed unmerged, naming the builder to start on the stopped one's goal."""
+    read = [watcher.untracked.get(key) for key in keys]
+    if "OPEN" in read:
+        return None
+    if None in read:
+        return SETTLING
+    if merged := [key for key, now in zip(keys, read, strict=True) if now == "MERGED"]:
+        return delivered_by(order_id, part, merged[0])
+    return f"{' and '.join(keys)} closed unmerged, carrying nothing of {job_id}'s work: start its builder with drive job add builder --order {order_id} --part {shlex.quote(part)} --goal {shlex.quote(job['goal'])}"
+
+
+def delivered_by(order_id: str, part: str, key: str) -> str:
+    return f"{key} merged, so drive order posted {order_id} {state.pr_url(key)} --part {shlex.quote(part)} delivers it"
 
 
 def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None:
@@ -2257,7 +2279,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
-    gaps = {job_id: job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs}
+    gaps = {job_id: job_gap(watcher, job_id, job, data, order_id, part, moment) for job_id, job in jobs}
     if stuck := [gap for job_id, job in jobs if (gap := gaps[job_id]) and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
     if (
@@ -2310,7 +2332,7 @@ def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) 
     prs = state.named_prs(data, order_id, part)
     merged = prs and all(data["prs"][key]["state"] == "merged" for key in prs)
     done = (
-        f"{prs[0]} merged, so drive order posted {order_id} {state.pr_url(prs[0])} --part {named} delivers it"
+        delivered_by(order_id, part, prs[0])
         if merged
         else f"when it asks only for an answer, drive order set {order_id} --kind answer --part {named}; when a merged PR delivered it, drive order posted {order_id} <its link> --part {named}"
     )

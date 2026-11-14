@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, work
+from drive.state import DRIVE_TOOLING, FREED, ROLES, SLOT_WAIT, VERSION, agent_gone, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, named_prs, now, open_orders, parse_time, pr_key, pr_url, project_lane, promise_thread, resumed, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -475,11 +475,16 @@ def orphans(order: dict, limit: int) -> list[str]:
 
 
 def part_line(drive: dict, order_id: str, part: str) -> str:
-    """A part as drive status lists it: delivered, else each job state.carriers says can carry it, else that no builder carries work he ordered."""
+    """A part as drive status lists it: delivered, else each job state.carriers says can carry it, with each PR the drive does not track that carries a stopped builder's part, else that no builder carries work he ordered."""
     if delivered(drive, order_id, part):
         return f'"{part}": delivered'
-    held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in carriers(drive, order_id, part))
+    held = ", ".join(f"{job['kind']} {job_id} {job['state']}{untracked_line(drive, job)}" for job_id, job in carriers(drive, order_id, part))
     return f'"{part}": {held or ("no builder carries it" if work(drive, order_id, part) else "no job carries it")}'
+
+
+def untracked_line(drive: dict, job: dict) -> str:
+    keys = untracked_carriers(drive, job)
+    return f" with {' and '.join(map(pr_url, keys))} carrying it" if keys else ""
 
 
 def pr_history(drive: dict, key: str, skip: str) -> list[str]:
