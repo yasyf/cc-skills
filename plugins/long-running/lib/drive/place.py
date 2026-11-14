@@ -66,7 +66,7 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder marked with --builds-nothing on drive job add or drive job set, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder marked with --builds-nothing on drive job add or drive job set, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
@@ -77,6 +77,8 @@ def local_builders(data: dict, moment: datetime) -> dict[str, str]:
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     if on_sprite(job):
         return f"its turn to move here from its Sprite came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None
+    if job.get("where") != "remote" and not job["agent"] and watch.launching(job, moment):
+        return f"its agent launching since {when(job['launching'], seconds=True)}"
     if job["state"] == "waiting":
         return "freed to start here, its agent not started yet" if job.get("slot") and not job["waits"] and not job["agent"] and job.get("where") != "remote" else None
     if job.get("where") != "remote":

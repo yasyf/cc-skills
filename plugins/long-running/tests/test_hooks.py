@@ -467,6 +467,25 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     assert no_calls == []
 
 
+def test_a_burst_of_builder_starts_here_fills_the_cap_before_any_agents_first_step_and_that_step_keeps_its_slot(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 10)))
+    for number in range(1, 10):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}")
+    order = "Order (his words): tidy the docs\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
+    starts = [started_by_role(os.environ["CLAUDE_CODE_SESSION_ID"], subagent_type="long-running:builder", prompt=kept_brief(f"{order}j{number}")) for number in range(1, 10)]
+    assert [agent_brief.deny_reason(start) for start in starts[:8]] == [None] * 8
+    assert agent_brief.deny_reason(starts[8]).startswith("refused: 8 builders already run on this Mac, its cap of 8 (j1 on o1, its agent launching since ")
+    monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
+    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, f"{order}j1"))) == ""
+    held = state.load(demo)
+    assert (held["jobs"]["j1"]["agent"], held["jobs"]["j1"]["launching"]) == ("a-9", None)
+    assert list(place.local_builders(held, state.now())) == [f"j{number}" for number in range(1, 9)]
+    assert no_calls == []
+
+
 def test_a_reader_that_kept_its_done_stays_done_through_its_later_calls_and_stop_until_a_wake(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

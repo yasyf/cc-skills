@@ -827,7 +827,7 @@ def hold(payload: dict) -> None:
     with state.edit(names[0]) as data:
         if free(data, job_id, payload["agent_id"]):
             job = data["jobs"][job_id]
-            job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[])
+            job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[], launching=None)
             if returned:
                 job["resumed"] = state.stamp(resumed.astimezone())
             state.start(job)
