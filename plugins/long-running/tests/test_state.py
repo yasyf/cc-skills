@@ -180,6 +180,18 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     assert not kept.exists()
 
 
+def test_load_rebuilds_no_ask_file_for_his_stored_card_holding_a_picture_the_drive_keeps_no_file_of(state_root: Path) -> None:
+    data = state.new_drive("demo", "coordinator", None, "/work")
+    data["jobs"]["j1"] = state.new_job("o1", "design", "row counts", [], "2026-11-10T21:00:00-08:00")
+    data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should row counts be exact?", "2026-11-10T21:00:00-08:00") | {"waits": "demo:j1-7"}]
+    state.create(data)
+    image = {"key": f"cc-slack/pictures/T1/{'0' * 64}.png", "title": "option-a.png"}
+    card = {"title": "Should row counts be exact?", "body": "Counting reads every row.", "options": ["Exact", "Estimate"], "recommended": "Exact", "waits": "demo:j1-7", "images": [image]}
+    (state_root / "demo" / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
+    assert not (state_root / "demo" / "asks" / "j1-7.md").exists()
+
+
 def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once_and_never_for_a_drive_state_create_built(state_root: Path, backfilled: list[str]) -> None:
     make("demo")
     state.load("demo")
