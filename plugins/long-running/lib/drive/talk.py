@@ -30,7 +30,7 @@ PLAIN_QUESTION = (
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a session that may not record it there, such as a handler's session the drive binds to nothing, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
@@ -41,7 +41,7 @@ def say(name: str, post: dict) -> str:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
-    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report):
+    if refused := (order and (cli.recording_refusal(known, order) or cli.report_refusal(known, order, report))) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -94,11 +94,7 @@ def finished(name: str, said: dict, known: dict) -> str:
 
 
 def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
-    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. Whether this session may record a post on the order is read in the call, while the session is bound: the process runs as no session, and a handler's binding ends with the handler. A post that closes its order records in the call on the report its close writes, closing, so the order takes the post before it is set done."""
-    try:
-        cli.communicators_order(state.load(name), receipt["order"])
-    except DriveError as error:
-        return unkept(name, receipt, error, "")
+    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. say refused, before it posted, a post its session may not record on the order, so the process, which runs as no session, records every post it is handed. A post that closes its order records in the call on the report its close writes, closing, so the order takes the post before it is set done."""
     if closing is not None:
         return recorded(name, receipt, closing, "")
     kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"

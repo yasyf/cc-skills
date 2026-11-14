@@ -1027,14 +1027,26 @@ def slack_user(text: str) -> str:
 
 def communicators_order(data: dict, order_id: str) -> dict:
     order = find(data["orders"], order_id, "order")
-    if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
-        raise DriveError(
-            "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-            f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
-            f" a part a post of the drive already answered, or work a merged PR delivered, is marked from the {state.holding_lane(data, order)}@{data['name']} session,"
-            f' the one its ORPHAN lines reach, with drive order posted {order_id} <that post\'s or PR\'s link> --part "<part>", with or without --record, posting nothing'
-        )
+    if refused := recording_refusal(data, order_id):
+        raise DriveError(refused)
     return order
+
+
+def recording_refusal(data: dict, order_id: str) -> str | None:
+    """Why this session may record no post on the order nor take back a part's mark, the one check say runs before it posts and order posted and order told run: only the communicator's side records one, the communicator and each handler the drive binds to it, and a handler's session the drive binds to no handler is unbound, bound to the drive as nothing."""
+    if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
+        return None
+    if handler := os.environ.get(state.HANDLER_ENV, "").partition("/")[2]:
+        return (
+            f"this session runs handler {handler} and is unbound: the drive binds no handler {handler} to it, so it is bound to the drive as nothing,"
+            " while only the communicator and a handler bound to it record a post on an order or take back a part's mark; post no copy, and return a DEFECT line quoting this"
+        )
+    return (
+        "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
+        f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
+        f" a part a post of the drive already answered, or work a merged PR delivered, is marked from the {state.holding_lane(data, data['orders'][order_id])}@{data['name']} session,"
+        f' the one its ORPHAN lines reach, with drive order posted {order_id} <that post\'s or PR\'s link> --part "<part>", with or without --record, posting nothing'
+    )
 
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
