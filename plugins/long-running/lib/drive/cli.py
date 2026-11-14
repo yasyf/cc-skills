@@ -1530,7 +1530,7 @@ def shown_card(name: str, url: str) -> dict | None:
 
 
 def hold_card(job: dict, url: str, shown: dict | None) -> None:
-    """Keep the card on the job's newest question it draws, found by its waits id or its link, so a question that took the card by its `Replaces:` line holds it ahead of the one it folded in, else on a question of its own, so each card a job asked on stays open until his answer to it."""
+    """Keep the card on the job's newest question it draws, found by its waits id or its link, so a question that took the card by its `Replaces:` line holds it ahead of the one it folded in, else on a question of its own, kept with no `Holds:` line, so it holds every change of the job's work and each card a job asked on stays open until his answer to it."""
     from drive import view
 
     waits = shown and shown["card"].get("waits")
@@ -1543,7 +1543,7 @@ def hold_card(job: dict, url: str, shown: dict | None) -> None:
         None,
     )
     if question is None:
-        question = state.new_question(None, shown and shown["question"], state.stamp())
+        question = state.new_question(None, shown and shown["question"], state.stamp(), holds=None)
         job["questions"].append(question)
     question.update(card=url, waits=question["waits"] or waits)
 
@@ -2205,7 +2205,7 @@ def ask_source(name: str, shown: dict) -> Path:
                 for question in job["questions"]
                 if question["waits"] != waits and not (question["card"] and view.message_key(question["card"]) == view.message_key(url))
             ]
-            job["questions"].append(state.new_question(str(rebuilt), title, shown["asked"], card=url) | {"waits": waits})
+            job["questions"].append(state.new_question(str(rebuilt), title, shown["asked"], card=url, holds=limits.redrawn(rebuilt.read_text()).holds) | {"waits": waits})
             state.join_card(data, job_id, url)
     return rebuilt
 

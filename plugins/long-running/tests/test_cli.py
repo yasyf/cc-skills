@@ -1153,7 +1153,7 @@ def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so
         text=f"<{DESIGN_CARD}|Your card on where the store lives> blocks the fix's release; it builds on the recommended shared store meanwhile.",
     )
     assert run("job", "set", "j1", "--card", DESIGN_CARD, "--told", said)[0] == 0
-    assert [question["card"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [DESIGN_CARD]
+    assert [(question["card"], question["holds"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(DESIGN_CARD, None)]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
     run("job", "add", "builder", "--order", "o2", "--goal", "speed it up")
     assert run("job", "set", "j3", "--card", DESIGN_CARD)[0] == 0
@@ -2578,8 +2578,8 @@ def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_
     rebuilt = state_root / "demo" / "asks" / "j1-8.md"
     assert limits.redrawn(rebuilt.read_text()).title == json.loads(printed)["title"]
     assert rebuilt.read_text().endswith("\nFindings:\n" + SHORT_ASK.split("Findings:\n", 1)[1])
-    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
-        (str(rebuilt), "demo:j1-8", shown["url"])
+    assert [(question["file"], question["waits"], question["card"], question["holds"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
+        (str(rebuilt), "demo:j1-8", shown["url"], "")
     ]
     assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, redrawn)
 
