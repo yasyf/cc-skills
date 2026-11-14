@@ -3456,6 +3456,27 @@ def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_
     assert (land.landing_stacks(data)[above], land.units(data, [YASYF, above], NO_CARDS)) == ((YASYF, above), [(YASYF,)])
 
 
+def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_ships_with_it_bottom_first_and_the_ready_reaches_its_holder_as_j4861s_did_not(demo: str) -> None:
+    below = "yasyf/cc-skills#8"
+    with state.edit(demo) as data:
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {
+            "head": "aaaaaaa111", "base": "below-the-watch", "branch": "the-watch", "checks": "pass", "wants_tap": False, "checked": CHECKED
+        }
+        data["jobs"]["j1"]["prs"].append(state.pr_url(YASYF))
+        state.take_result(data, "j1", f"READY {state.pr_url(YASYF)}")
+        data["prs"][below] = state.new_pr(state.pr_url(below), "j1", "o1") | {
+            "head": "bbbbbbb222", "base": "main", "branch": "below-the-watch", "checks": "pass", "wants_tap": False, "checked": CHECKED | {"head": "bbbbbbb222"}
+        }
+        data["jobs"]["j1"]["prs"].append(state.pr_url(below))
+    data = state.load(demo)
+    line = f"JOB j1 o1 READY {state.pr_url(YASYF)}"
+    assert ([stage.of(data, key, NO_CARDS).name for key in (below, YASYF)], land.units(data, [YASYF, below], NO_CARDS), watch.fixing(line, data, NO_CARDS)) == (
+        ["ready", "ready"],
+        [(below,)],
+        False,
+    )
+
+
 @pytest.mark.parametrize(
     ("change", "named", "woke"),
     [
