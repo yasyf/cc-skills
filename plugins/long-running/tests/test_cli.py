@@ -5605,6 +5605,27 @@ def test_a_builders_goal_or_done_when_jev_reads_as_ordering_a_return_with_no_res
     assert "j1: refused, no brief written: its --done-when" in capsys.readouterr().err
 
 
+def test_a_waiting_line_naming_a_process_that_runs_on_this_mac_waits_on_it_pinned_to_its_start_and_one_that_ended_frees_nothing(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "run the checkpoint pass")
+    run("job", "add", "builder", "--order", "o1", "--goal", "run it")
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    assert cli.main(["job", "set", "j1", "--waits", f"pid:{ended.pid}"]) == 2
+    assert f"--waits pid:{ended.pid}: no process on this Mac holds that number now, so nothing is left to wait on" in capsys.readouterr().err
+    code, err = keep(monkeypatch, capsys, "j1", f"WAITING the checkpoint pass runs, waits on pid:{ended.pid}\n")
+    assert (code, "a process you started on this Mac that still runs as pid:<n>, which wakes j1 once it ends" in err) == (2, True)
+    observer = subprocess.Popen(["sleep", "600"])
+    try:
+        assert keep(monkeypatch, capsys, "j1", f"WAITING the checkpoint pass runs, waits on pid:{observer.pid}\n") == (0, "")
+        job = state.load("demo")["jobs"]["j1"]
+        assert (job["state"], job["waits"]) == ("waiting", [f"pid:{observer.pid}@{state.procs.started(observer.pid)}"])
+    finally:
+        observer.kill()
+        observer.wait()
+
+
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
