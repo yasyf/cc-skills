@@ -921,15 +921,54 @@ def test_a_tooling_order_is_read_against_the_open_tooling_orders_sharing_most_wo
     assert state.load("demo")["orders"]["o301"]["joins"] == "o300"
 
 
-def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "runs fail for one team", "--parts", "first check")
-    assert cli.main(["order", "set", "o1", "--incident"]) == 2
-    assert 'o1: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "fix" part' in capsys.readouterr().err
-    assert state.load("demo")["orders"]["o1"]["incident"] is False
-    run("order", "set", "o1", "--parts", "first check", "fix")
-    run("job", "add", "codex", "--order", "o1", "--goal", "fix: runs fail", "--part", "fix", "--agent", "a-1")
-    assert run("order", "set", "o1", "--incident")[0] == 0
-    assert state.load("demo")["orders"]["o1"]["incident"] is True
+def test_order_set_incident_turns_an_open_answer_order_into_an_incident_with_its_codex_jobs_and_record_in_one_save(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli.reads, "run", recorded(calls))
+    words = "runs refused at WriteInputs"
+    run("order", "add", "--title", "Runs refused", "--project", "The drive", "--workstream", "Drive tooling", words, "--kind", "answer")
+    run("job", "add", "reader", "--order", "o1", "--goal", "say why runs are refused")
+    assert run("order", "set", "o1", "--incident") == (
+        0,
+        (
+            f"o1 open: {words}\n"
+            "o1 record 5f6b2b5\n"
+            'j2 on "fix": start it now with drive job launch j2 -, its brief on stdin ending Drive: demo, order o1, job j2\n'
+            'j3 on "cause": start it now with drive job launch j3 -, its brief on stdin ending Drive: demo, order o1, job j3\n'
+            f"{state.INCIDENT_BRIEF}"
+        ),
+    )
+    assert calls == [["ccn", "investigation", "open", "Runs refused", "--body", f"{words}\n\nFrom terminal", "--label", "drive:demo", "--label", "incident", "--json"]]
+    data = state.load("demo")
+    order = data["orders"]["o1"]
+    assert (order["incident"], order["kind"], {part: held["answer"] for part, held in order["parts"].items()}, order["note"]) == (
+        True,
+        "build",
+        {"Runs refused": True, "fix": False, "cause": False},
+        "record 5f6b2b5",
+    )
+    assert [(data["jobs"][job_id]["kind"], data["jobs"][job_id]["parts"]) for job_id in order["jobs"]] == [("reader", ["Runs refused"]), ("codex", ["fix"]), ("codex", ["cause"])]
+    run("order", "set", "o1", "--no-incident")
+    assert run("order", "set", "o1", "--incident") == (0, f"o1 open: {words}")
+    assert (len(calls), list(state.load("demo")["jobs"])) == (1, ["j1", "j2", "j3"])
+
+    def refused(argv: list[str], checkout: Path) -> str:
+        raise cli.reads.ReadError("ccn investigation open exited 1")
+
+    monkeypatch.setattr(cli.reads, "run", refused)
+    run("order", "add", "--title", "Runs fail", "--project", "The drive", "--workstream", "Drive tooling", "runs fail for one team", "--kind", "answer")
+    assert cli.main(["order", "set", "o2", "--incident"]) == 2
+    assert "refused, nothing written: its evidence record did not open: ccn investigation open exited 1; fix that and run drive order set o2 --incident again" in capsys.readouterr().err
+    order = state.load("demo")["orders"]["o2"]
+    assert (order["incident"], order["kind"], list(order["parts"]), order["jobs"]) == (False, "answer", ["Runs fail"], [])
+
+
+def test_order_set_kind_build_on_one_part_of_an_answer_order_makes_it_a_build_whose_other_parts_stay_answers(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Runs fail", "--project", "The drive", "--workstream", "Drive tooling", "why do runs fail, and fix it", "--kind", "answer", "--parts", "why", "fix")
+    assert run("order", "set", "o1", "--kind", "build", "--part", "fix")[0] == 0
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}) == ("build", {"why": True, "fix": False})
 
 
 FILED = ("--project", "Platform", "--workstream", "SandSQL", "--title", "SandSQL incident")
@@ -7151,8 +7190,9 @@ def test_an_order_limited_to_options_starts_no_builder_or_codex_job_until_he_pic
 
 
 def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_start_at_the_alert(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
     for joined in ([], ["--joins", "o1"]):
         assert cli.main(["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "give me options only", "--incident", "--parts", "fix", "--options-only", *joined]) == 2
         assert "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert" in capsys.readouterr().err

@@ -99,8 +99,12 @@ changed and when, its findings the suspects, and its root cause the verdict.
      it on the order's note, all in one save, so a record cc-notes refuses writes nothing, and
      prints each job's start line, the rule each brief's `Incident:` line carries word for word,
      then each other open incident order with its note.
-   - The order sits on the dashboard's top strip until it closes. An order made another way gets
-     `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
+   - The order sits on the dashboard's top strip until it closes. An order made another way, an
+     answer order included, becomes one with `drive order set <o> --incident`, in one save: it adds
+     the `fix` and `cause` parts the order lacks, makes it a build whose other parts an answer order
+     asked stay answers, opens the evidence record when its note names none, records a codex job on
+     each of those two parts no unfinished codex job holds, but on an order joined to an open
+     incident, and prints each start line and the rule as `drive incident open` does.
 3. In the next message, start every job the verb printed, as [Jobs](#jobs) says, and no freeze,
    which waits until users are unblocked, by [Freeze the broken service](#freeze-the-broken-service).
    Each job starts with `drive job launch <j>`, its codex-ask run on the fast tier with
