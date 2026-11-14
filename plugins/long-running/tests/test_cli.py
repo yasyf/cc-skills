@@ -6382,6 +6382,27 @@ def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_
     assert "(c7756f4)" in written.read_text()
 
 
+def test_job_brief_drops_each_flag_given_an_empty_value_and_names_it_so_a_done_mac_step_stops_placing_the_job_here(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
+    step = "tools/ci mac-box prove --commit f3163cd03c48"
+    code, out = run(
+        "job", "brief", "j1", "--serves", "port of #12", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+        "--mac", step, "--plan", "the watchdog section",
+    )
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
+    assert (code, place.mac_step(written.read_text())) == (0, step)
+    code, out = run("job", "brief", "j1", "--mac", "", "--plan", "", "--serves", "")
+    assert code == 0
+    assert out.splitlines()[-2:] == ["kept from its earlier brief: --done-when, --where", "dropped from its earlier brief: --serves, --mac, --plan"]
+    assert (place.mac_step(written.read_text()), "\nPlan:" in written.read_text(), "\nServes: his order\n" in written.read_text()) == (None, False, True)
+    flags = state.load(demo)["jobs"]["j1"]["brief_flags"]
+    assert (flags["mac"], flags["plan"], flags["serves"], flags["where"]) == (None, None, "his order", "yasyf/cc-skills main")
+    assert run("job", "brief", "j1", "--mac", step)[0] == 0
+    said = tools.run("job", demo, {"ops": [{"brief": {"id": "j1", "mac": ""}}]})
+    assert (said.splitlines()[0].endswith("; dropped from its earlier brief: --mac"), place.mac_step(written.read_text())) == (True, None)
+
+
 def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruling_their_readers_name(
     run: Run, meta: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
