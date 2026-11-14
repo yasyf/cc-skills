@@ -5739,7 +5739,7 @@ def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_q
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, "Forge-AI/monorepo#99999", "--drive", demo]) == 2
     assert "the drive tracks no such PR" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 2
-    assert "Trunk ejected no try of its lander at aaaaaaa" in capsys.readouterr().err
+    assert "at aaaaaaa none of its checks fail and Trunk ejected no try of its lander" in capsys.readouterr().err
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 0
     waiting = f"Trunk ejected it from the merge queue at bb28d68 on its flaky test {FLAKY}; the lander requeues that commit once {FLAKE_FIX}, that test's fix, merges"
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.WAITED, waiting)
@@ -5773,6 +5773,68 @@ def test_a_pr_trunk_ejected_on_a_flaky_test_reads_unlanded_again_once_that_tests
         data["prs"][FLAKE_FIX]["state"] = "closed"
     closed = f"Trunk ejected it from the merge queue on its flaky test {FLAKY}, and {FLAKE_FIX}, that test's fix, closed unmerged"
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, closed)
+
+
+RED_AT_ITS_HEAD = "Forge-AI/litestream#23"
+ITS_FLAKE_FIX = "Forge-AI/litestream#25"
+ITS_FLAKY = "TestDB_AWriterDuringACheckpointOfALargeDatabaseWaitsUnderItsBusyTimeout"
+VFS_RED = [{"name": "VFS Unit Test", "conclusion": "FAILURE"}, {"name": "Build", "conclusion": "SUCCESS"}]
+WAITS_ON_ITS_FLAKE_FIX = stage.Stage(
+    "waiting",
+    stage.WAITED,
+    f"its checks fail at bc4822d: VFS Unit Test, on its flaky test {ITS_FLAKY} outside its diff; its builder restacks it onto {ITS_FLAKE_FIX}, that test's fix, once it merges",
+)
+
+
+def red_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> dict[str, dict]:
+    with state.edit(name) as data:
+        data["jobs"]["j1"]["prs"] += [state.pr_url(RED_AT_ITS_HEAD), state.pr_url(ITS_FLAKE_FIX)]
+        for key, head in ((RED_AT_ITS_HEAD, "bc4822d7b4"), (ITS_FLAKE_FIX, "746b968c20")):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "wants_tap": False, "checked": CHECKED | {"head": head}}
+    reads = {
+        RED_AT_ITS_HEAD: read(headRefOid="bc4822d7b4", checks=VFS_RED, required_checks=[], required_reviews=0),
+        ITS_FLAKE_FIX: read(headRefOid="746b968c20", checks=GREEN, required_checks=[], required_reviews=0),
+    }
+    serve(monkeypatch, reads)
+    watch.run_pass(watcher(name), T0)
+    assert stage.of(state.load(name), RED_AT_ITS_HEAD, NO_CARDS) == stage.Stage("red", stage.BUILDER, "its checks fail at bc4822d: VFS Unit Test")
+    assert [key for key, _ in woken] == [RED_AT_ITS_HEAD]
+    assert cli.main(["pr", "set", RED_AT_ITS_HEAD, "--flaky", ITS_FLAKY, state.pr_url(ITS_FLAKE_FIX), "--drive", name]) == 0
+    assert state.load(name)["prs"][RED_AT_ITS_HEAD]["flaky"]["failed_checks"] == ["VFS Unit Test"]
+    return reads
+
+
+@pytest.mark.parametrize(
+    ("ended", "then"),
+    [("MERGED", "merged, so restack it onto that fix"), ("CLOSED", "closed unmerged, so fix that test at its cause")],
+)
+def test_replayed_litestream_23_a_pr_red_at_its_own_head_on_a_flaky_test_waits_on_that_tests_fix_waking_nobody_then_wakes_its_builder_once_the_fix_ends(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], ended: str, then: str
+) -> None:
+    reads = red_on_a_flake(demo, monkeypatch, woken)
+    for minutes in (1, 31, 61, 91):
+        watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
+        assert (stage.of(state.load(demo), RED_AT_ITS_HEAD, NO_CARDS), len(woken)) == (WAITS_ON_ITS_FLAKE_FIX, 1)
+    reads[ITS_FLAKE_FIX] = read(headRefOid="746b968c20", checks=GREEN, required_checks=[], required_reviews=0, state=ended)
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=95))
+    red = f"its checks fail at bc4822d: VFS Unit Test; {ITS_FLAKE_FIX}, the fix of its flaky test {ITS_FLAKY}, {then}"
+    data = state.load(demo)
+    assert (stage.of(data, RED_AT_ITS_HEAD, NO_CARDS), land.requeues(data, data["prs"][RED_AT_ITS_HEAD])) == (stage.Stage("red", stage.BUILDER, red), False)
+    assert woken[1:] == [(RED_AT_ITS_HEAD, f"{RED_AT_ITS_HEAD} red since {state.stamp(T0 + timedelta(minutes=95))}, owed by its builder: {red} [o1 j1]")]
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=100))
+    assert len(woken) == 2
+
+
+def test_a_pr_red_at_its_own_head_on_a_flaky_test_reads_red_again_once_a_check_its_flaky_record_lacks_fails_there(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
+) -> None:
+    reads = red_on_a_flake(demo, monkeypatch, woken)
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
+    assert stage.of(state.load(demo), RED_AT_ITS_HEAD, NO_CARDS) == WAITS_ON_ITS_FLAKE_FIX
+    reads[RED_AT_ITS_HEAD] = read(headRefOid="bc4822d7b4", checks=[*VFS_RED, {"name": "Lint", "conclusion": "FAILURE"}], required_checks=[], required_reviews=0)
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=2))
+    assert stage.of(state.load(demo), RED_AT_ITS_HEAD, NO_CARDS) == stage.Stage("red", stage.BUILDER, "its checks fail at bc4822d: Lint, VFS Unit Test")
+    assert [key for key, _ in woken] == [RED_AT_ITS_HEAD, RED_AT_ITS_HEAD]
 
 
 BOTTOM, TOP = "Forge-AI/monorepo#49869", "Forge-AI/monorepo#53227"

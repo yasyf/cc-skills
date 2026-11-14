@@ -137,14 +137,14 @@ def landing(pr: dict) -> bool:
 
 
 def flaked(pr: dict) -> dict | None:
-    """What drive pr set --flaky kept at the PR's head: the flaky test outside its diff Trunk ejected it on there, and that test's fix, a PR the drive tracks; None at any other head, and once a lander requeued this one."""
+    """What drive pr set --flaky kept at the PR's head: the flaky test outside its diff that failed it there, in its own checks, which failed_checks keeps, or in Trunk's ejection of its green head, which keeps none, and that test's fix, a PR the drive tracks; None at any other head, and once a lander requeued this one."""
     flaky = pr["flaky"]
     return flaky if flaky and flaky["head"] == pr["head"] and not flaky["requeued"] else None
 
 
 def requeues(data: dict, pr: dict) -> bool:
-    """Whether a lander queues the PR again at the head Trunk ejected it at, with stack-enqueue --flake, as it does once, when its flaky test's fix merged."""
-    return bool(flaky := flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "merged"
+    """Whether a lander queues the PR again at the green head Trunk ejected it at, with stack-enqueue --flake, as it does once, when its flaky test's fix merged; never one whose own checks failed there, whose builder restacks it onto the fix."""
+    return bool(flaky := flaked(pr)) and not flaky["failed_checks"] and data["prs"][flaky["fix"]]["state"] == "merged"
 
 
 def refused(pr: dict) -> bool:
