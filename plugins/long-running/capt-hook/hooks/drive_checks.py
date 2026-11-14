@@ -835,25 +835,25 @@ def sent_post(evt: BaseHookEvent) -> HookResult | None:
         Input(tool=POST, tool_input={"kind": "report", "text": "x"}, session_id=NO_DRIVE): Allow(),
         Input(
             tool=POST,
-            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD, "progress": "true"}},
+            tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
             decide=CONFIRMED,
         ): Block(pattern="one report per thread per turn"),
         Input(
             tool=POST,
-            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD, "progress": "true"}},
+            tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
             decide=UNCONFIRMED,
         ): Allow(),
         Input(
             tool=POST,
-            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST The check that this pod still runs the agent refused an old pod.", "attrs": {"progress": "true"}},
+            tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST The check that this pod still runs the agent refused an old pod.", "attrs": {"progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
         ): Warn(pattern="this report goes out as written"),
-        Input(tool=POST, tool_input={"kind": "report", "to": "communicator@fixture", "text": ASKED, "attrs": {"progress": "true"}}, session_id=COORDINATOR): Rewrite(
+        Input(tool=POST, tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": ASKED, "attrs": {"progress": "true"}}, session_id=COORDINATOR): Rewrite(
             body="the counts match"
         ),
     },

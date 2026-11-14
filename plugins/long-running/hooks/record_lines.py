@@ -75,8 +75,18 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
     return record if to == entries else record | {"to": to}
 
 
+def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
+    """The cci lane a drive session's post goes out as, whatever lane it names: the session's own, a sub-coordinator's its project's, so a record a job's agent writes reads as the session's that started it and a reply reaches that session; an agent's post holding a record every `to` of which names that lane goes out as the agent's own type, such as builder, since cci refuses a record from a lane addressed only to itself."""
+    lane = state.session_lane(data, payload.get("session_id"))
+    agent = payload.get("agent_type")
+    own = {lane, f"{lane}@{data['name']}"}
+    if agent and any((to := set(listed(record.get("to")))) and to <= own for record in records):
+        return agent.removeprefix("long-running:")
+    return lane
+
+
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record, which no session posts since `drive job ask` draws his card itself, included, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record, which no session posts since `drive job ask` draws his card itself, included, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -91,11 +101,12 @@ def decision(payload: dict) -> dict | None:
     context = {"additionalContext": "\n".join(warned)} if warned else {}
     drives = state.bound_drives(names)
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
-    if made == given:
+    lane = posting_lane(drive, payload, made)
+    if made == given and tool_input.get("lane") == lane:
         return context or None
     if tool_input.get("records"):
-        return {"updatedInput": {key: value for key, value in tool_input.items() if key in CALL_FIELDS} | {"records": made}} | context
-    return {"updatedInput": made[0]} | context
+        return {"updatedInput": {key: value for key, value in tool_input.items() if key in CALL_FIELDS} | {"lane": lane, "records": made}} | context
+    return {"updatedInput": made[0] | {"lane": lane}} | context
 
 
 def main() -> None:

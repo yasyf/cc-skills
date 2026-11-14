@@ -345,9 +345,7 @@ refused a post he ordered.
   installed skill.
 - Copy an `After:` line into your report as `AFTER:`; a tool that breaks on you is a `DEFECT:` line
   there, which the meta session starts a fix from.
-- A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>` on the cci `post` tool with
-  `lane: builder`: you share its session, so its lane is your default, and cci refuses a
-  record from a lane addressed only to itself.
+- A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>` on the cci `post` tool.
 - `Handoff: <seq>` names a record whose watch line names the PR, order and old job: take the PR with
   `drive pr add <url> --job <your job>` and stop the old job with
   `drive job set <old> --state stopped --said "handed to <your job>"`. `Handoff: LAND <url>` lands
@@ -531,7 +529,7 @@ listing decisions that block nothing is not a result.
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names and each card your `drive job ask` put up in this run, by its waits id or Slack link, which `drive status <your job>` shows. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | A release, or another PR's landing only when your change needs it live, such as its migration run in production; never code another PR's branch holds, which you build on stacked on that branch (Build step 1), nor CI, a review or a queue on your own PR, which `PUSHED` covers, nor his sign-in, Touch ID or cc-sudo for an AWS action, which this Mac's machine profile runs. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each, and a card holds only there: one cited on any other line, such as `DESIGN:`, holds nothing. A red PR of yours whose fix waits on another job's PR, a release or his answer to a question card of his, your own included, reads `blocked` while every PR, release and card your `WAITING` names holds and its red stays the one you answered, his card on it naming each and linking each question card and the card of a fix that waits on his Approve, so name each by its link, a card by its Slack link or waits id, or `release:<service>:<owner>/<repo>#<n>`: the drive waits on every PR and release your whole report names, below its first line too. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. It ends your run only when his words ask for options and no build, or its recommended option is no change you build; any other `ASK` you keep with `drive job ask` and build its recommended option in the same run, returning `BUILT`, or `PUSHED` on an open incident. |
-| `BLOCKED <what>`, then what you tried | Only when no route works, never on a choice, which is an `ASK`. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
+| `BLOCKED <what>`, then what you tried | Only when no route works, never on a choice, which is an `ASK`. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
 
 `drive job report` refuses a report whose first line opens with none of these words, naming them. It
