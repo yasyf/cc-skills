@@ -44,8 +44,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    never a `WAITING` on its landing.
 2. Research before you write:
    - A `Researched: <job>` line names a reader's or design's report on the order: read it first with
-     `drive job report <job>`, on a Sprite too, or under its `# Report of <job>` heading above your
-     brief, and build on what exists, never a second copy beside it. A `Plan:` line's report comes the same way.
+     `drive job report <job>`, on a Sprite too, and build on what exists, never a second copy beside
+     it. A `Plan:` line's report reads the same way.
    - Search the code, the brief's plan section, the whole plan (`search_plan`, or
      `drive plan search <words>`) and his recorded answers (`answer_search`, or
      `ccn answer search`) on the whole area the change touches, never only the words of its order.
@@ -456,20 +456,19 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `ccx vcs job-log <job> -R <owner/repo> --budget 1000000`, since its default budget keeps only the
   log's tail.
 - The Sprite holds no copy of the drive's records and no Slack credential, so `cci`, `ccn` and
-  `cc-slack` are missing. Every drive file your
-  brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`
-  lines name under `# Report of <job>`, and each file under the drive's `reports/`, `asks/`,
-  `repro/`, `scratch/` and `jobs/` folders it names, by its path on the coordinator's Mac or from the
-  drive's folder, under `# Drive file <its path from the drive's folder>`, but a lane's Claude Code
-  transcript, which the drive keeps whole under `jobs/<job>.<dispatch>.transcripts/` once that lane
-  ends, yours included, and which you read with `READ <its path>`. Read through the
+  `cc-slack` are missing. Your brief copies in no drive file it names: read the report of each job
+  its `Researched:` and `Plan:` lines name with `drive job report <job>`, and each file under the
+  drive's `reports/`, `asks/`, `repro/`, `scratch/` and `jobs/` folders it names, by its path on the
+  coordinator's Mac or from the drive's folder, with `READ <its path>`, a lane's Claude Code
+  transcript included, which the drive keeps whole under `jobs/<job>.<dispatch>.transcripts/` once
+  that lane ends, yours included. A lane on this Mac opens each path itself. Read through the
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read, which runs its first line alone.
 
 | Read | What it returns |
 | --- | --- |
-| `READ <path> [<path>…]` | For a file under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/` or a brief `jobs/<job>.brief.md`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, and a path missing or resolving outside the folder answered as none. |
+| `READ <path> [<path>…]` | For a file under the drive's `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, such as a proof's saved output `reports/<job>.proof.txt`, a question file under `asks/` or a brief `jobs/<job>.brief.md`, by its path on the coordinator's Mac or from the drive's folder: each file whole under `# Drive file <its path>`, `reports/<job>.md` that job's report, a file that is not UTF-8 text or holds NUL, such as a screen recording or a picture, as a line naming its path on the coordinator's Mac and its size, and a path missing or resolving outside the folder answered as none. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show`, `ccn answer match` or `ccn answer list`, a show naming several IDs in one read and a pattern of several words one query, quoted or not: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
 | `READ cc-slack thread\|history <flags>` | For a Slack card, thread or channel, run by this Mac's cc-slack bot, which reads only conversations it is in: `cc-slack thread --url <permalink>` for a message's thread, a line per message with its text whole, `--since-ts <ts>` for only what is newer, `cc-slack history --channel <id> --limit <n>` for a channel's or DM's newest top-level posts, a line each with its permalink, and `--raw` beside a message's `--url` for that one message as Slack sends it, with its blocks. Its output whole, as a file on your Sprite once past the 64 KiB one Orca relay message carries. |
 

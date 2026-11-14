@@ -4917,7 +4917,7 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_build
     }
 
 
-def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a_brief_naming_no_plan_and_its_sprite_brief_carries_the_designs_report(
+def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a_brief_naming_no_plan_and_its_sprite_brief_names_the_designs_report_without_copying_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
@@ -4927,7 +4927,7 @@ def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a
         cli.write_brief("demo", builder_id, {})
         written = Path(state.load("demo")["jobs"][builder_id]["brief"]).read_text()
         assert f'\nPlan: j1\'s design, change "{change}": drive job report j1\n' in written
-        assert f"\n# Report of j1, which your brief names\n\n{DESIGNED_IN_CHANGES}" in orca.vm_brief("demo", builder_id, written, None)
+        assert DESIGNED_IN_CHANGES not in orca.vm_brief("demo", builder_id, written, None)
     assert run("job", "brief", "j2", "--plan", "the store copy section")[0] == 0
     assert "\nPlan: the store copy section\n" in Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
 

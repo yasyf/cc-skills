@@ -469,7 +469,7 @@ def test_a_first_launch_marks_its_job_sent_the_answer_its_brief_carries_and_carr
     assert orca.brief_of((state.drive_dir(demo) / "jobs" / "j1.md").read_text()).endswith(f'{heard}\nHis answers since:\n- "{unsaid}" ({link})')
 
 
-def test_a_lane_whose_launch_carried_his_words_only_in_a_report_its_brief_names_is_sent_them_once_his_answer_lists_it(
+def test_a_lane_whose_brief_names_a_report_holding_his_words_still_owes_them_once_his_answer_lists_it_since_its_launch_copies_no_report_in(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, demo)
@@ -486,10 +486,10 @@ def test_a_lane_whose_launch_carried_his_words_only_in_a_report_its_brief_names_
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields})
     assert run("job", "launch", "j2", "brief.md")[0] == 0
     launched = (state.drive_dir(demo) / "jobs" / "j2.md").read_text()
-    assert (words in launched, words in orca.brief_of(launched)) == (True, False)
+    assert words not in launched
     with state.edit(demo) as data:
         superseded.owe(data, "a1", "j2")
-    assert state.load(demo)["answers"]["a1"]["jobs"] == {"j2": {"mark": "sent"}}
+    assert state.load(demo)["answers"]["a1"]["jobs"] == {"j2": None}
 
 
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
@@ -538,7 +538,7 @@ def test_a_first_launch_while_another_fetch_holds_the_clones_remote_tracking_ref
     assert (kept, git_in(kept, "rev-parse", "HEAD"), (ccx_worktrees / "made").read_text()) == (ccx_worktrees / "drive-demo", head, "drive-demo\n")
 
 
-def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_kept_only_in_the_drive_included(
+def test_a_sprite_brief_copies_in_no_drive_file_it_names_and_a_read_of_its_words_serves_each_a_lanes_report_kept_only_in_the_drive_included(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     folder = state.drive_dir(demo)
@@ -566,16 +566,15 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     )
     monkeypatch.setattr(Path, "home", lambda: folder.parents[1])
     composed = orca.vm_brief(demo, "j5", text, None)
-    assert "# Report of j1, which your brief names\n\nDONE the reader's findings\nexists: lib/thing.py\n" in composed
-    assert "# Report of j2, which your brief names\n\nDESIGN the whole design\n" in composed
-    assert "# Drive file asks/j2-0c1d2e3f.md, which your brief names\n\nASK Which store?\n" in composed
-    assert "# Drive file repro/j1.sh, which your brief names\n\nexit 1\n" in composed
-    assert "# Drive file scratch/j1/notes.md, which your brief names\n\nthe notes\n" in composed
-    assert "# Drive file jobs/j3.brief.md, which your brief names\n\nOrder (his words): list it\n" in composed
-    carried = composed.split(orca.BRIEF_HEADING)[0]
-    assert (carried.count("\n# Report of j2"), carried.count("\n# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 4, False, False)
+    assert (orca.brief_of(composed), [said for said in ("DONE the reader's findings", "DESIGN the whole design", "ASK Which store?", "the notes") if said in composed]) == (text, [])
+    assert {heading: (kept or "").splitlines()[0] for heading, kept in orca.drive_files(demo, text).items()} == {
+        "Report of j2": "DESIGN the whole design",
+        "Drive file asks/j2-0c1d2e3f.md": "ASK Which store?",
+        "Drive file repro/j1.sh": "exit 1",
+        "Drive file scratch/j1/notes.md": "the notes",
+        "Drive file jobs/j3.brief.md": "Order (his words): list it",
+    }
     assert orca.uncarried(demo, "j5", text) is None
-    assert orca.brief_of(composed) == text
 
 
 def test_a_sprite_brief_names_drive_job_replies_for_each_earlier_transcript_no_read_serves_and_a_lane_on_this_mac_keeps_each_path(demo: str) -> None:
@@ -646,7 +645,7 @@ def test_a_builder_added_waiting_on_his_card_with_no_lane_starts_on_his_tap_from
     assert f'\nHis answers since:\n- "{words}" ({link})\n' in (state.drive_dir(demo) / "jobs" / "j2.md").read_text()
 
 
-def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2102s_carries_its_kept_report_and_launches(
+def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2102s_launches_and_its_read_serves_the_kept_report(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, demo)
@@ -668,12 +667,11 @@ def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: briefs.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j2", "brief.md") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
-    carried = briefs[0].split(orca.BRIEF_HEADING)[0]
-    assert "\n# Report of j1, which your brief names\n\nDONE the read-back\n- the delete half NOT PROVEN\n" in carried
-    assert (carried.count("\n# Report of j1"), carried.count("\n# Drive file")) == (1, 1)
+    assert "the delete half NOT PROVEN" not in briefs[0]
+    assert "# Report of j1\n\nDONE the read-back\n- the delete half NOT PROVEN" in reads.read_drive_files(f"READ {folder}/reports/j1.md", demo)
 
 
-def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_j2807s_carries_the_file_job_set_kept_and_launches(
+def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_j2807s_launches_and_its_read_serves_the_file_job_set_kept(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, demo)
@@ -695,9 +693,8 @@ def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: briefs.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j2", "brief.md") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
-    carried = briefs[0].split(orca.BRIEF_HEADING)[0]
-    assert "\n# Drive file repro/j1.py, which your brief names\n\nraise SystemExit(1)\n" in carried
-    assert (carried.count("\n# Report of j1"), carried.count("\n# Drive file")) == (1, 1)
+    assert "raise SystemExit(1)" not in briefs[0]
+    assert "# Drive file repro/j1.py\n\nraise SystemExit(1)" in reads.read_drive_files(f"READ {folder}/repro/j1.*", demo)
 
 
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
@@ -1881,7 +1878,6 @@ def test_end_keeps_the_lanes_whole_transcript_before_its_sprite_is_destroyed_and
     assert [turn["who"] for turn in artifacts.read(remote, "j1", job, "transcript")["turns"]] == ["Coordinator", "Claude"]
     line = cli.transcript_line("j1", job)
     assert line == f"j1 builder: {kept}"
-    assert orca.carried(remote, f"Transcripts:\n- {line}") == ""
     assert "DEFECT: cci post refused it" in reads.read_drive_files(f"READ {kept}", remote)
 
 

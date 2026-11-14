@@ -294,11 +294,12 @@ def test_a_read_reaching_outside_the_drive_folder_gets_none_of_the_outside_file(
         reads.answer(f"READ cat {outside}", tmp_path, "demo", "j7")
 
 
-def test_a_drive_file_that_is_not_utf8_reads_with_its_bad_bytes_replaced(state_root: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("data", [b"exit \xff\n", b"exit \x00\n"])
+def test_a_drive_file_that_is_not_utf8_text_reads_as_a_line_naming_its_path_and_size(data: bytes, state_root: Path, tmp_path: Path) -> None:
     folder = state.drive_dir("demo")
     (folder / "repro").mkdir(parents=True)
-    (folder / "repro" / "out.bin").write_bytes(b"exit \xff\n")
-    assert reads.answer("READ repro/out.bin", tmp_path, "demo", "j7") == "# Drive file repro/out.bin\n\nexit �\n"
+    (folder / "repro" / "out.bin").write_bytes(data)
+    assert reads.answer("READ repro/out.bin", tmp_path, "demo", "j7") == f"# Drive file repro/out.bin\n\n{folder}/repro/out.bin is 7 bytes that are not UTF-8 text, so no read shows them"
 
 
 def test_a_listed_read_naming_a_drive_path_still_runs_its_record_read(state_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
