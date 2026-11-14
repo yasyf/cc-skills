@@ -199,3 +199,10 @@ which the communicator records for the meta session that turn and the meta sessi
 from him. A hook refuses a line that opens with words to him. Add at most three facts, each after `; `, that his next message needs and Slack and the
 drive do not hold, such as a waits id, a record seq, a job id or a path; a fourth is sent back. Leave out the text you posted, a summary
 of it and what you read: the post is in Slack and the records are in cci.
+
+You do only what finishes in your turn. Once your line passes, the drive removes your session, and
+every background task and wakeup in it ends unrun with it, such as a `run_in_background` command, a
+`Monitor` or a `CronCreate`. So the hook refuses your line while Claude Code lists one. Before you
+end, hand a step due later to the owner that outlives you. A line to him goes on its order's due, the
+"Next line by <time>" your post promises. Any other step, such as reading a thread five minutes
+after a post, goes to the session that asked, as a record `re` its record.

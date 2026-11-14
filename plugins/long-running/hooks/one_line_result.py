@@ -22,6 +22,9 @@ STAFF_ROUTES = ("break-glass", "db-read", "pass-box")
 
 def block_reason(payload: dict) -> str | None:
     """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line, kept first with `drive job report` by every job's agent."""
+    handler = payload.get("agent_type") == agents.HANDLER
+    if handler and (work := in_flight(payload)):
+        return work
     if payload.get("stop_hook_active"):
         return None
     session = payload.get("session_id") or ""
@@ -34,7 +37,6 @@ def block_reason(payload: dict) -> str | None:
     lines = message.splitlines()
     job_id = state.agent_job(data, payload.get("agent_id"))
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
-        handler = payload.get("agent_type") == agents.HANDLER
         return (
             unread(payload, data, handler, job_id, message)
             or unkept(names[0], data, job_id, message)
@@ -52,6 +54,21 @@ def block_reason(payload: dict) -> str | None:
         f" and it lands whole in the {role}'s"
         f" context, which every compaction has to clear. A final message is one line of at most {RESULT_CHARS}"
         f" characters: {keep} with that one line alone."
+    )
+
+
+def in_flight(payload: dict) -> str | None:
+    """Why a handler may not end while Claude Code's Stop input lists a background task or wakeup in its session, whatever `stop_hook_active` says: the drive removes the session once its line passes, and each of them ends unrun with it, so a step left to one never happens."""
+    tasks = [f"`{task['id']}` ({task.get('command') or task.get('description') or task['type']})" for task in payload.get("background_tasks") or []]
+    wakeups = [f"`{cron['id']}` ({cron['schedule']}: {cron['prompt']})" for cron in payload.get("session_crons") or []]
+    if not tasks and not wakeups:
+        return None
+    return agents.Unjudged(
+        f"Refused on purpose: your session still holds {', '.join([*tasks, *wakeups])}. Once your line passes, the drive removes"
+        " your session, and every background task and wakeup in it ends unrun with it. Finish that step in this turn, or hand it"
+        " now to the owner that outlives you: a line to him goes on its order's due, the \"Next line by <time>\" your post"
+        " promises, and any other step goes to the session that asked, as a record `re` its record. Then stop each task with"
+        " `TaskStop` and each wakeup with `CronDelete`, and end."
     )
 
 
