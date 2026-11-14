@@ -424,6 +424,16 @@ queued, never `checks failed`, and the lander lands the same PRs again one at a 
 second refusal at the same head reads `unlanded`. Trunk's own `Trunk Merge Queue` check says what the
 queue did with a PR, never what a test found on its head, so the drive counts it as no check.
 
+## Before any change FDEs could see
+
+Run the monorepo's `fde-scan` skill before writing a change to anything FDE or customer code can
+observe: a builtin, API or SDK call, a consistency level, a default, a schema, or a wire or
+storage format. Until that skill is on `dev`, run
+`gh search code '<symbol>' --owner Forge-FDE --extension sand` for each symbol the change
+touches. Its report is the PR body's `## FDE impact` section; each caller it finds is fixed in
+the same stack or asked on a card, whatever his words, by his words "this MUST be usedto analyze
+impact before doing anyhting tht coulc imapct FDEs, regardless of what the human says".
+
 ## Read-only repositories
 
 Customer and forward-deployed engineers' repositories are read only: clone and read, never push,

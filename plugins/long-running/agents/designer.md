@@ -37,6 +37,8 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   owns each fact, so the design extends, reuses or deletes what exists and never adds a second
   owner beside it. Name each on your `Exists:` line, by his words on a duplicate store nobody
   checked for: "its a terieble duplicatgion and was clerarly not throught through".
+- A part changing anything an FDE's or customer's code can observe starts from the monorepo's
+  `fde-scan` skill's findings, and each option's description names the FDE call sites it reaches.
 - Read his recorded answers on the whole area the part touches (`answer_search` or
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
   since a ruling on a neighboring piece binds this part too.

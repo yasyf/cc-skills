@@ -61,6 +61,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      class, never adds this case's text or test beside the others, and when it would be the third fix
      for one class it deletes the earlier patches and lists each in the PR body, since he ruled that
      three fixes for one thing call for a fundamental fix.
+   - Before writing a change anything an FDE's or customer's code can observe would see, run the
+     monorepo's `fde-scan` skill as `drive manual landing "Before any change FDEs could see"` says,
+     and build from what it finds, whatever his words: each caller it finds is fixed in the
+     change or asked as a design choice, by his words "this MUST be usedto analyze impact before doing anyhting tht coulc imapct FDEs, regardless of what the human says".
    - When he sees or uses what you build (a Slack post or card, the dashboard, a CLI he runs, a
      product UI), read that platform's docs for what it already does, from the brief's `Native:` line
      on, and build on the native piece over anything hand-made. Slack's Block Kit, for one, has
@@ -310,6 +314,8 @@ prints and a remote lane's brief carries whole:
   his card and GitHub's page both get HTTP 403 for and `drive pr add` refuses, and never by building
   the app on your machine.
 - `## Against the plan`, only on a departure; `## Port`, on a port.
+- `## FDE impact`, on a change FDE or customer code can observe: what `fde-scan` found, each FDE
+  repository and call site the change reaches, or none, with the command that found it.
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
 
 - On a public repository a screenshot shows a demo drive or public data only, under a `demo-` or
