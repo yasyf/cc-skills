@@ -3569,8 +3569,11 @@ def pr_set(args: argparse.Namespace) -> int:
     before = known["prs"][key]
     if args.flaky and (fix := state.pr_key(args.flaky[1])) not in known["prs"]:
         raise DriveError(f"--flaky {args.flaky[1]}: the drive tracks no such PR, so it would never read that fix merge; drive pr add {state.pr_url(fix)} --job <j> tracks it first")
-    if args.flaky and not (before["ejected"] and (before["lander"] or {}).get("head") == before["head"]):
-        raise DriveError(f"{key}: refused, nothing set: --flaky names the flaky test Trunk ejected it on at its head, and Trunk ejected no try of its lander at {before['head'][:7]}")
+    if args.flaky and not (before["checks"] == "fail" or before["ejected"] and (before["lander"] or {}).get("head") == before["head"]):
+        raise DriveError(
+            f"{key}: refused, nothing set: --flaky names the flaky test that failed it at its head, in its own checks or in Trunk's ejection of its lander's try,"
+            f" and at {before['head'][:7]} none of its checks fail and Trunk ejected no try of its lander"
+        )
     if args.exempt == state.FLAKE_FIX and args.tap is None:
         args.tap = flake_tap(key, state.guarded(key) or not tooling(known["orders"][before["order"]]))
     after = dict(before)
@@ -3835,7 +3838,7 @@ def set_pr(pr: dict, args: argparse.Namespace, answered: list[str] | None = None
     if args.no_tapped:
         pr["tap"] = None
     if args.flaky:
-        pr["flaky"] = {"test": args.flaky[0], "fix": state.pr_key(args.flaky[1]), "head": pr["head"], "requeued": None}
+        pr["flaky"] = {"test": args.flaky[0], "fix": state.pr_key(args.flaky[1]), "head": pr["head"], "failed_checks": pr["failed_checks"] if pr["checks"] == "fail" else [], "requeued": None}
     pr["updated"] = state.stamp()
 
 
@@ -5519,8 +5522,10 @@ def parser() -> argparse.ArgumentParser:
         nargs=2,
         metavar=("TEST", "FIX"),
         help=(
-            "the flaky test outside its diff Trunk ejected it on at its head, and that test's fix, a PR the drive tracks: it waits on that fix,"
-            " and once the fix merges the lander queues the same commit again with stack-enqueue --flake, once; refused unless Trunk ejected it at its head"
+            "the flaky test outside its diff that failed it at its head, and that test's fix, a PR the drive tracks: it waits on that fix, waking nobody;"
+            " red at its own head, while every check failing there is one this kept, then red again once the fix merges or closes, waking its builder"
+            " once to restack onto it; ejected by Trunk with its own head green, queued again at the same commit with stack-enqueue --flake once the fix"
+            " merges, once; refused unless its checks fail or Trunk ejected it at its head"
         ),
     )
     verb.set_defaults(run=rehearsed(pr_set))

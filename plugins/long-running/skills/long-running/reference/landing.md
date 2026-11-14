@@ -423,11 +423,20 @@ one that failed, by his pick "Report, plus two safe acts, rerunning a failed bui
 job". A rerun whose target cannot be read, such as a `bk build rebuild` naming no number or pipeline, is refused
 until it can be, and a help read runs.
 
-An ejection on a flaky test outside your diff needs no push. Fix the test in its own `flake fix` PR, or
-find the one the drive already tracks, then run `drive pr set <url> --flaky <the test> <its fix PR>`.
-Your PR reads `waiting` until that fix merges. Then the lander queues the same commit again with
-`stack-enqueue --flake`, once, and `stack-enqueue` records the retry on the PR. A second ejection at that
-commit reads `unlanded`, and so does a fix that closed unmerged: restack and fix the cause, as above.
+A flaky test outside your diff that fails your PR needs no push while its fix is open, whether it failed
+your own head's checks, in any repository, or Trunk's ejection of a green head. Fix the test in its own
+`flake fix` PR, or find the one the drive already tracks, then run
+`drive pr set <url> --flaky <the test> <its fix PR>`, which keeps the checks failing at your head on its
+record. Your PR reads `waiting`, waking nobody, until that fix merges.
+
+- Red at your own head, it waits only while every check failing at that head is one the record kept, so
+  another failure there reads `red` again. Once the fix merges, it reads `red` and wakes you once:
+  restack onto the fix, since a rerun grades the same merge commit its first run tested, without the fix.
+  A fix that closed unmerged reads `red` too: fix the test at its cause, as above.
+- Ejected by Trunk with your own head green, the lander queues the same commit again with
+  `stack-enqueue --flake` once the fix merges, once, and `stack-enqueue` records the retry on the PR. A
+  second ejection at that commit reads `unlanded`, and so does a fix that closed unmerged: restack and
+  fix the cause, as above.
 
 An ejection whose record in cci's `trunk` drive gives a `GITHUB_API_` reason, such as
 `GITHUB_API_MERGE_PR_FAILED`, with no failing check needs no push either: Trunk tested the stack green

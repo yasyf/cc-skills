@@ -79,14 +79,14 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
             return blocked(data, key, failing, waits, cards)
-        return Stage("red", BUILDER, failing)
+        return flake_red(data, pr, failing) or Stage("red", BUILDER, failing)
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if state.ships_untapped(data, key):
         return waiting(data, key, cards) or Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
-    if (flaky := land.flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "open":
+    if (flaky := land.flaked(pr)) and not flaky["failed_checks"] and data["prs"][flaky["fix"]]["state"] == "open":
         return Stage(
             "waiting",
             WAITED,
@@ -177,6 +177,18 @@ def ejection(data: dict, pr: dict) -> str | None:
     if data["prs"][flaky["fix"]]["state"] == "closed":
         return f"Trunk ejected it from the merge queue on its flaky test {flaky['test']}, and {flaky['fix']}, that test's fix, closed unmerged"
     return None
+
+
+def flake_red(data: dict, pr: dict, failing: str) -> Stage | None:
+    """A PR red at its own head by the drive pr set --flaky record kept there while its checks failed: waiting on that test's fix, owed by what it waits on and waking nobody, while the fix is open and every check failing at that head is one the record kept; red once the fix merged, so entering it wakes its builder once to restack onto the fix, since a rerun grades the merge its first run tested, or closed unmerged; None with no such record, or once a check the record lacks fails there."""
+    flaky = land.flaked(pr)
+    if not flaky or pr["checks"] != "fail" or not set(pr["failed_checks"]) <= set(flaky["failed_checks"]):
+        return None
+    fix = data["prs"][flaky["fix"]]["state"]
+    if fix == "open":
+        return Stage("waiting", WAITED, f"{failing}, on its flaky test {flaky['test']} outside its diff; its builder restacks it onto {flaky['fix']}, that test's fix, once it merges")
+    then = "merged, so restack it onto that fix" if fix == "merged" else "closed unmerged, so fix that test at its cause"
+    return Stage("red", BUILDER, f"{failing}; {flaky['fix']}, the fix of its flaky test {flaky['test']}, {then}")
 
 
 def stopped(pr: dict) -> str:
