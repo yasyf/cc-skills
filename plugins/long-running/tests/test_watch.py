@@ -4121,7 +4121,7 @@ def his_card_row(name: str, key: str) -> dict:
     entry = state.load(name)["prs"][key]
     known = {key: (name, entry)}
     shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED"}
-    return card.render(shown, entry | {"now": card.standing(known, key)}, (), tuple(card.holding(known, key).values()))["prs"][0]
+    return card.render(shown, entry | {"now": card.standing(known, key)}, (), tuple(card.holding(*known[key]).values()))["prs"][0]
 
 
 def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_tap_names_and_links_that_fix_and_its_card_on_his_card(

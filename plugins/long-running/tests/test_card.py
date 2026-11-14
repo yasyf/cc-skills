@@ -911,7 +911,7 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
         asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", unsettled="aa5f6ea: Jev reads the recommended option as breaking it", card=JOURNAL_CARD, holds=holds)
         data["jobs"][asker]["questions"] = [asked | {"waits": waits}]
         data["prs"]["Forge-AI/monorepo#42"] |= {"checks": "pass", "review": "approved", "parts": ["fix"]}
-    shown = {"question": JOURNAL_QUESTION, "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "url": JOURNAL_CARD, "card": {"title": JOURNAL_QUESTION, "waits": waits}}
+    shown = {"question": JOURNAL_QUESTION, "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "url": JOURNAL_CARD, "card": {"title": JOURNAL_QUESTION, "body": "", "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "waits": waits}}
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [shown]})
     view.refresh_cards(drive)
     monkeypatch.setattr(card, "run", answering(pr_json()))
