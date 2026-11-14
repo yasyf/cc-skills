@@ -599,7 +599,7 @@ def test_a_sprite_brief_names_drive_job_replies_for_each_earlier_transcript_no_r
         "- j1 design: drive job replies j1\n"
         "- j2 builder, a remote lane: drive job replies j2\n"
         f"- j3 builder: {kept}\n"
-        "- j4 codex: drive job replies j4\n"
+        f"- j4 codex, its codex-ask run: {folder}/scratch/j4/codex\n"
         "Drive: demo, order o1, job j5"
     )
     assert orca.brief_of(orca.vm_brief(demo, "j5", text, state.LOCAL_ROUTE)) == text
