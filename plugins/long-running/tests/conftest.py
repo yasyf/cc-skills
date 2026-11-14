@@ -442,7 +442,7 @@ def posts_to_communicator(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
-    monkeypatch.setattr(agents, "gone", lambda session: session in ended)
+    monkeypatch.setattr(agents, "gone", lambda name, handler, entry: entry["session"] in ended)
     return ended
 
 

@@ -352,11 +352,31 @@ def holder(data: dict, held: dict) -> str | None:
     return None
 
 
-def gone(session: str | None) -> bool:
-    """Whether a bound handler's turn is over, whatever its Stop hook did: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names its session with a status but idle, so an idle `claude --bg` session that outlived its turn, as one does until `claude rm` takes it, holds nothing; its background job's state is no test, since Claude Code sets it from the words of its last message. A handler not bound yet has not started its turn, so it is not gone."""
-    if not session:
+def gone(name: str, handler: str, entry: dict) -> bool:
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps: once no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names its session with a status but idle, so an idle `claude --bg` session that outlived its turn, as one does until `claude rm` takes it, holds nothing; its background job's state is no test of a session that ran, since Claude Code sets it from the words of its last message. A handler its SessionStart hook never bound, as a hook that raised or a launch that died before init leaves one, is judged by the background job its launch started: gone once Claude Code failed that job, or once that job's first turn ended and no process runs its session but idle, and in flight until then, since its session's process first reads idle before its turn starts. A handler whose turn an API error ended is not gone until the resume that wakes it."""
+    if (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
         return False
-    return not running([(pid, record.get("procStartFt") or record.get("procStart")) for pid, record in session_records() if record.get("sessionId") == session and record.get("status") != "idle"])
+    records = session_records()
+    if entry["session"]:
+        return not busy(entry["session"], records)
+    if (job := launched(name, handler, entry)) is None or busy(job["sessionId"], records):
+        return False
+    return job.get("state") == "failed" or "firstTerminalAt" in job
+
+
+def busy(session: str, records: list[tuple[int, dict]]) -> bool:
+    """Whether a running process's record names the session with a status but idle."""
+    return bool(running([(pid, record.get("procStartFt") or record.get("procStart")) for pid, record in records if record.get("sessionId") == session and record.get("status") != "idle"]))
+
+
+def launched(name: str, handler: str, entry: dict) -> dict | None:
+    """The background job `claude --bg` wrote for the handler's launch, which Claude Code keeps with its session from the launch's first moment: the job of the handler's name created since its entry's start, so a restart's launch never reads the job of the session it replaces."""
+    since = state.parse_time(entry["started"])
+    return next((kept for _, kept in background_jobs() if kept.get("name") == job_name(name, handler) and state.parse_time(kept["createdAt"]) >= since), None)
+
+
+def job_name(name: str, handler: str) -> str:
+    return f"{name} handler {handler}"
 
 
 def registry_record(path: Path) -> dict | None:
@@ -376,12 +396,14 @@ def session_records() -> list[tuple[int, dict]]:
     ]
 
 
+def background_jobs() -> list[tuple[str, dict]]:
+    """Each background job Claude Code keeps in `jobs/<id>/state.json`, its id the folder's name, the one `claude rm` takes, and its state."""
+    return [(path.parent.name, kept) for path in (install.config_dir() / "jobs").glob("*/state.json") if (kept := registry_record(path)) is not None]
+
+
 def background_job(session: str) -> tuple[str, dict] | None:
-    """The background job Claude Code keeps for a session in `jobs/<id>/state.json`, its id the folder's name, the one `claude rm` takes, and its state."""
-    return next(
-        ((path.parent.name, kept) for path in (install.config_dir() / "jobs").glob("*/state.json") if (kept := registry_record(path) or {}).get("sessionId") == session),
-        None,
-    )
+    """The background job Claude Code keeps for a session."""
+    return next(((own, kept) for own, kept in background_jobs() if kept.get("sessionId") == session), None)
 
 
 def running(started: list[tuple[int, str | None]]) -> set[tuple[int, str | None]]:
@@ -412,7 +434,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
         if not held_now["thread"] and (order_id := state.report_order(data, attrs)):
             held_now |= state.thread_attr(data["orders"][order_id])
         left: list[str] = []
-        while (held := holder(data, held_now)) and gone(data["handlers"][held]["session"]):
+        while (held := holder(data, held_now)) and gone(name, held, data["handlers"][held]):
             left += data["handlers"].pop(held)["handed"]
         left = [one for one in dict.fromkeys(left) if not (named := RECORD.search(one)) or named[1] != held_now["record"]]
         if held:
@@ -485,7 +507,7 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     _, held = beside(state.saved(name))
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
-    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
+    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", job_name(name, handler), prompt]
     reads.run(argv, Path(held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
 
 
@@ -664,10 +686,8 @@ def resume(payload: dict) -> str | None:
     since = datetime.now(UTC)
     if "handler_session" in handler:
         with state.edit(names[0]) as data:
-            data["handlers"][handler["agent_id"]]["session"] = None
+            data["handlers"][handler["agent_id"]]["wakes"] = state.stamp(since + timedelta(minutes=OUTAGE_WAITS[tries]))
     time.sleep(OUTAGE_WAITS[tries] * 60)
-    if "handler_session" in handler:
-        bind_handler(payload, f"{names[0]}/{handler['agent_id']}")
     if any(state.parse_time(row["timestamp"]) > since for row in tail(transcript) if row["type"] in ("user", "assistant")):
         return None
     return RESUMED
@@ -680,13 +700,13 @@ def resumes(rows: list[dict]) -> int:
 
 
 def restart_handler(name: str, payload: dict) -> None:
-    """Start a handler whose turn an API error ended again once its four resumes met the error too, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as not started until its new session binds, so no brief meanwhile takes what it holds. A restart the error meets again resumes and starts again the same way."""
+    """Start a handler whose turn an API error ended again once its four resumes met the error too, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as in flight until its new launch's session runs, started anew so the job of the session it replaces never counts, and no brief meanwhile takes what it holds. A restart the error meets again resumes and starts again the same way."""
     kept = brief_path(name, payload["agent_id"])
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(opening(Path(payload["agent_transcript_path"])))
     with state.edit(name) as data:
         entry = data["handlers"][payload["agent_id"]]
-        entry.update(session=None, handed=[*entry["took"], *entry["handed"]], took=[])
+        entry.update(session=None, started=state.stamp(), handed=[*entry["took"], *entry["handed"]], took=[])
     state.detach(name, ["handler-start", payload["agent_id"]], "handlers.log")
     remove_session(name, payload)
 

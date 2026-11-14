@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import agent_brief
@@ -458,25 +458,54 @@ def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_wh
     assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
 
 
-def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_session_at_work_whatever_its_job_says(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_session_at_work_whatever_its_job_says_and_one_never_bound_once_its_launchs_job_failed_or_its_first_turn_ended(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config = tmp_path / "claude"
     (config / "sessions").mkdir(parents=True)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
-    spare = subprocess.Popen(["sleep", "60"])
-    for pid, session, status in ((os.getpid(), "busy", "busy"), (spare.pid, "idle", "idle"), (1, "died", "busy")):
+    spares = {status: subprocess.Popen(["sleep", "60"]) for status in ("idle", "unbound-idle", "unbound-busy", "unbound-starting")}
+    for pid, session, status in (
+        (os.getpid(), "busy", "busy"),
+        (spares["idle"].pid, "idle", "idle"),
+        (1, "died", "busy"),
+        (spares["unbound-idle"].pid, "s-idle", "idle"),
+        (spares["unbound-busy"].pid, "s-busy", "busy"),
+        (spares["unbound-starting"].pid, "s-starting", "idle"),
+    ):
         (config / "sessions" / f"{pid}.json").write_text(json.dumps({"sessionId": session, "kind": "bg", "status": status}))
+    started = state.now()
     jobs = {
         "a1b2c3d4": {"sessionId": "idle", "state": "working", "tempo": "idle"},
         "c3d4e5f6": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked"},
+        "14548b14": {"name": "demo handler h-failed", "sessionId": "s-failed", "createdAt": state.stamp(started), "state": "failed"},
+        "a7b8c9d0": {"name": "demo handler h-starting", "sessionId": "s-starting", "createdAt": state.stamp(started), "state": "working"},
+        "260762ba": {"name": "demo handler h-idle", "sessionId": "s-idle", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": state.stamp(started)},
+        "d4e5f6a7": {"name": "demo handler h-launching", "sessionId": "s-launching", "createdAt": state.stamp(started), "state": "working"},
+        "e5f6a7b8": {"name": "demo handler h-busy", "sessionId": "s-busy", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": state.stamp(started)},
+        "f6a7b8c9": {"name": "demo handler h-restarted", "sessionId": "s-replaced", "createdAt": state.stamp(started - timedelta(minutes=16)), "state": "failed"},
     }
     for short, kept in jobs.items():
         (config / "jobs" / short).mkdir(parents=True)
         (config / "jobs" / short / "state.json").write_text(json.dumps(kept))
+    bound = {session: {"session": session, "started": state.stamp(started)} for session in ("busy", "idle", "died", "blocked", "unknown")}
+    unbound = {handler: {"session": None, "started": state.stamp(started)} for handler in ("h-failed", "h-idle", "h-launching", "h-starting", "h-busy", "h-restarted", "h-unlaunched")}
+    waking = {"session": "idle", "started": state.stamp(started), "wakes": state.stamp(started + timedelta(minutes=1))}
     try:
-        assert {session: GONE(session) for session in ("busy", "idle", "died", "blocked", "unknown")} == {"busy": False, "idle": True, "died": True, "blocked": True, "unknown": True}
+        assert {session: GONE("demo", "h1", entry) for session, entry in bound.items()} == {"busy": False, "idle": True, "died": True, "blocked": True, "unknown": True}
+        assert {handler: GONE("demo", handler, entry) for handler, entry in unbound.items()} == {
+            "h-failed": True,
+            "h-idle": True,
+            "h-launching": False,
+            "h-starting": False,
+            "h-busy": False,
+            "h-restarted": False,
+            "h-unlaunched": False,
+        }
+        assert GONE("demo", "h1", waking) is False
     finally:
-        spare.kill()
-    assert GONE(None) is False
+        for spare in spares.values():
+            spare.kill()
     assert agents.background_job("blocked") == ("c3d4e5f6", jobs["c3d4e5f6"])
 
 
@@ -510,6 +539,34 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
     fresh = tools.run("handler", "demo", {"brief": briefs["684835"]}).removeprefix("started ")
     assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [briefs["684840"]]}
 
+
+
+@pytest.mark.parametrize(("job_state", "process", "fresh"), [("failed", None, True), ("working", "idle", True), ("working", None, False)], ids=["14548b14-failed-before-init", "260762ba-idle-after-its-turn", "launching"])
+def test_a_handler_its_session_start_never_bound_holds_its_thread_only_until_its_launchs_job_failed_or_its_turn_ended_and_his_next_message_there_starts_a_fresh_handler_handed_what_it_never_took(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch, job_state: str, process: str | None, fresh: bool
+) -> None:
+    config = tmp_path / "claude"
+    (config / "sessions").mkdir(parents=True)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setattr(agents, "gone", GONE)
+    cci_records |= {seq: {"seq": int(seq), "kind": "report", "lane": "root", "fields": {"attrs": {"thread": "1794600871.442519"}}} for seq in ("704420", "704431", "704447")}
+    briefs = {seq: f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in cci_records}
+    handler = tools.run("handler", "demo", {"brief": briefs["704420"]}).removeprefix("started ")
+    assert tools.run("handler", "demo", {"brief": briefs["704431"]}) == f"handed to {handler}"
+    (config / "jobs" / "14548b14").mkdir(parents=True)
+    (config / "jobs" / "14548b14" / "state.json").write_text(json.dumps({"name": f"demo handler {handler}", "sessionId": "s-launch", "createdAt": state.stamp(), "state": job_state} | ({"firstTerminalAt": state.stamp()} if process else {})))
+    spare = subprocess.Popen(["sleep", "60"])
+    if process:
+        (config / "sessions" / f"{spare.pid}.json").write_text(json.dumps({"sessionId": "s-launch", "kind": "bg", "status": process}))
+    try:
+        then = tools.run("handler", "demo", {"brief": briefs["704447"]})
+    finally:
+        spare.kill()
+    handlers = state.load("demo")["handlers"]
+    if not fresh:
+        assert (then, handlers[handler]["handed"]) == (f"handed to {handler}", [briefs["704431"], briefs["704447"]])
+        return
+    assert {key: entry["handed"] for key, entry in handlers.items()} == {then.removeprefix("started "): [briefs["704431"]]}
 
 API_ERROR = "Please run /login · API Error: 403 Attention Required! | Cloudflare"
 EARLIER = "2026-11-13T09:46:00.000Z"
@@ -648,13 +705,19 @@ def test_a_handler_whose_turn_an_api_error_ended_resumes_in_its_own_session_afte
     capsys.readouterr()
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
-    waits: list[tuple[float, str | None]] = []
-    monkeypatch.setattr(agents.time, "sleep", lambda seconds: waits.append((seconds, state.load("demo")["handlers"][handler]["session"])))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    waits: list[tuple[float, str | None, bool]] = []
+
+    def slept(seconds: float) -> None:
+        entry = state.load("demo")["handlers"][handler]
+        waits.append((seconds, entry["session"], GONE("demo", handler, entry)))
+
+    monkeypatch.setattr(agents.time, "sleep", slept)
     for resumes in range(len(agents.OUTAGE_WAITS)):
         assert failed(monkeypatch, capsys, "h-session", transcript, outage(resumes)) == (2, f"{agents.RESUMED}\n")
         assert state.load("demo")["handlers"][handler]["session"] == "h-session"
     assert failed(monkeypatch, capsys, "h-session", transcript, (*outage(3), WOKEN, ANSWERED, DIED)) == (2, f"{agents.RESUMED}\n")
-    assert waits == [(60, None), (120, None), (240, None), (480, None), (60, None)]
+    assert waits == [(seconds, "h-session", False) for seconds in (60, 120, 240, 480, 60)]
     assert (len([argv for argv in started if argv[:2] == ["claude", "--bg"]]), [argv for argv in started if "done" in argv], removed) == (1, [], [])
 
 
