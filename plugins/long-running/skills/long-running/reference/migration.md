@@ -19,10 +19,13 @@ The same first command keeps an ASK file for each of his open question cards who
 kept none, rebuilt from the card the drive stored, at `asks/<j>-<seq>.md` for its waits id, so
 `drive cards redraw` redraws it too. The file holds the card's question, summary and options word for
 word, the recommended one marked, each Show me picture as the fence its `source.json` keeps or as its
-picture line where none is kept, and under `Findings:` the findings of the newest block `drive job
+picture line where none is kept, each picture a post attached to the card as a file, which cc-slack
+keeps by its key and title alone, as a line drawing the file under the drive's `pictures/` that holds
+its bytes, and under `Findings:` the findings of the newest block `drive job
 ask` kept for its job asking the same question, unchanged since, else `Root cause: none: rebuilt from
-the posted card`. It also runs only once, and each file it writes meets every rule a new block meets
-before it draws.
+the posted card`. A card holding an attached picture no such file holds gets no file, and `drive cards
+redraw` names it rather than draw it without the picture. It also runs only once, and each file it
+writes meets every rule a new block meets before it draws.
 
 ## From one driver to two sessions
 

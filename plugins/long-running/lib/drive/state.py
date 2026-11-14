@@ -1026,7 +1026,7 @@ def label_approvals(name: str, cwd: str) -> None:
 
 
 def rebuild_asks(name: str, data: dict) -> None:
-    """Keep an ASK file, rebuilt from the card the drive stored, for each of his open question cards whose job's question keeps none, so `drive cards redraw` redraws it; marked so this runs once, from cards read live."""
+    """Keep an ASK file, rebuilt from the card the drive stored, for each of his open question cards whose job's question keeps none, so `drive cards redraw` redraws it, but one holding a picture the rebuild cannot find, which `drive cards redraw` names rather than draw without it; marked so this runs once, from cards read live."""
     from drive import limits
 
     if (stored_cards := json.loads(cards_path(name).read_text()))["source"] != "live":
@@ -1035,7 +1035,8 @@ def rebuild_asks(name: str, data: dict) -> None:
     (asks := drive_dir(name) / "asks").mkdir(exist_ok=True)
     for stored in stored_cards["questions"]:
         if (waits := stored["card"].get("waits")) in unkept and not (kept := rebuilt_ask(name, waits)).exists():
-            kept.write_text(limits.rebuilt(stored["card"], asks))
+            with suppress(DriveError):
+                kept.write_text(limits.rebuilt(stored["card"], asks))
     (asks / REBUILT_ASKS).touch()
 
 

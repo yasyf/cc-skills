@@ -1,3 +1,5 @@
+import glob
+import hashlib
 import json
 import re
 import sys
@@ -545,10 +547,10 @@ def coded(text: str) -> str:
 
 
 def rebuilt(card: dict, asks: Path) -> str:
-    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, and the Findings `kept_findings` finds in asks."""
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, then each picture `attached` finds, and the Findings `kept_findings` finds in asks."""
     lines = card["body"].split("\n")
     shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
-    show_me = unpictured(lines[shown + 1 :])
+    show_me = [*unpictured(lines[shown + 1 :]), *attached(card, asks.with_name("pictures"))]
     hints = card.get("hints") or {}
     return "\n".join(
         [
@@ -582,6 +584,19 @@ def unpictured(show_me: list[str]) -> list[str]:
         if not NAMELESS_CAPTION.fullmatch(posted["caption"]):
             found.append(posted["caption"])
         found += [f"```{source['kind'].removeprefix('code:')}", source["source"].rstrip("\n"), "```"]
+    return found
+
+
+def attached(card: dict, pictures: Path) -> list[str]:
+    """A line drawing each picture a post attached to the card as a file, which cc-slack keeps by its key and title alone, with no source line in the body: the file under pictures, where the drive draws every picture a post attaches, named the picture's title and holding the bytes its key hashes; a DriveError for a picture no such file holds, since drawing the card without it takes it off his card."""
+    found = []
+    for image in card.get("images") or []:
+        if image.get("source"):
+            continue
+        digest = Path(image.get("key", "")).stem
+        if not (kept := next((path for path in pictures.glob(f"*/{glob.escape(image['title'])}") if hashlib.sha256(path.read_bytes()).hexdigest() == digest), None)):
+            raise DriveError(f'its picture "{image["title"]}" was attached from a file of which {pictures} keeps no copy, so a redraw would take it off his card')
+        found.append(f"![{image['title']}](<{kept}>)")
     return found
 
 
