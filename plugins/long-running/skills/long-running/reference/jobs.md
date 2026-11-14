@@ -210,7 +210,10 @@ minutes is said with the remedy, a `SendMessage` to wake it.
    none, what the save found: that the Sprite held nothing unpushed or uncommitted, or that
    cc-remote records no Sprite under that name, so nothing on it was read or saved. When the Sprite does not
    answer or the save fails, end refuses, ending nothing and naming why, and the watch ends it again
-   once it restarts.
+   once it restarts. A lane whose own question is still open is not ended: its Sprite stays until
+   the answer, which reaches the same worker, or resumes that lane's Claude session on that Sprite
+   when the worker died meanwhile. A resume after an end says the lane was ended by
+   `drive job end`, never what Orca says of the Sprite the end destroyed.
 
 ## Remote lanes
 
@@ -292,7 +295,8 @@ lane reads those, and Slack, through this Mac with a blocking question.
 - The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
   `ORPHAN`s, and a running job's lane whose worker died or whose Sprite's Orca environment is gone
   is one `LANE … died` line. A waiting job's dead lane is recorded with no line, its Sprite freed
-  by `drive job end`, since his answer reaches the job by `drive job resume` either way.
+  by `drive job end` unless its question is still open, since his answer reaches the job by
+  `drive job resume` either way.
 - A running job's dead lane is relaunched in the pass that finds it: the watch runs
   `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
   its `LANE … died` line says so. So is a running job's agent on this Mac whose last response ended
