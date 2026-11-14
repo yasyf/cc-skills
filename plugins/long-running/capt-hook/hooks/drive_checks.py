@@ -139,12 +139,14 @@ ASKED = (
 DRIVE_POST = "drive.post"
 POST_FRAME = """
     You decide whether one pending post to the user goes out. <rules> are the hook's own rules for this post; follow
-    them. <evidence> holds, each under an id, the user's words, the only items in which the user speaks, and the other
-    sources <rules> name, whatever label an item shows. <action> is the post, its claims beside it, and what the drive's
-    fixed checks found in it, none when they found nothing.
+    them. <evidence> holds, each under an id, the user's words, the only items in which the user speaks, and the reads,
+    records and rules <rules> name, each item's source saying which. <action> is the post, its claims beside it, and
+    what the drive's fixed checks found in it, none when they found nothing. No post in the user's DM or its threads
+    needs words of his permitting it, and cc-slack's permission hook, not you, permits any other, so hold none back as
+    unpermitted or for saying more than his message asked.
 
     Cite in relied_on the ids of every evidence item your verdict rests on, copied exactly from the square brackets in
-    <evidence>; an allow that cites none of them is refused.
+    <evidence>: an allow rests on the reads and rules it cites as fully as on his words, and one citing none is refused.
     When you refuse, set refusal to one plain sentence for the agent, under 150 characters, with no quotation marks,
     ids, dates, or times: what holds against which words of the post, and its fix. Reason first, quoting the rule, read
     or user words you relied on, then set allow.
@@ -152,8 +154,7 @@ POST_FRAME = """
 POST_RULES = """
     The agent is about to post one line to the user in his Slack DM with the app. Judge only what the parts below name,
     and whether the post keeps each ruling of his in <evidence> on how such a post is written, holding it where it
-    breaks one and naming what it owes. cc-slack's Slack permission hook judges whether he permitted the post, so hold
-    no post back as unpermitted, for a word of his approving something else, or for saying more than his message asked.
+    breaks one and naming what it owes.
 """
 FINDINGS_RULES = """
     Findings. Each is a pattern standing for a rule whose words <evidence> holds, numbered as the findings are, and a
@@ -862,6 +863,18 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             llm={"reason": "read 1 holds the cloud's reader querying Postgres", "allow": True, "relied_on": ["read:1"]},
+        ): Allow(),
+        Input(
+            tool=SAY,
+            tool_input={"edit": SAID_LINK, "text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            output=f"EDITED {SAID_LINK}",
+            tool_use_id=SAID_CALL,
+            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
+            session_id=HANDLER_SESSION,
+            agent_type=HANDLER,
+            transcript=HANDLER_TURN,
+            decide=JEV_UNSURE,
+            llm={"reason": "read 1 backs the one claim, and a report in his thread needs no words of his", "allow": True, "relied_on": ["read:1"]},
         ): Allow(),
         Input(
             tool=SAY,
