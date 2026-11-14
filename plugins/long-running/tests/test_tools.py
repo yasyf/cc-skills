@@ -538,7 +538,7 @@ def test_a_defect_quoting_his_messages_clock_time_or_a_builds_start_posts_since_
     assert [sent["text"] for [sent] in posted] == [limits.first_line(defect) for defect in defects]
 
 
-def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_owner_record_heard_routes_reaches_it(
+def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owner_record_heard_routes_reaches_it_and_his_words_it_heard_first_reach_the_communicator(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -562,11 +562,17 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
     card.question_answered({"waits": "demo:j1-8", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100"})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     tools.run("record", demo, {"records": [{"kind": "defect", "text": "cc-slack delete hides --url"}]})
+    heard = {"kind": "owner", "text": "why did the moves wait a week?", "url": "terminal", "about": "drive"}
+    with pytest.raises(DriveError, match="1: refused, nothing posted: .* words of his this session heard first go with no order and no to, reaching the communicator"):
+        tools.run("record", demo, {"records": [heard | {"order": {"words": "Drive tooling: say why moves wait", "title": "Moves wait"}}]})
+    tools.run("record", demo, {"records": [heard]})
     assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
         ("communicator", [("answer", ["iris@demo"]), ("owner", ["iris@demo"]), ("owner", ["root@demo"])]),
         ("communicator", [("answer", ["iris@demo"])]),
         ("iris", [("defect", ["meta@demo"])]),
+        ("iris", [("owner", ["communicator@demo"])]),
     ]
+    assert state.load(demo)["orders"].keys() == {"o1"}
     with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, meta, iris"):
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
 
