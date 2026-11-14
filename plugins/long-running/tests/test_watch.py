@@ -4821,6 +4821,42 @@ def test_replayed_cc_slack_422_a_test_only_fix_of_a_job_whose_own_card_names_onl
     assert (land.pr_cards(drive, drive["prs"][fix]), stage.held(drive, drive["prs"][fix]), state.part_cards(drive, "j1")) == ([], "", ["demo:j1-1-a"])
 
 
+REPLAYED_5076 = "yasyf/cc-skills#5076"
+RELEASE_WAIT_CARD = "durable-agents:j3790-1794592574142"
+RELEASE_WAIT_PART = "Drive tooling: a job waiting on a release of a change keeps waiting after the ch"
+REPLAYED_5076_DESIGN = (
+    f"DESIGN: {RELEASE_WAIT_CARD}, his open card on which environments must serve the merge before a release wait ends; this rule is that card's"
+    ' "every env runs it" option, set by the coordinator\'s follow-up, not the option the card recommends (any production env)'
+)
+
+
+@pytest.mark.parametrize(
+    ("design", "holds", "answered", "held"),
+    [
+        (REPLAYED_5076_DESIGN, RELEASE_WAIT_PART, False, True),
+        (REPLAYED_5076_DESIGN, RELEASE_WAIT_PART, True, False),
+        (REPLAYED_5076_DESIGN, "", False, False),
+        (f"DESIGN: none: every option on {RELEASE_WAIT_CARD} includes this change", RELEASE_WAIT_PART, False, False),
+    ],
+)
+def test_replayed_5076_a_pr_whose_design_line_cites_an_open_card_another_orders_reader_asked_is_held_on_it_until_he_answers_unless_its_holds_line_or_the_design_line_reads_none(
+    demo: str, landers: list[tuple[str, ...]], design: str, holds: str, answered: bool, held: bool
+) -> None:
+    url = state.pr_url(REPLAYED_5076)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text=RELEASE_WAIT_PART, jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[RELEASE_WAIT_PART], carries={}, state="done")
+        asked = state.new_question(None, "Which environments must run a commit holding a PR's merge before its release wait ends?", state.stamp(T0), card=CARD, holds=holds)
+        data["jobs"]["j2"]["questions"] = [asked | {"waits": RELEASE_WAIT_CARD, "closed": state.new_close("answered", "Any production env", None, seq="9") if answered else None}]
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
+        data["prs"][REPLAYED_5076] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED, "checks": "pass", "design": design}
+    drive = state.load(demo)
+    pr = drive["prs"][REPLAYED_5076]
+    assert (state.part_cards(drive, "j1"), view.stored_waits(drive, land.pr_cards(drive, pr))) == ([], [RELEASE_WAIT_CARD] if held else [])
+    assert (stage.held(drive, pr), stage.of(drive, REPLAYED_5076, NO_CARDS).name) == ((f"his cards {CARD} on its work are open", "held") if held else ("", "ready"))
+    assert (land.start(demo, [REPLAYED_5076], NO_CARDS), landers) == (([], []) if held else ([(REPLAYED_5076,)], [(REPLAYED_5076,)]))
+
+
 def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     with state.edit(demo) as data:

@@ -1325,7 +1325,7 @@ def result_waits(data: dict, order_id: str, line: str, report: str = "") -> list
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line or a WAITING's whole report names, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job its WAITING line answers as stage.waited reads it, waiting on each card of his its first line's `waits on` names, and on each red PR it answers each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1372,16 +1372,20 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
 
 
 def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
-    """Each open card of his holding a job's work, its PR when given, by holds_work, by its link or else its waits id: the one rule by which a card holds work from landing, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
-    from drive import view
+    """Each open card of his holding a job's work, its PR when given, by its link or else its waits id: each holds_work finds, and on a PR each its `DESIGN:` lines but a `DESIGN: none` cite by served.named, whatever job asked it, since that PR builds an option of a choice he has not made; the one rule by which a card holds work from landing, in every repository, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
+    from drive import served, view
 
     job = data["jobs"][job_id]
+    cited = [name for line in served.deciding(pr["design"] or "") for kind, name in served.named(line) if kind in ("card", "link")] if pr is not None else []
     return [
-        drawn
-        for order_id in [job["order"], *job["carries"]]
-        for asker in data["orders"][order_id]["jobs"]
-        for question in view.open_questions(data["jobs"][asker])
-        if (drawn := question["card"] or question["waits"]) and holds_work(data, asker, question, job_id, order_id, pr)
+        *(
+            drawn
+            for order_id in [job["order"], *job["carries"]]
+            for asker in data["orders"][order_id]["jobs"]
+            for question in view.open_questions(data["jobs"][asker])
+            if (drawn := question["card"] or question["waits"]) and holds_work(data, asker, question, job_id, order_id, pr)
+        ),
+        *(drawn for _, question in (view.drawn_on(data, *cited) if cited else []) if question["closed"] is None and question["holds"] != "" and (drawn := question["card"] or question["waits"])),
     ]
 
 

@@ -360,6 +360,11 @@ def named(text: str) -> list[tuple[str, str]]:
     return list(dict.fromkeys(found))
 
 
+def deciding(text: str) -> list[str]:
+    """The `DESIGN:` lines of a return or a PR's citation that name a design decision, every one but a `DESIGN: none`, which says the PR makes none."""
+    return [line for line in text.splitlines() if line.startswith("DESIGN:") and line.removeprefix("DESIGN:").partition(":")[0].strip() != "none"]
+
+
 def answered(data: dict, waits: str) -> dict:
     """The question a card's waits id names, once he answered it; one the drive never asked, or whose card still asks him or ended otherwise, is refused as no answer of his."""
     job_id = state.named_job(data, {"waits": waits})

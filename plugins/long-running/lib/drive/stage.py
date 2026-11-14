@@ -189,7 +189,7 @@ def stopped(pr: dict) -> str:
 
 
 def held(data: dict, pr: dict) -> str:
-    """What of his holds the PR: what stops it, or a question card of his open on the work of any job carrying it whose `Holds:` line holds it, by land.pr_cards; a red PR one of his cards holds reads red, so its builder keeps it green while he decides."""
+    """What of his holds the PR: what stops it, or a question card of his open on the work of any job carrying it whose `Holds:` line holds it, or that the PR's `DESIGN:` line cites, by land.pr_cards; a red PR one of his cards holds reads red, so its builder keeps it green while he decides."""
     if stops := stopped(pr):
         return stops
     if asking := land.pr_cards(data, pr):
@@ -223,7 +223,7 @@ def conflicts_with(pr: dict) -> str:
 
 
 def waited(data: dict, job_id: str, line: str) -> dict:
-    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's and each release its words name and each question card of his its first line's `waits on <cards>` names, the builder's own question included, that holds then, so a red only his answer fixes wakes that builder once per red until he answers, while a card cited on any other line, such as DESIGN:, holds nothing."""
+    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's and each release its words name and each question card of his its first line's `waits on <cards>` names, the builder's own question included, that holds then, so a red only his answer fixes wakes that builder once per red until he answers, while a card cited on any other line, such as DESIGN:, is no wait of its red, holding only the landing of a PR whose DESIGN: line cites it, by state.part_cards."""
     job = data["jobs"][job_id]
     own = [key for key, pr in data["prs"].items() if pr["url"] in job["prs"]]
     declared = state.WAITING_LINE.match(line)
