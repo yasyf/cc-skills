@@ -105,8 +105,11 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   post, and any other time in it, such as "due by 2:37", sets nothing, so the
   watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
   the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
-  from the next line in the order's thread. The watch says `DUE` every 10
-  minutes until a drive post is in that thread, and the order cannot close before one is. An open
+  from the next line in the order's thread. A time can name its day, such as "Next line by 10:00 AM
+  tomorrow". From that time the watch writes the report owing the line and starts the handler that
+  posts it, as it does for a quiet thread, every 10 minutes, once while he is away, until a drive post
+  is in that thread, each report from 10 minutes past calling the line late; an order with no thread
+  gets one `DUE` line instead. The order cannot close before a post is there. An open
   incident keeps no such time: the watch owes its next line five quiet minutes after its last once it has news, by
   [Clocks](incidents.md#clocks).
 - The handler records each post on an order through the post itself,
@@ -728,16 +731,18 @@ restating it.
 ## What stays out
 
 - The machinery: pins, packs, installs-as-process, who handed what to whom. A failure of the drive's
-  that reaches him anyway, such as a card refused, a check nobody ran, a message that never arrived or
-  a hook refusing a post he ordered, says in that post how it is prevented: the tool change, the
-  `{order:}` or `{pr:}` carrying it, and when it is live, so that fix starts before the line goes out.
+  that reaches him anyway, such as a card refused, a check nobody ran, a message that never arrived, a
+  hook refusing a post he ordered or a line promised him late, says in that post how it is prevented:
+  the tool change, the `{order:}` or `{pr:}` carrying it, and when it is live, so that fix starts
+  before the line goes out. The order the post is about and its PRs say what was late, not what
+  keeps it from being late again, so they never count, but a drive tooling order's own PRs do.
   His words of Nov 12, 12:44 AM, under "Its card was refused because nobody checked that PR against
   your words": "thats not acceptable to dsay without telling me how you will prevent it". A disconnect
   is never the reason, since a session reaches another through SendMessage while cci is down, by
   [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
   back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
-  find a line naming such a failure, or citing the defect record the drive filed for one, in a
-  post naming no order or PR and drawing no PR card, and only warn the session sending it, which posts as written: the same words
+  find a line naming such a failure, a late or overdue line included, or citing the defect record the drive filed for one, in a
+  post naming no order or PR but the ones it is about and drawing no PR card, and only warn the session sending it, which posts as written: the same words
   tell the product's own refusals too, such as a pod its check refused, by his pick "1 and then if
   we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings
   only warn the session". On that warning, a line that does tell a failure of the drive's is

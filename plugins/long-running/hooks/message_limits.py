@@ -360,15 +360,15 @@ def unbacked(payload: dict, said: str) -> str | None:
     )
 
 
-def unprevented(said: str, found: dict[str, dict]) -> Warned | None:
-    """What the session hears when a line of its post to him reads as a failure, refusal or gap of the drive's own, or cites its defect record, and the post has no word on how it is prevented: the post goes out as written. A post drawing a PR card carries the PR that prevents it."""
-    if not (lines := refs.unprevented(said, found)):
+def unprevented(said: str, found: dict[str, dict], subject: set[str]) -> Warned | None:
+    """What the session hears when a line of its post to him reads as a failure, refusal or gap of the drive's own, a line of it late included, or cites its defect record, and the post has no word on how it is prevented, the order it goes to and that order's PRs, subject, never counting as that word: the post goes out as written. A post drawing a PR card carries the PR that prevents it."""
+    if not (lines := refs.unprevented(said, found, subject)):
         return None
     return Warned(
         "message_limits: this post goes out as written, and these lines read as telling him a card, check, hook, lane or session"
-        " of the drive failed, refused, disconnected or left a gap, with no word on how it is prevented. When one does, reword"
+        " of the drive failed, refused, disconnected or left a gap, or that a line of it is late, with no word on how it is prevented. When one does, reword"
         " the post with say(edit=<its permalink>, text=…) adding the tool change, the {order:<o>} or {pr:<n>}"
-        " carrying it and when it is live, or return a DEFECT line when no fix is started; a disconnect is no excuse, since a"
+        " carrying it and when it is live, never the order or PR the post is about, or return a DEFECT line when no fix is started; a disconnect is no excuse, since a"
         " session reaches another with SendMessage while cci is down. A line telling what the product does, such as a pod its"
         ' own check refused, needs nothing. His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will'
         f' prevent it". The lines: {" | ".join(lines)}'
@@ -536,7 +536,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unswitched(tool_input, drive),
             *unchecked(tool_input, messages, linked, drive, report, order_id),
             unbacked(payload, said),
-            None if tool_input.get("tap_prs") else unprevented(said, found),
+            None if tool_input.get("tap_prs") else unprevented(said, found, refs.subject(drive, posted_order(drive, tool_input, order_id))),
             unordered(said),
             corrected(tool_input, drive),
             untooled(payload, drive, said),

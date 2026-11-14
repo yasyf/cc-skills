@@ -1007,8 +1007,8 @@ def overdue(order: dict, moment: datetime, away: bool) -> bool:
     return said is None or not away and moment - state.parse_time(said) >= DUE_EVERY
 
 
-def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
-    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. An order whose lines to him have no thread has no line to read, so its time is the drive's own, said once and kept by being said."""
+def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Owe him the line promised by each time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack: the watch writes the report owing that line and starts the handler that posts it there, as quiet_lines does, so no session's judgment stands between the time and its line, by his words "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"; again every ten minutes until a post is there, only the first while he is away, each written ten minutes or more past the time asking the handler to say the line is late. A report reaching a handler keeps its facts as quiet_lines' own reports do, so the thread's next news report waits five minutes from it. A thread that could not be read and a report that could not be written are said as a failed read is and tried again next pass; a report whose handler did not start is the communicator's to start, as each POST report is. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. An order whose lines to him have no thread has no line to read, so its time is the drive's own, said once as a DUE line and kept by being said."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads = {
@@ -1019,17 +1019,47 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
     if not threads:
         return []
     lines = []
+    owing = []
     with state.edit(watcher.name) as data:
         for order_id, read in threads.items():
             order = data["orders"][order_id]
             if read and overdue(order, moment, away):
                 state.keep(order, read[0])
-            if overdue(order, moment, away):
-                order["due_said"] = state.stamp(moment)
-                if read is None:
-                    order["kept"] = order["due_said"]
-                why = UNTHREADED if read is None else read[1] or f"no line in its thread since {when(order['promised'])}"
-                lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {why}'))
+            if read and not read[1]:
+                watcher.failures.pop(f"due read {order_id}", None)
+            if not overdue(order, moment, away):
+                continue
+            if read is None:
+                order["due_said"] = order["kept"] = state.stamp(moment)
+                lines.append(f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {UNTHREADED}')
+            elif read[1]:
+                lines += failed(watcher, f"due read {order_id}", f"read of {order_id}'s threads for the line promised him by {when(state.owed_at(order))}", slack.SlackError(read[1]), moment)
+            else:
+                owing.append(order_id)
+    registered = render.prs_by_job(data)
+    for order_id in owing:
+        source = f"due {order_id}"
+        order = data["orders"][order_id]
+        group = [order_id, *state.joined_orders(data).get(order_id, [])]
+        facts = line_facts(data, group, registered)
+        working = [job_id for each in group for job_id in data["orders"][each]["jobs"] if data["jobs"][job_id]["state"] == "running"]
+        try:
+            seq = quiet_report(watcher, data, {order_id: group}, quiet_since(data, group), moment, untold(order, facts) if order["quiet"] else list(facts), working, state.owed_at(order))
+        except (reads.ReadError, state.DriveError) as error:
+            lines += failed(watcher, source, f"report owing the line {order_id} promised him by {when(state.owed_at(order))}", error, moment)
+            continue
+        handler = None
+        try:
+            with contextlib.suppress(agents.Busy):
+                handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
+            watcher.failures.pop(source, None)
+        except state.DriveError as error:
+            lines += failed(watcher, source, f"handler on report {seq} owing the line {order_id} promised him", error, moment)
+        with state.edit(watcher.name) as data:
+            order = data["orders"][order_id]
+            order["due_said"] = state.stamp(moment)
+            if order["quiet"]:
+                order["quiet"] |= {"record": seq, "at": state.stamp(moment), "handler": handler, "news": facts}
     return lines
 
 
@@ -1118,18 +1148,23 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
     return [key for key, fact in facts.items() if order["quiet"]["news"].get(key) != fact]
 
 
-def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str]) -> str:
-    """Write the report owing him a line on the orders and incidents with news in one thread, each by its head and the orders state.incident_orders names for it, for the handler that posts it there; its seq."""
+def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], due: str | None = None) -> str:
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.incident_orders names for it, or, given due, on the one order owing him the line it promised by that time, which the report calls late from ten minutes past it; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
     incidents = all(data["orders"][head]["incident"] for head in heads)
+    past = int((moment - state.parse_time(due)).total_seconds() // 60) if due else 0
+    late = timedelta(minutes=past) >= DUE_EVERY
     jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
-    asked = (
-        f"post where {'the' if one else 'each'} incident stands now in its thread: what moved since its last line, what each job at work is doing, a card of his that blocks it with the option built meanwhile, and what ships next."
-        if incidents
-        else "post what changed since its last line in its thread: the finding a job returned, each PR that went up or changed stage with his card on it linked, his tap, and who owes the next step, such as the session that re-lands a PR Trunk ejected."
-    )
+    if due:
+        asked = (
+            f"post where it stands now in its thread{', opening with that line being late' if late else ''}: what moved since its last line, what each job at work is doing, and the clock time of his next line, as \"Next line by <time>\", which that post promises him."
+        )
+    elif incidents:
+        asked = f"post where {'the' if one else 'each'} incident stands now in its thread: what moved since its last line, what each job at work is doing, a card of his that blocks it with the option built meanwhile, and what ships next."
+    else:
+        asked = "post what changed since its last line in its thread: the finding a job returned, each PR that went up or changed stage with his card on it linked, his tap, and who owes the next step, such as the session that re-lands a PR Trunk ejected."
     facts = [
         *(
             line
@@ -1137,6 +1172,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
             for line in (f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {head}, {', '.join(group)}: {data['orders'][head]['text']}", *incident_pr_lines(watcher.name, group))
         ),
         f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
+        *([f"Its line was promised him by {when(due)}, {past} minutes ago."] if due else []),
         f"Moved since the thread's last line or the watch's last report on it: {', '.join(moved) or 'nothing'}. At work: {', '.join(working) or 'no job'}.",
         f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then {asked}",
         f"Jobs: {len(jobs)}",
@@ -1146,15 +1182,20 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     order = data["orders"][head]
     kind = "incident" if incidents else "order"
     named = f"{kind} {head} has" if one else f"{kind}s {', '.join(heads)} have"
-    text = (
-        f"POST {named} had no line to him in {minutes} minutes: post where {'it stands' if one else 'each stands'} now in its thread"
-        if incidents
-        else f"POST {named} news since the thread's last line: post what changed there"
-    )
+    if due:
+        text = (
+            f"POST order {head}'s line promised by {when(due)} is {past} minutes late: post where it stands now in its thread, saying it is late"
+            if late
+            else f"POST order {head} owes him the line it promised by {when(due)}: post where it stands now in its thread"
+        )
+    elif incidents:
+        text = f"POST {named} had no line to him in {minutes} minutes: post where {'it stands' if one else 'each stands'} now in its thread"
+    else:
+        text = f"POST {named} news since the thread's last line: post what changed there"
     record = {
         "kind": "report",
-        "topic": f"watch-quiet-{head}",
-        "attr": {"order": head, "progress": "true", "quiet": "true"} | state.thread_attr(order),
+        "topic": f"watch-{'due' if due else 'quiet'}-{head}",
+        "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"due": due} if due else {}) | state.thread_attr(order),
         "text": text,
         "body": "\n".join(facts) + "\n",
     }
@@ -2613,7 +2654,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     if "github" not in watcher.failures:
         yield github_lines(watcher, moment)
     yield catch_up_lines(watcher, moment)
-    yield [line for _, line in due_lines(watcher, moment)]
+    yield due_lines(watcher, moment)
     yield quiet_lines(watcher, moment)
     yield clock_lines(watcher, moment)
     yield undelivered_lines(watcher, moment)

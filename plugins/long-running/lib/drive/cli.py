@@ -883,7 +883,7 @@ def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
     if held is None:
         return f"stored {due}: it waits on {post}, which tells him the time; from that post he is owed a line by {due}"
     return (
-        f"stored {due} behind the line already owed for {render.when(held)}: that time keeps firing DUE until {post} lands,"
+        f"stored {due} behind the line already owed for {render.when(held)}: the watch keeps starting a handler on that line until {post} lands,"
         f" which tells him {due} and makes it the time owed"
     )
 
@@ -1156,11 +1156,13 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:
-    """The time a post made at `at` promises his next line by: the first clock time its words put after next line, update, post or summary whose time of day nearest the post is after it, read with AM or PM as written, else on either half of a 12-hour clock, so at 9:29 PM "next line by 9:45" is 9:45 PM and "next line by 7:30" is past, and a time after any other words, such as "due by 2:37", promises nothing."""
-    for said in PROMISED_TIME.finditer(limits.masked(text)):
+    """The time a post made at `at` promises his next line by: the first clock time its words put after next line, update, post or summary that is after it, on the day its words name after it, such as "10:00 AM tomorrow", else at the time of day nearest the post, read with AM or PM as written, else on either half of a 12-hour clock, so at 9:29 PM "next line by 9:45" is 9:45 PM and "next line by 7:30" is past, and a time after any other words, such as "due by 2:37", promises nothing."""
+    masked = limits.masked(text)
+    for said in PROMISED_TIME.finditer(masked):
         hour = int(said[1])
         hours = [hour % 12 + (12 if said[3].upper() == "P" else 0)] if said[3] else [hour % 12, hour % 12 + 12] if 1 <= hour <= 12 else [hour]
-        if (due := state.nearest(hours, int(said[2]), at)) > at:
+        day = limits.DAY_AFTER.match(masked, said.end())
+        if (due := state.nearest(hours, int(said[2]), at, day[1] if day else "")) > at:
             return due
     return None
 
@@ -4641,7 +4643,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--rework", action="append", default=[], metavar="PR", help=REWORK_HELP)
-    verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
+    verb.add_argument("--due", help="the time his ack promised a line by; from then the watch starts the handler that posts that line, until a line is in the thread")
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
         "--incident",

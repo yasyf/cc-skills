@@ -721,6 +721,9 @@ def test_a_report_naming_an_incidents_fix_and_cause_delivers_the_cause_its_stopp
         ("Its folder was empty by 7:30.", None),
         ("You get it before 12:15 a.m.", None),
         ("Next line by 9:45 AM.", None),
+        ("Next line by 10:00 AM tomorrow.", "Nov 12 10:00"),
+        ("Next line by 9:00 PT tomorrow", "Nov 12 09:00"),
+        ("Next update at 8:00 on Nov 13", "Nov 13 08:00"),
     ],
 )
 def test_a_post_promises_the_clock_time_after_next_line_read_as_the_time_of_day_nearest_it_when_that_is_ahead(text: str, due: str | None) -> None:

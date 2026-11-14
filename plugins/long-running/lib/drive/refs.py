@@ -36,7 +36,9 @@ DRIVE_PART = re.compile(
     r"\b(?:cards?|checks?|hooks?|builders?|handlers?|designers?|watch|coordinator|communicator|meta|drive|lanes?|skill|cci|say)\b",
     re.IGNORECASE,
 )
-PREVENTION = re.compile(r"\{(?:order|pr):|github\.com/[^/\s]+/[^/\s]+/pull/\d+|\bo\d+\b")
+LATE = re.compile(r"\b(?:late|overdue)\b", re.IGNORECASE)
+ORDER_ID = re.compile(r"\bo\d+\b")
+PR_NUMBER = re.compile(r"(\d+)\Z")
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
 CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
 ABSENT_RECORD = re.compile(
@@ -120,29 +122,41 @@ def stated(line: str) -> bool:
     return False
 
 
-def unprevented(text: str, found: dict[str, dict]) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or cites the defect record the drive filed for one, when the text outside its fences names no order or PR carrying the tool change that prevents it; found holds each reference the text makes, as resolved reads it."""
+def unprevented(text: str, found: dict[str, dict], subject: set[str]) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or a line of the drive late or overdue, or cites the defect record the drive filed for one, when the text outside its fences names no order or PR carrying the tool change that prevents it, never counting subject, the orders and PRs the text reports on, which say what was late, not what keeps it from being late again; found holds each reference the text makes, as resolved reads it."""
     told = picture.FENCE.sub("", text)
-    if PREVENTION.search(told):
+    if named(told) - subject:
         return []
     return [
         line.strip()
         for line in told.splitlines()
         if not line.lstrip().startswith(">")
-        and (
-            FAILURE.search(plain := QUOTED.sub("", line))
-            and DRIVE_PART.search(plain)
-            or any(found[match[0]].get("defect") for match in REF.finditer(line) if match[1] == "record")
-        )
+        and (drive_failure(QUOTED.sub("", line)) or any(found[match[0]].get("defect") for match in REF.finditer(line) if match[1] == "record"))
     ]
+
+
+def drive_failure(line: str) -> bool:
+    return bool(FAILURE.search(line) and DRIVE_PART.search(line) or LATE.search(line))
+
+
+def named(text: str) -> set[str]:
+    """Each order and PR the text names: an order by its id, in {order:…} or bare, and a PR as #<its number>, in {pr:…} or a GitHub link."""
+    prs = [found[1] for match in REF.finditer(text) if match[1] == "pr" and (found := PR_NUMBER.search(match[2]))]
+    return {*ORDER_ID.findall(text), *(f"#{number}" for number in [*prs, *(link[3] for link in state.PR_URL.finditer(text))])}
+
+
+def subject(data: dict, order_id: str | None) -> set[str]:
+    """What a post or report on an order reports on, as named writes it: the orders of its incident, or the order alone, and each PR of theirs, but a drive tooling order's, whose PRs are the tool changes preventing what it tells."""
+    if order_id is None:
+        return set()
+    orders = [each for each in state.incident_orders(data, order_id) if not data["orders"][each]["text"].startswith(state.TOOLING)]
+    return {*orders, *(f"#{key.rsplit('#', 1)[1]}" for key, pr in data["prs"].items() if state.order_served(pr) in orders)}
 
 
 def prevented(text: str) -> bool:
     """Whether a line of the text, outside a fence, a quote and a quoted line, names a cause or a failure of the drive's own while a line outside its fences and quotes carries the order or PR preventing it, the post his ruling on failures asks for."""
     told = [line for line in picture.FENCE.sub("", text).splitlines() if not line.lstrip().startswith(">")]
-    return any(PREVENTION.search(line) for line in told) and any(
-        CAUSE.search(plain := QUOTED.sub("", line)) or FAILURE.search(plain) and DRIVE_PART.search(plain) for line in told
-    )
+    return any(named(line) for line in told) and any(CAUSE.search(plain := QUOTED.sub("", line)) or drive_failure(plain) for line in told)
 
 
 def record_excuses(text: str) -> list[str]:
