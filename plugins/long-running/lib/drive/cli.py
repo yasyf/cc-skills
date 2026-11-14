@@ -2394,7 +2394,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, and the texts a remote lane's worker never read that its job now holds for its next worker, by hold_unread, or refuse it with nothing kept, naming the fix, when that line would set none; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2436,8 +2436,6 @@ def job_report(args: argparse.Namespace) -> int:
         briefed = [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed]
         kept = str(state.replies_path(name, args.id))
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
-        if job.get("where") == "remote" and job.get("dispatch") and (unread := hold_unread(name, args.id)):
-            where = f"{where}; {unread}"
         told = state.load(name)
         if (taken := told["jobs"][args.id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
             state.returned(name, told, args.id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *render.builder_lines(data, added)]))
@@ -2906,18 +2904,15 @@ def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
             kept.append({"seq": None, "words": text, "sender": sender, "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
 
 
-def hold_unread(name: str, job_id: str) -> str | None:
-    """Hold on a remote lane's job each text Orca keeps unread in its worker's Dispatch mailbox, since Orca's own continue-with-mail at the worker's report is refused unless the text's sender coordinates the job's Run, so its next worker gets it as any held text gets there, each held as sent by the sender its subject names by state.sent_by; what the job's line says of it: the texts held that the job did not hold already, why that mailbox could not be read, or None when it held nothing."""
+def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:
+    """Hold on the job each text the lane's ended worker never read, read by orca.unread from the Orca that keeps that worker's Dispatch mailbox, since Orca shows a finished worker none of its mail and a relaunch carries only what the job holds, so the job's next worker gets each as any held text gets there, each held as sent by the sender its subject names by state.sent_by; the texts held that the job did not hold already. The lane is the job as the watch read it with that worker, so a relaunch since then never has its live worker's mail held. OrcaError when that mailbox cannot be read."""
+    unread = orca.unread(lane)
     job = state.load(name)["jobs"][job_id]
-    try:
-        unread = orca.unread(job["dispatch"])
-    except orca.OrcaError as error:
-        return f"the mail its worker never read could not be read from Orca to hold: {error}"
     senders = {state.sent_by(sender): sender for sender in [state.HIM, *state.SENDER_NAMES]}
     words = {message["body"]: senders.get(message["subject"]) for message in unread if all(held["words"] != message["body"] for held in job["undelivered"])}
     for text, sender in words.items():
         hold(name, job_id, text, sender)
-    return render.unread(list(words)) if words else None
+    return list(words)
 
 
 def deliver(args: argparse.Namespace, name: str) -> int:

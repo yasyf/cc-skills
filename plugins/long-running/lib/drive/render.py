@@ -294,7 +294,7 @@ def cut(text: str, limit: int) -> str:
 
 
 def unread(words: list[str]) -> str:
-    """What a job's line says of the texts its worker reported without reading, which the job holds for its next worker."""
+    """What a job's line says of the texts its worker ended without reading, which the job holds for its next worker."""
     count = "1 text" if len(words) == 1 else f"{len(words)} texts"
     return f'it never read {count}, held for its next worker: "{cut(words[0], 80)}"'
 

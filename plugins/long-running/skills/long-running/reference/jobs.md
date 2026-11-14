@@ -365,7 +365,7 @@ before it sends or starts.
   a step only this Mac runs, on a handoff carrying the job's brief, branch, last line, report, PRs
   and the message.
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch
-  when it asked none or Orca already holds another answer to it. A live Sprite lane no start this
+  when it asked none or Orca already holds another answer to it, which the output says is queued in that Dispatch for its live worker, read at its next check, and carried by the job's next worker if this one ends with it unread. A live Sprite lane no start this
   drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
   hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
   send, and the next message tries again. On a finished worker on this Mac, it starts the job's
@@ -445,6 +445,14 @@ before it sends or starts.
   replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
   handoff, oldest first. A relaunch Orca refuses exits 0 with Orca's refusal, saying the text is still held, which the
   watch carries again ten minutes on; `drive job resume <j>` delivers it once Orca reads the lane.
+- A text sent to a live worker stays only in the mailbox of the Orca keeping its Dispatch, this
+  Mac's for a lane here and the lane's Sprite's for a lane there, until that worker reads it. Once
+  the watch's lane pass reads a lane's worker finished or exited while its job runs or waits, it
+  reads that dispatch's unread mail once from that Orca, `orca orchestration inbox --environment
+  <the job's environment>` for a Sprite lane, holds each text on the job, and runs `drive job resume
+  <j>` with no text, whose relaunch carries them in the next worker's handoff, unless the death it
+  read starts that relaunch already, and names them on a `JOB` line. Orca's own notice that mail
+  did not reach a finished worker says nothing more.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
   message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.
