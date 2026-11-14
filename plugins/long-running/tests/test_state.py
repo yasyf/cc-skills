@@ -634,17 +634,27 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
 
 
 
-def test_only_the_coordinator_session_hearing_a_jobs_order_reaches_its_agent_by_sendmessage_so_a_moved_job_takes_a_resume(state_root: Path) -> None:
+def test_only_the_session_holding_a_jobs_order_reaches_its_agent_by_sendmessage_so_a_moved_or_meta_held_job_takes_a_resume(state_root: Path) -> None:
     make("demo", "top", "2026-11-11T01:00:00-08:00")
     with state.edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
         data["orders"]["o1"] = {"text": "ship the run page", "jobs": [], "parts": {}, "promised": None, "project": "Iris"}
         data["orders"]["o2"] = {"text": "fix the watch", "jobs": [], "parts": {}, "promised": None, "project": "The drive"}
-        ran = {"moved": ("o1", "local", "top", "agent-1"), "iris": ("o1", "local", "iris", "agent-2"), "top": ("o2", "local", "top", "agent-3"), "sprite": ("o1", "remote", "iris", None), "ended": ("o2", "local", "gone", "agent-4")}
+        data["orders"]["o3"] = {"text": "Drive tooling: fix the wake", "jobs": [], "parts": {}, "promised": None, "project": None}
+        data["roles"]["meta"] = {"session": "meta-1", "terminal": None, "cwd": "/meta", "started": "2026-11-11T02:00:00-08:00"}
+        ran = {
+            "moved": ("o1", "local", "top", "agent-1"),
+            "iris": ("o1", "local", "iris", "agent-2"),
+            "top": ("o2", "local", "top", "agent-3"),
+            "sprite": ("o1", "remote", "iris", None),
+            "ended": ("o2", "local", "gone", "agent-4"),
+            "tooling": ("o3", "local", "top", "agent-5"),
+            "meta": ("o3", "local", "meta-1", "agent-6"),
+        }
         for job_id, (order_id, where, session, agent) in ran.items():
             data["jobs"][job_id] = state.new_job(order_id, "builder", "build it", [], "2026-11-11T03:00:00-08:00") | {"where": where, "session": session, "agent": agent}
     data = state.load("demo")
-    assert {job_id: state.agent_lane(data, job) for job_id, job in data["jobs"].items()} == {"moved": None, "iris": "iris", "top": "root", "sprite": None, "ended": None}
+    assert {job_id: state.agent_lane(data, job) for job_id, job in data["jobs"].items()} == {"moved": None, "iris": "iris", "top": "root", "sprite": None, "ended": None, "tooling": None, "meta": "meta"}
 
 
 def test_resolve_falls_back_to_the_only_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

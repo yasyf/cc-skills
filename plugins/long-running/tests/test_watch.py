@@ -29,7 +29,8 @@ RED = [{"name": "test", "conclusion": "FAILURE"}]
 ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session expires?"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
-REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
+REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so wake it to pipe its return there"
+WOKEN_BY_ITS_SESSION = ": SendMessage it this line verbatim from root@demo, the session session-under-test that started its agent a1"
 CHECKED = {"head": "aaaaaaa111", "read": "aaaaaaa111", "orders": ["o1"], "lines": {}}
 REAL_PASS = watch.run_pass
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
@@ -2023,7 +2024,7 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_r
     tap = (
         f'"{render.cut(f"His answer on card {CARD}, verbatim: \"Ring\"", 80)}", held at {render.when(state.stamp(tapped))}, has not reached j1; the watch sends it'
         " to a worker that takes messages, hands it to the next worker of one that returned and launches a builder never started with it; drive job launch j1 on its FREE line,"
-        " which carries his words to its first worker"
+        " which carries each answer of his it has not heard to its first worker"
     )
     assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'ORPHAN o1 "ship the watch": {tap}, answering its lane\'s question "{asked}" 30 minutes ago']
@@ -2611,7 +2612,7 @@ OVERLOADED = {
         (
             [CALLING, PARKED],
             timedelta(minutes=45),
-            'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no result line: SendMessage from the session that started it wakes it, and drive job resume j1 <the event> from any other',
+            'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no result line, so wake it',
         ),
     ],
 )
@@ -2677,8 +2678,8 @@ def test_an_incidents_second_lane_builder_is_judged_by_its_transcript_until_the_
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     write_transcript(tmp_path / "config", [CALLING, FINISHED], timedelta(minutes=10))
     folder = codex_ask.run("running")
-    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex", "codex_run": str(folder)}
-    assert watch.agent_gap("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT
+    job_of = {"order": "o1", "where": "local", "session": "session-under-test", "agent": "a1", "kind": "codex", "codex_run": str(folder)}
+    assert watch.agent_gap("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT + WOKEN_BY_ITS_SESSION
     codex_ask.end(folder, "completed", codex_reply("DONE", "reviewed"))
     assert isinstance(watch.agent_gap("j1", job_of, state.load(demo), state.now()), watch.Answered)
 
@@ -2834,7 +2835,7 @@ def test_a_running_local_agent_that_ended_on_a_result_line_is_an_orphan_whatever
 ) -> None:
     returned(demo, tmp_path, monkeypatch, kind, text, report)
     [line] = watch.run_pass(watcher(demo), state.now())
-    assert (line.startswith(UNRECORDED), line.endswith(REPORT_IT)) == (True, True)
+    assert (line.startswith(UNRECORDED), line.endswith(REPORT_IT + WOKEN_BY_ITS_SESSION)) == (True, True)
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("running", ASKED)
 
@@ -6666,7 +6667,10 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     [(brief, out)] = watchdogs
     lines = brief.splitlines()
-    assert "Holder: the meta session, session meta-session; j1 runs on this Mac as agent agent-j1 of session meta-session, which only that session's SendMessage wakes, never drive job resume" in lines
+    assert (
+        "Holder: the meta session, session meta-session; j1 runs on this Mac as agent agent-j1 of session meta-session; to wake it:"
+        " SendMessage it the message verbatim from meta@demo, the session meta-session that started its agent agent-j1"
+    ) in lines
     assert f"- cc-transcript {watch.session_transcript(state.load(demo)['roles']['meta'])}, from {watch.when(state.stamp(T0))} on" in lines
     assert "session-under-test" not in brief
     watchdog_answered(out)

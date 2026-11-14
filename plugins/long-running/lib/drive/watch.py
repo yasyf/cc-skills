@@ -1276,7 +1276,7 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unreached(job_id: str, job: dict, data: dict, answer: dict) -> str:
-    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: drive job resume for a lane on Orca, which sends it what it holds, else the one superseded.delivery names, the SendMessage of the session that started its agent on this Mac."""
+    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: drive job resume for a lane on Orca, which sends it what it holds, else the step superseded.delivery names from the session holding the job."""
     held = (
         f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it"
@@ -1510,13 +1510,18 @@ class Answered(str):
         return codex.take(name, data, job_id, self.run)
 
 
+class Idle(str):
+    """A local agent's gap that waking it closes: its turn ended on a result its job never took, or on no result line. agent_gap adds the step that wakes it, never local_gap, since that step's place.woken judges every builder by local_gap."""
+
+
 def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """A running local job's gap: a codex job's from its codex-ask run, and while an incident's second-lane builder holds it beside that run, the builder's once the run has not ended, so whichever delivers first sets the job; any other job's from its agent's transcript."""
+    """A running local job's gap: a codex job's from its codex-ask run, and while an incident's second-lane builder holds it beside that run, the builder's once the run has not ended, so whichever delivers first sets the job; any other job's from its agent's transcript, an idle agent's naming superseded.delivery's step that wakes it from the session holding the job."""
     if job["kind"] == "codex" and (job.get("codex_run") or not job.get("agent")):
         gap = codex_gap(job_id, job)
         if isinstance(gap, Answered) or not job.get("agent"):
             return gap
-    return local_gap(job_id, job, data, moment)
+    gap = local_gap(job_id, job, data, moment)
+    return f"{gap}: {superseded.delivery(data, job_id, job, 'this line')}" if isinstance(gap, Idle) else gap
 
 
 def codex_gap(job_id: str, job: dict) -> str | None:
@@ -1587,14 +1592,14 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     if turn and agents.ended(turn):
         line = said_last(turn)
         if state.result_state(job, line):
-            return (
+            return Idle(
                 f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"; only drive job report {job_id} - sets it,'
-                " or names why it refuses, so SendMessage from the session that started it wakes it to pipe its return there"
+                " or names why it refuses, so wake it to pipe its return there"
             )
         if quiet >= QUIET_FOR and agents.died(turn):
             return f'{job_id}\'s agent stopped {minutes(quiet)} minutes ago on {turn["message"]["stop_reason"]}: "{cut(line, 100)}"; drive job resume {job_id} <the event> relaunches it on a Sprite with a handoff'
         if quiet >= QUIET_FOR:
-            return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no result line: SendMessage from the session that started it wakes it, and drive job resume {job_id} <the event> from any other'
+            return Idle(f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no result line, so wake it')
         return None
     if quiet >= QUIET_FOR:
         return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"
@@ -1904,7 +1909,7 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
     wake = ""
     if job.get("agent") and (runs_in := session_of(job, data)):
         reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
-        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}, which only that session's SendMessage wakes, never drive job resume"
+        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, 'the message')}"
     if holding:
         reading.append(f"cc-transcript {session_transcript(holding)}, from {when(held['since'])} on")
     reading += [f"gh pr {verb} {state.pr_url(key)}" for key in named if key in data["prs"] for verb in ("view", "checks")]
