@@ -858,8 +858,10 @@ GET 2 page ranges
   own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
   quote. Jev judges only the line each finding names, by its rule: the post stands when no finding's
   rule holds against its line, or his words lift it, and is held with Jev's reason when one does,
-  never for saying more than his message asked, and never as unpermitted, since cc-slack's Slack
-  permission hook judges every write. A held post stays in his DM as written, and the
+  never for saying more than his message asked, and never as unpermitted, since no post in his DM or
+  its threads needs words of his permitting it and cc-slack's Slack permission hook judges each post
+  anywhere else: an allow rests on the reads and rules it cites as fully as on his words. A held post
+  stays in his DM as written, and the
   session that posted it hears Jev's reason, rewords it in place with `say(edit=<its permalink>,
   text=…)`, which Jev checks again, and ends its turn only once Jev passes the new words. His pick:
   "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until
