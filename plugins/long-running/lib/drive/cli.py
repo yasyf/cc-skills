@@ -582,13 +582,13 @@ def his_words(link: str, deed: str) -> str:
 
 
 def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None) -> tuple[dict, bool, tuple[str, str] | None]:
-    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in his DM or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at his DM root on an order whose own thread holds no line to him is the thread its next lines reply under."""
+    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in his DM or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at his DM root on an order whose lines go in no thread, one with no thread or whose own thread holds no line to him, is the thread its next lines reply under."""
     posted = slack.posted(link, sent) if sent else slack.message(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts"))
     order = data["orders"][order_id]
-    if where == (slack.dm(), None) and order["thread"] and not state.promise_thread(order):
+    if where == (slack.dm(), None) and not state.promise_thread(order):
         where = (where[0], posted["ts"])
     gained = where if where[1] and where not in slack.order_threads(data, order_id, order) else None
     return posted, where[0] == slack.dm() or bool(where[1]), gained
@@ -1073,7 +1073,7 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
@@ -1087,7 +1087,10 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     kept = ""
     with state.edit(name) as data:
         order = data["orders"][order_id]
-        if gained:
+        rooted = gained == (slack.dm(), posted["ts"]) and not order["thread"]
+        if rooted:
+            order["thread"] = list(gained)
+        elif gained:
             state.join_thread(order, gained, line, "posted")
         if ours:
             if state.owed(order) and closing:
@@ -1104,7 +1107,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", at the root of another channel, so it is no line to him and keeps no promised time"
-    joined = f", in thread {gained[1]}, now one of its threads" if gained else ""
+    joined = f", in thread {gained[1]}, now {'its own thread' if rooted else 'one of its threads'}" if gained else ""
     return f"{order_id} {said} {link}{away}{joined}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 

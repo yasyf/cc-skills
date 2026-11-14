@@ -1304,6 +1304,32 @@ def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him
     assert state.thread_attr(state.load(demo)["orders"]["o1"]) == {"thread": root}
 
 
+def test_an_incident_added_from_the_terminal_takes_its_first_line_at_his_dm_root_as_its_own_thread_so_its_next_line_replies_under_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    root = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "memory recall returns nothing")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["orders"]["o1"]["incident"] = True
+    first = f"https://acme.slack.com/archives/D123/p{root.replace('.', '')}"
+    slack_thread.messages.append({"ts": root, "from_claude": True, "text": "Memory recall returns nothing; the fix is building."})
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": first})
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    assert talk.say(demo, {"text": "Memory recall returns nothing; the fix is building.", "record": "677158"}) == (
+        f"POSTED {first}; o1 progress line, no part delivered: {first}, in thread {root}, now its own thread"
+    )
+    assert state.thread_attr(state.load(demo)["orders"]["o1"]) == {"thread": root}
+    second = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": second, "thread_ts": root})
+    report(monkeypatch, {"progress": "true", "order": "o1", "thread": root})
+    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": root, "record": "677159"}) == f"POSTED {second}; o1 progress line, no part delivered: {second}"
+    order = state.load(demo)["orders"]["o1"]
+    assert (order["thread"], order["threads"]) == (["D123", root], [])
+
+
 def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo: str, run: Callable[..., tuple[int, str]]) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")

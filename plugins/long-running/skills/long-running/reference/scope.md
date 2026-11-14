@@ -61,9 +61,9 @@ summary line about it, because work stopped before it starts wastes nothing.
 Three kinds of work are the drive's without a new order, and each line about them says which. A defect
 in something the drive shipped or is building belongs to the order that shipped it, and its line
 names that order. A defect in a tool the drive runs on is drive tooling, fixed without asking under
-its own order, its lines at his DM root, never in a feature thread it unblocks. His feedback on a
-post or card is one, in the library, `cc-slack check-post` or drive tool that let it through, every
-time. A test that flakes on any PR the drive tracks is fixed at its cause the day it flakes, whatever
+its own order, its first line at his DM root and its later lines under it, never in a feature
+thread it unblocks. His feedback on a post or card is one, in the library, `cc-slack check-post` or
+drive tool that let it through, every time. A test that flakes on any PR the drive tracks is fixed at its cause the day it flakes, whatever
 files the cause is in, by his ruling 532cd3d, "and ffs fix these flaky tgests how many times do I have
 to tell yoiu": its PR is a `flake fix` by [landing.md](landing.md), serving that ruling, judged against
 it, and its lines name it. Nothing else is.
