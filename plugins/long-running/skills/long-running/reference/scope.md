@@ -104,6 +104,12 @@ card it was asked on, or his words recorded under it. The tool prints his words 
 them. On a pick, build that option. On an order, build the option his words leave that removes the
 root cause, the recommended one.
 
+A card whose summary sentence recommending an option cites a recorded answer of his asks again what
+that answer chose, so `drive job ask` refuses it and names that option to build with no card, unless
+`--unsettled` names that answer as words the card asks him to lift. A card's Already answered option
+carries only the recorded answers its summary cites, his words above the `Options:` line its recorder
+lists the choices under, so his one tap gives its job one answer's words.
+
 It reads no answer he gave another question, by his pick "Settle only on your answer to that same
 question, copies only in the same words: no wrong skips; each skip below becomes a card." A question
 once kept settled with no card on another answer of his draws its card when its job asks it again.

@@ -107,6 +107,10 @@ builder make, the deliverable rather than the order's subject, since your kept r
 builder's `Goal: build <that line>`. `drive job report` refuses your report without that block
 filled, naming each line missing.
 
+A choice a recorded answer of his already made leaves him none: return `DONE` with `rulings:`
+quoting that answer and `build:` naming the option it chose, since `drive job ask` refuses a
+`DESIGN` whose summary sentence recommending an option cites his recorded answer.
+
 A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
 `(recommended)`, each with one plain-text description under it, indented two spaces and at most

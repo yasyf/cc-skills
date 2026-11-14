@@ -3447,26 +3447,6 @@ def test_each_question_a_card_on_another_question_once_skipped_now_draws_his_car
         assert cli.elsewhere(data, "j2", other, None) == ("j1", data["jobs"]["j1"]["questions"][0])
 
 
-CODE_TURN_ASK = """ASK When a chat's Sand code turn has no stored description, should the search worker have memory describe it?
-For {order:o538|describing code turns for search}: your pick decides whether every code turn embeds a description, and what indexing spends on Cerebras for it. Both options keep the code in the sparse text and read stored descriptions with one query per slice, as <https://github.com/Forge-AI/monorepo/pull/55249|the open PR that embeds stored descriptions> does. Recommended: memory describes each miss. Meanwhile that PR embeds the code of a turn with no stored description.
-- Memory describes every miss: each code turn embeds a description; one Cerebras call per undescribed turn (recommended)
-  The rsw-search worker runs memory's Service with its Describer. Each slice sends its undescribed code turns through memory's describe together: in-process cache, stored row, then one gpt-oss-120b call on Cerebras, whose row lands in the team's description namespace as a chat lookup's does. A turn is keyed by normalize.ShapeOf of its code.
-- Stored descriptions only: no model call while indexing; an undescribed turn embeds its code
-  The worker keeps one memory.StoredDescriptions query per slice and embeds the code of any turn whose lookup was skipped, missed its 1.4 second describe deadline, or ran before code hashes were journaled. Nothing describes those turns later, so their vectors stay code embeddings.
-Findings:
-Root cause: a code turn's description is written only as a side effect of the session's live memory lookup, memory.Service.cachedOrDescribed, which leaves none when the 1.4 second describe deadline passes, Cerebras answers 429 or 5xx, the 256-row insert queue is full, or memory.routeAction skips the lookup; nothing describes the turn afterwards.
-First principles: Memory describes every miss
-Interim fix: none: nobody is hurt now; a code turn with no description still matches on its code, as every code turn does on dev.
-Holds: https://github.com/Forge-AI/monorepo/pull/55249
-Evidence, from the code at #55249's head b7acdd4:
-- go/sand/next/internal/runtime-api/memory/describe.go:438 Service.describe reads the LRU cache, then the stored row, then asks Cerebras (DescribeModel) through Service.described; a success queues its row at :508, and queueDescription drops it when the 256-row channel is full (:616-621).
-- describe.go:46 DescribeTimeout is 1400 ms; serveDescribe answers an empty description on a timeout, 429 or 5xx (:294-297), so the lookup goes on with no stored row.
-- go/sand/next/internal/memory/inject.go:554 routeAction skips a block that calls memory:: builtins or has no effects, callees or definitions; go/sand/next/internal/memory/journal.go:47 journals a lookup only with a code hash or a shown memory, and code hashes are journaled only since #54496.
-- go/sand/next/internal/memory/ack.go:40 the session's hash is normalize.ShapeOf(block, callees). The indexer has the block but not the callees' source, so it keys what it describes by normalize.ShapeOf(block, nil): the session's own key for a block calling no session function, and a separate row for one that does, so memory's lookups never read a description written without its callees.
-- go/sand/next/cmd/runtime-api/restate.go:141 searchServices builds a Turbopuffer store and no memory.Service or Describer today; cmd/runtime-api/main.go:372 shows the serving pods build theirs from memory.DescribeConfigFromEnvironment, which the worker would read too (Cerebras key through llmclient).
-- Cost of the recommended option: the worker's calls share the Cerebras account limit with live lookups, whose 429 makes a live lookup answer nothing (describe.go:294). The first pass over chats journaled before #54496 describes every code turn in them.
-- Not measured: the share of code turns with no stored description; this Sprite has no production read.
-"""
 ADVISORY_ASK = """ASK May Jev's reading of your standing words refuse or skip a question card, or only advise as your advisory-judge pick says?
 Every option drops the hard-coded check that refused a card recommending your recorded pick, and stops reading lines you quoted from an alert as your words.
 They differ on what Jev's reading of your standing words does: your advisory-judge pick says it only advises, your later pick on <https://github.com/yasyf/cc-skills/pull/4673|the fix that settles only on your answer to that same question> says only that answer skips a card, and <https://github.com/yasyf/cc-skills/pull/4664|the one-judge fix> refuses and skips on it, so its rebase cannot keep all three.
@@ -3493,27 +3473,43 @@ Next question: once he picks, j2643 rebuilds yasyf/cc-skills#4664 on main to tha
 TAPPED = "https://acme.slack.com/archives/D123/p1794300000000100"
 
 
-def test_j2329s_card_whose_brief_binds_fd06b56_draws_already_answered_with_his_words_and_his_tap_closes_it_on_them(
+SNAPSHOT_PICK = "One snapshot file per finished run\nOptions: One snapshot file per finished run | A map file beside each journal file"
+
+
+def test_already_answered_carries_only_the_answer_its_summary_cites_his_words_above_its_options_line_never_one_its_brief_binds_or_its_findings_cite(
     run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    card_url = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794439094566229"
-    title = "Where should a chat's Sand code turn get its description and search terms, since the search worker cannot call memory's describe?"
-    words = "Why can't the indexer call the memory service to look it up, get the cached one etc"
-    run("job", "add", "reader", "--order", "o1", "--goal", "describe code turns")
+    recorded.shown["631afc4"] = {"id": "631afc4", "title": "Where does a run's page map live?", "body": "At the end of each file\nNotes: cci owner 2", "tags": []}
+    recorded.shown["44de4c2"] = {"id": "44de4c2", "title": "Keep old runs?", "body": "Keep them\nNotes: cci owner 3", "tags": []}
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["fd06b56"]}
-        data["jobs"]["j2"]["questions"] = [state.new_question(None, title, state.stamp(), card=card_url, closed=state.new_close("answered", words, None))]
-    drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, CODE_TURN_ASK.replace("{order:o538|", "{order:o1|"), "fd06b56", title, words)
-    assert (drawn["options"], drawn["hints"][limits.ALREADY_ANSWERED]) == (
-        ["Memory describes every miss: each code turn embeds a description; one Cerebras call per undescribed turn", "Stored descriptions only: no model call while indexing; an undescribed turn embeds its code", limits.ALREADY_ANSWERED],
-        f'"{words}" (<{card_url}|your answer>)',
-    )
-    assert [record["text"] for record in posted] == [words]
-    assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"], closed["link"], [f'verbatim: "{words}"' in answer["words"] for answer in job["undelivered"]]) == ("answered", words, TAPPED, [True])
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["631afc4"]}
+    text = SHORT_ASK.replace(
+        "Meanwhile nothing is built on either layout.",
+        "Your {answer:c952dbb|Nov 5 answer} asked for snapshots before old runs needed one. Meanwhile nothing is built on either layout.",
+    ) + "(3) His 44de4c2 kept old runs.\n"
+    drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, text, "c952dbb", "How are a finished run's files kept?", SNAPSHOT_PICK)
+    assert (drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED]) == (limits.ALREADY_ANSWERED, '"One snapshot file per finished run"')
+    assert [record["text"] for record in posted] == ["One snapshot file per finished run"]
+    assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"]) == ("answered", "One snapshot file per finished run")
     assert jev.asked == []
 
 
-def test_j2643s_card_citing_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
+def test_job_ask_refuses_a_card_whose_sentence_recommending_an_option_cites_his_recorded_answer_naming_the_option_to_build_unless_unsettled_names_it(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    recorded.shown["c952dbb"] = {"id": "c952dbb", "title": "How are a finished run's files kept?", "body": f"{SNAPSHOT_PICK}\nNotes: cci owner 1", "tags": [], "created_at": "2026-11-05T11:33:00Z"}
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("so any finished run opens in 3 requests.", "as {answer:c952dbb|your Nov 5 pick} chose."))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert (
+        '\n- its summary recommends "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests" by his recorded'
+        ' answer c952dbb, "One snapshot file per finished run", which already chose it, so no card asks him again: build that option with no ASK'
+    ) in capsys.readouterr().err
+    assert state.load("demo")["jobs"][asking]["questions"] == []
+    assert run("job", "ask", asking, str(block), "--unsettled", "c952dbb: this card asks him to lift his Nov 5 pick")[0] == 0
+
+
+def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
     run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     link = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794478678050659"
@@ -3521,7 +3517,8 @@ def test_j2643s_card_citing_320b7a7_draws_already_answered_with_his_words_and_th
     words = "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits"
     with state.edit("demo") as data:
         data["answers"]["320b7a7"] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, ADVISORY_ASK, "320b7a7", title, words)
+    cited = ADVISORY_ASK.replace("your advisory-judge pick says", "your {answer:320b7a7|advisory-judge pick} says")
+    drawn, job, posted = tapped_already_answered(run, recorded, monkeypatch, cited, "320b7a7", title, words)
     assert (drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED], len(drawn["options"])) == (limits.ALREADY_ANSWERED, f'"{words}" (<{link}|your answer>)', 4)
     assert [record["text"] for record in posted] == [words]
     assert ((closed := job["questions"][-1]["closed"])["how"], closed["words"], [f'verbatim: "{words}"' in answer["words"] for answer in job["undelivered"]]) == ("answered", words, [True])
@@ -3533,7 +3530,7 @@ def tapped_already_answered(run: Run, recorded: Answers, monkeypatch: pytest.Mon
     kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
-    recorded.shown[answer_id] = {"id": answer_id, "title": title, "body": f"{words}\nNotes: cci owner 1", "tags": []}
+    recorded.shown[answer_id] = {"id": answer_id, "title": title, "body": f"{words}\nNotes: cci owner 1", "tags": [], "created_at": "2026-11-05T11:33:00Z"}
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), text.splitlines()[0].removeprefix("ASK "), state.stamp()) | {"waits": "demo:j1-7"}]
     code, printed = run("job", "card", "j1")
