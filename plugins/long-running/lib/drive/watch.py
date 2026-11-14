@@ -3197,7 +3197,7 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it; a clause the drive adds to that line, such as an ASK it did not keep, still asks its step."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
         return False
-    if (job := JOB_LINE.match(line)) and passed(data, job["job"], line):
+    if (job := JOB_LINE.match(line)) and standing_pass_ended(data, job["job"], line):
         return False
     if (staged := STAGE_LINE.match(line)) and staged["key"] in data["prs"]:
         return stage.of(data, staged["key"], cards).name == staged["name"]
@@ -3214,7 +3214,7 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     return data["jobs"][found["job"]]["state"] != "running"
 
 
-def passed(data: dict, job_id: str, line: str) -> bool:
+def standing_pass_ended(data: dict, job_id: str, line: str) -> bool:
     """Whether a JOB line is a standing part's pass ending its round, DONE or HANDOFF, with no clause beside the line it said."""
     job = data["jobs"][job_id]
     return job["state"] in ("done", "stopped") and bool(state.standing_part(data, job)) and line == LINE_BREAKS.sub(" ", f"JOB {job_id} {job['order']} {job['said']}")
