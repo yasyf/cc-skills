@@ -149,7 +149,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    - A Datadog read, for research or a `PROVE:` line, goes through the Datadog MCP's tools, whose
      `execute_code` reaches any Datadog API, never the `pup` command, whose OAuth grant keeps the
      scopes its `pup auth login` was granted while later pup releases add commands needing more,
-     such as profiling's `continuous_profiler_read`. An absence read from one metric, span or log
+     such as profiling's `continuous_profiler_read`. On a Sprite, which has no Datadog MCP,
+     `drive datadog <tool> -` makes the same call on the coordinator's Mac with ai-oncall's Datadog
+     keys, its JSON arguments on stdin: `drive datadog tools` lists the read-only tools it runs and
+     `drive datadog <tool>` prints one's input schema. An absence read from one metric, span or log
      series, such as no calls, zero rows or nothing since, names a second source with no shared
      emitter showing the same absence, such as the caller's client spans beside the server's trace
      metric, or goes on `UNPROVEN: <the absence>: <the source that settles it>`, since one series
@@ -410,7 +413,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   coordinator's Mac as one blocking Orca question, carrying stdin, each file a word names and each
   picture those show by its path on your Sprite, then
   prints all it printed there and exits with its status. It runs `job report`, `job ask`,
-  `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `manual` and `status` on your own
+  `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `manual` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
@@ -510,7 +513,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `RULINGS:` | each ruling of his on the area you followed, quoted |
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls or extends it; `drive job report` refuses a `READY` without it |
 | `INSTALL:` and `PROVE:` | once the PR is open, the install command and the check that proves it live, so a later handoff runs them without your transcript |
-| `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as `ci db-read`, a Datadog read or a signed-in app here, written as `drive job brief --mac` writes it, so the job's next lane starts on this Mac |
+| `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as `ci db-read` or a signed-in app here, written as `drive job brief --mac` writes it, so the job's next lane starts on this Mac |
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |
 | `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents |

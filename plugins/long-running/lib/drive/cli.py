@@ -4356,6 +4356,18 @@ def run_tool(tool: str, given: dict) -> str:
         raise DriveError(str(error)) from None
 
 
+def datadog_command(args: argparse.Namespace) -> int:
+    """Run one read-only tool of the Datadog MCP on this Mac with ai-oncall's Datadog keys, its JSON arguments read from stdin after `-`, print what it answered and exit 1 when it says it failed; with no `-`, print its description and input schema; `tools` lists the tools it runs. A Sprite lane, whose Sprite holds no Datadog key, makes its Datadog reads with it through the drive that asks each verb of this Mac."""
+    from drive import datadog
+
+    try:
+        status, said = datadog.run(args.tool, json.loads(stdin_text()) if args.stdin else None)
+    except reads.ReadError as error:
+        raise DriveError(f"datadog {args.tool}: {error}") from None
+    print(said)
+    return status
+
+
 def plan_search(args: argparse.Namespace) -> int:
     """Print each line of the plans the coordinator's checkout keeps in cc-notes that carries one of the phrases whole, under its plan and headings, cut at reads.BUDGET characters."""
     checkout_dir = Path(state.load(state.resolve(args.drive))["roles"]["coordinator"]["cwd"])
@@ -5038,7 +5050,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     verb.add_argument(
         "--mac",
-        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox, ci db-read, a Datadog read or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox, ci db-read or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
     )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")
@@ -5580,6 +5592,10 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("words", nargs="+", help="each phrase to look for in the plans, matched whole in any case, such as a part, a step or a file")
     verb.set_defaults(run=plan_search)
+    verb = verbs.add_parser("datadog", help="run one read-only Datadog MCP tool on this Mac with ai-oncall's Datadog keys: a Sprite lane's Datadog read")
+    verb.add_argument("tool", help="the Datadog MCP tool, such as execute_code or search_datadog_logs; tools lists the tools it runs")
+    verb.add_argument("stdin", nargs="?", choices=["-"], help="read the tool's JSON arguments from stdin and call it; without it, print the tool's description and input schema")
+    verb.set_defaults(run=datadog_command)
     page = verbs.add_parser("page", help="the one-off live dashboards page jobs build, listed under Pages on the drive's dashboard").add_subparsers(dest="action", required=True)
     verb = page.add_parser(
         "add",

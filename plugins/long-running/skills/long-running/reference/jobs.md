@@ -56,7 +56,7 @@ Contents:
   check". `drive job add` never refuses one for load. The brief's writer names the step only this
   Mac runs that the job itself runs with `drive job brief <j> --mac "<the step>"`, its `Mac:` line:
   break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, a
-  devbox (`ci devbox`), `ci db-read` or a Datadog read. A `Release:` line declares one too, since its
+  devbox (`ci devbox`) or `ci db-read`. A `Release:` line declares one too, since its
   agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word
@@ -68,11 +68,10 @@ Contents:
   relaunch that finds one starts the next lane in a fresh worktree here, as `--local` does, and
   never in the Sprite's own Claude session. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
-  the Agent tool, or with `--local` when it reads no Datadog, since a `--local` Orca worker starts
-  with no plugin MCP servers. A brief whose writer left its `Mac:` line out starts on a Sprite,
+  the Agent tool or with `--local`. A brief whose writer left its `Mac:` line out starts on a Sprite,
   which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`,
   which also starts one waiting its turn there at once. A Sprite holds no Buildkite token or Datadog
-  sign-in, its AWS session reads Buildkite only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
+  key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
   through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
   Mac's processes always run here.
 
@@ -221,7 +220,7 @@ word names, and the watch queues it as a read. `drive job read` runs it in the c
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
 which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
-`job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `manual` and `status`, its reads on any job as a Mac lane's,
+`job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `manual` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
 on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
 verb, a write naming another job, which is a `job report` keeping stdin, `job ask`, `job set` or
