@@ -236,11 +236,11 @@ def test_a_kept_dashboard_serving_its_links_is_left_alone_and_one_that_is_not_is
     assert ran == [("kickstart", "-k", f"gui/{os.getuid()}/com.yasyf.long-running.dashboard.{demo}")]
 
 
-def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_answers_throughout(
+def test_a_newer_install_landing_takes_the_port_from_the_dashboard_which_answers_throughout(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    done = threading.Event()
+    done, landed = threading.Event(), threading.Event()
     answers: list[object] = []
     handed: list[list[str]] = []
     reopened: list[threading.Thread] = []
@@ -278,23 +278,23 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
             except OSError as error:
                 answers.append(error)
 
-    def newer_install_saves() -> None:
+    def newer_install_lands() -> None:
         while dashboard.serving(demo, port) is None:
             time.sleep(0.05)
         threading.Thread(target=ask, daemon=True).start()
         time.sleep(0.3)
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+        landed.set()
 
     monkeypatch.setattr(dashboard, "changes", changes)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
     monkeypatch.setattr(dashboard.Board, "hear", lambda self: None)
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
     monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
-    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if state.saved_by(demo) == "9.9.9" else None)
+    monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if landed.is_set() else None)
     monkeypatch.setattr(dashboard.os, "execv", execv)
     with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
         port = probe.getsockname()[1]
-    threading.Thread(target=newer_install_saves, daemon=True).start()
+    threading.Thread(target=newer_install_lands, daemon=True).start()
     with pytest.raises(Handed):
         dashboard.serve(demo, port, [])
     handed_at = len(answers)

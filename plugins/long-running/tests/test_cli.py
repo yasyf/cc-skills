@@ -369,7 +369,7 @@ def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: 
     with state.locked("demo"):
         saved = state.stored("demo")
         saved["driver"] = saved.pop("roles")["coordinator"]
-        state.store("demo", saved)
+        state.save("demo", saved)
     data = state.load("demo")
     assert "driver" not in data
     assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -1296,7 +1296,7 @@ def test_a_drive_stored_with_milestones_loads_without_them(run: Run, demo: str) 
     run("order", "add", "--title", "Short title", "ship the fix", "--project", "Platform", "--workstream", "SandSQL")
     stored = state.stored("demo")
     stored["orders"]["o1"]["milestone"] = "Dashboard parity"
-    state.store("demo", stored)
+    state.save("demo", stored)
     assert "milestone" not in state.load("demo")["orders"]["o1"]
 
 
@@ -1728,7 +1728,7 @@ def test_term_keeps_a_word_he_corrected_beside_its_proper_term_and_a_drive_saved
     assert state.load(demo)["stand_ins"] == {"backup": "S3 replica"}
     saved = state.stored(demo)
     del saved["stand_ins"]
-    state.store(demo, saved)
+    state.save(demo, saved)
     assert state.load(demo)["stand_ins"] == {}
 
 
@@ -4912,38 +4912,6 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
     assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o2"]
 
 
-def test_a_check_hands_its_outcome_to_the_newer_install_that_saved_meanwhile(
-    run: Run, with_pr: str, on_github: dict, judge: Judge, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
-    handed = []
-    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
-
-    def judged(name: str, said: str, changes: dict) -> list[dict]:
-        monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return []
-
-    real = subprocess.run
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        handed.append(argv[1:])
-        monkeypatch.setattr(state, "VERSION", version)
-        code = cli.main(argv[1:])
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(served, "judged", judged)
-    monkeypatch.setattr(served.install, "upgraded", lambda: newest)
-    monkeypatch.setattr(served.install.subprocess, "run", newer)
-    assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
-    [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["pr", "checked", state.pr_url(with_pr)], ["--drive", "demo", "--json"], False)
-    pr = state.load("demo")["prs"][with_pr]
-    assert (pr["checked"]["orders"], pr["checker"]["outcome"].startswith(served.CHECKED)) == (["o1"], True)
-    assert capsys.readouterr().out.startswith(f"{with_pr}: {served.CHECKED}")
-
-
 def test_a_ready_is_judged_by_the_watchs_check_against_the_answers_its_design_line_names(
     run: Run, with_pr: str, on_github: dict, judge: Judge, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6851,7 +6819,7 @@ def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_o
             del order["joins"]
         saved["jobs"]["j1"]["carries"]["o2"] = ["Short title"]
         saved["orders"]["o2"]["jobs"].append("j1")
-        state.store("demo", saved)
+        state.save("demo", saved)
     data = state.load("demo")
     assert [data["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", None]
     assert state.incident_orders(data, "o2") == ["o1", "o2"]
@@ -7508,7 +7476,7 @@ def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, 
         saved = state.stored("demo")
         for field in ("options_only", "once"):
             del saved["orders"]["o1"][field]
-        state.store("demo", saved)
+        state.save("demo", saved)
     order = state.load("demo")["orders"]["o1"]
     assert (order["options_only"], order["once"]) == (False, False)
 
@@ -8997,10 +8965,7 @@ def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_t
         cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
 
 
-def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install_before_a_drive_json_it_saved_refuses_it(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     argv = ["drive", "status", "--drive", demo]
 
@@ -9016,55 +8981,6 @@ def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_inst
     with pytest.raises(Execed) as execed:
         cli.main()
     assert execed.value.args == (newer, [str(newer), *argv[1:]])
-    monkeypatch.setattr(install, "upgraded", lambda: None)
-    assert cli.main() == 2
-    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved by long-running 9.9.9")
-
-
-def test_a_verb_a_newer_installs_save_refused_before_it_changed_anything_runs_again_on_the_newest_install_with_the_stdin_it_read(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
-    arguments = json.dumps({"drive": demo})
-    reopened: list[tuple[list[str], str | None]] = []
-    monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
-    monkeypatch.setattr(install, "reopen", lambda argv, stdin=None: reopened.append((argv, stdin)))
-    monkeypatch.setattr(cli.sys, "argv", ["drive", "tool", "status"])
-    monkeypatch.setattr(cli, "STDIN", [])
-    monkeypatch.setattr(state, "WROTE", set())
-    monkeypatch.setattr("sys.stdin", io.StringIO(arguments))
-    assert cli.main() == 2
-    assert reopened == [(["tool", "status"], None), (["tool", "status"], arguments)]
-    assert capsys.readouterr().err.startswith(f"drive: the {demo} drive was saved by long-running 9.9.9, newer than this")
-    reopened.clear()
-    monkeypatch.setattr("sys.stdin", io.StringIO(arguments))
-    subprocess.run([sys.executable, "-c", ""], check=True)
-    assert cli.main() == 2
-    assert reopened == [(["tool", "status"], None)]
-
-
-@pytest.mark.parametrize(
-    ("argv", "again"),
-    [
-        (["job", "resume", "j1", watch.UNREACHED], True),
-        (["job", "launch", "j1"], True),
-        (["status"], False),
-    ],
-)
-def test_a_launch_or_resume_a_newer_installs_save_refused_after_it_woke_a_sprite_runs_again_on_the_newest_install(
-    asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str], again: bool
-) -> None:
-    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
-    argv = [*argv, "--drive", "demo"]
-    reopened: list[tuple[list[str], str | None]] = []
-    monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
-    monkeypatch.setattr(install, "reopen", lambda argv, stdin=None: reopened.append((argv, os.environ.get(state.DETACHED_ENV))))
-    monkeypatch.setattr(cli.sys, "argv", ["drive", *argv])
-    monkeypatch.setattr(cli, "STDIN", [])
-    monkeypatch.setattr(state, "WROTE", {"orca-reclaim.py"})
-    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
-    assert cli.main() == 2
-    assert reopened == [(argv, watch.RELAUNCHES_LOG)] * (2 if again else 1)
 
 
 def test_a_resume_the_watch_ran_says_the_refusal_it_still_meets_in_the_watchs_line_for_its_order_and_a_hand_run_only_prints_it(
@@ -9073,16 +8989,19 @@ def test_a_resume_the_watch_ran_says_the_refusal_it_still_meets_in_the_watchs_li
     with state.edit("demo") as data:
         cli.bind_subcoordinator(data, "The drive", {"session": "drive-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
     start = state.events_end("demo")
-    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    refusal = "j1: refused, nothing sent or held"
+
+    def unqueued(name: str, job_id: str) -> None:
+        raise state.DriveError(refusal)
+
+    monkeypatch.setattr(cli, "unqueued", unqueued)
     monkeypatch.setattr(install, "upgraded", lambda: None)
     monkeypatch.setattr(cli.sys, "argv", ["drive", "job", "resume", asking, watch.UNREACHED, "--drive", "demo"])
     assert cli.main() == 2
     assert state.events_end("demo") == start
     monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
     assert cli.main() == 2
-    refusal = f"the demo drive was saved by long-running 9.9.9, newer than this {state.VERSION}, which may misread it: run the newest install's drive"
     assert capsys.readouterr().err == f"drive: {refusal}\n" * 2
-    state.store("demo", state.stored("demo") | {"saved_by": state.VERSION})
     assert watch.event_lines(watch.Watcher("demo", offset=start)) == []
     assert watch.event_lines(watch.Watcher("demo", offset=start, project="The drive")) == [
         f"EVENT relaunch_refused drive job resume j1, which the watch ran, refused: {refusal}; its output is in the drive's relaunches.log [o1 j1]"

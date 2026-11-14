@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import brief, github, install, limits, refs, settled, slack, state, view
+from drive import brief, github, limits, refs, settled, slack, state, view
 from drive.limits import ANSWER_ID, REF
 from drive.render import cut
 from drive.state import DriveError
@@ -122,27 +122,20 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; a NOT READY at a head an earlier check already objected to redraws his card with its objection but makes no check event, so its builder is woken once a head however often a return of its builder reruns the judge; when a newer install saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice."""
+    """Keep a check's outcome on its PR, with the head it checked, and redraw his open card for it, as verdict describes, unless another check of it started after this one, whose outcome is the one kept; a NOT READY at a head an earlier check already objected to redraws his card with its objection but makes no check event, so its builder is woken once a head however often a return of its builder reruns the judge."""
     outcome = result["outcome"]
-    try:
-        with state.edit(name) as data:
-            pr = data["prs"][key]
-            if (checker := pr["checker"]) and checker["pid"] != result["pid"] and state.parse_time(checker["at"]) > state.parse_time(result["at"]):
-                return f"{outcome}; not kept, since another check of {key} started while this one judged"
-            if result["checked"]:
-                pr["checked"] = result["checked"]
-            objected = checker and checker["objected"]
-            refused = outcome.startswith(NOT_READY)
-            pr["checker"] = {"head": result["head"], "pid": result["pid"], "at": result["at"], "outcome": outcome, "against": result["against"], "objected": result["head"] if refused else objected}
-            if not outcome.startswith(FAILED) and not (refused and objected == result["head"]):
-                repo, number = key.split("#")
-                state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
-    except state.NewerDrive:
-        if not (newer := install.upgraded()):
-            raise
-        receipt = state.drive_dir(name) / "prs" / f"{key.replace('/', '-').replace('#', '-')}.{result['head'][:12]}.{result['pid']}.json"
-        receipt.parent.mkdir(exist_ok=True)
-        return json.loads(install.handed(newer, name, ["pr", "checked", state.pr_url(key)], receipt, result, f"{key}: {outcome}", JUDGE_SECONDS))["outcome"]
+    with state.edit(name) as data:
+        pr = data["prs"][key]
+        if (checker := pr["checker"]) and checker["pid"] != result["pid"] and state.parse_time(checker["at"]) > state.parse_time(result["at"]):
+            return f"{outcome}; not kept, since another check of {key} started while this one judged"
+        if result["checked"]:
+            pr["checked"] = result["checked"]
+        objected = checker and checker["objected"]
+        refused = outcome.startswith(NOT_READY)
+        pr["checker"] = {"head": result["head"], "pid": result["pid"], "at": result["at"], "outcome": outcome, "against": result["against"], "objected": result["head"] if refused else objected}
+        if not outcome.startswith(FAILED) and not (refused and objected == result["head"]):
+            repo, number = key.split("#")
+            state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
     if outcome.startswith(FAILED):
         return outcome
     try:

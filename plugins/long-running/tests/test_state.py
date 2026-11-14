@@ -1,13 +1,14 @@
 import fcntl
 import json
-import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from conftest import LEAD
 from drive import reads, settled, stage, state
 from drive.state import DriveError
 
@@ -41,36 +42,6 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     assert (state_root / "demo" / ".lock").exists()
 
 
-def test_a_drive_a_newer_install_saved_is_refused_before_any_of_it_is_read_while_its_bindings_still_read(state_root: Path) -> None:
-    make("demo", session="session-1")
-    assert state.saved_by("demo") == state.VERSION
-    major, minor, patch = state.VERSION.split(".")
-    state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) - 1}"})
-    assert state.load("demo")["roles"]["coordinator"]["session"] == "session-1"
-    newer = f"{major}.{minor}.{int(patch) + 1}"
-    state.store("demo", state.stored("demo") | {"saved_by": newer, "orders": {"o1": {"parts": "a shape no install reads yet"}}})
-    with pytest.raises(state.NewerDrive, match=f"saved by long-running {re.escape(newer)}, newer than this {re.escape(state.VERSION)}"):
-        state.load("demo")
-    assert state.saved("demo")["roles"]["coordinator"]["session"] == "session-1"
-
-
-def test_a_save_that_changes_a_row_or_a_command_that_does_more_than_read_is_kept_as_written_so_its_verb_never_runs_twice(
-    state_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    make("demo")
-    with state.edit("demo"):
-        pass
-    monkeypatch.setattr(state, "WROTE", set())
-    with state.edit("demo"):
-        pass
-    subprocess.run(["git", "--version"], check=True, capture_output=True)
-    assert state.WROTE == set()
-    with state.edit("demo") as data:
-        data["terminal"] = "a changed row"
-    subprocess.run([sys.executable, "-c", ""], check=True)
-    assert state.WROTE == {"drive", Path(sys.executable).name}
-
-
 @pytest.mark.parametrize(
     ("argv", "reading"),
     [
@@ -93,33 +64,38 @@ def test_a_save_that_changes_a_row_or_a_command_that_does_more_than_read_is_kept
         (["/plugins/long-running/1.0/bin/drive", "job", "read", "j1", "m1"], False),
     ],
 )
-def test_only_a_command_that_reads_leaves_a_verb_free_to_run_again(argv: list[str], reading: bool) -> None:
+def test_a_dry_run_lets_only_a_command_that_reads_run(argv: list[str], reading: bool) -> None:
     assert state.reads_only(argv) is reading
 
 
-NEWER_RELEASE_SAVE = """
+PREVIOUS_RELEASE_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from drive import state
 with state.edit("demo") as data:
-    data["slack"]["page_stale"] = "the newer release's save"
+    data["slack"]["page_stale"] = "the previous release's save"
 """
 
 
-def test_an_older_installs_save_after_a_newer_installs_is_refused_leaving_the_newer_save_whole(state_root: Path, tmp_path: Path) -> None:
-    make("demo")
-    release = tmp_path / "9.9.9"
-    shutil.copytree(Path(state.__file__).resolve().parent, release / "lib" / "drive")
-    (release / ".claude-plugin").mkdir()
-    (release / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "9.9.9"}))
-    read = state.load("demo")
-    subprocess.run([sys.executable, "-c", NEWER_RELEASE_SAVE, str(release / "lib")], check=True, timeout=30)
-    with pytest.raises(state.NewerDrive, match="saved by long-running 9.9.9 since this"):
-        state.save("demo", read | {"terminal": "the older verb's receipt"})
-    with pytest.raises(state.NewerDrive, match="saved by long-running 9.9.9, newer than this"), state.edit("demo") as data:
-        data["terminal"] = "the older verb's receipt"
-    saved = state.stored("demo")
-    assert (saved["saved_by"], saved.get("terminal"), saved["slack"]["page_stale"]) == ("9.9.9", None, "the newer release's save")
+@pytest.fixture(scope="module")
+def previous_release(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    plugin = Path(state.__file__).resolve().parents[2]
+    origin = subprocess.run(["git", "-C", str(plugin), "remote", "get-url", "origin"], check=True, capture_output=True, text=True).stdout.strip()
+    release = tmp_path_factory.mktemp("previous-release")
+    subprocess.run(["git", "init", "-q", str(release)], check=True)
+    subprocess.run(["git", "-C", str(release), "fetch", "-q", "--depth", "1", origin, f"refs/tags/long-running--v{state.VERSION}"], check=True, timeout=120)
+    subprocess.run(["git", "-C", str(release), "archive", "-o", "release.tar", "FETCH_HEAD", "plugins/long-running/lib", "plugins/long-running/.claude-plugin"], check=True)
+    shutil.unpack_archive(release / "release.tar", release, filter="data")
+    return release / "plugins" / "long-running" / "lib"
+
+
+def test_the_previous_release_reads_and_saves_a_drive_this_release_saved(run: Callable[..., tuple[int, str]], demo: str, previous_release: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)
+    saved = state.load(demo)
+    subprocess.run([sys.executable, "-c", PREVIOUS_RELEASE_SAVE, str(previous_release)], check=True, timeout=60)
+    assert state.load(demo) == saved | {"slack": saved["slack"] | {"page_stale": "the previous release's save"}}
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -627,7 +603,7 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
         order_id: {"text": text, "jobs": [], "parts": {}, "promised": None, "project": project}
         for order_id, project, text in (("o1", "Iris", "ship the run page"), ("o2", "Platform", "fix the alert"), ("o3", None, "a new order"))
     }
-    state.store("demo", saved)
+    state.save("demo", saved)
     with state.edit("demo") as data:
         assert data["subcoordinators"] == {}
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
@@ -924,7 +900,7 @@ def test_a_drive_saved_with_the_changes_each_part_waited_on_loads_its_parts_with
         "the order": {"posted": None},
     }
     saved["orders"] = {"o1": {"text": "move the tables", "jobs": [], "parts": parts, "promised": None}}
-    state.store("demo", saved)
+    state.save("demo", saved)
     loaded = state.load("demo")["orders"]["o1"]["parts"]
     assert {part: (held["design"], "after" in held) for part, held in loaded.items()} == {"the interface": ("j2", False), "the reads": ("j2", False), "the order": (None, False)}
 
@@ -959,7 +935,7 @@ def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed
     saved["orders"] = {"o1": {"text": "the stack sat", "jobs": ["j1", "j2"], "parts": parts, "promised": None}, "o2": {"text": "why", "jobs": [], "parts": {"cause ": {"posted": None}}, "promised": None}}
     saved["jobs"] = {"j1": state.new_job("o1", "reader", "find why", [cut], state.stamp()), "j2": state.new_job("o2", "builder", "fix it", ["cause "], state.stamp()) | {"carries": {"o1": [" fix"]}}}
     saved["prs"] = {"yasyf/cc-skills#7": state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j2", "o1") | {"parts": [" fix"]}}
-    state.store("demo", saved)
+    state.save("demo", saved)
     loaded = state.load("demo")
     whole = cut.rstrip()
     assert list(loaded["orders"]["o1"]["parts"]) == [whole, "fix"]
@@ -1016,7 +992,7 @@ def test_a_part_an_older_install_saved_with_a_kind_loads_without_it(state_root: 
     make("demo")
     saved = state.stored("demo")
     saved["orders"] = {"o1": {"text": "why, then fix it", "jobs": [], "parts": {"why": {"posted": None, "orphan_said": None, "kind": "answer"}, "fix": {"posted": None, "orphan_said": None, "kind": "build"}}, "promised": None}}
-    state.store("demo", saved)
+    state.save("demo", saved)
     assert state.load("demo")["orders"]["o1"]["parts"] == {"why": state.new_part(), "fix": state.new_part()}
 
 

@@ -761,19 +761,6 @@ def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_i
     ]
 
 
-def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
-    state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
-    git = fake(["unused"], set())
-    git.together = threading.Barrier(2, timeout=5)
-    assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert capsys.readouterr().out.splitlines() == [
-        "installed long-running@skills 1.0.3",
-        "demo communicator: reloaded in term_comm",
-        "demo coordinator: reloaded in term_coord",
-    ]
-
-
 def test_a_session_still_busy_after_the_wait_gets_reload_plugins_queued_behind_its_turn(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1130,38 +1117,6 @@ def test_a_proof_files_bare_python3_is_the_drives_own_interpreter_behind_the_plu
     script.write_text('#!/bin/sh\necho "ran on ${PATH%%:*}"\ncommand -v python3\n')
     install.prove("demo", "j1", 900)
     assert state.proof_path("demo", "j1").read_text() == f"ran on /cache/long-running/1.0.3/bin\n{Path(sys.executable).parent / 'python3'}\n"
-
-
-def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    git = fake([BUILD], {BUILD})
-    script = proving(config, tmp_path, git, 0)
-    handed = []
-    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
-    real, proof_run = subprocess.run, install.proof_run
-
-    def saved_meanwhile(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess[str]:
-        monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return proof_run(name, repro, path, timeout)
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        handed.append(argv[1:])
-        monkeypatch.setattr(state, "VERSION", version)
-        code = cli.main(argv[1:])
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(install, "upgraded", lambda: newest)
-    monkeypatch.setattr(install, "proof_run", saved_meanwhile)
-    monkeypatch.setattr(install.subprocess, "run", newer)
-    assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
-    [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["job", "proved", "j1"], ["--drive", "demo", "--json"], False)
-    job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
-    assert state.proof_path("demo", "j1").read_text() == "ran on /cache/long-running/1.0.3/bin\n"
 
 
 def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the_proof_file_with_no_install(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
@@ -1524,7 +1479,7 @@ def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_
     script = proving(config, tmp_path, git, 0)
     script.write_text(
         '#!/bin/sh\necho "ran on ${PATH%%:*}"\n'
-        '[ "${PATH%%:*}" = /cache/long-running/1.0.4/bin ] || { echo "drive.state.NewerDrive: the demo drive was saved by long-running 1.0.4, newer than this 1.0.3"; exit 1; }\n'
+        '[ "${PATH%%:*}" = /cache/long-running/1.0.4/bin ] || { echo "the fix is not on 1.0.3"; exit 1; }\n'
     )
     ran = []
     proof_run = install.proof_run

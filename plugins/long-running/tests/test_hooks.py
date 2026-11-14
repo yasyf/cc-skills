@@ -628,7 +628,7 @@ def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_
     saved = state.stored(demo)
     for field in ("where", "session"):
         del saved["jobs"]["j1"][field]
-    state.store(demo, saved)
+    state.save(demo, saved)
     code, out = run("job", "resume", "j1", "PR checks failed")
     handoff = state.drive_dir(demo) / "jobs" / "j1.handoff.md"
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")

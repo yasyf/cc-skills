@@ -479,38 +479,6 @@ def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_s
     assert GONE(None) is False
     assert agents.background_job("blocked") == ("c3d4e5f6", jobs["c3d4e5f6"])
 
-
-def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_ends_and_the_next_brief_in_its_thread_starts_a_fresh_handler_handed_what_it_never_took(
-    communicator: str,
-    tmp_path: Path,
-    started: list[list[str]],
-    cci_records: dict[str, dict],
-    ended_sessions: set[str],
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cci_records |= {seq: {"seq": int(seq), "kind": "report", "lane": "root", "fields": {"attrs": {"thread": "1794527558.312319"}}} for seq in ("684116", "684835", "684840")}
-    briefs = {seq: f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in cci_records}
-    handler = tools.run("handler", "demo", {"brief": briefs["684116"]}).removeprefix("started ")
-    assert [tools.run("handler", "demo", {"brief": briefs[seq]}) for seq in ("684835", "684840")] == [f"handed to {handler}"] * 2
-    transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
-    major, minor, patch = state.VERSION.split(".")
-    state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) + 1}"})
-    monkeypatch.setattr(agents, "hold", lambda payload: pytest.fail("a handler's Stop hook holds no job"))
-    removed: list[list[str]] = []
-    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
-    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
-    assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
-    assert started[-1] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE]
-    assert removed == [["claude", "rm", BACKGROUND_JOB]]
-
-    state.store("demo", state.stored("demo") | {"saved_by": state.VERSION})
-    ended_sessions.add("h-session")
-    fresh = tools.run("handler", "demo", {"brief": briefs["684835"]}).removeprefix("started ")
-    assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [briefs["684840"]]}
-
-
 API_ERROR = "Please run /login · API Error: 403 Attention Required! | Cloudflare"
 EARLIER = "2026-11-13T09:46:00.000Z"
 DIED = {

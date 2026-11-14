@@ -1540,7 +1540,7 @@ def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_sinc
         }
     saved = state.stored(demo)
     del saved["catch_up"]
-    state.store(demo, saved)
+    state.save(demo, saved)
     assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0 + timedelta(minutes=10)), ["o2"])
 
 
@@ -1632,34 +1632,9 @@ def upgrades(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[boo
     monkeypatch.setattr(watch, "upgraded", lambda: next(found))
 
 
-def saved_by(name: str, saver: str) -> None:
-    state.store(name, state.stored(name) | {"saved_by": saver})
-
-
 def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], object]) -> None:
     real = watch.lane_lines
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
-
-
-def test_a_pass_that_finds_the_drive_saved_by_a_newer_install_ends_the_watch_once_it_posted_each_line_its_earlier_stages_made_so_the_watch_after_it_says_none_again(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
-    serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
-    upgrades(monkeypatch, tmp_path, [False, True])
-    mid_pass(monkeypatch, lambda: saved_by(demo, "9.9.9"))
-    sent = posts(monkeypatch)
-    merged = f"PR {KEY}: merged [o1 j1]"
-    launched(monkeypatch, demo)
-    assert watch.main(demo) == 0
-    assert (posted(sent), state.stored(demo)["prs"][KEY]["state"], state.held_path(demo).read_text(), state.pid_path(demo).exists()) == ([("evidence", f"root@{demo}", merged)], "merged", "", False)
-    saved_by(demo, state.VERSION)
-    monkeypatch.setattr(watch, "upgraded", lambda: None)
-    passes = []
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: passes.append(moment) or [])
-    run_watch(demo, monkeypatch)
-    assert (len(sent), len(passes), state.held_path(demo).exists()) == (1, 1, False)
 
 
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
@@ -5076,12 +5051,6 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
     enqueue_exiting(tmp_path, demo, 0)
     watching = watcher(demo)
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    queued = land.enqueued
-
-    def queued_then_installed(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
-        outcome = queued(name, clone, keys, prs, asked, dry_run, flake)
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
-        return outcome
 
     class Execed(Exception):
         pass
@@ -5089,14 +5058,12 @@ def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_rec
     def execv(drive: Path, argv: list[str]) -> None:
         raise Execed(drive, argv)
 
-    monkeypatch.setattr(land, "enqueued", queued_then_installed)
     monkeypatch.setattr(install, "upgraded", lambda: newer)
     monkeypatch.setattr(install.os, "execv", execv)
     with pytest.raises(Execed) as execed:
         land.run(demo, [KEY])
     assert execed.value.args == (newer, [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED])
     assert state.stored(demo)["prs"][KEY]["lander"] is None
-    state.store(demo, state.stored(demo) | {"saved_by": state.VERSION})
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(["pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f"{KEY}: {land.QUEUED}"
@@ -5150,17 +5117,12 @@ def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_r
     assert state.load(demo)["prs"][KEY]["review_asked"] == "34087d1264"
 
 
-def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_landing_and_the_newest_install_records_its_outcome_and_the_head_it_asked_reviewed(
+def test_an_install_that_lands_while_the_lander_checks_a_pr_ends_no_landing_and_the_newest_install_records_its_outcome_and_the_head_it_asked_reviewed(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
     calls = enqueue_checking(tmp_path, monkeypatch, demo, "#42 BLOCKED 34087d1264 awaiting approval on head from forge-pr-reviewer[bot] (approved 316c682c69, on an older head)")
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    fetched = github.fetched
-
-    def installed_while_checking(clone: str, branch: str) -> str:
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
-        return fetched(clone, branch)
 
     class Execed(Exception):
         pass
@@ -5168,7 +5130,6 @@ def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_la
     def execv(drive: Path, argv: list[str]) -> None:
         raise Execed(drive, argv)
 
-    monkeypatch.setattr(github, "fetched", installed_while_checking)
     monkeypatch.setattr(install, "upgraded", lambda: newer)
     monkeypatch.setattr(install.os, "execv", execv)
     with pytest.raises(Execed) as execed:
@@ -5176,7 +5137,6 @@ def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_la
     reopened = [str(newer), "pr", "land", state.pr_url(KEY), "--drive", demo, "--outcome", land.QUEUED, "--asked", KEY, "34087d1264"]
     assert execed.value.args == (newer, reopened)
     assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
-    state.store(demo, state.stored(demo) | {"saved_by": state.VERSION})
     monkeypatch.setattr(install, "upgraded", lambda: None)
     assert cli.main(reopened[1:]) == 0
     pr = state.load(demo)["prs"][KEY]

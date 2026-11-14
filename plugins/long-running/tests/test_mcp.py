@@ -142,31 +142,6 @@ def test_a_call_forks_from_the_newest_drives_warm_process_and_its_refusal_comes_
     assert [*mcp.WARM] == [mcp.newest_drive()]
 
 
-def refused_by_a_newer_install(tmp_path: Path) -> str:
-    """A tool body a newer install's save refuses, that install's drive printing the argv and stdin it ran with."""
-    newer = tmp_path / "9.9.9" / "bin" / "drive"
-    newer.parent.mkdir(parents=True)
-    newer.write_text(f"#!{sys.executable}\nimport sys\nprint(sys.argv[1:], sys.stdin.read())\n")
-    newer.chmod(0o755)
-    return f"from drive import install; install.upgraded = lambda: __import__('pathlib').Path({str(newer)!r}); raise state.NewerDrive('saved by long-running 9.9.9')"
-
-
-def test_a_warm_call_a_newer_installs_save_refused_before_it_changed_anything_runs_again_as_the_newest_installs_drive_tool(
-    warm_drive: Callable[[str], None], tmp_path: Path
-) -> None:
-    warm_drive(refused_by_a_newer_install(tmp_path))
-    called = json.loads(answered(tool_call(4, "status", {"ids": ["o1"]})))
-    assert called["result"] == {"content": [{"type": "text", "text": "['tool', 'status'] {\"ids\": [\"o1\"]}"}], "isError": False}
-
-
-def test_a_warm_call_that_started_a_command_doing_more_than_read_returns_a_newer_installs_refusal_and_runs_nothing_again(
-    warm_drive: Callable[[str], None], tmp_path: Path
-) -> None:
-    warm_drive(f"__import__('subprocess').run(['true'], check=True); {refused_by_a_newer_install(tmp_path)}")
-    called = json.loads(answered(tool_call(5, "say", {"text": "a post"})))
-    assert called["result"] == {"content": [{"type": "text", "text": "drive: saved by long-running 9.9.9"}], "isError": True}
-
-
 def test_two_calls_at_once_each_fork_their_own_process(warm_drive: Callable[[str], None], tmp_path: Path) -> None:
     met = tmp_path / "met"
     met.mkdir()

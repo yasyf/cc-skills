@@ -595,7 +595,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A drive a newer install saved, which this install may neither check nor write, still ends the handler on its line with the posts its saved bindings hold, its entry left to drive handler, which takes it off with each brief it was handed once its turn is over, and a check that raises still posts that line before its error goes on."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A check that raises still posts the handler's line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
     try:
         if reason := refused(payload):
@@ -611,8 +611,6 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
         if briefs:
             return Unjudged(f"Refused on purpose: {handed(briefs)}")
-    except state.NewerDrive:
-        ended_handler = state.saved(name)["handlers"][payload["agent_id"]]
     except Exception:
         post_done(name, payload, state.saved(name)["handlers"][payload["agent_id"]])
         raise
