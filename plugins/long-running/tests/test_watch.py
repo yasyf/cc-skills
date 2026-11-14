@@ -1270,6 +1270,29 @@ def test_a_release_ending_one_of_two_waits_of_a_waiting_job_owes_its_thread_no_l
     assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
 
 
+def test_a_job_only_carrying_an_order_and_its_pr_owe_that_orders_thread_no_line_and_a_job_of_its_own_returning_owes_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    threaded(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="ship the dashboard", jobs=["j2"])
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(order="o2", state="waiting", carries={"o1": ["ship the watch"]}, prs=[state.pr_url(OTHER)])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    hour = T0 + timedelta(hours=1)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(state="done", said="DONE the dashboard ships")
+        data["prs"][OTHER].update(state="merged", checks="pass")
+    assert watch.quiet_lines(watching, hour) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
+    assert watch.quiet_lines(watching, hour + timedelta(seconds=5)) == []
+    [(_, body), _] = calls
+    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
+
+
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])
 def test_an_order_owes_its_thread_no_line_while_he_is_away_until_he_is_back_nor_once_a_report_closing_it_is_kept(demo: str, monkeypatch: pytest.MonkeyPatch, held: str) -> None:
     threaded(demo)
@@ -1342,19 +1365,28 @@ def heard_now(demo: str, capsys: pytest.CaptureFixture[str], *flags: str) -> str
     return capsys.readouterr().out.strip()
 
 
-def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_through_a_handler_once_each_time_he_is_heard(
+def returned_while_away(demo: str) -> None:
+    threaded(demo)
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": True}
+    assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
+
+
+def test_his_next_message_after_away_owes_his_catch_up_on_each_order_whose_news_moved_which_no_thread_line_repeats_and_the_watch_posts_through_a_handler_once_each_time_he_is_heard(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
-        data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
-        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["orders"]["o2"] = order(thread=["D123", TEAMMATE_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="done", said="DONE it")
+    returned_while_away(demo)
     calls = catching_up(monkeypatch, demo)
     watching = watcher(demo)
     assert heard_now(demo, capsys) == "heard"
     assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0), ["o1"])
     assert watch.catch_up_lines(watching, BACK) == []
+    assert watch.quiet_lines(watching, BACK + timedelta(minutes=6)) == []
     [(report, body), (start, _)] = calls
     assert report["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
     assert (report["to"], report["kind"], report["attr"]) == ([f"communicator@{demo}"], "report", {"catch_up": "true"})
@@ -1385,9 +1417,7 @@ def test_his_next_message_after_away_owes_his_catch_up_which_the_watch_posts_thr
 def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_report_already_written(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
-        data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
+    returned_while_away(demo)
     calls = catching_up(monkeypatch, demo)
     answered = reads.run
 
