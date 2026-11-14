@@ -1713,6 +1713,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "prs": [],
         "release_build": None,
         "waits": [],
+        "shipped": [],
         "waited": None,
         "waiting_said": [],
         "waiting_claims": {},
@@ -2841,12 +2842,13 @@ def foreign_pr(data: dict, key: str) -> str | None:
 
 
 def drop_pr(data: dict, key: str) -> None:
-    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, its place in each stack a card drew, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
+    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, freed or not, its place in each stack a card drew, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
     url = data["prs"].pop(key)["url"]
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
         rewait(owner, [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)])
     for job in data["jobs"].values():
         job["prs"] = [held for held in job["prs"] if held != url]
+        job["shipped"] = [wait for wait in job["shipped"] if RELEASE_WAIT.fullmatch(wait)["pr"] != key]
     for pr in data["prs"].values():
         if pr.get("stack") and key in pr["stack"]:
             pr["stack"] = [member for member in pr["stack"] if member != key]
