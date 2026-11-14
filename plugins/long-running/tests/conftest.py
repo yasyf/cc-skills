@@ -277,7 +277,7 @@ def cards_drawn(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     def post(name: str, job_id: str, file: Path, card: dict) -> str:
         drawn.append({"job": job_id, "file": str(file)} | card)
         link = drawn_card(len(drawn))
-        cli.follow_card(name, card["waits"], set(), link)
+        cli.follow_card(name, card["waits"], [], link)
         return f"his card {link} asks it under {card['waits']}"
 
     monkeypatch.setattr(cli, "post_ask", post)

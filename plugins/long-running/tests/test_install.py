@@ -1149,7 +1149,7 @@ def test_a_proof_hands_its_result_to_the_newer_install_that_saved_meanwhile(
     monkeypatch.setattr(install.subprocess, "run", newer)
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
     [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["job", "proved", "j1"], ["--drive", "demo", "--json"], False)
+    assert (argv[0], argv[2:], Path(argv[1]).exists()) == ("finish", ["--drive", "demo", "--json"], False)
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
     assert state.proof_path("demo", "j1").read_text() == "ran on /cache/long-running/1.0.3/bin\n"

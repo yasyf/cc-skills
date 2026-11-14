@@ -4599,7 +4599,7 @@ def test_a_check_hands_its_outcome_to_the_newer_install_that_saved_meanwhile(
     monkeypatch.setattr(served.install.subprocess, "run", newer)
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["pr", "checked", state.pr_url(with_pr)], ["--drive", "demo", "--json"], False)
+    assert (argv[0], argv[2:], Path(argv[1]).exists()) == ("finish", ["--drive", "demo", "--json"], False)
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["checked"]["orders"], pr["checker"]["outcome"].startswith(served.CHECKED)) == (["o1"], True)
     assert capsys.readouterr().out.startswith(f"{with_pr}: {served.CHECKED}")
@@ -6326,7 +6326,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     answer = slack_thread.post(state.now(), from_claude=True)
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp()) | {"waits": "demo:j1-1"})
-    cli.follow_card("demo", "demo:j1-1", set(), "https://acme.slack.com/archives/D123/p1794200000000100")
+    cli.follow_card("demo", "demo:j1-1", [], "https://acme.slack.com/archives/D123/p1794200000000100")
     report_records(monkeypatch, {"661300": {"job": "j1", "part": "how fast can restore go?"}})
     assert run("order", "posted", "o1", answer, "--record", "661300") == (0, f'o1 "how fast can restore go?": posted {answer}')
     assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer

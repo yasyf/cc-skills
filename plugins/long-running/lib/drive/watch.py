@@ -877,23 +877,12 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
         with contextlib.suppress(orca.OrcaError):
             said = orca.sprite_answer(said, data["jobs"][job_id], message_id)
         kept = [said, None]
-    answer_kept(name, job_id, message_id, kept)
+    install.finished(f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS, keep_answer, name, job_id, message_id, kept)
     return kept
 
 
-def answer_kept(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
-    """Keep the answer a read came to; when a newer install saved the drive while it ran, the newest install's `drive job answered` keeps it, so the read never runs again."""
-    try:
-        keep_answer(name, job_id, message_id, kept)
-        return
-    except state.NewerDrive:
-        if not (newer := install.upgraded()):
-            raise
-    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.read.{message_id}.json"
-    install.handed(newer, name, ["job", "answered", job_id], receipt, {"message": message_id, "answer": kept}, f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS)
-
-
 def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
+    """Keep the answer a read came to; answer_read runs it through install.finished once the read ran, since a newer install may save the drive while it runs, so the read never runs again."""
     with state.edit(name) as data:
         data["jobs"][job_id].setdefault("read_answers", {})[message_id] = kept
 

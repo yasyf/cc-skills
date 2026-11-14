@@ -7,9 +7,10 @@ import re
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
-from drive import agents, cli, dashboard, picture, reads, refs, render, slack, state, view
+from drive import agents, cli, dashboard, install, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -60,23 +61,34 @@ def say(name: str, post: dict) -> str:
     except (DriveError, slack.SlackError):
         cli.unclaim_close(name, claimed)
         raise
-    line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
+    link = reply["permalink"]
+    line = f"{'EDITED' if post.get('edit') else 'POSTED'} {link}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
     if handler := state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID")):
-        with state.edit(name) as data:
-            data["handlers"][handler]["posted"].append(line)
+        after_post(link, kept_line, name, handler, line)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
     if found := amended["correction"].get(seq):
-        line += f"; cci holds corrections of report {seq}, {', '.join(found)}: unless this post carries each, reword it with say(edit={reply['permalink']}, text=…)"
+        line += f"; cci holds corrections of report {seq}, {', '.join(found)}: unless this post carries each, reword it with say(edit={link}, text=…)"
     if report.get("catch_up"):
-        line += released(name, reply["permalink"], amended)
+        line += after_post(link, released, name, link, amended)
     if order:
-        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": seq, "sent": reply.get("sent")}, report if close else None)
+        line += "; " + after_post(link, recording, name, {"order": order, "link": link, "record": seq, "sent": reply.get("sent")}, report if close else None)
     if close:
-        line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
+        line += after_post(link, closed, name, order, report["seq"], link, post.get("text") or "")
     return line
+
+
+def after_post[T](link: str, keep: Callable[..., T], name: str, *args: object) -> T:
+    """Run one of the drive writes a post that went out at link needs through install.finished, so a newer install's save while the post went out keeps it on that install."""
+    return install.finished(f"say posted {link}", state.DRIVE_LOCK_SECONDS, keep, name, *args)
+
+
+def kept_line(name: str, handler: str, line: str) -> None:
+    """Keep a post's line on the handler that made it, for its done record to carry whole."""
+    with state.edit(name) as data:
+        data["handlers"][handler]["posted"].append(line)
 
 
 def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
@@ -174,9 +186,14 @@ def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
         told = str(json.loads(reads.run([*argv, "--json", "--text", text], Path.cwd(), reads.posting()))["seq"])
     except reads.ReadError as error:
         raise DriveError(f"report {seq} could not be marked held: {error}") from None
+    install.finished(f"report {seq} was answered as held by record {told}", state.DRIVE_LOCK_SECONDS, held_kept, name, seq, order_id, told)
+    return told
+
+
+def held_kept(name: str, seq: str, order_id: str | None, told: str) -> None:
+    """Mark a report held on the drive once its refused record told went out; hold runs it through install.finished, so a newer install's save while cci took the record never sends it twice."""
     with state.edit(name) as data:
         data["held"][seq] = {"order": order_id, "at": state.stamp(), "told": told}
-    return told
 
 
 def released(name: str, post: str, amended: dict[str, dict[str, list[str]]]) -> str:
@@ -357,7 +374,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
                 if post.get("edit")
                 else replied(post, pictures, sent)
                 if first[0] != dm
-                else status(name, post | {"thread_ts": first[1]}, stack, pictures, sent)
+                else status(name, data["prs"], post | {"thread_ts": first[1]}, stack, pictures, sent)
             )
         )
     except slack.SlackError as error:
@@ -367,7 +384,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
-        cli.follow_card(name, card["waits"], asked, reply["permalink"])
+        after_post(reply["permalink"], cli.follow_card, name, card["waits"], sorted(asked), reply["permalink"])
     kept = refs.board(text, found) or (card or {}).get("title") or ""
     state.append_event(
         name,
@@ -386,14 +403,19 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
         view.refresh_cards(name)
     else:
         reply |= {"sent": sent}
-    cards = [reply.get("card_permalink"), *(linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept) for place in rest if place[0] == dm)]
+    cards = [reply.get("card_permalink"), *(linked(name, data["prs"], reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept) for place in rest if place[0] == dm)]
     if stack:
-        with state.edit(name) as data:
-            state.join_pr_cards(data, stack, cards, state.stamp())
+        after_post(reply["permalink"], joined, name, stack, cards)
     label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
     for place in [place for place in rest if place[0] != dm]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
+
+
+def joined(name: str, stack: list[str], cards: list[str | None]) -> None:
+    """Join the thread of each PR card a post drew to every order its PRs serve."""
+    with state.edit(name) as data:
+        state.join_pr_cards(data, stack, cards, state.stamp())
 
 
 def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackError) -> dict:
@@ -449,10 +471,10 @@ def shown_in(name: str, post: dict) -> str | None:
     return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 
-def linked(name: str, first: str, thread: str, stack: list[str], sent: str, kept: str) -> str | None:
+def linked(name: str, prs: dict, first: str, thread: str, stack: list[str], sent: str, kept: str) -> str | None:
     """Post a PR card's line in one more thread of his DM, where cc-slack links the card it drew under the line, and keep it for the dashboard; the card's link cc-slack names. A failure says the card already went out, so nothing is posted again."""
     try:
-        reply = slack.cc_slack(*status(name, {"thread_ts": thread}, stack, [], sent))
+        reply = slack.cc_slack(*status(name, prs, {"thread_ts": thread}, stack, [], sent))
     except slack.SlackError as error:
         raise slack.SlackError(f"posted {first} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
     state.append_event(name, "said", text=kept, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=stack, edited=False)
@@ -471,9 +493,8 @@ def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: st
     return line["permalink"]
 
 
-def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
-    """The `cc-slack dm-status` call making a new post in his DM."""
-    prs = state.load(name)["prs"]
+def status(name: str, prs: dict, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
+    """The `cc-slack dm-status` call making a new post in his DM, each PR its card taps linked from the drive's PRs."""
     argv = ["dm-status", "--agent", "claude", "--drive", name]
     if thread := post.get("thread_ts"):
         argv += ["--thread", thread]
@@ -493,9 +514,10 @@ def draw(name: str, keys: list[str], again: bool = False) -> str:
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
     if not drawn["cards"]:
         raise DriveError("; ".join(f"{skip['repo']}#{skip['number']}: {skip['reason']}" for skip in drawn["skipped"]) or f"drive card drew no card on {', '.join(keys)}")
-    line = waits_line(state.load(name), keys, [row["title"] for each in drawn["cards"] for row in each["card"]["prs"]], again)
+    data = state.load(name)
+    line = waits_line(data, keys, [row["title"] for each in drawn["cards"] for row in each["card"]["prs"]], again)
     plain(line)
-    reply = slack.cc_slack(*status(name, {}, keys, [], line))
+    reply = slack.cc_slack(*status(name, data["prs"], {}, keys, [], line))
     link = (reply.get("card_permalink") or reply["permalink"]).split()[0]
     state.append_event(
         name, "said", text=line, channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False

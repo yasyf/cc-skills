@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,7 @@ from drive import (
     agents,
     cli,
     dashboard,
+    install,
     picture,
     reads,
     refs,
@@ -557,6 +559,38 @@ def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_t
     assert talk.say(demo, {"text": text, "thread_ts": thread, "record": "683585"}) == f"POSTED {answer}; {recorded.format(answer=answer)}"
     assert unrecorded == []
     assert state.load(demo)["orders"]["o1"]["last_line"] is not None
+
+
+def test_a_handlers_post_hands_its_line_to_the_newer_install_that_saved_while_it_went_out_so_it_posts_once(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(demo) as data:
+        data["handlers"]["a74493d1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {}, "handed": [], "posted": []}
+    sent, handed = [], []
+    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
+
+    def post(*argv: str) -> dict:
+        sent.append(argv)
+        monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return {"permalink": POSTED, "thread_ts": "1794300000.000900"}
+
+    real = subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        handed.append(argv[1:])
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(slack, "cc_slack", post)
+    monkeypatch.setattr(install, "upgraded", lambda: newest)
+    monkeypatch.setattr(install.subprocess, "run", newer)
+    assert talk.say(demo, {"text": "The copy stalls on the lock."}) == f"POSTED {POSTED}"
+    [argv] = handed
+    assert (len(sent), argv[0], Path(argv[1]).parent, argv[2:], Path(argv[1]).exists()) == (1, "finish", state.drive_dir(demo) / "finish", ["--drive", demo, "--json"], False)
+    assert state.load(demo)["handlers"]["a74493d1"]["posted"] == [f"POSTED {POSTED}"]
 
 
 def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_not_yet_joins_its_threads(
@@ -1332,7 +1366,7 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
-    cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
+    cli.follow_card(demo, WAITS, [], f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"})
     talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
@@ -1355,7 +1389,7 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     building(demo)
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
-    cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/{his_dm}/p{question.replace('.', '')}")
+    cli.follow_card(demo, WAITS, [], f"https://acme.slack.com/archives/{his_dm}/p{question.replace('.', '')}")
     data = state.load(demo)
     assert ("channel" not in data["slack"], data["orders"]["o1"]["threads"][0][:2]) == (True, [his_dm, question])
     assert talk.posted(demo, {"text": watch.PAUSED, "thread_ts": question})["permalink"] == POSTED

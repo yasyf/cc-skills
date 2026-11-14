@@ -1,5 +1,6 @@
 import argparse
 import html
+import importlib
 import json
 import os
 import re
@@ -1508,11 +1509,11 @@ def asked_on(name: str, waits: str) -> set[str]:
     return {view.message_key(entry["url"]) for entry in listed if entry["card"].get("waits") == waits} | {view.message_key(question["card"]) for question in kept}
 
 
-def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
+def follow_card(name: str, waits: str, asked: list[str], url: str) -> None:
     """Record the card cc-slack drew under the waits id as the card of each question asked under it, its thread joining each order of the job asking it, and point each wait of a job or PR on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
     from drive import view
 
-    moved = asked - {view.message_key(url)}
+    moved = set(asked) - {view.message_key(url)}
     with state.edit(name) as data:
         for job_id, job in data["jobs"].items():
             for question in job["questions"]:
@@ -2582,40 +2583,26 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -
             hows.append(orca.answer(name, job, kept["words"], kept["request"]))
         except orca.OrcaError as error:
             return unsent(args, job, held[index:], error)
-        sent_kept(name, args.id, kept | {"ask": job.get("ask")} | ({} if unfit else {"tools_on": workspace}))
+        install.finished(f"{args.id}: its worker took the text", state.DRIVE_LOCK_SECONDS, sent_kept, name, args.id, kept | {"ask": job.get("ask")} | ({} if unfit else {"tools_on": workspace}))
         job = {**job, "ask": None}
     how = "; ".join(hows) + (f"; its Sprite still lacks the drive forwarder: {unfit}" if unfit else "")
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
-    try:
-        with state.edit(name) as data:
-            fresh = data["jobs"][job_id]
-            if fresh.get("ask") == sent["ask"]:
-                fresh.update(ask=None, state="running")
-            fresh.update(
-                updated=state.stamp(),
-                undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
-            )
-            if "tools_on" in sent:
-                fresh["tools_on"] = sent["tools_on"]
-            superseded.hear(data, job_id, sent["words"])
-        return fresh
-    except state.NewerDrive:
-        if not (newer := install.upgraded()):
-            raise
-    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.sent.{sent['request']}.json"
-    return json.loads(install.handed(newer, name, ["job", "sent", job_id], receipt, sent, f"{job_id}: its worker took the text", state.DRIVE_LOCK_SECONDS))
-
-
-def job_sent(args: argparse.Namespace) -> int:
-    """Keep a held text an older install's resume saw its live worker take while this install saved the drive, which sent_kept hands here."""
-    name, receipt = state.resolve(args.drive), Path(args.receipt)
-    job = sent_kept(name, args.id, json.loads(receipt.read_text()))
-    receipt.unlink()
-    return emit(args, f"{args.id}: the text its worker took is kept", job)
+    """Keep on the job a held text its live worker took: dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; messaged runs it through install.finished, since a newer install may save the drive while Orca takes the text, so the text is never sent twice."""
+    with state.edit(name) as data:
+        fresh = data["jobs"][job_id]
+        if fresh.get("ask") == sent["ask"]:
+            fresh.update(ask=None, state="running")
+        fresh.update(
+            updated=state.stamp(),
+            undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
+        )
+        if "tools_on" in sent:
+            fresh["tools_on"] = sent["tools_on"]
+        superseded.hear(data, job_id, sent["words"])
+    return fresh
 
 
 def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.OrcaError) -> int:
@@ -2704,38 +2691,23 @@ def launch_brief(name: str, job_id: str, job: dict) -> Path:
 
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None) -> dict:
-    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started. When a newer install saved the drive while the worker started, which launch_attempt lets one do, the newest install's `drive job started` records it, so the receipt lands either way."""
-    try:
-        with state.edit(name) as data:
-            job = data["jobs"][job_id]
-            if started is None:
-                job["launching"] = None
-            else:
-                kept = {"handoff": handoff, "reads": {}} if handoff else {}
-                job.update(started, **kept, undelivered=[], ask=None, report=None, tools_on=started["workspace"], turn_open=True)
-                state.start(job)
-                superseded.hear(data, job_id, orca.brief_of(Path(handoff or job["brief"]).read_text()))
-        return job
-    except state.NewerDrive:
-        if not (newer := install.upgraded()):
-            raise
-    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.{started['dispatch'] if started else 'unstarted'}.json"
+    """Record a started worker's receipt on its job through install.finished, since launch_attempt lets a newer install save the drive while the worker starts, so the receipt lands either way."""
     what = f"{job_id}: its worker started as dispatch {started['dispatch']}" if started else f"{job_id}: its launch started no worker"
-    kept = {"started": started, "handoff": handoff}
-    return json.loads(install.handed(newer, name, ["job", "started", job_id], receipt, kept, what, orca.LAUNCH_SECONDS))
+    return install.finished(what, orca.LAUNCH_SECONDS, launch_kept, name, job_id, started, handoff)
 
 
-def job_started(args: argparse.Namespace) -> int:
-    """Record the receipt an older install's launch or resume kept, of a worker it started or of a launch that started none, while this install saved the drive, which record_start hands here; a worker its job already records changes nothing."""
-    name = state.resolve(args.drive)
-    receipt = Path(args.receipt)
-    kept = json.loads(receipt.read_text())
-    job = find(state.load(name)["jobs"], args.id, "job")
-    if not (kept["started"] and job.get("dispatch") == kept["started"]["dispatch"]):
-        job = record_start(name, args.id, kept["started"], kept["handoff"])
-    receipt.unlink()
-    line = f"{args.id} started {orca.place(job)} as dispatch {kept['started']['dispatch']}" if kept["started"] else f"{args.id} is no longer launching"
-    return emit(args, line, job)
+def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | None) -> dict:
+    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
+    with state.edit(name) as data:
+        job = data["jobs"][job_id]
+        if started is None:
+            job["launching"] = None
+        elif job.get("dispatch") != started["dispatch"]:
+            kept = {"handoff": handoff, "reads": {}} if handoff else {}
+            job.update(started, **kept, undelivered=[], ask=None, report=None, tools_on=started["workspace"], turn_open=True)
+            state.start(job)
+            superseded.hear(data, job_id, orca.brief_of(Path(handoff or job["brief"]).read_text()))
+    return job
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None) -> dict:
@@ -2935,16 +2907,6 @@ def job_read(args: argparse.Namespace) -> int:
     return emit(args, why or said, {"id": args.id, "message": args.message, "answer": said, "why": why})
 
 
-def job_answered(args: argparse.Namespace) -> int:
-    """Keep the answer an older install's reader came to while this install saved the drive, which watch.answer_kept hands here."""
-    name, receipt = state.resolve(args.drive), Path(args.receipt)
-    kept = json.loads(receipt.read_text())
-    watch.answer_kept(name, args.id, kept["message"], kept["answer"])
-    receipt.unlink()
-    said, why = kept["answer"]
-    return emit(args, why or said, {"id": args.id, "message": kept["message"], "answer": said, "why": why})
-
-
 def job_replies(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     job = find(state.load(name)["jobs"], args.id, "job")
@@ -3015,14 +2977,6 @@ def job_prove(args: argparse.Namespace) -> int:
     return emit(args, line, {"id": args.id, "line": line})
 
 
-def job_proved(args: argparse.Namespace) -> int:
-    """Keep what an older install's `drive job prove` came to while this install saved the drive, which install.proof_kept hands here."""
-    name, receipt = state.resolve(args.drive), Path(args.receipt)
-    line = install.proof_kept(name, args.id, json.loads(receipt.read_text()))
-    receipt.unlink()
-    return emit(args, line, {"id": args.id, "line": line})
-
-
 def job_end(args: argparse.Namespace) -> int:
     """Free a remote job's lane: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds the job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
     name = state.resolve(args.drive)
@@ -3050,7 +3004,7 @@ def job_end(args: argparse.Namespace) -> int:
             try:
                 saved = lane_saved(name, args.id, job, root)
             except orca.OrcaError as error:
-                end_kept(name, args.id, {"failed": True, "fresh": fresh, "saved": None})
+                install.finished(f"{args.id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, args.id, {"failed": True, "fresh": fresh, "saved": None})
                 raise DriveError(
                     f"{args.id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote could not be saved"
                     f" to GitHub for its next lane: {error}. End it again once that Sprite answers"
@@ -3058,43 +3012,29 @@ def job_end(args: argparse.Namespace) -> int:
         transcript = None if state.on_mac(job) else orca.keep_transcripts(name, args.id, job, job["dispatch"])
         reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
         released = release_sprite(name, args.id, job, root)
-        ended = end_kept(name, args.id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
+        ended = install.finished(f"{args.id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, args.id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
         branches = orca.saved(name, args.id, job, root) if saved else []
         line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
         return emit(args, "\n".join(filter(None, [reclaimed, released, line])), {"id": args.id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved, "branches": branches})
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; when a newer install saved the drive meanwhile, the newest install's `drive job ended` keeps it, so the end is never left half kept."""
-    try:
-        with state.edit(name) as data:
-            ended = data["jobs"][job_id]
-            if result["failed"]:
-                death = state.lane_death(ended)
-                if result["fresh"]:
-                    ended["deaths"].remove(death)
-                else:
-                    del death["ended"]
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved, its kept transcript and its ask cleared, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; job_end runs it through install.finished, since a newer install may save the drive while the lane's Sprite is saved and released, so the end is never left half kept."""
+    with state.edit(name) as data:
+        ended = data["jobs"][job_id]
+        if result["failed"]:
+            death = state.lane_death(ended)
+            if result["fresh"]:
+                ended["deaths"].remove(death)
             else:
-                if result["saved"]:
-                    ended["deaths"][-1]["saved"] = result["saved"]
-                if result.get("transcript"):
-                    ended["deaths"][-1]["transcript"] = result["transcript"]
-                ended["ask"] = None
-        return ended
-    except state.NewerDrive:
-        if not (newer := install.upgraded()):
-            raise
-    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.ended.{os.getpid()}.json"
-    return json.loads(install.handed(newer, name, ["job", "ended", job_id], receipt, result, f"{job_id}: its lane's end", orca.LAUNCH_SECONDS))
-
-
-def job_ended(args: argparse.Namespace) -> int:
-    """Keep what an older install's `drive job end` came to while this install saved the drive, which end_kept hands here."""
-    name, receipt = state.resolve(args.drive), Path(args.receipt)
-    ended = end_kept(name, args.id, json.loads(receipt.read_text()))
-    receipt.unlink()
-    return emit(args, f"{args.id}'s lane end is kept; {args.id} stays {ended['state']}", ended)
+                del death["ended"]
+        else:
+            if result["saved"]:
+                ended["deaths"][-1]["saved"] = result["saved"]
+            if result.get("transcript"):
+                ended["deaths"][-1]["transcript"] = result["transcript"]
+            ended["ask"] = None
+    return ended
 
 
 def pr_add(args: argparse.Namespace) -> int:
@@ -3690,14 +3630,6 @@ def pr_check(args: argparse.Namespace) -> int:
     return emit(args, f"{key}: {outcome}", {"key": key, "outcome": outcome})
 
 
-def pr_checked(args: argparse.Namespace) -> int:
-    """Keep the outcome an older install's `drive pr check` reached while this install saved the drive, which served.kept hands here."""
-    key, name, receipt = state.pr_key(args.url), state.resolve(args.drive), Path(args.receipt)
-    outcome = served.kept(name, key, json.loads(receipt.read_text()))
-    receipt.unlink()
-    return emit(args, f"{key}: {outcome}", {"key": key, "outcome": outcome})
-
-
 def answer(args: argparse.Namespace) -> int:
     """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
     from drive import view
@@ -3939,6 +3871,16 @@ def say_record(args: argparse.Namespace) -> int:
     from drive import talk
 
     return emit(args, talk.record_kept(state.resolve(args.drive), Path(args.receipt)), {"receipt": args.receipt})
+
+
+def finish(args: argparse.Namespace) -> int:
+    """Run on this install the drive writes an older install's verb made once its outside work went out, from the receipt install.finished kept when this install saved the drive while that work ran."""
+    name, receipt = state.resolve(args.drive), Path(args.receipt)
+    kept = json.loads(receipt.read_text())
+    module, _, function = kept["keep"].partition(":")
+    result = install.finished(kept["what"], kept["seconds"], getattr(importlib.import_module(module), function), name, *kept["args"])
+    receipt.unlink()
+    return emit(args, f"{kept['what']}: kept by long-running {state.VERSION}", {"result": result})
 
 
 def handler_start(args: argparse.Namespace) -> int:
@@ -4985,12 +4927,6 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
-        "started", parents=both, help="record a worker an older install's launch or resume started, from the receipt it kept; that launch runs it"
-    )
-    verb.add_argument("id", help="the job")
-    verb.add_argument("receipt", help="the receipt file the launch kept under the drive's jobs folder")
-    verb.set_defaults(run=job_started)
-    verb = job.add_parser(
         "resume",
         parents=both,
         help="answer a job's question, or send it the next event, starting its next worker when its last ended",
@@ -5035,10 +4971,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")
     verb.set_defaults(run=job_read)
-    verb = job.add_parser("answered", parents=both, help="keep the answer an older install's job read came to, from the receipt it kept; that read runs it")
-    verb.add_argument("id", help="the job")
-    verb.add_argument("receipt", help="the receipt file the read kept under the drive's jobs folder")
-    verb.set_defaults(run=job_answered)
     verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )
@@ -5081,14 +5013,6 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
-    verb = job.add_parser("ended", parents=both, help="keep what an older install's job end came to, from the receipt it kept; that end runs it")
-    verb.add_argument("id", help="the job")
-    verb.add_argument("receipt", help="the receipt file the end kept under the drive's jobs folder")
-    verb.set_defaults(run=job_ended)
-    verb = job.add_parser("sent", parents=both, help="keep a text an older install's job resume saw its live worker take, from the receipt it kept; that resume runs it")
-    verb.add_argument("id", help="the job")
-    verb.add_argument("receipt", help="the receipt file the resume kept under the drive's jobs folder")
-    verb.set_defaults(run=job_sent)
     verb = job.add_parser(
         "prove",
         parents=both,
@@ -5113,10 +5037,6 @@ def parser() -> argparse.ArgumentParser:
         help=f"seconds the installs get, the dashboard's handover gets, and each run of the proof file gets from its own start, its end the Unix second {install.PROOF_DEADLINE_ENV} names to the file",
     )
     verb.set_defaults(run=job_prove)
-    verb = job.add_parser("proved", parents=both, help="keep what an older install's job prove came to, from the receipt it kept; that proof runs it")
-    verb.add_argument("id", help="the job")
-    verb.add_argument("receipt", help="the receipt file the proof kept under the drive's jobs folder")
-    verb.set_defaults(run=job_proved)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
     verb.set_defaults(run=status)
@@ -5202,12 +5122,6 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("url", help="the PR's URL")
     verb.set_defaults(run=pr_check)
-    verb = pr.add_parser(
-        "checked", parents=both, help="keep the outcome an older install's pr check reached, from the receipt it kept; that check runs it"
-    )
-    verb.add_argument("url", help="the PR's URL")
-    verb.add_argument("receipt", help="the receipt file the check kept under the drive's prs folder")
-    verb.set_defaults(run=pr_checked)
     verb = pr.add_parser(
         "ci",
         parents=both,
@@ -5388,6 +5302,11 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id", help="the handler's id, as drive handler printed it")
     verb.set_defaults(run=handler_start)
+    verb = verbs.add_parser(
+        "finish", parents=both, help="run the drive writes an older install's verb made once its outside work went out, from the receipt it kept when this install saved the drive meanwhile; that verb runs it"
+    )
+    verb.add_argument("receipt", help="the receipt file the verb kept under the drive's finish folder")
+    verb.set_defaults(run=finish)
     verb = verbs.add_parser("say-record", parents=both, help="record a post say made on its order from the receipt say kept; say runs it detached")
     verb.add_argument("receipt", help="the receipt file say kept under the drive's posts folder")
     verb.set_defaults(run=say_record)
@@ -5593,7 +5512,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def relaunching(args: argparse.Namespace) -> bool:
-    """Whether the verb is a launch or resume, which runs again whole on the newest install after a newer install's save refused it, whatever it changed: each step it takes before a worker starts is kept once, a lane's death once per dispatch and a held text once under its Orca request id, a worker an earlier run started is adopted from the receipt its attempt keeps and never started twice, and a refusal after a worker started hands its receipt to the newest install's `drive job started` or `drive job sent`."""
+    """Whether the verb is a launch or resume, which runs again whole on the newest install after a newer install's save refused it, whatever it changed: each step it takes before a worker starts is kept once, a lane's death once per dispatch and a held text once under its Orca request id, a worker an earlier run started is adopted from the receipt its attempt keeps and never started twice, and a refusal after a worker started hands its receipt to the newest install's `drive finish`."""
     return args.run in (job_launch, job_resume)
 
 

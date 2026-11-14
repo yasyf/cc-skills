@@ -832,8 +832,8 @@ def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
     monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
     monkeypatch.setattr(cli.install.subprocess, "run", newer)
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
-    receipt = state.drive_dir(demo) / "jobs" / f"j1.{DISPATCH}.json"
-    assert (handed, receipt.exists()) == ([["job", "started", "j1", str(receipt), "--drive", demo, "--json"]], False)
+    [argv] = handed
+    assert (argv[0], Path(argv[1]).parent, argv[2:], Path(argv[1]).exists()) == ("finish", state.drive_dir(demo) / "finish", ["--drive", demo, "--json"], False)
     job = state.load(demo)["jobs"]["j1"]
     assert (job["where"], job["dispatch"], job["run"], job["state"]) == ("remote", DISPATCH, RUN, "running")
 
@@ -2281,7 +2281,7 @@ def test_a_resume_to_a_live_worker_hands_the_text_it_took_to_the_newer_install_t
     monkeypatch.setattr(cli.install.subprocess, "run", newer)
     assert run("job", "resume", "j1", "PR #7 merged") == (0, "j1: answered its question q-1")
     [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists(), sent.count("reply")) == (["job", "sent", "j1"], ["--drive", remote, "--json"], False, 1)
+    assert (argv[0], argv[2:], Path(argv[1]).exists(), sent.count("reply")) == ("finish", ["--drive", remote, "--json"], False, 1)
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["undelivered"]) == (None, "running", [])
 
@@ -3548,7 +3548,7 @@ def test_an_end_hands_its_end_to_the_newer_install_that_saved_meanwhile(
     monkeypatch.setattr(cli.install.subprocess, "run", newer)
     assert run("job", "end", "j1")[1].endswith("j1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved on GitHub as saved/demo-j1/restack at 1a2b3c4d5e")
     [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["job", "ended", "j1"], ["--drive", remote, "--json"], False)
+    assert (argv[0], argv[2:], Path(argv[1]).exists()) == ("finish", ["--drive", remote, "--json"], False)
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["deaths"][-1]["saved"], job["deaths"][-1]["why"]) == (None, RESTACK, "ended by drive job end")
 
@@ -4337,8 +4337,8 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     assert (job["reads"], job["read_answers"]) == ({}, {})
 
 
-def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newest_installs_drive_job_answered_and_never_runs_again(
-    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newest_installs_drive_finish_and_never_runs_again(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="relay_newer")])
     monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
@@ -4349,21 +4349,23 @@ def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newe
         state.store(drive, state.stored(drive) | {"saved_by": "9.9.9"})
         return "m2065 the field facts"
 
-    def newest(newer: Path, name: str, verb: list[str], receipt: Path, kept: dict, what: str, seconds: float) -> str:
-        receipt.parent.mkdir(parents=True, exist_ok=True)
-        receipt.write_text(json.dumps(kept))
-        state.store(name, state.stored(name) | {"saved_by": state.VERSION})
+    newest, real = tmp_path / "cache" / "9.9.9" / "bin" / "drive", subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        state.store(remote, state.stored(remote) | {"saved_by": state.VERSION})
         monkeypatch.setattr(reads, "answer", lambda *args: pytest.fail("the newest install ran the read again"))
-        assert cli.main([*verb, str(receipt), "--drive", name]) == 0
-        return ""
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
 
     monkeypatch.setattr(reads, "answer", answered_as_an_install_lands)
-    monkeypatch.setattr(install, "upgraded", lambda: tmp_path / "cache" / "9.9.9" / "bin" / "drive")
-    monkeypatch.setattr(install, "handed", newest)
+    monkeypatch.setattr(install, "upgraded", lambda: newest)
+    monkeypatch.setattr(install.subprocess, "run", newer)
     said = watch.answer_read(remote, "j1", "relay_newer")
     assert said[0].endswith("m2065 the field facts")
     assert state.load(remote)["jobs"]["j1"]["read_answers"]["relay_newer"] == said
-    assert not (state.drive_dir(remote) / "jobs" / "j1.read.relay_newer.json").exists()
+    assert not [*(state.drive_dir(remote) / "finish").iterdir()]
 
 
 def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_answer_goes_once_kept(
