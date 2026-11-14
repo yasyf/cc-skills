@@ -110,9 +110,12 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
   from the next line in the order's thread. A time can name its day, such as "Next line by 10:00 AM
   tomorrow". From that time the watch writes the report owing the line and starts the handler that
-  posts it, as it does for a quiet thread, every 10 minutes, once while he is away, until a drive post
-  is in that thread, each report from 10 minutes past calling the line late; an order with no thread
-  gets one `DUE` line instead. The order cannot close before a post is there. An open
+  posts it, as it does for a quiet thread, every 10 minutes while he is here, until a drive post
+  is in that thread, each report calling the line late once he read present 10 minutes past the time,
+  never counting the minutes he was away; an order with no thread gets one `DUE` line instead. A time
+  that falls while he is away is owed at his return: no report owes it while he is away, `drive status`
+  prints its order's time as waiting on his return, and the first pass after he is heard writes the
+  report at once, saying when he went away rather than calling the line late. The order cannot close before a post is there. An open
   incident keeps no such time: the watch owes its next line five quiet minutes after its last once it has news, by
   [Clocks](incidents.md#clocks).
 - The handler records each post on an order through the post itself,

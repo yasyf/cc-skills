@@ -1071,21 +1071,21 @@ def event_lines(watcher: Watcher) -> list[str]:
     return said
 
 
-def overdue(order: dict, moment: datetime, away: bool) -> bool:
-    if order["state"] in state.CLOSED_ORDER_STATES or not state.owed(order) or state.parse_time(state.owed_at(order)) > moment:
+def overdue(data: dict, order: dict, moment: datetime) -> bool:
+    """Whether the watch owes a report on the line an order promised him by a time already past: every ten minutes while he is here, none while state.owed_at_return reads it owed at his return, once while he is away for an order whose lines have no thread, and at once the first pass after he is heard, whatever report went before his absence."""
+    if order["state"] in state.CLOSED_ORDER_STATES or not state.owed(order) or state.parse_time(state.owed_at(order)) > moment or state.owed_at_return(data, order, moment):
         return False
-    said = order["due_said"]
-    return said is None or not away and moment - state.parse_time(said) >= DUE_EVERY
+    said, absence = order["due_said"], data["owner"]["absence"]
+    return said is None or not state.owner_away(data, moment) and (moment - state.parse_time(said) >= DUE_EVERY or bool(absence) and state.parse_time(said) < state.parse_time(absence["until"]))
 
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him the line promised by each time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack: the watch writes the report owing that line and starts the handler that posts it there, as quiet_lines does, so no session's judgment stands between the time and its line, by his words "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"; again every ten minutes until a post is there, only the first while he is away, each written ten minutes or more past the time asking the handler to say the line is late. A report reaching a handler keeps its facts as quiet_lines' own reports do, so the thread's next news report waits five minutes from it. A thread that could not be read and a report that could not be written are said as a failed read is and tried again next pass; a report whose handler did not start is the communicator's to start, as each POST report is. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. An order whose lines to him have no thread has no line to read, so its time is the drive's own, said once as a DUE line and kept by being said."""
+    """Owe him the line promised by each time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack: the watch writes the report owing that line and starts the handler that posts it there, as quiet_lines does, so no session's judgment stands between the time and its line, by his words "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"; again every ten minutes until a post is there, by overdue's clock, none while he is away and the first at once after he is heard, each counting him late once he read present ten minutes past the time. A report reaching a handler keeps its facts as quiet_lines' own reports do, so the thread's next news report waits five minutes from it. A thread that could not be read and a report that could not be written are said as a failed read is and tried again next pass; a report whose handler did not start is the communicator's to start, as each POST report is. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. An order whose lines to him have no thread has no line to read, so its time is the drive's own, said once as a DUE line and kept by being said."""
     data = state.load(watcher.name)
-    away = state.owner_away(data, moment)
     threads = {
         order_id: slack.order_posts(data, order_id, order) if state.promise_thread(order) else None
         for order_id, order in heard_orders(watcher, data).items()
-        if overdue(order, moment, away)
+        if overdue(data, order, moment)
     }
     if not threads:
         return []
@@ -1094,11 +1094,11 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for order_id, read in threads.items():
             order = data["orders"][order_id]
-            if read and overdue(order, moment, away):
+            if read and overdue(data, order, moment):
                 state.keep(order, read[0])
             if read and not read[1]:
                 watcher.failures.pop(f"due read {order_id}", None)
-            if not overdue(order, moment, away):
+            if not overdue(data, order, moment):
                 continue
             if read is None:
                 order["due_said"] = order["kept"] = state.stamp(moment)
@@ -1226,18 +1226,27 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
 
 
 def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], due: str | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.incident_orders names for it, or, given due, on the one order owing him the line it promised by that time, which the report calls late from ten minutes past it; its seq."""
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.incident_orders names for it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
     incidents = all(data["orders"][head]["incident"] for head in heads)
     past = int((moment - state.parse_time(due)).total_seconds() // 60) if due else 0
-    late = timedelta(minutes=past) >= DUE_EVERY
+    present = int(state.present(data, state.parse_time(due), moment).total_seconds() // 60) if due else 0
+    late = timedelta(minutes=present) >= DUE_EVERY
+    absence = data["owner"]["absence"] if present < past else None
     jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
     handoffs = [handoff for group in groups.values() for handoff in quiet_handoffs(data, group, moment)]
     if due:
+        opening = (
+            ", opening with that line being late"
+            if late
+            else f", opening with its time having waited for his return since he went away at {when(absence['since'])}, never calling it late"
+            if absence
+            else ""
+        )
         asked = (
-            f"post where it stands now in its thread{', opening with that line being late' if late else ''}: what moved since its last line, what each job at work is doing, and the clock time of his next line, as \"Next line by <time>\", which that post promises him."
+            f"post where it stands now in its thread{opening}: what moved since its last line, what each job at work is doing, and the clock time of his next line, as \"Next line by <time>\", which that post promises him."
         )
     elif incidents:
         asked = f"post where {'the' if one else 'each'} incident stands now in its thread: what moved since its last line, what each job at work is doing, a card of his that blocks it with the option built meanwhile, and what ships next."
@@ -1250,7 +1259,18 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
             for line in (f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {head}, {', '.join(group)}: {data['orders'][head]['text']}", *incident_pr_lines(watcher.name, group))
         ),
         f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
-        *([f"Its line was promised him by {when(due)}, {past} minutes ago."] if due else []),
+        *(
+            [
+                f"Its line was promised him by {when(due)}, {past} minutes ago"
+                + (
+                    f", {present} of them while he read present: he went away at {when(absence['since'])}, read away from {when(absence['from'])} and was heard back at {when(absence['until'])}."
+                    if absence
+                    else "."
+                )
+            ]
+            if due
+            else []
+        ),
         f"Moved since the thread's last line or the watch's last report on it: {', '.join(moved) or 'nothing'}. At work: {', '.join(working) or 'no job'}.",
         f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then {asked}",
         f"Jobs: {len(jobs)}",
@@ -1270,8 +1290,10 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     named = f"{kind} {head} has" if one else f"{kind}s {', '.join(heads)} have"
     if due:
         text = (
-            f"POST order {head}'s line promised by {when(due)} is {past} minutes late: post where it stands now in its thread, saying it is late"
+            f"POST order {head}'s line promised by {when(due)} is {present} minutes late: post where it stands now in its thread, saying it is late"
             if late
+            else f"POST order {head} owes him the line it promised by {when(due)}, which waited for his return since he went away at {when(absence['since'])}: post where it stands now in its thread, saying so"
+            if absence
             else f"POST order {head} owes him the line it promised by {when(due)}: post where it stands now in its thread"
         )
     elif incidents:
@@ -2719,11 +2741,14 @@ def orphan_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders joined to it, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
+    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders joined to it, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
-        since = (data.get("owner") or {}).get("heard")
-        data["owner"] = {"heard": state.stamp(moment), "away": away}
+        owner = data["owner"]
+        since = owner["heard"]
+        gone = state.parse_time(since) + (timedelta() if owner["away"] else state.AWAY_AFTER) if back and since else None
+        absence = {"since": since, "from": state.stamp(gone), "until": state.stamp(moment)} if gone else owner["absence"]
+        data["owner"] = {"heard": state.stamp(moment), "away": away, "absence": absence}
         news = []
         held = list(data["held"]) if back and since else []
         if back and since:
