@@ -187,7 +187,10 @@ if [ -d "$attempt" ] && [ ! -L "$attempt" ] && { [ "$route" = sprite ] || [ -e "
   fi
 fi
 reused= unsent=
-if [ -e "$attempt" ] || [ -L "$attempt" ]; then
+if [ "$route" = local ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.json" ] &&
+  kept=$(jq -er '.worktree | strings' "$attempt/request.json" 2>/dev/null); then
+  worktree=$kept reused=1
+elif [ -e "$attempt" ] || [ -L "$attempt" ]; then
   [ "$route" = sprite ] && unstarted ||
     die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
   reused=1
@@ -352,6 +355,11 @@ worktree_path() {
     jq -r --arg name "$worktree" '.result.worktrees[] | select(.displayName == $name) | .path'
 }
 
+cutting() {
+  git -C "$main" worktree list --porcelain |
+    jq -Rne --arg tail "/$worktree" 'any(inputs; startswith("worktree ") and endswith($tail))' >/dev/null
+}
+
 existing=$(worktree_path)
 if [ -z "$existing" ]; then
   for cut in "$dir"/*.worker/worktree; do
@@ -361,16 +369,24 @@ if [ -z "$existing" ]; then
       die "worktree $worktree was cut for ${cut%/worktree} and is gone, and a name is never cut twice; launch under a new lane name; nothing launched"
   done
 fi
-created=
-# worktree create can drop its RPC at ~30 s while setup runs and still create the worktree.
+made=
+# orca worktree create stops waiting for its reply at 60 s while Orca's git worktree add still runs; Orca lists the worktree once the add ends.
 [ -n "$existing" ] ||
-  created=$(orca_json worktree create --name "$worktree" --repo "id:$repo" --base-branch "$base" --setup run |
-    jq -r '.result.worktree.path // empty') ||
+  made=$(orca worktree create --name "$worktree" --repo "id:$repo" --base-branch "$base" --setup run --json) ||
   true
+created=$(jq -r '.result.worktree.path // empty' <<<"$made" 2>/dev/null) || created=
 
 wt=${created:-$existing}
 [ -n "$wt" ] || wt=$(worktree_path)
-[ -n "$wt" ] || die "no worktree named $worktree"
+[ -n "$wt" ] || main=$(orca_json repo show --repo "id:$repo" | jq -r .result.repo.path)
+until [ -n "$wt" ] || ! cutting; do
+  sleep 1
+  wt=$(worktree_path)
+done
+if [ -z "$wt" ]; then
+  said=$(jq -r 'select(.ok == false) | "\(.error.code): \(.error.message | rtrimstr("."))"' <<<"$made" 2>/dev/null) || said=${made##*$'\n'}
+  die "orca worktree create made no worktree named $worktree${said:+ and answered $said}, and git lists none under $main; launching this brief again creates it under that name"
+fi
 printf '%s\n' "$worktree" >"$attempt/worktree"
 sparse=
 read -ra cone <<<"$(repo_value sparse) ${WORKER_SPARSE:-}"
