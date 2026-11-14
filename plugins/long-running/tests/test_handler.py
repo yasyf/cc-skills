@@ -404,6 +404,7 @@ HIS_FIRST = (
 HIS_FOLLOW_UP = f"Message (his words): and?\nLink: https://acme.slack.com/archives/D123/p1794565618666599?thread_ts={HELD_THREAD}&cid=D123\nThread: {HELD_THREAD}\nDrive: demo\nScratch: {{scratch}}/and"
 HIS_UNLINKED = f"Message (his words): and?\nThread: D123 {HELD_THREAD}\nDrive: demo\nScratch: {{scratch}}/unlinked"
 THREAD_LINE = f"Record: 690839 Drive: demo Scratch: {{scratch}}/690839\nThread: {HELD_THREAD}"
+SINCE_COMPACTION = f"Thread: D123 {HELD_THREAD}\nContext: he waits on a handler whose done record has not come\nDrive: demo\nScratch: {{scratch}}/compacted"
 HIS_IN_INCIDENT = "Message (his words): is it still down?\nLink: https://acme.slack.com/archives/D123/p1794494100000100?thread_ts=1794494004.895129&cid=D123\nThread: D123 1794494004.895129\nDrive: demo\nScratch: {scratch}/down"
 
 
@@ -429,6 +430,7 @@ def watch_quiet(seq: str) -> str:
         pytest.param(HIS_FIRST, HIS_FOLLOW_UP, "handed", id="o1153-his-and-b04e97f3-while-8712a691-held-his-message-in-its-thread"),
         pytest.param(HIS_FIRST, THREAD_LINE, "handed", id="o1153-threadless-690839-38104256-whose-thread-line-names-8712a691s-thread"),
         pytest.param(HIS_FIRST, HIS_UNLINKED, "handed", id="his-words-with-no-link-in-a-held-thread-is-no-copy"),
+        pytest.param(SINCE_COMPACTION, THREAD_LINE, "handed", id="o1502-be5951bd-record-in-the-thread-9206db80s-thread-and-context-brief-held"),
         pytest.param(WATCH_QUIET, HIS_IN_INCIDENT, "handed", id="his-words-in-the-thread-the-watchs-quiet-handler-holds"),
         pytest.param(watch_quiet("701042"), brief_of("701054"), "handed", id="o1433-threadless-701054-while-92404de6-held-701042-in-its-orders-alert-thread"),
         pytest.param(watch_quiet("701042"), brief_of("701056"), "handed", id="o1433-threadless-701056-re-700999-while-92404de6-held-701042"),
