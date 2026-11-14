@@ -41,7 +41,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    another PR's branch, open or approved, cut yours on that branch now, so your PR stacks on it,
    never a `WAITING` on its landing.
 2. Research before you write:
-   - A `Researched: <job>` line names a reader's report on the order: read it first with
+   - A `Researched: <job>` line names a reader's or design's report on the order: read it first with
      `drive job report <job>`, on a Sprite too, or under its `# Report of <job>` heading above your
      brief, and build on what exists, never a second copy beside it. A `Plan:` line's report comes the same way.
    - Search the code, the brief's plan section, the whole plan (`search_plan`, or

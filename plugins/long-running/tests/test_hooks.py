@@ -830,11 +830,11 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     denied = json.loads(hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", bare))))
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert denied["hookSpecificOutput"]["permissionDecisionReason"].startswith(
-        "refused, no agent started: j2 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+        "refused, no agent started: j2 builds on o1, a build order: its brief carries the line Researched: <its reader's or design's job>"
     )
     assert not folder.exists()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j2\n{bare}")) == (
-        "refused, no agent started: Researched: j2 names no reader of j2's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+        "refused, no agent started: Researched: j2 names no reader or design of j2's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) is None
     assert "model" not in agents.shaped(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
@@ -914,7 +914,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
     assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
-    assert "o1 is a build order, so its codex starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert "o1 is a build order, so its codex starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (
@@ -930,7 +930,7 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
     )
     assert brief.brief_refusal("demo", state.load("demo"), "j1", bare.format("j1")) is None
     assert brief.brief_refusal("demo", state.load("demo"), "j3", bare.format("j3")).startswith(
-        "j3 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+        "j3 builds on o1, a build order: its brief carries the line Researched: <its reader's or design's job>"
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j2", "-")

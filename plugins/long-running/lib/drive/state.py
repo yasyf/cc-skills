@@ -892,7 +892,7 @@ def link_research(data: dict) -> None:
 
     for job in data["jobs"].values():
         if job["kind"] in brief.RESEARCHED_KINDS and job.get("brief") and Path(job["brief"]).exists():
-            job["researched"] = brief.research_links(job, Path(job["brief"]).read_text())
+            job["researched"] = brief.research_links(data, job, Path(job["brief"]).read_text())
         for question in job["questions"]:
             if question["holds"] == "" and question["file"] and Path(question["file"]).exists() and not limits.HOLDS.search(Path(question["file"]).read_text()):
                 question["holds"] = None
@@ -1342,7 +1342,7 @@ def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
 
 
 def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id: str, pr: dict | None) -> bool:
-    """Whether an open question of his holds a job's work on an order, its PR when given, by his pick "Each question names the changes it holds, kept with it": its `Holds:` line names a change the work carries, the parts `drive pr set --part` gave the PR or else those the job works on there, the design it builds included, or the question was kept with no `Holds:` line, which holds every change; and it is the job's own, a design job's whose design the job builds, a reader's the job's brief names on its `Researched:` line, or its `Holds:` line names the job by id or the PR by link or #N. `Holds: none` holds nothing."""
+    """Whether an open question of his holds a job's work on an order, its PR when given, by his pick "Each question names the changes it holds, kept with it": its `Holds:` line names a change the work carries, the parts `drive pr set --part` gave the PR or else those the job works on there, the design it builds included, or the question was kept with no `Holds:` line, which holds every change; and it is the job's own, a design job's whose design the job builds, a reader's or design's the job was built on, by brief.research_links, or its `Holds:` line names the job by id or the PR by link or #N. `Holds: none` holds nothing."""
     holds = question["holds"]
     carried = set(pr["parts"]) if pr is not None and pr["parts"] else worked(data, job_id, order_id)
     if holds == "" or holds is not None and not names_part(holds, carried):
@@ -1353,7 +1353,7 @@ def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id:
 
 
 def asks_for(data: dict, asker_id: str, job_id: str) -> bool:
-    """Whether a job's questions ask on another's behalf: its own, a reader's the job's brief names on its `Researched:` line, or a design job's whose design the job builds."""
+    """Whether a job's questions ask on another's behalf: its own, a reader's or design's the job was built on, by brief.research_links, or a design job's whose design the job builds."""
     return asker_id == job_id or asker_id in data["jobs"][job_id]["researched"] or design_builder(data, asker_id) == job_id
 
 
