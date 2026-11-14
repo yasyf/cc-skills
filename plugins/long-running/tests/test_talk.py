@@ -67,11 +67,19 @@ def said(name: str) -> list[dict]:
 def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show_it(demo: str, posts: list[tuple[str, ...]]) -> None:
     assert talk.say(demo, {"text": "{pr:7} waits on {card:demo:j1-7}", "thread_ts": "1794200000.000100"}) == f"POSTED {POSTED}"
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--thread", "1794200000.000100", "--", f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>")
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--", f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>")
     ]
     [kept] = said(demo)
     assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
+
+
+def test_a_post_in_his_dm_goes_as_the_session_holding_it_from_every_session_but_a_handler(demo: str, posts: list[tuple[str, ...]]) -> None:
+    talk.say(demo, {"text": "The fix is up."})
+    with state.edit(demo) as data:
+        data["handlers"]["h1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {}, "handed": [], "posted": []}
+    talk.say(demo, {"text": "The fix is in."})
+    assert ["--as-holder" in argv for argv in posts] == [True, False]
 
 
 def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, posts: list[tuple[str, ...]]) -> None:
@@ -79,9 +87,9 @@ def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, 
     talk.say(demo, {"text": "{card:demo:j1-7|The lock question} has your question", "thread_ts": "1794300000.000100"})
     talk.say(demo, {"text": "Why {card:demo:j1-7} asks: one lock per chat", "about": WAITS})
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--thread", "1794300000.000100", "--", "The design job behind this card has your question"),
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--thread", "1794300000.000100", "--", "The lock question has your question"),
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--about", WAITS, "--", "Why this card asks: one lock per chat"),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794300000.000100", "--", "The design job behind this card has your question"),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794300000.000100", "--", "The lock question has your question"),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--about", WAITS, "--", "Why this card asks: one lock per chat"),
     ]
     assert said(demo)[0]["text"] == f"The design job behind [{QUESTION}](#/queue/question/1794300000.000100) has your question"
 
@@ -316,7 +324,7 @@ def test_a_chart_goes_to_slack_as_its_fence_for_slack_to_draw_and_the_dashboard_
     encoding = {"y": {"field": "what", "type": "nominal"}, "x": {"field": "count", "type": "quantitative"}}
     spec = json.dumps({"data": {"values": [{"what": "Slack posts", "count": 384}, {"what": "distinct alerts", "count": 41}]}, "mark": "bar", "encoding": encoding})
     talk.say(demo, {"text": "Alerts, not posts.", "visuals": [{"kind": "chart", "source": spec, "caption": "in 24 hours"}]})
-    assert posts[0][5:] == ("--", f"Alerts, not posts.\n\nin 24 hours\n```chart\n{spec}\n```")
+    assert posts[0][6:] == ("--", f"Alerts, not posts.\n\nin 24 hours\n```chart\n{spec}\n```")
     [kept] = said(demo)
     assert (kept["text"], kept["visuals"]) == ("Alerts, not posts.", [{"kind": "chart", "source": spec, "caption": "in 24 hours"}])
     monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
@@ -335,7 +343,7 @@ def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_
     talk.say(demo, {"text": text})
     assert asked == [("go code", "code:go", "mu.Lock()\ndefer mu.Unlock()\n"), ("Diagram", "mermaid", "flowchart TD\n  chat --> lock\n")]
     sent = f"The lock covers each chat:\n\nWho takes it:\n\n{stays}"
-    assert posts[0][5:] == ("--file", str(tmp_path / "go code.png"), "--file", str(tmp_path / "Diagram.png"), "--", sent)
+    assert posts[0][6:] == ("--file", str(tmp_path / "go code.png"), "--file", str(tmp_path / "Diagram.png"), "--", sent)
     [kept] = said(demo)
     assert (kept["text"], kept["visuals"]) == (text, [])
     assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 2 pictures: {sent}"
@@ -356,7 +364,7 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
         talk.say(demo, {"text": "land these", "tap_prs": [PR_URL, "https://github.com/yasyf/cc-skills/pull/8"]})
     assert (posts, said(demo)) == ([], [])
     talk.say(demo, {"text": "land these", "tap_prs": ["yasyf/cc-skills#7"]})
-    assert posts[0] == ("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--", "land these")
+    assert posts[0] == ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--", "land these")
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
 
 
@@ -374,7 +382,7 @@ def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_saying
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 2 PRs?", "prs": rows}}], "skipped": []})
     assert DRAW(demo, ["yasyf/cc-skills#7", "yasyf/cc-skills#8"]) == POSTED
     line = "Waits on your Approve: the run page shows its history; the watch draws the PR card"
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--tap-pr", tooling, "--", line)]
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--tap-pr", tooling, "--", line)]
     assert (said(demo)[0]["text"], checked.texts[-1]) == (line, line)
 
 
@@ -398,7 +406,7 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 3 PRs?", "prs": rows}}], "skipped": []})
     assert DRAW(demo, stack, again=True) == POSTED
     line = "Asking again, since it fixes a reported bug: only the root agent has tools that ask the operator; every other agent mails the root; the root asks for each mail it gets"
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", *(flag for key in stack for flag in ("--tap-pr", state.pr_url(key))), "--", line)]
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", *(flag for key in stack for flag in ("--tap-pr", state.pr_url(key))), "--", line)]
     assert said(demo)[0]["text"] == line
 
 
@@ -416,7 +424,7 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
     assert jev.asked[-1]["state"] == {"line": "Waits on your Approve: the desk sheds j12", "findings": checked.findings}
     jev.answer = None
     assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--", "Waits on your Approve: the desk sheds j12")]
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--", "Waits on your Approve: the desk sheds j12")]
 
 
 def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
@@ -440,7 +448,7 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
     )
     talk.say(demo, team | TICKET)
     assert posts == [
-        *(("dm-status", "--agent", "claude", "--drive", "demo", "--thread", thread, "--tap-pr", PR_URL, "--", "land these") for thread in ("1794200000.000100", "1794300000.000100")),
+        *(("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", thread, "--tap-pr", PR_URL, "--", "land these") for thread in ("1794200000.000100", "1794300000.000100")),
         (
             "reply", "--agent", "claude", "--channel", "C9TEAM", "--thread", "1794500000.000100", "--text", f"land these\n<{POSTED}|the run page shows its history>",
             "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
@@ -1240,9 +1248,9 @@ def test_a_card_on_an_order_in_an_alerts_thread_goes_up_in_his_dm_and_its_line_g
     talk.say(demo, {"text": "Ready to land.", "tap_prs": [PR_URL], "channel_id": "C0ALERT1", "thread_ts": ALERT} | TICKET)
     tickets = ("--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1")
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--card", json.dumps({"title": QUESTION}), "--", "Your pick holds the fix."),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--card", json.dumps({"title": QUESTION}), "--", "Your pick holds the fix."),
         ("reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", f"Your pick holds the fix.\n<{POSTED}|{QUESTION}>", *tickets),
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--", "Ready to land."),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--", "Ready to land."),
         ("reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", f"Ready to land.\n<{POSTED}|the run page shows its history>", *tickets),
     ]
     assert [(event["channel"], event["card"]) for event in said(demo)] == [(None, POSTED), ("C0ALERT1", POSTED), (None, None), ("C0ALERT1", POSTED)]
@@ -1379,7 +1387,7 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"})
     talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
-    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--tap-pr", PR_URL, "--", "land these")]
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--", "land these")]
     report(monkeypatch, {"progress": "true", "order": "o1"})
     line = f"https://acme.slack.com/archives/D123/p1794532866928349?thread_ts={card}"
     slack_thread.messages.append({"ts": "1794532866.928349", "thread_ts": card, "from_claude": True})
@@ -1402,4 +1410,4 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     data = state.load(demo)
     assert ("channel" not in data["slack"], data["orders"]["o1"]["threads"][0][:2]) == (True, [his_dm, question])
     assert talk.posted(demo, {"text": watch.PAUSED, "thread_ts": question})["permalink"] == POSTED
-    assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--thread", question, "--", watch.PAUSED)]
+    assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--as-holder", "--thread", question, "--", watch.PAUSED)]

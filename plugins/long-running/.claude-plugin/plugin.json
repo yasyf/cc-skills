@@ -16,7 +16,7 @@
     {
       "name": "cc-slack",
       "marketplace": "cc-slack",
-      "version": ">=0.20.28"
+      "version": ">=0.20.40"
     },
     {
       "name": "cc-inbox",
