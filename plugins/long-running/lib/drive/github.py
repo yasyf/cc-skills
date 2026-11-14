@@ -331,15 +331,16 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
     return found
 
 
-def release_of(key: str, service: str, commit: str) -> str | None:
-    """The name of the newest published release that ships the service to production, when it holds the commit: by ships once any release read carries a Production line, and by ships_by_components while none does, as go/ci's finish step writes none until Forge-AI/monorepo#55247 lands."""
+def release_of(key: str, service: str, commit: str) -> dict:
+    """The newest published release that ships the service to production, by ships once any release read carries a Production line, lined, and by ships_by_components while none does, as go/ci's finish step writes none until Forge-AI/monorepo#55247 lands: its name and tag and GitHub's compare status of the commit to that tag, which holds it when HOLDS has it; a name, tag and status of None when no release read ships the service."""
     repo = repo_of(key)
     published = sorted((release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"])) if not release["draft"]), key=lambda release: release["published_at"], reverse=True)
     lined = any(PRODUCTION.search(release["body"] or "") for release in published)
+    found = {"lined": lined, "release": None, "tag": None, "status": None}
     if not (newest := next((release for release in published if (ships(release, service) if lined else ships_by_components(repo, release, service))), None)):
-        return None
+        return found
     compared = read(f"whether {repo}'s release {newest['tag_name']} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"], max_age="1h")
-    return newest["name"] if compared.strip() in HOLDS else None
+    return found | {"release": newest["name"], "tag": newest["tag_name"], "status": compared.strip()}
 
 
 def ships(release: dict, service: str) -> bool:

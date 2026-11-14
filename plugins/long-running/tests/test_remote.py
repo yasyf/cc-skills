@@ -5683,7 +5683,7 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
     with state.edit(demo) as data:
         data["prs"][key].update(state="merged", merged_sha="abc123")
     shipped = f"release releases/2026-11-09/1 ships {key} on api"
-    monkeypatch.setattr(watch.view, "shipped_by", lambda drive, wait: shipped)
+    monkeypatch.setattr(watch.view, "release_read", lambda drive, wait: {"lined": True, "release": "releases/2026-11-09/1", "tag": "release/releases-2026-11-09-1", "status": "ahead"})
     assert watch.waits_lines(watching, T0) == [
         f"FREE j2 o1: {key} answered or done, {shipped}, nothing else holds it, not started yet: drive job launch j2 starts it",
         f"FREE j3 o1: {key} answered or done, nothing else holds it, not started yet: drive job launch j3 starts it",

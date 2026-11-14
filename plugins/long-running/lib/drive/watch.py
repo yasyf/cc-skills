@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
+from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
 from drive.install import MERGED_DONE, PROOF_FAILED, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, reported_prs, said_on_prs, upgraded
 from drive.render import cut, when
 
@@ -92,6 +92,7 @@ class Watcher:
     releasing: dict[str, subprocess.Popen] = field(default_factory=dict)
     released: set[str] = field(default_factory=set)
     release_marks: dict[str, str | None] = field(default_factory=dict)
+    release_reads: dict[str, dict] = field(default_factory=dict)
     sending: dict[str, int] = field(default_factory=dict)
     resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
@@ -614,7 +615,7 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit. A wait whose PR merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it."""
+    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit. A wait whose PR merged is read on the first pass of the watch that sees it, then again only once the receiver's release mark of its repository moved, as each delivery of a release changing moves it; what each read found is kept on the watcher with when it ran, which a stall's watchdog brief hands its agent."""
     waits = {
         wait: found["pr"]
         for order_id, owner in release_owners(data)
@@ -627,12 +628,14 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
         if (wait, marks[wait]) in watcher.release_marks.items():
             continue
         try:
-            shipping = view.shipped_by(data, wait)
+            read = view.release_read(data, wait)
         except github.GithubError as error:
             return {}, read_failed(watcher, "github releases", error, moment)
-        if shipping:
+        watcher.release_reads[wait] = read | {"at": state.stamp(moment)}
+        if shipping := view.shipping(wait, read):
             out[wait] = shipping
     watcher.release_marks = marks
+    watcher.release_reads = {wait: read for wait, read in watcher.release_reads.items() if wait in waits}
     watcher.failures.pop("github releases", None)
     return out, []
 
@@ -1810,7 +1813,7 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Age the chain of waits behind each job and PR the watch hears, and act on each chain that stood unmoved past its deadline, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first; once that agent answers, or ten minutes pass, say one STUCK line naming the chain to its ends with what the agent found, or the chain alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with its chain unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is kept on its job's or PR's row, so a watch restart adopts its agent and nothing is said twice; a chain that moves starts a fresh one."""
+    """Age the chain of waits behind each job and PR the watch hears, and act on each chain that stood unmoved past its deadline, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first; once that agent answers, or ten minutes pass, say one STUCK line naming the chain to its ends with what the agent found, a NEXT brief.release_ask_refusal() refuses replaced by its refusal, or the chain alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with its chain unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is kept on its job's or PR's row, so a watch restart adopts its agent and nothing is said twice; a chain that moves starts a fresh one."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
@@ -1827,7 +1830,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
             out = state.drive_dir(watcher.name) / "stalls" / f"{NOT_SLUG.sub('-', subject)}-{moment:%Y%m%dT%H%M%S}.md"
             try:
                 pid = agents.watchdog(watcher.name, watchdog_brief(watcher, data, subject, links[subject], held, moment), coordinator(data, watcher.project)["cwd"], out)
-            except OSError as error:
+            except (OSError, state.DriveError) as error:
                 lines += failed(watcher, "watchdog", f"watchdog agent on {subject}", error, moment)
                 continue
             watcher.failures.pop("watchdog", None)
@@ -1836,7 +1839,15 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
         elif not held["said"]:
             if state.alive(held["agent"]["pid"]) and moment - state.parse_time(held["agent"]["at"]) < stall.SEARCH_FOR:
                 continue
-            held |= {"found": stall.answer(Path(held["agent"]["out"]).read_text()), "said": state.stamp(moment)}
+            found = stall.answer(Path(held["agent"]["out"]).read_text())
+            order = data["orders"][stall.owner(data, subject)[1]]
+            try:
+                refused = "NEXT" in found and brief.release_ask_refusal("handoff", [f"{state.holder_lane(order) or 'coordinator'}@{watcher.name}"], found["NEXT"], data)
+            except state.DriveError as error:
+                lines += failed(watcher, f"stall {subject}", f"release check of the NEXT {subject}'s watchdog agent answered", error, moment)
+                continue
+            watcher.failures.pop(f"stall {subject}", None)
+            held |= {"found": found | ({"NEXT": refused} if refused else {}), "said": state.stamp(moment)}
             lines.append(stuck_line(data, subject, held, moment))
         elif not held["told"] and moment - state.parse_time(held["said"]) >= stall.TOLD_AFTER and not state.owner_away(data, moment):
             try:
@@ -1859,7 +1870,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple[str, str]], held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, and what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain."""
+    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, his hold on every release as settled.hold() reads it, and a Card line per open card of his on the chain or naming a service it waits on."""
     job_id, order_id = stall.owner(data, subject)
     job = data["jobs"][job_id]
     holder, holding = state.holding_role(data, data["orders"][order_id])
@@ -1881,8 +1892,51 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
             f"Drive: {watcher.name}",
             "Read:",
             *(f"- {line}" for line in reading),
+            *(f"Release: {release_line(data, link, watcher.release_reads.get(link))}" for link, _ in links if state.RELEASE_WAIT.fullmatch(link)),
+            f"Hold: {hold_line(data)}",
+            *(f"Card: {card}" for card in stall_cards(data, links, watcher.cards)),
         ]
     )
+
+
+def release_line(data: dict, wait: str, read: dict | None) -> str:
+    """A release wait as the watch's own read of it last found it, by view.release_read: the newest release shipping its service to production by the rule the read went by, its tag and GitHub's compare of the PR's merge commit to that tag, or that none ships it; or that its PR has not merged, or that this watch kept no read of it."""
+    found = state.RELEASE_WAIT.fullmatch(wait)
+    key, service = found["pr"], found["service"]
+    pr = data["prs"][key]
+    if not pr["merged_sha"]:
+        return f"{wait}: {key} is {pr['state']} and unmerged, so no release holds it yet"
+    if read is None:
+        return f"{wait}: this watch kept no read of it"
+    merged = pr["merged_sha"][:12]
+    rule = "named on the Production line of its notes" if read["lined"] else "named on its Components line with its build started on production, as no release read carries a Production line"
+    head = f"{wait}: the watch's read at {when(read['at'])} of the 100 newest releases of {github.repo_of(key)}"
+    if not read["release"]:
+        return f"{head} found none with {service} {rule}, so none holds {key}'s merge commit {merged}"
+    held = "holds" if read["status"] in github.HOLDS else "does not hold"
+    return f"{head} found {read['release']}, tag {read['tag']}, the newest with {service} {rule}; GitHub compares {merged}...{read['tag']} as {read['status']}, so it {held} {key}'s merge commit"
+
+
+def hold_line(data: dict) -> str:
+    """His hold on every release as settled.hold() reads it, quoted, or that none stands."""
+    if not (hold := settled.hold(data["roles"]["coordinator"]["cwd"])):
+        return "none: no answer of his labelled release-hold stands"
+    said, where = brief.hold_words(hold, data)
+    return f'he holds every release, by his words "{said}" ({where}): a release runs only on an answer of his recorded since that approves that one release'
+
+
+def stall_cards(data: dict, links: list[tuple[str, str]], cards: dict) -> list[str]:
+    """His open cards a stall's chain rests on: his card on each PR of it that waits on his tap, and each question card a job of it asked, a link of it names, or whose question or body names a service a release wait of it waits on."""
+    subjects = [link for link, _ in links]
+    services = {found["service"] for link in subjects if (found := state.RELEASE_WAIT.fullmatch(link))}
+    naming = re.compile(rf"(?<![\w-])(?:{'|'.join(map(re.escape, sorted(services)))})(?![\w-])") if services else None
+    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(pr, cards))]
+    asks = [
+        f'"{cut(card["question"], 300)}" {card["url"]}, asked by {card["job"] or "no job of the drive"}'
+        for card in view.with_questions(data, cards)["questions"]
+        if card["job"] in subjects or any(view.names_card(card, link) for link in subjects) or (naming and naming.search(f"{card['question']}\n{card['card'].get('body') or ''}"))
+    ]
+    return [*taps, *asks]
 
 
 def stuck_line(data: dict, subject: str, held: dict, moment: datetime) -> str:

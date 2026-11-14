@@ -211,8 +211,7 @@ def approval_refusal(command: str, data: dict) -> str | None:
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     """Why a release may not run under his hold on every release: it is not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that Jev reads as approving it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
     cwd = data["roles"]["coordinator"]["cwd"]
-    where = ", ".join(filter(None, [hold["id"][:7], (data["answers"].get(hold["id"][:7]) or {}).get("link")]))
-    said = cut(settled.his(hold["body"]), settled.QUOTED_CHARS)
+    said, where = hold_words(hold, data)
     named = started(release)
     orders = named[0].get("order") if len(named) == 1 else None
     try:
@@ -229,6 +228,11 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     except settled.Unheard as failure:
         why = f"Jev did not say whether his answer {orders[-1]} approves it ({failure}); run it again once Jev answers"
     return RELEASE_HELD.format(said=said, where=where, hold=hold["id"][:7], release=release, why=why)
+
+
+def hold_words(hold: dict, data: dict) -> tuple[str, str]:
+    """His words in his hold on every release, cut to settled.QUOTED_CHARS, and where they are recorded: the hold's answer id and the link of his message."""
+    return cut(settled.his(hold["body"]), settled.QUOTED_CHARS), ", ".join(filter(None, [hold["id"][:7], (data["answers"].get(hold["id"][:7]) or {}).get("link")]))
 
 
 def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str | None:
