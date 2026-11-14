@@ -28,7 +28,7 @@ RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
 REUSES = re.compile(r"^REUSES:[ \t]*\S", re.MULTILINE)
 CHECK = re.compile(r"^CHECK:(.*)$", re.MULTILINE)
 NATIVE = re.compile(r"^NATIVE:[ \t]*(.*)$", re.MULTILINE)
-PROOF = re.compile(r"https?://\S+|(?<![\w.])/[^\s,;)]+")
+PROOF = re.compile(rf"{limits.PAGE_LINK.pattern}|(?<![\w.])/[^\s,;)]+")
 SEEN_PROOF = re.compile(r"slack\.com/archives/|\.(?:mov|mp4|webm|gif|png|jpe?g)$", re.IGNORECASE)
 SEEN = "a picture or recording of it, or the live post's link its proof file reads back"
 GITHUB_PAGES = (
@@ -798,7 +798,7 @@ def unstoried(native: str, interactions: str | None) -> str | None:
 
 
 def proofs(text: str) -> list[str]:
-    """Each link and absolute path the text names, the punctuation that closes its clause cut off, such as the colon after a picture's path."""
+    """Each link and absolute path the text names, the punctuation that closes its clause cut off, such as the colon after a picture's path, and a link ending where Slack's own link syntax ends it, at the `|` before its words or the `>` closing it, as limits.PAGE_LINK reads a card's links, so a card read back word for word names the post it links."""
     return [re.sub(r"[^\w/]+$", "", found) for found in PROOF.findall(text)]
 
 
