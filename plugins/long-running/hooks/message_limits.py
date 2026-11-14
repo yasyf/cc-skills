@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, limits, mcp, picture, refs, render, slack, state, talk, tools, view, watch
+from drive import agents, cli, install, limits, mcp, picture, refs, render, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -872,6 +872,8 @@ def main() -> None:
         reason = "" if heard else reason
         judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
     except Exception as error:
+        if isinstance(error, state.NewerDrive) and install.rechecked(Path(__file__).name, payload):
+            return
         reason, heard, judged = (
             f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."

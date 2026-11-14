@@ -515,6 +515,18 @@ def reopen(argv: list[str], stdin: str | None = None) -> None:
     os.execv(newer, [str(newer), *argv])
 
 
+def rechecked(hook: str, payload: dict) -> bool:
+    """Run the newest install's copy of a drive hook on its payload in place of this one, as reopen runs a verb, when a newer one is installed and this hook changed nothing, as one a newer install's save refused mid-check: its output and exit code become this hook's; whether it ran."""
+    if state.WROTE or not (newer := upgraded()):
+        return False
+    done = subprocess.run([sys.executable, "-I", str(newer.parents[1] / "hooks" / hook)], input=json.dumps(payload), capture_output=True, text=True, check=False)
+    sys.stdout.write(done.stdout)
+    sys.stderr.write(done.stderr)
+    if done.returncode:
+        raise SystemExit(done.returncode)
+    return True
+
+
 def newest(entries: list[dict]) -> dict:
     return max(entries, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
 

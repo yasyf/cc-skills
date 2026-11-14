@@ -91,6 +91,10 @@ def test_a_save_that_changes_a_row_or_a_command_that_does_more_than_read_is_kept
         (["git", "-C", "/clone", "rev-parse", "HEAD"], True),
         (["git", "-C", "/clone", "push", "origin", "lane"], False),
         (["/plugins/long-running/1.0/bin/drive", "job", "read", "j1", "m1"], False),
+        (["tailscale", "status", "--self", "--peers=false", "--json"], True),
+        (["tailscale", "whois", "--json", "100.64.0.1"], True),
+        (["tailscale", "funnel", "--bg", "--yes", "--https=8443"], False),
+        (["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--headless=new", "--incognito", "--screenshot=/tmp/p.png", "file:///tmp/p.html"], True),
     ],
 )
 def test_only_a_command_that_reads_leaves_a_verb_free_to_run_again(argv: list[str], reading: bool) -> None:

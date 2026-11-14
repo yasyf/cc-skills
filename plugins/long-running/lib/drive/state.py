@@ -169,6 +169,7 @@ READ_ONLY = {
     "ci": ("release select",),
     "security": ("find-generic-password",),
     "gh": ("pr view", "pr list", "pr checks", "pr diff", "run view", "run list", "repo view"),
+    "tailscale": ("status", "whois"),
 }
 GH_FIELDS = {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"}
 DATABASE = "drive.db"
@@ -198,7 +199,7 @@ class Rehearsed(BaseException):
 
 
 def reads_only(argv: list[str]) -> bool:
-    """Whether a command the drive starts only reads, so a verb run again on the newest install after starting it changes nothing twice: git but a push, lsof, ps, a gh api call with no field or method, a GraphQL query sent as `gh api graphql -f query=query ...`, or a command READ_ONLY starts with, a gh one through ccx's GitHub gateway as itself."""
+    """Whether a command the drive starts only reads, so a verb run again on the newest install after starting it changes nothing twice: git but a push, lsof, ps, a headless Chrome drawing a picture or reading a page, a gh api call with no field or method, a GraphQL query sent as `gh api graphql -f query=query ...`, or a command READ_ONLY starts with, a gh one through ccx's GitHub gateway as itself."""
     program, words = Path(argv[0]).name, argv[1:]
     if program == "ccx" and words[:2] == ["vcs", "gh"]:
         program, words = "gh", words[words.index("--") + 1 :]
@@ -206,7 +207,7 @@ def reads_only(argv: list[str]) -> bool:
         return "push" not in words
     if program == "gh" and words[:1] == ["api"]:
         return not GH_FIELDS & set(words) or len(words) == 4 and words[1:3] == ["graphql", "-f"] and words[3].startswith("query=query ")
-    return program in ("lsof", "ps") or any(words[: len(form.split())] == form.split() for form in READ_ONLY.get(program, ()))
+    return program in ("lsof", "ps") or words[:1] == ["--headless=new"] or any(words[: len(form.split())] == form.split() for form in READ_ONLY.get(program, ()))
 
 
 def outside(event: str, args: tuple) -> None:

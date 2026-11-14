@@ -1,3 +1,4 @@
+import io
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -25,6 +26,27 @@ def post(session: str = SESSION, **tool_input: object) -> dict:
 def refusal(made: dict | None) -> str:
     assert made and made["permissionDecision"] == "deny"
     return made["permissionDecisionReason"]
+
+
+def test_a_check_a_newer_installs_save_refused_runs_again_as_the_newest_installs_hook_and_with_none_installed_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refused(payload: dict) -> dict | None:
+        raise state.NewerDrive("demo was saved by long-running 9.9.9")
+
+    newest = tmp_path / "newest"
+    (newest / "hooks").mkdir(parents=True)
+    (newest / "hooks" / "record_lines.py").write_text("import json, sys\nprint(json.dumps({'checked': json.load(sys.stdin)['tool_input']['text']}))\n")
+    monkeypatch.setattr(record_lines, "decision", refused)
+    monkeypatch.setattr(state, "WROTE", set())
+    monkeypatch.setattr(record_lines.install, "upgraded", lambda: newest / "bin" / "drive")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(post(kind="report", text=LONG))))
+    record_lines.main()
+    assert json.loads(capsys.readouterr().out) == {"checked": LONG}
+    monkeypatch.setattr(record_lines.install, "upgraded", lambda: None)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(post(kind="report", text=LONG))))
+    with pytest.raises(state.NewerDrive):
+        record_lines.main()
 
 
 def test_a_drive_record_arrives_as_one_line_with_the_rest_at_the_top_of_its_body(demo: str) -> None:
