@@ -1141,6 +1141,34 @@ def test_a_quiet_incident_whose_users_are_proven_unblocked_owes_no_more_lines_an
     assert (state.open_incidents(data, ["o1", "o2"]), data["orders"]["o1"]["recovered"]) == (["o1", "o2"], None)
 
 
+@pytest.mark.parametrize("returned", ["BLOCKED the rollback build failed on plat-usw2-prod", "WAITING the api release that ships the rollback"])
+def test_an_incident_proof_a_builders_done_kept_is_taken_back_by_its_next_return_other_than_done_so_the_line_comes_back(
+    demo: str, monkeypatch: pytest.MonkeyPatch, returned: str
+) -> None:
+    quiet_incident(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
+    assert len(calls) == 2
+    proved = "https://buildkite.com/forge/release/builds/15020: production task creation succeeds"
+    with state.edit(demo) as data:
+        data["handlers"].clear()
+        data["orders"]["o1"]["jobs"] += ["j3", "j4"]
+        data["jobs"]["j3"] = job(parts=["rollback"])
+        data["jobs"]["j4"] = job(parts=["stop"])
+    with state.edit(demo) as data:
+        state.take_result(data, "j3", f"DONE {proved}")
+        state.take_result(data, "j4", "BLOCKED the stop needs a grant no service account holds")
+    assert [state.load(demo)["orders"]["o1"][field] for field in ("proof", "proof_by")] == [proved, "j3"]
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
+    assert len(calls) == 2
+    with state.edit(demo) as data:
+        state.take_result(data, "j3", returned)
+    assert [state.load(demo)["orders"]["o1"][field] for field in ("proof", "proof_by")] == [None, None]
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=31)) == []
+    assert len(calls) == 4
+
+
 def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_and_one_handler_on_the_threads_newest_line(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2582,6 +2610,50 @@ def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_na
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
     assert state.load(demo)["orders"]["o2"]["parts"][state.INCIDENT_FIX]["orphan_said"] is None
+
+
+def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_proof_has_no_fix_job_and_names_its_newest_change_jobs_brief(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    stopped = "runs stopped for one team at 05:01:42Z"
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text=stopped, incident=True, jobs=["j2", "j3", "j4"], parts={stopped: state.new_part()}, updated=earlier)
+        for job_id, kind, goal, minutes in (("j2", "builder", "stop the stopped runs", 30), ("j3", "builder", "fix the stopped runs", 20), ("j4", "codex", "cause, read only, at once", 40)):
+            data["jobs"][job_id] = job(order="o2", kind=kind, goal=goal, state="done", parts=[stopped], created=state.stamp(T0 - timedelta(minutes=minutes)), updated=earlier)
+    watching = watcher(demo)
+    idle = (
+        "no fix job: j3 ended done with no open or merged PR, no job of o2 is at work or has his card open, and it keeps no proof users are unblocked;"
+        " start the second fix job now, an Opus 5.5 long-running:builder on j3's brief:"
+        f" drive job add builder --order o2 --part '{stopped}' --goal 'fix the stopped runs' (incidents: Clocks)"
+    )
+    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{stopped}": {idle}']
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j5")
+        data["jobs"]["j5"] = job(order="o2", kind="reader", goal="read the queue", state="done", parts=[stopped], created=state.stamp(T0 - timedelta(minutes=5)), updated=earlier)
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["questions"] = [state.new_question(None, "Which store?", earlier, card=CARD)]
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["questions"] = []
+        data["orders"]["o2"]["parts"]["Status?"] = state.new_part()
+        data["orders"]["o2"]["jobs"].append("j6")
+        data["jobs"]["j6"] = job(order="o2", kind="reader", goal="where it stands", parts=["Status?"])
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    with state.edit(demo) as data:
+        data["jobs"]["j6"]["state"] = "done"
+        data["jobs"]["j3"]["prs"] = [state.pr_url(OTHER)]
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2")
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["state"] = "closed"
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["proof"] = "https://buildkite.com/forge/release/builds/15020"
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
 
 
 def test_a_waiting_job_lives_while_its_question_is_open_and_is_an_orphan_once_it_is_withdrawn_whose_card_the_watch_then_closes_once(

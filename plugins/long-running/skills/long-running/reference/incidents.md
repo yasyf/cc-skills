@@ -281,8 +281,12 @@ add the job taking the fix over first, or close the order once its fix is live. 
 return hands the fix to the builder the drive adds for it (Ship it). Any other fix job that ends
 on its own, `BLOCKED` with no route left or done with no PR, leaves the fix with nobody, and the
 watch says `ORPHAN o<n> "fix": no fix job` on its next pass, naming the second job to start: a
-builder on the last job's brief, which `brief_refusal` already held to never stopping on a choice.
-Only his words saying he writes the fix himself close the incident for that reason.
+builder on the brief of the newest builder or codex job on the fix, which `brief_refusal` already
+held to never stopping on a choice. An incident joined to another has no `fix` part, and any done
+job delivers its parts, a read-only diagnosis included, so the watch says the same `no fix job` on
+each of its work parts once none of its jobs is live, has an open or merged PR or his card open,
+and it keeps no proof users are unblocked. Only his words saying he writes the fix himself close
+the incident for that reason.
 
 ## Clocks
 
@@ -321,8 +325,9 @@ check's verdict, or from the order when none ran.
     the facts, so a handler that cannot post leaves the same news owed five minutes on.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
     ends the line: none once users are unblocked; the incident stays open until its root fix is
-    live.": a builder's `DONE` on its `stop` or `rollback` part keeps its proof as the order's,
-    and after a hand repair `drive order set <o> --proof <that run>` keeps it. One on its `fix` part
+    live.": a builder's `DONE` on its `stop` or `rollback` part keeps its proof as the order's
+    until that builder's next return is not `DONE`, which takes it back and restarts the line, and
+    after a hand repair `drive order set <o> --proof <that run>` keeps it. One on its `fix` part
     keeps none, since a merged fix is not yet running where users are. The watch closing the
     incident stops it too, and it closes the incident only once every merged fix PR of it runs in
     production, by his words "werte still in incident until its fixed".
