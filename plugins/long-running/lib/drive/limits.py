@@ -176,17 +176,10 @@ UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the
 TEAM_DATA_WORDS = {
     "id": "ruling:32f49af",
     "asked": (
-        "his Nov 13 2026 pick on a card asking how one staging SandSQL row write and a bucket listing should run, whose"
-        ' option 4 read "Both on the pass box: the brief\'s route, the box holds every staging database key"'
+        "The staging pass box can neither write a SandSQL row nor read the smoke team's R2 bucket. How should the row write"
+        " and map.pmap listing run?"
     ),
     "said": TEAM_DATA_QUOTE,
-    "rule": (
-        "A team's data, its SandSQL rows, bucket objects, Iris blobs and run and session journals included, is read or"
-        " written only as a service account, on a pass box or in the team's own cluster, never on this Mac, a Sprite or"
-        f' under `drive break-glass`, by these words and his Nov 12 words "{IRIS_BLOBS_QUOTE}". An option breaks this when'
-        " what it runs reads or writes a team's data any other way, recommended or not, a hand repair or one staging row"
-        " included; a write no service account can make yet waits on the grant it needs, never runs as anyone else."
-    ),
 }
 PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"
@@ -996,7 +989,7 @@ def offered(asked: Question) -> list[str]:
 
 
 def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Jev weighs a card's case by beside his words, each with the rule it sets: his ruling on root causes, by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his ruling that a team's data is read or written only as a service account, whatever order the card serves, and, when the case reads a page the card links, his words on a link that opened another view than its card described."""
+    """His rulings Jev weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
     return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
