@@ -247,17 +247,15 @@ def scratch(prompt: str) -> Path | None:
 
 
 def holds(prompt: str) -> dict:
-    """What a handler's brief works on: for a brief naming a Record, whatever its other lines say, that record, its attrs, each record its re chain names, the message of his the chain reaches, and the record's thread, else the one its Thread: line names; else the message of his its words' Link names and the thread that message is in."""
+    """What a handler's brief works on: for a brief naming a Record, whatever its other lines say, that record, its attrs, each record its re chain names, the message of his the chain reaches, and the record's thread, else the one its Thread: line names; for any other brief, his words or none, the message of his its Link names and the thread that message is in, else the one its Thread: line names."""
+    thread = line[1] if (line := THREAD.search(prompt)) else None
     if named := RECORD.search(prompt):
         held = answered(named[1]) | {"record": named[1]}
-        return held | {"thread": held["thread"] or (line[1] if (line := THREAD.search(prompt)) else None)}
-    if re.search(rf"^{re.escape(HIS_WORDS)}:", prompt, re.MULTILINE):
-        link = linked[1] if (linked := LINK.search(prompt)) else None
-        found = state.CARD_LINK.search(link or "")
-        message = f"{found[2]}.{found[3]}" if found else None
-        thread = (found and found[4]) or (named[1] if (named := THREAD.search(prompt)) else message)
-        return {"message": message, "link": link, "thread": thread, "record": None, "re": []}
-    return {"message": None, "link": None, "thread": None, "record": None, "re": []}
+        return held | {"thread": held["thread"] or thread}
+    link = linked[1] if (linked := LINK.search(prompt)) else None
+    found = state.CARD_LINK.search(link or "")
+    message = f"{found[2]}.{found[3]}" if found else None
+    return {"message": message, "link": link, "thread": (found and found[4]) or thread or message, "record": None, "re": []}
 
 
 def answered(seq: str) -> dict:

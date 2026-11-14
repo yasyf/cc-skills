@@ -4092,7 +4092,7 @@ def handler_start(args: argparse.Namespace) -> int:
 def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
     """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
     held = agents.holds(args.brief)
-    if not held["link"]:
+    if not (held["link"] and re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE)):
         raise DriveError("--answer: refused, no handler started: it adds his answer order from his message, so the brief carries his words and the Link of his message")
 
     def briefed(handler_id: str) -> str:
