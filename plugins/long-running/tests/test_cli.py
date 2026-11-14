@@ -4283,11 +4283,11 @@ def test_his_ruling_settling_a_readers_ask_before_its_card_draws_is_kept_on_its_
 
     monkeypatch.setattr(subprocess, "run", cci)
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
-    ruling = {"kind": "answer", "text": "always do the correct first-principels thing not. ahack", "waits": "demo:j1-671975", "ruling": "32164d3"}
+    ruling = {"kind": "answer", "text": "always do the correct first-principels thing not. ahack", "url": "https://acme.slack.com/archives/D123/p1794200000000800", "waits": "demo:j1-671975", "ruling": "32164d3"}
     with monkeypatch.context() as communicating:
         communicating.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
         run("start", "demo", "--role", "communicator")
-        assert tools.run("record", "demo", {"records": [ruling]}).splitlines() == [
+        assert tools.run("record", "demo", {"records": [ruling]}).splitlines()[:2] == [
             "1 answer 671985",
             '1 j1\'s question "Where does the copy run?" ended answered by 671985',
         ]

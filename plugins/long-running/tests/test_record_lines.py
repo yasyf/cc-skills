@@ -79,14 +79,19 @@ def test_every_ask_record_a_drive_session_posts_is_refused_since_drive_job_ask_p
     assert record_lines.decision(post(session="another-session", kind="ask", text=IDLE)) is None
 
 
-def test_an_answer_carrying_his_open_questions_waits_id_goes_only_through_the_record_tool_which_ends_it(run: Callable[..., tuple[int, str]], demo: str) -> None:
+def test_his_answer_at_his_message_on_his_open_question_goes_only_through_the_record_tool_while_a_record_linking_his_card_or_no_message_ends_nothing(
+    run: Callable[..., tuple[int, str]], demo: str
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), LAYOUT, state.stamp(), card=CARD) | {"waits": "demo:j1-7"}]
-    reason = refusal(record_lines.decision(post(kind="answer", text="one snapshot file per run", attrs={"job": "j1", "waits": "demo:j1-7"})))
-    assert "his open question" in reason and "the drive's `record` tool" in reason
-    assert record_lines.decision(post(kind="answer", text="one snapshot file per run", attrs={"job": "j1", "waits": "demo:j1-8"})) is None
+    answer = {"kind": "answer", "text": "one snapshot file per run", "attrs": {"job": "j1", "waits": "demo:j1-7"}}
+    reason = refusal(record_lines.decision(post(**answer, url=HIS)))
+    assert f"his words at {HIS} on his open question" in reason and "the drive's `record` tool" in reason
+    drawn = {"kind": "answer", "text": "j1's card is drawn", "re": ["7"], "attrs": {"job": "j1"}}
+    assert [record_lines.decision(post(**record)) for record in (answer, answer | {"url": CARD}, drawn | {"url": CARD}, drawn | {"url": f"{CARD}?thread_ts={CARD_THREAD}"})] == [None] * 4
+    assert record_lines.decision(post(**answer | {"attrs": {"job": "j1", "waits": "demo:j1-8"}}, url=HIS)) is None
 
 
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
@@ -121,6 +126,7 @@ THREAD = "1794378983.440769"
 OTHER = "1794379098.881109"
 CARD = "https://forge.slack.com/archives/D123/p1794379200123456"
 CARD_THREAD = "1794379200.123456"
+HIS = "https://forge.slack.com/archives/D123/p1794379300000100"
 
 
 def by(agent_type: str, transcript: Path | None = None, **tool_input: object) -> dict:
@@ -613,17 +619,17 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
 
 
-def test_his_words_on_his_open_question_go_only_through_the_record_tool_that_ends_it_and_closes_its_card(run: Callable[..., tuple[int, str]], demo: str) -> None:
+def test_his_words_at_his_message_on_his_open_question_go_only_through_the_record_tool_that_ends_it(run: Callable[..., tuple[int, str]], demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), LAYOUT, state.stamp(), card=CARD) | {"waits": "demo:j1-7"}]
-    answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", re=["7"], attrs={"job": "j1"})))
+    answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", url=HIS, re=["7"], attrs={"job": "j1"})))
     assert "his open question" in answer and "send it with the drive's `record` tool" in answer
-    under = f"{CARD}?thread_ts={CARD_THREAD}"
+    under = f"https://forge.slack.com/archives/D123/p1794379260654321?thread_ts={CARD_THREAD}"
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="no, keep the runs flat", url=under, attrs={"about": "his work"})))
     assert record_lines.decision(post(kind="owner", text="this card should say why", url=under, attrs={"about": "drive"})) is None
-    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", topic=f"card:{CARD_THREAD}", attrs={"about": "his work"})))
-    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", attrs={"thread_card": "demo:j1-7"})))
+    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", url=HIS, topic=f"card:{CARD_THREAD}", attrs={"about": "his work"})))
+    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", url=HIS, attrs={"thread_card": "demo:j1-7"})))
     assert record_lines.decision(post(kind="owner", text="a new order", attrs={"about": "his work"})) is None
     assert record_lines.decision(post(kind="answer", text="undone: Ring", re=["7"], attrs={"job": "j1", "undone": "Ring"})) is None

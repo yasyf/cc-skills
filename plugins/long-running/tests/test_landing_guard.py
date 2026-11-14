@@ -411,19 +411,24 @@ def test_a_ship_with_a_public_pr_body_reads_its_repo_from_the_checkout(
     assert landing_guard.deny_reason(body_post(tmp_path, command, LIVE)) is None
 
 
-def test_his_words_on_his_open_question_posted_with_cci_post_are_refused_for_the_record_tool(run: Callable[..., tuple[int, str]], demo: str, no_calls: None) -> None:
+def test_his_words_at_his_message_on_his_open_question_posted_with_cci_post_are_refused_for_the_record_tool_and_a_post_linking_his_card_goes_out(
+    run: Callable[..., tuple[int, str]], demo: str, no_calls: None
+) -> None:
     card = "https://forge.slack.com/archives/D123/p1794379200123456"
+    his = "https://forge.slack.com/archives/D123/p1794379300000100"
+    reply = "https://forge.slack.com/archives/D123/p1794379260654321?thread_ts=1794379200.123456"
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which ring?", state.stamp(), card=card) | {"waits": "demo:j1-7"}]
-    answer = "cci post --kind answer --lane root --to communicator@demo --re 7 --attr job=j1 'the lazy copy'"
-    assert 'his open question "Which ring?"' in landing_guard.deny_reason(bash(answer, agent_id="a1"))
-    under = f"cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' --url '{card}?thread_ts=1794379200.123456' 'no, keep the runs flat'"
+    answer = "cci post --kind answer --lane root --to communicator@demo --re 7 --attr job=j1"
+    assert f'his words at {his} on his open question "Which ring?"' in landing_guard.deny_reason(bash(f"{answer} --url '{his}' 'the lazy copy'", agent_id="a1"))
+    assert [landing_guard.deny_reason(bash(f"{answer}{link} 'j1 drew its card'", agent_id="a1")) for link in (f" --url '{card}'", "")] == [None, None]
+    under = f"cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' --url '{reply}' 'no, keep the runs flat'"
     assert "the drive's `record` tool" in landing_guard.deny_reason(bash(under, agent_id="a1"))
-    feedback = f"cci post --kind owner --lane root --to communicator@demo --attr about=drive --url '{card}?thread_ts=1794379200.123456' 'this card should say why'"
+    feedback = f"cci post --kind owner --lane root --to communicator@demo --attr about=drive --url '{reply}' 'this card should say why'"
     assert landing_guard.deny_reason(bash(feedback, agent_id="a1")) is None
-    owner = "cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' --topic card:1794379200.123456 'drop the sweeper'"
+    owner = f"cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' --url '{his}' --topic card:1794379200.123456 'drop the sweeper'"
     assert "the drive's `record` tool" in landing_guard.deny_reason(bash(owner, agent_id="a1"))
     assert landing_guard.deny_reason(bash("cci post --kind owner --lane root --to communicator@demo --attr 'about=his work' 'a new order'", agent_id="a1")) is None
 

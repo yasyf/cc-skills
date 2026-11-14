@@ -266,9 +266,14 @@ def follow(name: str, ended: list[tuple[str, dict]], shown: str = "his words") -
     return done
 
 
+def said_at(data: dict, link: str | None) -> bool:
+    """Whether a record's link is where he said its words: a prompt he typed into a terminal, or a Slack message no question card of the drive is drawn on; a record linking no message, or a card, as one session tells another the card it drew, carries no word of his, and his tap on a card is ended by the card command before its record goes out."""
+    return link == TERMINAL or bool(link and slack.MESSAGE_LINK.search(link) and not view.drawn_on(data, link))
+
+
 def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> list[tuple[str, dict]]:
-    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the seq its waits id ends in that it answers by `re`, or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
-    if kind not in ("owner", "answer") or "undone" in attrs or feedback(data, attrs.get("order")):
+    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the seq its waits id ends in that it answers by `re`, or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; a record whose link is not where he said its words, his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
+    if kind not in ("owner", "answer") or "undone" in attrs or feedback(data, attrs.get("order")) or not said_at(data, link):
         return []
     return [
         (job_id, question)
@@ -288,14 +293,12 @@ def feedback(data: dict, order: str | dict | None) -> bool:
     return order in data["orders"] and data["orders"][order]["text"].startswith(state.POST_FEEDBACK)
 
 def unclosed_refusal(names: list[str], kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> str | None:
-    """Why an owner or answer record goes only through the drive's `record` tool: his words in it end an open question of his, and only that tool ends it, and its card, in the call that sends them."""
+    """Why an owner or answer record goes only through the drive's `record` tool: his words at its link end an open question of his, and only that tool ends it, in the call that sends them."""
     for name in names:
         if ended := [question for _, question in closing(state.load(name), kind, attrs, topic, answered, link) if question["closed"] is None]:
             return (
-                f"refused: this {kind} record carries his words on his open question \"{cut(ended[0]['title'] or '', 80)}\", which keeps"
-                " asking him until something ends it; send it with the drive's `record` tool, his message's permalink as `url`,"
-                " which ends that question and closes its card in the same call. His words: \"So then why"
-                ' didn\'t you withdraw this card? / Why do I have to keep telling you?"'
+                f"refused: this {kind} record carries his words at {link} on his open question \"{cut(ended[0]['title'] or '', 80)}\";"
+                " send it with the drive's `record` tool, the one route that ends the question his words answer"
             )
     return None
 
