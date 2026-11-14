@@ -850,16 +850,16 @@ class Answers:
 @dataclass
 class Heard:
     refusal: str | None = None
-    checked: list[tuple[str, str | None]] = field(default_factory=list)
+    checked: list[tuple[str, list[str]]] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
 def heard(monkeypatch: pytest.MonkeyPatch) -> Heard:
     hearing = Heard()
 
-    def unsaid(kept: list[str], link: str | None, found: dict | None, data: dict) -> str | None:
+    def unsaid(kept: list[str], links: list[str], found: dict | None, data: dict) -> str | None:
         for words in kept:
-            hearing.checked.append((words, link))
+            hearing.checked.append((words, links))
             if hearing.refusal:
                 return hearing.refusal
         return None

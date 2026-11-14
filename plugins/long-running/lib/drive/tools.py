@@ -107,8 +107,9 @@ RECORD = {
         "ruling": {
             "type": "string",
             "description": (
-                "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his message at url must hold; on an owner or"
-                " answer record with url, his owner ruling on his work included, the call keeps it as a drive answer listing each card"
+                "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his messages at the urls of the call's records"
+                " naming it, his messages in a row in one thread, must hold; on an owner or answer record with url, his owner ruling on"
+                " his work included, the call keeps it as one drive answer, their texts joined with … at the first url, listing each card"
                 " asking him, part undelivered and PR not yet live it could change, which the watch's ANSWER line chases until drive"
                 " answer <id> marks each, --dropped for each his words remove"
             ),
@@ -522,8 +523,10 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     posts = [post(item, data, other, session) for item in records]
     found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
     closes = [closed_by(data, index, made, item.get("order")) for index, (item, made) in enumerate(zip(records, posts, strict=True), start=1)]
+    ruled = rulings(posts)
     for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):
-        if (questions or (made.get("attr") or {}).get("ruling")) and (unsaid := unheard(data, found, made)):
+        ruling = (made.get("attr") or {}).get("ruling")
+        if (questions or ruling) and (unsaid := unheard(data, found, made, ruled.pop(ruling, []))):
             raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
     ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) for made in posts]
     if unordered := [index for index, (item, alone) in enumerate(zip(records, ordering, strict=True), start=1) if "order" in item and not alone]:
@@ -538,9 +541,9 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             for job_id, question in questions
         ]
         said += [
-            f"{index} would keep his ruling {ruling} as a drive answer listing each card, part and PR it could change"
-            for index, made in enumerate(posts, start=1)
-            if (ruling := (made.get("attr") or {}).get("ruling")) and made.get("url") and ruling not in data["answers"]
+            f"{posts.index(named[0]) + 1} would keep his ruling {ruling} as a drive answer listing each card, part and PR it could change"
+            for ruling, named in rulings(posts).items()
+            if ruling not in data["answers"]
         ]
         return "\n".join(said)
     try:
@@ -557,15 +560,17 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
 
 
 def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
-    """Keep each ruling an owner or answer record of his words names with its link as his drive answer, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each, or why Jev's reading is missing from it."""
+    """Keep each ruling the owner or answer records of his words name as his drive answer, their words joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each, or why Jev's reading is missing from it."""
     said = []
-    for made in posts:
+    for ruling, named in rulings(posts).items():
         data = state.load(name)
-        if not ((ruling := (made.get("attr") or {}).get("ruling")) and made.get("url")) or ruling in data["answers"]:
+        if ruling in data["answers"]:
             continue
+        made = named[0]
+        words = " … ".join(other["text"] for other in named)
         asked = superseded.asking(data, found)
         try:
-            changes = settled.changed(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["title"], made["text"], asked)
+            changes = settled.changed(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["title"], words, asked)
         except DriveError:
             changes = set()
             said.append(
@@ -574,7 +579,7 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
             )
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            kept = superseded.record(data, ruling, made["text"], made["url"], asked, changes, bound, state.stamp())
+            kept = superseded.record(data, ruling, words, made["url"], asked, changes, bound, state.stamp())
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 
@@ -655,11 +660,23 @@ def sourced(item: dict) -> dict:
     return {"thread": item["thread"]} if item.get("thread") else {}
 
 
-def unheard(data: dict, found: dict, made: dict) -> str | None:
-    """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text, or the ruling's recorded words above its notes, is not what he said at its url."""
-    ruling = (made.get("attr") or {}).get("ruling")
-    said = [made["text"], *([settled.his(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["body"])] if ruling else [])]
-    return settled.unsaid(said, made.get("url"), found, data)
+def rulings(posts: list[dict]) -> dict[str, list[dict]]:
+    """The records of a call naming each ruling with a url, in their order: his messages in a row that its words may span, kept as one drive answer."""
+    named: dict[str, list[dict]] = {}
+    for made in posts:
+        if (ruling := (made.get("attr") or {}).get("ruling")) and made.get("url"):
+            named.setdefault(ruling, []).append(made)
+    return named
+
+
+def unheard(data: dict, found: dict, made: dict, ruled: list[dict]) -> str | None:
+    """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text is not what he said at its url, or, on the first record of the call naming a ruling, given the records naming it, the ruling's recorded words above its notes are not what he said across their urls, read as his messages in a row."""
+    if unsaid := settled.unsaid([made["text"]], list(filter(None, [made.get("url")])), found, data):
+        return unsaid
+    if not ruled:
+        return None
+    words = settled.his(settled.shown(made["attr"]["ruling"], data["roles"]["coordinator"]["cwd"])["body"])
+    return settled.unsaid([words], list(dict.fromkeys(other["url"] for other in ruled)), found, data)
 
 
 def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict]], found: dict) -> list[tuple[str, dict, dict]]:
