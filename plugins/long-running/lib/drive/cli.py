@@ -2511,7 +2511,9 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    line, payload = write_brief(state.resolve(args.drive), args.id, {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS})
+    name = state.resolve(args.drive)
+    held_job(state.load(name), args.id)
+    line, payload = write_brief(name, args.id, {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS})
     return emit(args, line, payload)
 
 
@@ -2535,11 +2537,8 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         )
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
-    if state.starts_cut(job) and (
-        held := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), True)
-        or (not job["release_build"] and "its brief names the release it started, so `drive job add --release` writes it once that release starts")
-    ):
-        raise DriveError(f"{job_id}: {held}")
+    if state.starts_cut(job) and not job["release_build"]:
+        raise DriveError(f"{job_id}: its brief names the release it started, so `drive job add --release` writes it once that release starts")
     if not (written := rewrite_brief(name, job_id, flags, job.get("brief_flags"))):
         return write_brief(name, job_id, named)
     line, payload = written
@@ -2679,14 +2678,14 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 def job_launch(args: argparse.Namespace) -> int:
     """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
     name = state.resolve(args.drive)
-    if find(state.load(name)["jobs"], args.id, "job")["kind"] == "codex":
+    if held_job(state.load(name), args.id)["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
         return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
     return relaunch(args, name, None)
 
 
 def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
-    """Start a codex job's codex-ask run on this Mac from this session's folder on the brief file or the job's brief, with each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since:, by answers_since, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent, and the run recorded in place of any agent an earlier lane left on the job, so the watch reads this run and never that agent's old turn as its result; the run's folder. Refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    """Start a codex job's codex-ask run on this Mac from this session's folder on the brief file or the job's brief, with each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since:, by answers_since, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent, and the run recorded in place of any agent an earlier lane left on the job, so the watch reads this run and never that agent's old turn as its result; the run's folder. Refused as an Agent's start is refused for any other job: while its waits hold, with no brief, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
     with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = data["jobs"][job_id]
@@ -2695,7 +2694,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
         if not (brief_file or job.get("brief")):
             raise DriveError(f"{job_id} has no brief: write it with drive job brief {job_id}, or name its file")
         written = answers_since(data, job_id, named_text(brief_file or job["brief"], "brief file"))
-        if refused := state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), state.starts_cut(job)) or brief.brief_refusal(name, data, job_id, written):
+        if refused := brief.brief_refusal(name, data, job_id, written):
             raise DriveError(f"{job_id}: refused, not launched: {refused}")
         try:
             folder = codex.ask(name, job_id, written, data["orders"][job["order"]]["incident"], job["model"])
@@ -2720,7 +2719,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 def job_resume(args: argparse.Namespace) -> int:
     """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or a codex job's by codex_resume. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again."""
     name = state.resolve(args.drive)
-    if find(state.load(name)["jobs"], args.id, "job")["kind"] == "codex":
+    if held_job(state.load(name), args.id)["kind"] == "codex":
         return codex_resume(args, name)
     unqueued(name, args.id)
     if args.text is not None:
@@ -2971,8 +2970,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         written = orca.agent_handoff(orca.brief_of(written), job, text, died)
     local = local or bool(died and place.mac_step(written))
     if refused := (
-        state.held_elsewhere(data, job["order"], os.environ.get("CLAUDE_CODE_SESSION_ID"), state.starts_cut(job))
-        or brief.brief_refusal(name, data, job_id, written)
+        brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
         or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and (step := place.mac_step(written)) else None)
         or (crowded_here(name, data, job_id, written) if local else None)
@@ -3096,11 +3094,18 @@ def started_job(data: dict, job_id: str) -> dict:
     return job
 
 
+def held_job(data: dict, job_id: str) -> dict:
+    """The job a verb writes the brief of, or starts, wakes or messages the worker of, refused before that verb writes, holds, sends or starts anything when a session of the drive that does not hold the job's order calls it, the top coordinator and the meta session included, by state.held_elsewhere, the check drive job add makes, so no worker starts whose result goes to a session that never asked for it; a job starting a production cut is the top coordinator's on any order, a call in no session the drive binds, such as a verb the watch detached or a Sprite lane's, is refused nothing, and the session that started the agent running the job on this Mac, which state.agent_lane names and the job's lines reach, keeps it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"."""
+    job = find(data["jobs"], job_id, "job")
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if state.session_lane(data, session) != state.agent_lane(data, job) and (refused := state.held_elsewhere(data, job["order"], session, state.starts_cut(job))):
+        raise DriveError(f"{job_id}: refused, nothing written, sent or started: {refused}")
+    return job
+
+
 def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> int:
     """Hand a job whose Agent ended with the session that started it, which no role holds any more, to a fresh agent of this session: a handoff brief carrying the job's brief, what that agent left and the text, whose `Read your brief first:` line is the fresh agent's whole prompt, and which the drive records that agent on."""
     job = data["jobs"][args.id]
-    if refused := state.held_elsewhere(data, job["order"], session, state.starts_cut(job)):
-        raise DriveError(f"{args.id}: refused, not handed over: {refused}")
     if not job.get("brief"):
         raise DriveError(f"{args.id} has no brief to hand over: write it with drive job brief {args.id}, then resume it again")
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.handoff.md"
@@ -3459,6 +3464,7 @@ def pr_wake(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     data = state.load(name)
+    held_job(data, data["prs"][key]["job"])
     if args.text is None and (cards := view.live_cards(name)) is None:
         raise DriveError(f"{key}: his cards could not be read, so its stage is unknown; pass --text")
     text = args.text or stage.line(key, data["prs"][key], stage.of(data, key, cards))
