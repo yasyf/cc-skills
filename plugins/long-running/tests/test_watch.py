@@ -3715,6 +3715,26 @@ def test_a_release_wait_frees_only_once_every_cluster_running_its_service_produc
     assert state.load(demo)["jobs"]["j1"]["waits"] == [smoke]
 
 
+def test_a_staging_wait_frees_once_release_live_reads_its_env_running_its_target_at_its_soak_commit_and_never_on_another_envs_row(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    serving = [{"target": "sandsql", "env": "plat-usw2-staging", "commit": "6c751b8b1015"}, {"target": "sandsql", "env": "plat-usw2-prod", "commit": "044e8552b694"}]
+    production_reads(monkeypatch, {}, serving)
+    wait = "staging:sandsql/plat-usw2-staging@044e8552b694"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"WAITING {wait}", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    serving[0]["commit"] = "044e8552b6941c3e"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [wait]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [
+        "FREE j1 o1: tools/ci release live reads plat-usw2-staging's sandsql serving the soak commit 044e8552b694, nothing else holds it"
+    ]
+    assert [state.load(demo)["jobs"]["j1"][field] for field in ("waits", "shipped")] == [[], []]
+
+
 def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     calls = production_reads(monkeypatch, {})

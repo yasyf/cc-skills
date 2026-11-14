@@ -234,7 +234,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out while its PR is not closed unmerged, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -249,7 +249,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["prs"][release["pr"]]["state"] != "closed"
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return wait == state.SLOT_WAIT or card_open(wait, found)
+    return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait)) or card_open(wait, found)
 
 
 def coming(drive: dict, job_id: str) -> bool:
@@ -278,6 +278,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(drive, pr, found)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
+    if staging := state.STAGING_WAIT.fullmatch(wait):
+        return f"{staging['env']} runs {staging['target']} at the soak commit {staging['commit'][:12]}"
     if part := state.part_wait(drive, wait):
         return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
     listed = [*found["questions"], *found["pr_cards"]] if found else []
@@ -704,6 +706,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
+    if staging := state.STAGING_WAIT.fullmatch(wait):
+        return {"title": f"{staging['env']} running {staging['target']} at the soak commit {staging['commit'][:12]}", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
     if part := state.part_wait(drive, wait):
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
     if wait == state.SLOT_WAIT:

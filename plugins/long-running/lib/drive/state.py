@@ -124,6 +124,7 @@ PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
+STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 SLOT_WAIT = "builder-slot"
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -1286,7 +1287,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, job["waits"], None) or result_waits(data, job["order"], line)):
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
-            " release:<service>:<owner>/<repo>#<n>, an open PR the drive tracks or a part of an order not yet delivered as <order>:<part>, since a PR"
+            " release:<service>:<owner>/<repo>#<n>, a staging test's soak commit as staging:<target>/<env>@<commit>, an open PR the drive tracks or a part of an order not yet delivered as <order>:<part>, since a PR"
             f" that merged or closed and a part delivered free it at once, or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
     return fix_refusal(data, job_id, line, report)
@@ -1344,9 +1345,10 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each other drive PR it names, and each part it names as <order>:<part>."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each staging:<target>/<env>@<commit>, each other drive PR it names, and each part it names as <order>:<part>."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
-    return list(dict.fromkeys([*releases, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line)]))
+    stagings = [found[0] for found in STAGING_WAIT.finditer(line)]
+    return list(dict.fromkeys([*releases, *stagings, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line)]))
 
 
 def named_parts(data: dict, words: str) -> list[str]:
@@ -1367,7 +1369,7 @@ def part_wait(data: dict, wait: str) -> tuple[str, str] | None:
 
 
 def result_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release and part a WAITING's line names that view.holds says still holds, since a merged PR or a delivered part would free it at once, and none for any other line."""
+    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release, staging soak commit and part a WAITING's line names that view.holds says still holds, since a merged PR or a delivered part would free it at once, and none for any other line."""
     from drive import view
 
     if re.match(r"WAITING\b", line):
@@ -3006,8 +3008,8 @@ def open_prs(data: dict) -> list[dict]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive, a staging test's soak commit or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

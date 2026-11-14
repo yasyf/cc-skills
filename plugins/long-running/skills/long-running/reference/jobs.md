@@ -146,11 +146,13 @@ an agent holds, and nothing else does but a codex job's run: the stop sends back
 every state but `stopped`, and `drive job report` refuses, naming the fix, a job still stopped, a line
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
-abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>` and `<order>:<part>` a
+abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>`, `staging:<target>/<env>@<commit>` and `<order>:<part>` a
 `READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, never one the lines below it name, so a
 `WAITING` naming only PRs that merged or closed or parts delivered is refused, by the one rule `drive job report` and a codex job's take share; the watch's `FREE` line ends a wait once
-the PR merges, the release is out or a builder or codex job on the part returns `DONE`, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
-moves either wait to that job's newest open PR, else to that job until its work is done; a release wait whose service `tools/ci release select
+the PR merges, the release is out, `tools/ci release live` reads the staging wait's env running its target at its commit or a builder or codex job on the part returns `DONE`, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
+moves either wait to that job's newest open PR, else to that job until its work is done; a staging test pausing until staging runs
+its soak commit returns one `WAITING staging:<target>/<env>@<commit>` per stack, the target and env as `tools/ci release live` names
+them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a line opening with no result word; a release wait whose service `tools/ci release select
 --pr` finds the PR's changed paths never reach is refused, naming the components they reach:
 
 | First line | The job's state |
@@ -191,9 +193,7 @@ the codex job and names it on a `JOB` line for the coordinator to start in that 
 
 The watch reads the agent's transcript, never the stored state, and takes no result. A running job
 whose agent ended its turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier
-session makes its parts `ORPHAN`s. An agent that ends its turn on a line with
-no result word is parked on a task of its own, which usually wakes it; one still parked after 30
-minutes is said with the remedy, a `SendMessage` to wake it.
+session makes its parts `ORPHAN`s.
 
 ## Start one on a Sprite
 
