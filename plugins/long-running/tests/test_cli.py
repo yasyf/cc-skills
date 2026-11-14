@@ -9179,8 +9179,8 @@ def test_cards_withdraw_settles_a_card_an_event_overtook_showing_what_happened_a
 def test_j4738_cards_withdraw_via_another_open_card_of_the_drive_settles_it_as_asked_again_there_and_moves_each_wait_on_it_to_that_cards_waits_id(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    for goal in ("release api alone", "release rsw-go alone"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal)
+    for goal in ("read what releasing api alone needs", "read what releasing rsw-go alone needs"):
+        assert run("job", "add", "reader", "--order", "o1", "--goal", goal)[0] == 0
     live = open_card(1, {"title": "Ship api, rsw-go and runtime-api-next in one exception release?", "options": ["Ship all three", "Wait"], "recommended": "Ship all three", "waits": "demo:j1-1"})
     stale = open_card(2, {"title": "Hotfix api alone tonight?", "options": ["Hotfix", "Wait"], "recommended": "Hotfix", "waits": "demo:j2-2"})
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [live, stale], "pr_cards": [], "closed": []})
