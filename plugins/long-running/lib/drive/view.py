@@ -172,7 +172,7 @@ def card_words(found: dict | None, source: str, card: str | None) -> str:
     if gone:
         return f"card {closed['url']} {gone}"
     if answer:
-        return f'card {closed["url"]} answered "{cut(answer["label"], 80)}" at {when(answer["at"])}'
+        return f'card {closed["url"]} answered "{" ".join(answer["label"].split())}" at {when(answer["at"])}'
     return f"card {closed['url']} closed: {cut(closed['tapped'], 80)}"
 
 
@@ -183,7 +183,7 @@ def question_card_words(found: dict | None, source: str, question: dict) -> str:
         return card_words(found, source, card or question["waits"])
     if (closed := question["closed"]) is None:
         return f"card {card} open since {when(question['asked'])}"
-    said = f' "{cut(closed["words"], 80)}"' if closed["words"] else ""
+    said = f' "{" ".join(closed["words"].split())}"' if closed["words"] else ""
     return f"card {card} {closed['how']}{said} at {when(closed['at'])}"
 
 
