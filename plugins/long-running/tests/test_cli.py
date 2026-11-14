@@ -7116,14 +7116,13 @@ def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_
     assert (order["state"], order["note"]) == ("dropped", "he called it off")
 
 
-def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_told_to_send_a_report_record(
+def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_told_which_session_marks_a_part_already_answered(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why?")
     assert cli.main(["order", "posted", "o1", "https://acme.slack.com/archives/D1/p2"]) == 2
     assert (
-        "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-        " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
+        "only the communicator records a post in an order's thread or takes back a part's mark:"
         " a part a post of the drive already answered, or work a merged PR delivered, is marked from the root@demo session, the one its ORPHAN lines reach,"
         ' with drive order posted o1 <that post\'s or PR\'s link> --part "<part>"'
     ) in capsys.readouterr().err

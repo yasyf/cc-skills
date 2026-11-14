@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from drive import agents, cli, dashboard, picture, reads, refs, render, slack, state, view
+from drive import agents, cli, dashboard, install, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -31,12 +31,12 @@ PLAIN_QUESTION = (
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run. Only the communicator or its handler posts, since only it records a post on its order."""
+    known = caller(name)
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     seq = report.get("seq")
-    known = state.load(name)
     order = cli.post_order(known, os.environ.get("CLAUDE_CODE_SESSION_ID"), post, report)
     if close and not order:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
@@ -79,12 +79,22 @@ def say(name: str, post: dict) -> str:
     return line
 
 
+def caller(name: str) -> dict:
+    """The drive once say's caller is known as the communicator or its handler, binding the handler LONG_RUNNING_HANDLER names to this session when its SessionStart hook did not; any other caller posts nothing."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    drive, _, handler = os.environ.get(state.HANDLER_ENV, "").partition("/")
+    known = state.load(name)
+    if drive == name and session and (held := known["handlers"].get(handler)) and not held["session"]:
+        transcript = next((install.config_dir() / "projects").glob(f"*/{session}.jsonl"), None)
+        agents.bind_handler({"session_id": session, "transcript_path": transcript and str(transcript)}, f"{name}/{handler}")
+        known = state.load(name)
+    if state.session_role(known, session) != "communicator":
+        raise DriveError(f"nothing posted: only the communicator's handlers post to him: send these words as a report record to communicator@{name}, whose handler posts and records them")
+    return known
+
+
 def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
-    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. Whether this session may record a post on the order is read in the call, while the session is bound: the process runs as no session, and a handler's binding ends with the handler. A post that closes its order records in the call on the report its close writes, closing, so the order takes the post before it is set done."""
-    try:
-        cli.communicators_order(state.load(name), receipt["order"])
-    except DriveError as error:
-        return unkept(name, receipt, error, "")
+    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. A post that closes its order records in the call on the report its close writes, closing, so the order takes the post before it is set done."""
     if closing is not None:
         return recorded(name, receipt, closing, "")
     kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"

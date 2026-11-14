@@ -1031,8 +1031,7 @@ def communicators_order(data: dict, order_id: str) -> dict:
     order = find(data["orders"], order_id, "order")
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
         raise DriveError(
-            "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-            f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it;"
+            "only the communicator records a post in an order's thread or takes back a part's mark:"
             f" a part a post of the drive already answered, or work a merged PR delivered, is marked from the {state.holding_lane(data, order)}@{data['name']} session,"
             f' the one its ORPHAN lines reach, with drive order posted {order_id} <that post\'s or PR\'s link> --part "<part>", with or without --record, posting nothing'
         )

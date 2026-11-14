@@ -38,7 +38,7 @@ FOOTERS = "why didnt our release footers whatever catch this and bring ssql alon
 
 
 @pytest.fixture
-def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+def posts(communicator: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     sent: list[tuple[str, ...]] = []
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question_card(CARD_URL, QUESTION, WAITS)], "pr_cards": [], "closed": []})
 
@@ -49,7 +49,7 @@ def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
         return {"permalink": POSTED, "thread_ts": "1794300000.000900"}
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
-    with state.edit(demo) as data:
+    with state.edit(communicator) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     return sent
 
@@ -501,16 +501,37 @@ def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_i
     assert said(demo)[0]["visuals"][0]["picture"] == str(sent)
 
 
-def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, posts: list[tuple[str, ...]], unrecorded: list[str]
+def test_a_caller_neither_the_communicator_nor_its_handler_posts_nothing_and_a_handler_its_session_start_never_bound_binds_posts_and_records(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str], tmp_path: Path
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail")
-    report(monkeypatch, {"order": "o1"})
-    line = talk.say(demo, {"text": "done", "record": "683592"})
-    assert line.startswith(f"POSTED {POSTED}; not recorded on o1: only the communicator records a post")
-    assert len(posts) == 1
-    [defect] = unrecorded
-    assert defect.startswith(f"say posted {POSTED} but it was not recorded on o1")
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    sent: list[tuple[str, ...]] = []
+    root = "1794200000.000100"
+    link = f"https://acme.slack.com/archives/D123/p{root.replace('.', '')}"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": link})
+    refused = "^nothing posted: only the communicator's handlers post to him: send these words as a report record to communicator@demo, whose handler posts and records them$"
+    with pytest.raises(DriveError, match=refused):
+        talk.say(demo, {"text": "done", "record": "683592"})
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = "communicator-session"
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["handlers"]["a74493d1"] = {"session": None, "transcript": None, "started": state.stamp(), "holds": {}, "handed": [], "posted": []}
+    with pytest.raises(DriveError, match=refused):
+        talk.say(demo, {"text": "done", "record": "683592", "dry_run": True})
+    assert sent == []
+    transcript = tmp_path / "config" / "projects" / "-Users-yasyf-src" / f"{os.environ['CLAUDE_CODE_SESSION_ID']}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.touch()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv(state.HANDLER_ENV, "demo/a74493d1")
+    slack_thread.messages.append({"ts": root, "from_claude": True, "text": "done"})
+    assert talk.say(demo, {"text": "done", "record": "683592"}).startswith(f"POSTED {link}; o1 progress line, no part delivered: {link}")
+    data = state.load(demo)
+    handler = data["handlers"]["a74493d1"]
+    assert (handler["session"], handler["transcript"], handler["posted"]) == (os.environ["CLAUDE_CODE_SESSION_ID"], str(transcript), [f"POSTED {link}"])
+    assert (len(sent), data["orders"]["o1"]["last_line"] is not None, unrecorded) == (1, True, [])
 
 
 @pytest.mark.parametrize(
@@ -626,6 +647,7 @@ def test_a_handlers_post_with_no_record_goes_on_the_order_of_his_message_it_hold
     assert (data["orders"]["o1"]["last_line"], data["orders"]["o2"]["last_line"] is not None, said(demo)[-1]["order"]) == (None, True, "o2")
     with state.edit(demo) as data:
         del data["handlers"]["h1"]
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
     assert talk.say(demo, post) == f"POSTED {answer}"
     assert (said(demo)[-1]["order"], unrecorded) == (None, [])
 
@@ -1143,7 +1165,7 @@ TICKET = {"ticket_id": "t1", "ticket_tree": "tree1", "ticket_agent": "agent1", "
 
 def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> None:
     slack_thread.messages.append({"ts": ALERT, "from_user": False})
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check", "--owner", "coordinator")
 
 
 def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_ticket_its_hook_named(
@@ -1355,12 +1377,9 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     question, card = "1794520890.022349", "1794526059.841239"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs", "--owner", "coordinator")
     building(demo)
-    run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
     cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
     sent = slack.cc_slack
