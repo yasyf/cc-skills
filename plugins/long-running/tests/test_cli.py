@@ -1263,11 +1263,11 @@ def test_an_incident_job_waits_on_his_card_only_once_the_line_say_kept_in_the_in
     assert "post that line with say, which keeps it, then pass --told <its link>" in refusal
     assert "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink" in refusal
     elsewhere = "https://acme.slack.com/archives/D123/p1794100000000300?thread_ts=1794100000.000100"
-    talk.keep_line("demo", state.load("demo"), "1794100000.000100", elsewhere, f"<{card}|the store card> blocks the fix")
+    talk.keep_line("demo", "1794100000.000100", elsewhere, f"<{card}|the store card> blocks the fix")
     assert cli.main(["job", "set", "j1", "--card", card, "--told", elsewhere]) == 2
     assert f"--told {elsewhere} is no line the drive keeps in the incident's thread, 1794200000.000100, linking {card}" in capsys.readouterr().err
     said = "https://acme.slack.com/archives/D123/p1794200000000400?thread_ts=1794200000.000100"
-    talk.keep_line("demo", state.load("demo"), "1794200000.000100", said, f"<{card}|Your card on where the store lives> blocks the fix's release; it builds on the recommended shared store meanwhile.")
+    talk.keep_line("demo", "1794200000.000100", said, f"<{card}|Your card on where the store lives> blocks the fix's release; it builds on the recommended shared store meanwhile.")
     assert run("job", "set", "j1", "--card", card, "--told", said)[0] == 0
     assert [(question["card"], question["holds"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(card, None)]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
@@ -2866,7 +2866,7 @@ def test_job_ask_asking_his_card_again_sends_its_line_again_only_once_jev_reads_
     assert not [key for key in [request for request in jev.asked if "releases" in request["questions"]][-1]["questions"] if key.startswith("told.")]
     line = f"https://acme.slack.com/archives/C0ALERT1/p1794200100000200?thread_ts={thread}"
     words = f"<{slack_card(1)}|Your card on the run layout> blocks incident o1's fix; it builds on one snapshot file per finished run meanwhile."
-    talk.keep_line("demo", state.load("demo"), thread, line, words)
+    talk.keep_line("demo", thread, line, words)
     if changed:
         jev.breaks("told", changed)
     block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.") + "Interim fix: j2 checks the fork copies first\n")
@@ -5784,7 +5784,7 @@ def test_a_check_hands_its_outcome_to_the_newer_install_that_saved_meanwhile(
     monkeypatch.setattr(served.install.subprocess, "run", newer)
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     [argv] = handed
-    assert (argv[:3], argv[4:], Path(argv[3]).exists()) == (["pr", "checked", state.pr_url(with_pr)], ["--drive", "demo", "--json"], False)
+    assert (argv[0], argv[2:], Path(argv[1]).exists()) == ("finish", ["--drive", "demo", "--json"], False)
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["checked"]["orders"], pr["checker"]["outcome"].startswith(served.CHECKED)) == (["o1"], True)
     assert capsys.readouterr().out.startswith(f"{with_pr}: {served.CHECKED}")
@@ -7851,7 +7851,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     answer = slack_thread.post(state.now(), from_claude=True)
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp()) | {"waits": "demo:j1-1"})
-    cli.follow_card("demo", "demo:j1-1", set(), "https://acme.slack.com/archives/D123/p1794200000000100")
+    cli.follow_card("demo", "demo:j1-1", [], "https://acme.slack.com/archives/D123/p1794200000000100")
     report_records(monkeypatch, {"661300": {"job": "j1", "part": "Short title"}})
     assert run("order", "posted", "o1", answer, "--record", "661300") == (0, f'o1 "Short title": posted {answer}')
     assert state.load("demo")["orders"]["o1"]["parts"]["Short title"]["posted"] == answer

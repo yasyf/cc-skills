@@ -739,9 +739,10 @@ def test_703819_a_handlers_post_out_when_a_newer_install_saved_the_drive_is_fini
     assert talk.say(demo, {"text": "No, the fix is not live: its hotfix was rolled back.", "thread_ts": thread, "record": "703819"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
     [argv] = handed
     data = state.load(demo)
-    assert (len(sent), argv[0], Path(argv[1]).exists(), data["handlers"]["h1"]["posted"], data["orders"]["o1"]["last_line"] is not None, unrecorded) == (
+    assert (len(sent), argv[0], Path(argv[1]).parent, Path(argv[1]).exists(), data["handlers"]["h1"]["posted"], data["orders"]["o1"]["last_line"] is not None, unrecorded) == (
         1,
-        "say-finish",
+        "finish",
+        state.drive_dir(demo) / "finish",
         False,
         [f"POSTED {answer}"],
         True,
@@ -1594,7 +1595,7 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     building(demo)
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
-    cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
+    cli.follow_card(demo, WAITS, [], f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"})
     talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
@@ -1632,7 +1633,7 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     building(demo)
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
-    cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/{his_dm}/p{question.replace('.', '')}")
+    cli.follow_card(demo, WAITS, [], f"https://acme.slack.com/archives/{his_dm}/p{question.replace('.', '')}")
     data = state.load(demo)
     assert ("channel" not in data["slack"], data["orders"]["o1"]["threads"][0][:2]) == (True, [his_dm, question])
     assert talk.posted(demo, {"text": watch.PAUSED, "thread_ts": question})["permalink"] == POSTED

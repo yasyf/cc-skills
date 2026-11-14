@@ -145,40 +145,33 @@ def verdict(name: str, key: str) -> str:
         basis = f"the words of {', '.join(checked[key]['orders'])}" if checked[key]["orders"] else f"his ruling {state.FLAKE_RULING}"
         cards = view.live_cards(name)
         outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}; {stage.on_card(data, member, cards).why}; {view.staging(data, member)}" for member, stamp in checked.items()}
-    return kept(name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "checked": checked, "pid": os.getpid()})
+    return install.finished(f"{key}: {outcomes[key]}", JUDGE_SECONDS, kept, name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "checked": checked, "pid": os.getpid()})
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, and redraw his open card for each, as verdict describes, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; when a newer install saved the drive while the check judged, the newest install's `drive pr checked` keeps it, so no judgment runs twice; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, and redraw his open card for each, as verdict describes, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; the outcome for key."""
     outcome = result["outcomes"][key]
-    try:
-        with state.edit(name) as data:
-            fresh = [
-                member
-                for member in result["heads"]
-                if not ((checker := data["prs"][member]["checker"]) and checker["pid"] != result["pid"] and state.parse_time(checker["at"]) > state.parse_time(result["at"]))
-            ]
-            if key not in fresh:
-                return f"{outcome}; not kept, since another check of {key} started while this one judged"
-            woken = set()
-            for member in fresh:
-                pr, said = data["prs"][member], result["outcomes"][member]
-                if result["checked"]:
-                    pr["checked"] = result["checked"][member]
-                pr["checker"] = {
-                    "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"]
-                }
-                if said.startswith(FAILED) or said.startswith(NOT_READY) and pr["job"] in woken:
-                    continue
-                woken.add(pr["job"])
-                repo, number = member.split("#")
-                state.append_event(name, "check", repo=repo, number=int(number), change=said, lane=state.heard_lane(data, pr["order"]))
-    except state.NewerDrive:
-        if not (newer := install.upgraded()):
-            raise
-        receipt = state.drive_dir(name) / "prs" / f"{key.replace('/', '-').replace('#', '-')}.{result['heads'][key][:12]}.{result['pid']}.json"
-        receipt.parent.mkdir(exist_ok=True)
-        return json.loads(install.handed(newer, name, ["pr", "checked", state.pr_url(key)], receipt, result, f"{key}: {outcome}", JUDGE_SECONDS))["outcome"]
+    with state.edit(name) as data:
+        fresh = [
+            member
+            for member in result["heads"]
+            if not ((checker := data["prs"][member]["checker"]) and checker["pid"] != result["pid"] and state.parse_time(checker["at"]) > state.parse_time(result["at"]))
+        ]
+        if key not in fresh:
+            return f"{outcome}; not kept, since another check of {key} started while this one judged"
+        woken = set()
+        for member in fresh:
+            pr, said = data["prs"][member], result["outcomes"][member]
+            if result["checked"]:
+                pr["checked"] = result["checked"][member]
+            pr["checker"] = {
+                "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"]
+            }
+            if said.startswith(FAILED) or said.startswith(NOT_READY) and pr["job"] in woken:
+                continue
+            woken.add(pr["job"])
+            repo, number = member.split("#")
+            state.append_event(name, "check", repo=repo, number=int(number), change=said, lane=state.heard_lane(data, pr["order"]))
     if outcome.startswith(FAILED):
         return outcome
     try:
