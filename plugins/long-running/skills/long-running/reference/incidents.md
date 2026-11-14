@@ -290,10 +290,10 @@ check's verdict, or from the order when none ran.
   - It owes that line only on news, by his pick "Owe a line only on news: while a job works or
     something it names changed; silent while all waits.": while a job of the incidents works, or
     once an order, job or PR of them moved since the thread's last line or the watch's last report on
-    it, a job by its state, waits,
+    it, a job by its state, whether anything holds it,
     returned line or the cards of his its questions are open on, a PR by its state, head, checks,
-    Trunk ejection, card or his tap, never its stage relabelled with none of those changed, such as
-    red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once each
+    Trunk ejection, card or his tap, never which waits hold a job, so a release ending one of
+    several is no news, nor a PR's stage relabelled with none of those changed, such as red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once each
     report reaches a handler, so news a handler did not post goes out once, and the report names what
     moved and which jobs are at work. An incident whose every job waits, on his
     card, a release or a PR, gets no line until one of them moves. Every open order with a thread
