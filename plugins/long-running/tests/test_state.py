@@ -77,6 +77,7 @@ def test_a_save_that_changes_a_row_or_a_command_that_does_more_than_read_is_kept
         (["ccx", "vcs", "gh", "--max-age", "30s", "--", "pr", "view", "https://github.com/o/r/pull/1"], True),
         (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "repos/o/r/pulls/1/files", "--jq", ".[].filename"], True),
         (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "-X", "POST", "repos/o/r/issues/1/comments"], False),
+        (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "-f", 'query=query { r0: repository(owner: "o", name: "r") { p1: pullRequest(number: 1) { state } } }'], True),
         (["ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql", "-f", "query=mutation { x }"], False),
         (["ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "merge", "--squash", "1"], False),
         (["/plugins/cc-slack/1.0/bin/cc-slack", "thread", "--channel", "D1"], True),
