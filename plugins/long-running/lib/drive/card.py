@@ -17,6 +17,7 @@ READ_AGE = "60s"
 KEPT_READS = "pr-reads"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
 TAP_LABELS = ("Approve", "Hold")
+WORDS = "Words"
 TITLE_CHARS = 140
 FIELD_CHARS = 400
 CAPTION_CHARS = 160
@@ -724,19 +725,23 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, and start the lander on his Approve, once his Approve answers with its recommended option each card picks() finds holding a PR it approves, through question_answered as his tap on that card would, and closes it, so the lander finds it open no more; a stack card's tap covers only the PRs on it holding no tap yet, as its Approve and Hold ask only for those, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, and start the lander on his Approve, once his Approve answers with its recommended option each card picks() finds holding a PR it approves, through question_answered as his tap on that card would, and closes it, so the lander finds it open no more, or stop each landing of them on his Hold by land.halt; a stack card's tap covers only the PRs on it holding no tap yet, as its Approve and Hold ask only for those, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
+    from drive import land, superseded, view
+
     if "repo" not in ask:
         return question_answered(ask)
     known = drive_prs()
     key = keys_of([ask], known)[0]
     if key not in known:
         raise state.DriveError(f"{key} is not a drive PR")
-    if ask["label"] not in TAP_LABELS:
-        raise state.DriveError(f"a PR card answers Approve or Hold, not {ask['label']!r}")
+    if ask["label"] not in (*TAP_LABELS, WORDS):
+        raise state.DriveError(f"a PR card answers Approve, Hold or {WORDS}, not {ask['label']!r}")
     name, held = known[key]
     hear_tap(name)
     stack = held.get("stack") or []
     members = stack if stack and ask["waits"] == stack_waits(stack) else [key]
+    if ask["label"] == WORDS:
+        return {"ok": True, "taken": taken_back(name, members, ask)}
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
@@ -758,14 +763,31 @@ def answered(ask: dict) -> dict:
                 lane=state.heard_lane(data, entry["order"]),
             )
     if ask["label"] == "Approve":
-        from drive import land, superseded, view
-
         approved = [data["prs"][member] for member in members if data["prs"][member]["state"] == "open" and land.approved(data["prs"][member])]
         picked = {wait: pick for entry in approved for wait, pick in picks(name, holding(name, entry)).items()}
         seqs = {question_answered({"waits": pick["waits"], "url": pick["url"], "label": pick["option"], "action_ts": ask["action_ts"], "source": ask["source"]})["seq"] for pick in picked.values()}
         superseded.follow(name, [(job_id, question) for job_id, question in view.drawn_on(state.load(name), *picked) if (question["closed"] or {}).get("seq") in seqs])
         land.start(name, members, view.live_cards(name))
+    else:
+        land.halt(name, members)
     return {"ok": True}
+
+
+def taken_back(name: str, members: list[str], ask: dict) -> list[str]:
+    """Take back his Approve on each open PR of a card his reply in its thread reaches that he approved before writing it, one tap event each, and stop each landing of them by land.halt, which takes a PR Trunk's merge queue holds out of it, since any reply of his under a PR card holds it until he approves it again; the PRs whose Approve came off, for cc-slack to draw Approve on the card again."""
+    from drive import land
+
+    written = float(ask["action_ts"])
+    with state.edit(name) as data:
+        taken = [member for member in members if (entry := data["prs"][member])["state"] == "open" and land.approved(entry) and state.parse_time(entry["tap"]["at"]).timestamp() < written]
+        for member in taken:
+            entry = data["prs"][member]
+            entry["tap"] = None
+            entry["updated"] = state.stamp()
+            repo, number = member.split("#")
+            state.append_event(name, "tap", repo=repo, number=int(number), label=WORDS, head=entry["head"], source=ask["source"], action_ts=ask["action_ts"], lane=state.heard_lane(data, entry["order"]))
+    land.halt(name, members)
+    return taken
 
 
 def question_answered(ask: dict) -> dict:

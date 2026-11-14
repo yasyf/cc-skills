@@ -348,7 +348,14 @@ refuses PRs named together that no stack links, such as one order's sibling PRs 
 holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
 watch wakes, and its deadline wakes that owner again.
 His Approve is one field on the PR, kept on every PR of the landing unit his card drew and cleared
-only by his Hold, and it lands the PR at its first green head whatever the check of its change
+only by his Hold or by any reply of his in its card's thread, which cc-slack sends through its card
+command as it sends his tap: the reply takes back each Approve he gave before writing it, and the card
+draws Approve again. Whatever stops a landing, his Hold, the hold label, a card holding its change, a
+rework or his Approve coming off, the watch's next pass stops it, and his tap or reply stops it in the
+same card command: a running lander is ended, which dequeues what it queued, and a unit Trunk holds after
+its lander ended is taken out of the queue by `drive pr land --dequeue`, its own process running
+`stack-enqueue --dequeue` from a fresh worktree of the default branch, whose own failure reads as the
+lander's `LANDER` defect and is retried at the next pass. His Approve lands the PR at its first green head whatever the check of its change
 against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`

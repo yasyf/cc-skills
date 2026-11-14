@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Cci, Chrome, Jev, Judge, Redraws
-from drive import card, cli, github, limits, picture, stage, state, superseded, view
+from drive import card, cli, github, land, limits, picture, stage, state, superseded, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -898,6 +898,23 @@ def test_a_tap_cc_slack_applies_again_keeps_its_first_time_and_appends_no_second
     assert (state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"], len(events(drive))) == (first, 1)
     assert ask({"answer": answer | {"label": "Hold", "action_ts": "1762700100.000100"}}) == {"ok": True}
     assert (state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]["label"], len(events(drive))) == ("Hold", 2)
+
+
+def test_his_words_under_a_pr_card_take_back_only_an_approve_older_than_them_and_take_the_pr_out_of_trunks_queue_once(drive: str, landers: list[tuple[str, ...]]) -> None:
+    key = "Forge-AI/monorepo#42"
+    with state.edit(drive) as data:
+        pr = data["prs"][key]
+        pr |= {
+            "tap": state.new_tap("Approve", pr["head"], "slack", "1794240000.000100", at="2026-11-09T08:00:00-08:00"),
+            "lander": {"head": pr["head"], "pid": 1, "at": "2026-11-09T08:01:00-08:00", "outcome": land.QUEUED, "below": []},
+        }
+    words = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": card.WORDS, "heads": {}, "action_ts": "1794239000.000100", "source": "wrote in the card's thread"}
+    assert ask({"answer": words}) == {"ok": True, "taken": []}
+    assert (state.load(drive)["prs"][key]["tap"]["label"], landers) == ("Approve", [])
+    assert ask({"answer": words | {"action_ts": "1794250000.000100"}}) == {"ok": True, "taken": [key]}
+    assert ask({"answer": words | {"action_ts": "1794250100.000100"}}) == {"ok": True, "taken": []}
+    assert (state.load(drive)["prs"][key]["tap"], landers) == (None, [("--dequeue", key)])
+    assert [(event["kind"], event["label"], event["action_ts"]) for event in events(drive)] == [("tap", card.WORDS, "1794250000.000100")]
 
 
 def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves_a_red_one_to_the_watch(

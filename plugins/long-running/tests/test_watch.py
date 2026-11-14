@@ -4751,6 +4751,57 @@ def test_a_lander_the_watch_stops_dequeues_each_pr_it_queued_and_removes_its_wor
     assert not (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()
 
 
+def queued(name: str) -> None:
+    with state.edit(name) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "lander": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": land.QUEUED, "below": []}}
+
+
+def test_his_hold_on_a_pr_trunk_queued_after_its_lander_ended_reads_held_and_the_watch_starts_one_dequeue_of_it(demo: str, landers: list[tuple[str, ...]]) -> None:
+    approve(demo, KEY)
+    queued(demo)
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    watch.landed(watching)
+    assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, landers) == ("landing", [])
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "slack")
+    assert stage.alone(state.load(demo), KEY, NO_CARDS).name == "held"
+    watch.landed(watching)
+    watch.landed(watching)
+    assert landers == [("--dequeue", KEY)]
+    assert state.load(demo)["prs"][KEY]["lander"]["dequeue"]["pid"] == os.getpid()
+
+
+def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_it_lands_again_on_his_approve(demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
+    calls = tmp_path / "calls"
+    on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\necho "#42 DEQUEUED aaaaaaa"\n')
+    queued(demo)
+    watching = watcher(demo)
+    assert land.halt(demo, [KEY]) == [KEY]
+    why = f"{land.HELD}: {KEY}: nothing clears it now, since his Approve came off it"
+    assert land.dequeue(demo, [KEY], why) == f"{why}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa"
+    assert (calls.read_text().splitlines(), land.landing(state.load(demo)["prs"][KEY])) == (["--dequeue 42"], False)
+    assert watch.event_lines(watching) == [f"PR {KEY}: {why}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa [o1 j1]"]
+    approve(demo, KEY)
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert landers == [("--dequeue", KEY), (KEY,)]
+
+
+def test_a_dequeue_stack_enqueue_fails_on_its_own_keeps_the_pr_queued_says_so_as_the_landers_failure_and_the_next_pass_dequeues_again(
+    demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
+) -> None:
+    on_main(tmp_path, demo, '#!/bin/sh\necho "trunk is down"\nexit 5\n')
+    queued(demo)
+    assert land.halt(demo, [KEY]) == [KEY]
+    watching = watcher(demo)
+    failed = f"{land.NO_DEQUEUE} {KEY} out of Trunk's merge queue: trunk is down; its whole output is in {state.drive_dir(demo) / land.LOG}"
+    assert land.dequeue(demo, [KEY], "held") == failed
+    lander = state.load(demo)["prs"][KEY]["lander"]
+    assert (lander["outcome"], "dequeue" in lander, watch.event_lines(watching)) == (land.QUEUED, False, [f"{watch.LANDER}{failed}"])
+    assert land.halt(demo, [KEY]) == [KEY]
+    assert landers == [("--dequeue", KEY), ("--dequeue", KEY)]
+
+
 @pytest.mark.parametrize(("cards", "first"), [(ONE_CARD, []), (TWO_CARDS, [(KEY,)])])
 def test_a_pr_above_waiting_on_an_open_pr_holds_the_bottom_of_its_own_card_and_no_other_card_and_lands_once_that_pr_merges(
     demo: str, landers: list[tuple[str, ...]], cards: list[list[str]], first: list[tuple[str, ...]]

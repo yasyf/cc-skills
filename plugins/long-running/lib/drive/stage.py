@@ -64,18 +64,18 @@ def uncarded(pr: dict, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card."""
+    """Every rule of own past the draw of his card: his Hold, the hold label and a rework to his words before a landing, which stands only while land.stopping() finds nothing stopping it, so a PR Trunk's merge queue holds reads what holds it the moment his words under its card take back his Approve, while land.halt takes it out of the queue."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, f"it is {pr['state']}")
-    if land.landing(pr):
-        return Stage("landing", LANDER, landing_why(pr))
-    if ended := unlanded(data, pr):
-        return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)
     if pr["rework"]:
         return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
+    if land.landing(pr) and not land.stopping(data, key):
+        return Stage("landing", LANDER, landing_why(pr))
+    if ended := unlanded(data, pr):
+        return Stage("unlanded", ORDER, ended)
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
             return blocked(data, failing, waits, cards)
@@ -119,7 +119,8 @@ def landing_why(pr: dict) -> str:
     if lander["outcome"] == land.QUEUED:
         flaky = pr["flaky"] if pr["flaky"] and pr["flaky"]["requeued"] and pr["flaky"]["head"] == lander["head"] else None
         requeued = f", requeued once {flaky['fix']}, the fix of its flaky test {flaky['test']}, merged" if flaky else ""
-        return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}"
+        taken = f"; pid {dequeuer['pid']} takes it out of the queue since {dequeuer['at']}, and it lands again after that" if (dequeuer := lander.get("dequeue")) else ""
+        return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}{taken}"
     return f"lander pid {lander['pid']} lands {lander['head'][:7]}, started {lander['at']}"
 
 

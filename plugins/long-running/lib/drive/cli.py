@@ -3832,7 +3832,12 @@ def pr_tapped(args: argparse.Namespace) -> int:
 def pr_land(args: argparse.Namespace) -> int:
     keys = [state.pr_key(url) for url in args.urls]
     name = state.resolve(args.drive)
-    outcome = land.record(name, keys, args.outcome, args.below, dict(args.asked)) if args.outcome else land.run(name, keys, args.dry_run)
+    if args.outcome:
+        outcome = land.record(name, keys, args.outcome, args.below, dict(args.asked))
+    elif args.dequeue:
+        outcome = land.dequeue(name, keys, args.dequeue)
+    else:
+        outcome = land.run(name, keys, args.dry_run)
     return emit(args, f"{', '.join(keys)}: {outcome}", {"keys": keys, "outcome": outcome})
 
 
@@ -5380,6 +5385,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander reopening on a newer install records what came of its landing")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
     verb.add_argument("--asked", action="append", nargs=2, default=[], metavar=("PR", "HEAD"), help="with --outcome, a PR and the head its lander asked forge-pr-reviewer to review; repeat for each")
+    verb.add_argument(
+        "--dequeue",
+        metavar="WHY",
+        help="land nothing: take the unit Trunk's merge queue holds out of it with stack-enqueue --dequeue from a fresh worktree of the default branch, and record WHY as its outcome, as the watch and his words under its card start it once a hold of his stops its landing",
+    )
     verb.set_defaults(run=pr_land)
     verb = pr.add_parser(
         "check",

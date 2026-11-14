@@ -33,6 +33,7 @@ NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-en
 OWN_FAILURE = "the lander could not"
 NO_WORKTREE = f"{OWN_FAILURE} check out"
 NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
+NO_DEQUEUE = f"{OWN_FAILURE} take"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
 UNREAD = "not landed: a GitHub read failed before it queued or merged anything, so the next watch pass lands it again"
@@ -286,26 +287,82 @@ def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...
 
 
 def halt(name: str, keys: list[str]) -> list[str]:
-    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped."""
-    if not held_landers(state.load(name), keys):
+    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers and lands then; the PRs stopped."""
+    if not held_landings(state.load(name), keys):
         return []
     with state.edit(name) as data:
-        stopped = held_landers(data, keys)
+        stopped = held_landings(data, keys)
         under = unders(data)
-        units = {pid: sorted((key for key, pr in data["prs"].items() if running(pr) and pr["lander"]["pid"] == pid), key=lambda key: len(chain(under, key))) for pid in stopped}
-        for pid, unit in units.items():
-            os.killpg(pid, signal.SIGTERM)
-            noted(name, data, unit, stopped[pid], [])
+        units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and (pr["lander"]["pid"], pr["lander"]["at"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
+        for (pid, at), unit in units.items():
+            if running(data["prs"][unit[0]]):
+                os.killpg(pid, signal.SIGTERM)
+                noted(name, data, unit, stopped[pid, at], [])
+                continue
+            dequeuer = {"pid": unqueue(name, unit, stopped[pid, at]), "at": state.stamp()}
+            for key in unit:
+                data["prs"][key]["lander"]["dequeue"] = dequeuer
     return [key for unit in units.values() for key in unit]
 
 
-def held_landers(data: dict, keys: list[str]) -> dict[int, str]:
-    """Each running lander queueing a Forge-AI/monorepo unit with a PR among keys that a hold of his holds, by its pid, with the outcome saying so."""
+def held_landings(data: dict, keys: list[str]) -> dict[tuple[int, str], str]:
+    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue."""
     return {
-        data["prs"][key]["lander"]["pid"]: f"{HELD}: {holding}"
+        (pr["lander"]["pid"], pr["lander"]["at"]): f"{HELD}: {key}: {why}"
         for key in keys
-        if state.queued_by_lander(key) and running(data["prs"][key]) and (holding := held(data, [key]))
+        if landing(pr := data["prs"][key]) and not dequeuing(pr) and (why := stopping(data, key))
     }
+
+
+def stopping(data: dict, key: str) -> str:
+    """What stops a Forge-AI/monorepo landing on the PR, whether its lander still runs or Trunk's merge queue holds what it queued: a hold of his, by stage.held, his words ordering its rework, or nothing clearing it now, as once his words under its card took back his Approve; "" while what let it land stands, and for a PR of any other repository, whose lander merges it at once."""
+    from drive import stage
+
+    pr = data["prs"][key]
+    if not state.queued_by_lander(key):
+        return ""
+    if why := stage.held(data, pr):
+        return why
+    if pr["rework"]:
+        return f'it is being reworked to his words "{pr["rework"]["words"]}"'
+    return "" if state.cleared(pr) else "nothing clears it now, since his Approve came off it"
+
+
+def dequeuing(pr: dict) -> bool:
+    """Whether a dequeuer unqueue() started still takes the PR's unit out of Trunk's merge queue."""
+    dequeuer = (pr["lander"] or {}).get("dequeue")
+    return bool(dequeuer) and state.alive(dequeuer["pid"])
+
+
+def unqueue(name: str, keys: list[str], why: str) -> int:
+    """Run `drive pr land --dequeue` on a unit Trunk's merge queue holds as its own process, as spawn() runs a lander, so neither the watch pass nor the card command that stopped it waits on its worktree."""
+    return state.detach(name, ["pr", "land", *map(state.pr_url, keys), "--dequeue", why], LOG)
+
+
+def dequeue(name: str, keys: list[str], why: str) -> str:
+    """Take a unit Trunk's merge queue holds out of it with stack-enqueue --dequeue on each PR, its top first, the entry Trunk queued the unit by, from a fresh() worktree of its repository's default branch as a landing runs it, then record why and what stack-enqueue said as its outcome, so each PR reads that hold and lands again once he approves it; on a failure of its own, no worktree or stack-enqueue failing itself, Trunk still holds the unit, so undequeued() says so and the watch's next pass dequeues it again."""
+    repo = github.repo_of(keys[0])
+    try:
+        with fresh(name, Path(state.load(name)["roles"]["coordinator"]["cwd"]), github.default_branch(repo)) as (checkout, _):
+            done = [subprocess.run([str(checkout / ENQUEUE), "--dequeue", key.split("#")[1]], cwd=checkout, capture_output=True, text=True) for key in reversed(keys)]
+    except github.GithubError as error:
+        return undequeued(name, keys, cut(str(error), SAID_CHARS))
+    output = "".join(each.stdout + each.stderr for each in done)
+    print(output, flush=True)
+    if any(each.returncode == ENQUEUE_FAILED for each in done):
+        return undequeued(name, keys, f"{said(output)}; its whole output is in {state.drive_dir(name) / LOG}")
+    return record(name, keys, f"{why}; stack-enqueue --dequeue said {said(output)}", [], {})
+
+
+def undequeued(name: str, keys: list[str], why: str) -> str:
+    """Say the dequeue of a unit failed on its own step, as the lander's own failure, and drop its dequeuer, so the watch's next pass starts another while Trunk's merge queue still holds it."""
+    outcome = f"{NO_DEQUEUE} {', '.join(keys)} out of Trunk's merge queue: {why}"
+    with state.edit(name) as data:
+        for key in keys:
+            data["prs"][key]["lander"].pop("dequeue")
+        repo, number = keys[-1].split("#")
+        state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, data["prs"][keys[-1]]["order"]))
+    return outcome
 
 
 def unmergeable(key: str, read: dict) -> str | None:
