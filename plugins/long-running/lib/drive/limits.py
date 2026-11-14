@@ -439,6 +439,27 @@ AWS_ACTION = re.compile(
     r"|\bpass[- ]?box(?:es)?\b|\bdb-read\b|\bdevbox(?:es)?\b|\bssm\b|\bsecrets\s+manager\b",
     re.IGNORECASE,
 )
+FACT_NOUN = r"(?:ids?|keys?|tokens?|secrets?|urls?|names?|numbers?|values?|address(?:es)?|passwords?|emails?|credentials?|handles?|endpoints?|hosts?)"
+FACT_VERB = r"(?:paste|copy|send|share|type|enter|tell|reply(?:\s+with)?|look\s+up|find|give|provide|fill\s+in|dig\s+up)"
+ASKS_HIM_FOR_A_VALUE = re.compile(
+    rf"\byou(?:['’]\w+)?\b(?:\s+[\w'’-]+){{0,3}}?\s+{FACT_VERB}\b[^.;:]{{0,40}}?\b{FACT_NOUN}\b"
+    rf"|^\s*(?:what(?:'s|\s+is|\s+are)|who\s+(?:holds|owns|has|knows))\b[^?]{{0,60}}?\b{FACT_NOUN}\b",
+    re.IGNORECASE,
+)
+FACT_QUOTE = "no, go pull it from wherver it was befofre and set it"
+FACT_ASKED = "his Sep 24 answer to a card asking whether he had set the SSM parameter a landing reads"
+FACT_WORDS = {
+    "id": "words:card-fact-ask",
+    "asked": FACT_ASKED,
+    "said": FACT_QUOTE,
+    "rule": (
+        "A card asks him only a decision that is his. A question, option or description whose answer or step from him is a fact"
+        " or value, such as an ID, key, token, URL, name or setting, breaks this in whatever words it asks, since its job reads"
+        " that value where it is defined, such as the app's own settings, its manifest or the infra that makes it, or returns"
+        " BLOCKED naming the read it needs. A choice between options that each name the value, or a card saying a job reads it,"
+        " breaks nothing."
+    ),
+}
 RECORD_CHARS = 120
 THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b|(?<!\w[ \t])\b(?:He|Him|His|Himself)\b")
 WHOLE_KINDS = {"owner", "answer", "incident"}
@@ -772,6 +793,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     problems += option_problems(options, unsettled)
     problems += description_problems(options, described)
     problems += sign_in_problems([("the question", title), *(("the summary", line) for line in summary), *((f'option "{option}"', option) for option in options), *prose])
+    problems += fact_problems(asked)
     if marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
@@ -861,6 +883,23 @@ def sign_in_problems(lines: list[tuple[str, str]]) -> list[str]:
         f" -- <command>` from a lane on this Mac, so that run takes its place ({MACHINE_PROFILE_RULING})"
         for where, line, masked in said
         if SIGN_IN.search(masked) and (found := proposed(ASKS_HIM_TO_SIGN_IN, masked))
+    ]
+
+
+def fact_problems(asked: Question) -> list[str]:
+    """Why a question's title, summary, options or descriptions ask him for a fact or value, such as an ID, key, URL or name, where he is asked only a decision that is his: its job reads that value where it is defined, or returns BLOCKED naming the read it needs. His words in double quotes, and a value a line rules out, as "you never paste a key" does, ask nothing."""
+    lines = [
+        ("the question", asked.title),
+        *(("the summary", line) for line in asked.summary),
+        *((f'option "{option}"', line) for option in asked.options for line in (option, *asked.hints.get(option, "").splitlines())),
+    ]
+    return [
+        f'{where} asks him for a fact with "{line[found.start() : found.end()].strip(" .;:")}": he is asked only a decision that is his, so its'
+        " job reads that value where it is defined, such as the app's own settings, its manifest or the infra that makes it, and asks"
+        f" him only a choice; when no read of the job's reaches it, return `BLOCKED` naming the value and the read it needs (his words"
+        f' "{FACT_QUOTE}", {FACT_ASKED})'
+        for where, line in lines
+        if (found := proposed(ASKS_HIM_FOR_A_VALUE, SAID.sub(lambda quoted: MASK * len(quoted[0]), line)))
     ]
 
 
@@ -1019,10 +1058,10 @@ def offered(asked: Question) -> list[str]:
 
 
 def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Jev weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
+    """His rulings Jev weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, his words that a job reads a value itself rather than asking him for it, with the rule they set, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
-    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
+    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, FACT_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
 
 
 def linked_pages(asked: Question) -> list[str]:

@@ -715,6 +715,9 @@ Replaces: <only on a question built on another open question of his: the path dr
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;
   - an option that points at another by number or position;
+  - a question, summary, option or description asking him for a fact or value, such as an ID, key,
+    URL or name, which its job reads where it is defined, or returns `BLOCKED` naming the read it
+    needs;
   - a fence naming no language, or `text`, unless it holds a message or quote, shown as a quote; JSON, YAML, logs, a terminal session, an HTTP exchange, command output or a
     stack trace in any fence; a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits; a gallery caption with no option number; a left-to-right flow past

@@ -295,6 +295,7 @@ Simplest: self::alarm gains a check and rings only on a change. Smallest surface
 Holds: none: no option changes code any job builds
 His order settles that a watch reruns code on a period and a change reaches the central inbox.
 """)
+COPIED_ID = "  You copy Client ID from App Credentials on <https://api.slack.com/apps/A0DEMO00001/general|PlatClaude's Basic Information page> and reply with it here.\n"
 MACHINE_PROFILE_READ = "Break-glass read: this Mac's machine profile requests the grant and runs one read-only query per SandSQL server (recommended)"
 EXPIRED_SIGN_IN = (
     "ASK The hand repair needs break-glass, and this Mac's AWS sign-in expired. Renew it, or skip the hand repair?\n"
@@ -1800,7 +1801,7 @@ def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_remov
 )
 def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line(cause: str, form: str) -> None:
     stray = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
-    assert limits.rule_words(STRAY_CHATS_ASK.replace(stray, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}, limits.TEAM_DATA_WORDS]
+    assert limits.rule_words(STRAY_CHATS_ASK.replace(stray, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}, limits.TEAM_DATA_WORDS, limits.FACT_WORDS]
 
 
 def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1963,6 +1964,52 @@ def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refus
     ],
 )
 def test_a_card_running_an_aws_action_on_the_machine_profile_quoting_his_words_or_naming_a_sign_in_off_aws_passes(block: str) -> None:
+    assert limits.question(block).options
+
+
+@pytest.mark.parametrize(
+    ("block", "found"),
+    [
+        (
+            options_ask("Server-side copy (recommended)", "Copy in batches").replace("Which way should this go?", "Will you paste PlatClaude's Client ID so cc-slack can read channels its bot is not in as you?"),
+            'the question asks him for a fact with "you paste PlatClaude\'s Client ID"',
+        ),
+        (options_ask("Server-side copy (recommended)", "Copy in batches").replace("Which way should this go?", "What is PlatClaude's Client ID, which cc-slack needs to read channels its bot is not in?"), 'the question asks him for a fact with "What is PlatClaude\'s Client ID"'),
+        (
+            options_ask("Server-side copy (recommended)", "Copy in batches").replace("so the work waits on it.", "so the work waits on it. Only you can copy the Client ID, since Slack never returns it for an existing app."),
+            'the summary asks him for a fact with "you can copy the Client ID"',
+        ),
+        (options_ask("Server-side copy (recommended)", "Copy in batches").replace(DESCRIPTION, COPIED_ID, 1), 'option "Server-side copy" asks him for a fact with "You copy Client ID"'),
+        (
+            options_ask("Server-side copy (recommended)", "A teammate who holds Matia's account makes it; you reply with their name"),
+            'option "A teammate who holds Matia\'s account makes it; you reply with their name" asks him for a fact with "you reply with their name"',
+        ),
+    ],
+)
+def test_a_card_asking_him_for_a_fact_or_value_is_refused_naming_where_its_job_reads_it(block: str, found: str) -> None:
+    with pytest.raises(DriveError) as refused:
+        limits.question(block)
+    assert found in str(refused.value)
+    assert (
+        "he is asked only a decision that is his, so its job reads that value where it is defined, such as the app's own settings, its"
+        " manifest or the infra that makes it, and asks him only a choice; when no read of the job's reaches it, return `BLOCKED` naming the"
+        f' value and the read it needs (his words "{limits.FACT_QUOTE}", {limits.FACT_ASKED})'
+    ) in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        options_ask("Reads stay the bot's: no value from you, and you never paste a key (recommended)", "Close on the fix"),
+        options_ask("A lane runs that setup once with your sand auth session: you type nothing (recommended)", "Close on the fix"),
+        options_ask("Staging gets its own key: someone must mint a second key and type it by hand (recommended)", "Close on the fix"),
+        options_ask("The job reads the client ID from the app's settings page (recommended)", "Close on the fix"),
+        options_ask("Server-side copy (recommended)", "Copy in batches").replace("Which way should this go?", "Which credential should back codex's sentry MCP server?"),
+        options_ask("Server-side copy (recommended)", "Copy in batches").replace("so the work waits on it.", 'so the work waits on it; his words "you paste the key" settle the setup.'),
+        options_ask("Server-side copy (recommended)", "Copy in batches").replace("so the work waits on it.", "so your pick decides whether the drive finds the token in its own config."),
+    ],
+)
+def test_a_card_whose_job_reads_the_value_ruling_out_a_paste_or_quoting_his_words_passes(block: str) -> None:
     assert limits.question(block).options
 
 

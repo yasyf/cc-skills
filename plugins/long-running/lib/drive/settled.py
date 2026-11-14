@@ -47,8 +47,9 @@ UNTAPPED_QUESTION = (
 CARD_QUESTION = (
     "Does the card itself, apart from what any one option builds, break one of his rulings below by the rule it carries: a Page"
     " line shows a page the card links lacking what the card's words say that page shows, its recommended option or its Root"
-    " cause line breaks his ruling on root causes, or what it says runs meanwhile reads or writes a team's data the way his"
-    " ruling on a team's data rules out? His ruling on root causes speaks only to the option the card recommends: an option"
+    " cause line breaks his ruling on root causes, what it says runs meanwhile reads or writes a team's data the way his"
+    " ruling on a team's data rules out, or it asks him for a fact or value its job reads where that value is defined, which"
+    " his words on asking him for a value rule out? His ruling on root causes speaks only to the option the card recommends: an option"
     " offered beside it, such as the Simplest line's, which every card must offer, breaks nothing. Pick the ruling it breaks,"
     " or none."
 )
@@ -151,7 +152,10 @@ UNWORDED = re.compile(r"[\W_]+")
 TERMINAL = "terminal"
 HUMAN = b'"kind":"human"'
 STEP = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}")
-EVENTS = "a GitHub pull request that merged or closed, a Buildkite build or the job its link names that finished, or a Slack message a teammate or another bot wrote"
+EVENTS = (
+    "a GitHub pull request that merged or closed, a Buildkite build or the job its link names that finished, a Slack message a"
+    " teammate or another bot wrote, or, on a card asking him for a fact or value, the done drive job, by its id, whose report names the card and the value it read"
+)
 HIS_ANSWER = (
     "a question of his becomes a ruling only with his own answer, so only his words verbatim are recorded as his, at the"
     " permalink of his message or of the card he answered, or at terminal for a prompt he typed into a drive session's terminal,"
@@ -307,8 +311,18 @@ def unthreaded(links: list[str]) -> str | None:
     return f"his messages at {', '.join(links)} sit in more than one thread, and not all at one channel's root, so no one answer holds them: record each thread's messages as an answer of its own"
 
 
-def unhappened(link: str) -> str | None:
-    """Why no event at the link overtook a card, read by its host's reader; None for one of EVENTS. His own message withdraws a card only by his words there, and a post of the drive or of any agent, which share one bot, is no event."""
+def unhappened(link: str, card: str, name: str) -> str | None:
+    """Why no event at the link overtook the card, read by its host's reader; None for one of EVENTS. His own message withdraws a card only by his words there, and a post of the drive or of any agent, which share one bot, is no event. A drive job's id is one only once that job is done, its report names the card, and the card's open question asks him for a fact or value, by `limits.fact_problems`, which that job's own read takes the place of."""
+    if state.JOB_ID.fullmatch(link):
+        data = state.load(name)
+        if (job := data["jobs"].get(link)) is None:
+            return f"the drive has no job {link}"
+        if job["state"] != "done":
+            return f"job {link} is not done: it reads {job['state']}"
+        if card not in state.report_text(name, link):
+            return f"job {link}'s report never names {card}, so nothing shows its read was the value that card asks him for"
+        asked = (limits.redrawn(Path(question["file"]).read_text()) for _, question in view.drawn_on(data, card) if question["closed"] is None and question["file"])
+        return None if any(map(limits.fact_problems, asked)) else "the card asks him for no fact or value, the one question a job's own read overtakes"
     try:
         if slack.MESSAGE_LINK.search(link):
             message = slack.message(link)

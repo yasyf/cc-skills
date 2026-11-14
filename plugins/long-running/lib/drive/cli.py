@@ -2290,7 +2290,7 @@ def cards_withdraw(args: argparse.Namespace) -> int:
                 f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws {newest['waits'] or args.card}, its summary citing that answer"
             )
     unsaid = None if onto else settled.unsaid([args.words], [args.via], view.live_cards(name), state.load(name))
-    if unsaid and (unhappened := settled.unhappened(args.via)):
+    if unsaid and (unhappened := settled.unhappened(args.via, args.card, name)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}; nor did an event at {args.via} overtake it: {unhappened}")
     with state.edit(name) as data:
         drawn = [(job_id, question) for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None]
@@ -5898,7 +5898,8 @@ def parser() -> argparse.ArgumentParser:
         required=True,
         help=(
             "the permalink of his message, which the card links, terminal for words he typed into a drive session's terminal,"
-            " the link of the event that overtook it, or another open question card of the drive, by its waits id or permalink,"
+            " the link of the event that overtook it, the id of a done drive job whose report names the card and the fact or value it asks him for,"
+            " or another open question card of the drive, by its waits id or permalink,"
             " that asks it again"
         ),
     )
