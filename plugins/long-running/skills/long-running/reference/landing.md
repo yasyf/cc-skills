@@ -411,8 +411,11 @@ a test flaked, whose cause may be in product code. Waiting on a fix in another P
 naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun, which
-the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `tools/ci bk rerun`,
-`bk job retry`, `bk build rebuild`, `gh run rerun`), naming `tools/ci bk log '<job URL>'` instead. The
+the `bash_guard` hook refuses in a drive session or agent (`stack-enqueue --flake`, `bk job retry`,
+`bk build rebuild`, `gh run rerun`, and a `tools/ci bk rerun` of a build that does not read passed on Buildkite),
+naming `tools/ci bk log '<job URL>'` instead. A `tools/ci bk rerun <pipeline> <build>` of a build that reads
+passed runs, since it regrades a green build with Go's test cache off, as the buildkite-cli skill's
+"Rerun a Green Unit" does. The
 watchdog's agent alone may rerun a failed build of a PR in a stall's chain once, by his pick "Report, plus two safe
 acts, rerunning a failed build and messaging the owning job".
 

@@ -263,7 +263,7 @@ def unhappened(link: str) -> str | None:
             read = github.nodes(github.graphql(github.query([key], "state"), f"whether {key} is still open"), [key])[key]
             return f"{key} is still open" if read["state"] == "OPEN" else None
         if build := github.BUILD.match(link):
-            read = json.loads(github.run(["bk", "build", "view", build["number"], "-p", build["pipeline"], "-o", "json"]))
+            read = github.build(build["pipeline"], build["number"])
             step = STEP.search(link, build.end())
             ran = next((job for job in read.get("jobs", []) if job["id"] == step[0]), None) if step else read
             if ran is None:
