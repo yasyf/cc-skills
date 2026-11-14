@@ -343,6 +343,26 @@ def test_a_drive_saved_holding_his_answer_on_jobs_not_owed_it_drops_each_copy_on
         assert drive["holds_owed"] is True
 
 
+def test_a_drive_saved_before_say_kept_lines_keeps_on_each_carded_question_the_newest_reply_of_each_thread_linking_its_card(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["lines_kept"]
+    card = "https://acme.slack.com/archives/D1/p1794600340632399"
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], "2026-11-13T10:00:00-08:00") | {"questions": [state.new_question("/asks/j1-b.md", "Which forms?", "2026-11-13T11:30:00-08:00", card=card) | {"waits": "demo:j1-2"}]}}
+    alert = "https://acme.slack.com/archives/C0ALERT1/p{ts}?thread_ts=1794200000.000100"
+    said = [
+        ("https://acme.slack.com/archives/D1/p1794600400000100", "[Your card on the forms](http://board#/queue/question/1794600340.632399) went up"),
+        (alert.format(ts="1794600500000100"), "[Your card on the forms](http://board#/queue/question/1794600340.632399) blocks the fix"),
+        (alert.format(ts="1794600600000100"), f"Your card on the forms ({card}) blocks the fix and its release"),
+        (alert.format(ts="1794600700000100"), "The fix is live"),
+    ]
+    for url, text in said:
+        state.append_event("demo", "said", text=text, url=url)
+    state.create(data)
+    with state.edit("demo") as drive:
+        assert (drive["jobs"]["j1"]["questions"][0]["told"], drive["lines_kept"]) == ({"1794200000.000100": {"link": said[2][0], "words": said[2][1]}}, True)
+
+
 def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_answered_on_his_card_and_drops_its_refusal(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

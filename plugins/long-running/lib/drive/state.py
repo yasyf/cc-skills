@@ -151,6 +151,7 @@ PR_NUMBERED = re.compile(r"#?(\d+)")
 PR_WORD = re.compile(rf"{PR_NUMBERED.pattern}|[\w.-]+/[\w.-]+#\d+|{PR_URL.pattern}\S*")
 QUOTED_SPAN = re.compile(r"[`'\"“”‘’]([^`'\"“”‘’\n]{24,})[`'\"“”‘’]")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
+BOARD_CARD = re.compile(r"#/queue/question/(\d{10})\.(\d{6})")
 SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d+\.\d+)(?:/(\d+\.\d+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?[Mm]\.?)?")
@@ -625,6 +626,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "members_kept": True,
         "open_dones_held": True,
         "staging_proofs_owned": True,
+        "lines_kept": True,
         CARDS_NOTED: True,
     }
 
@@ -922,7 +924,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned")) and bool(data.get("lines_kept"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -946,6 +948,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             question.setdefault("holds", None)
             question.setdefault("replaced", None)
             question.setdefault("recorded", [])
+            question.setdefault("told", {})
             question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
@@ -968,6 +971,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         owe_holds(data)
     if not data.get("near_answers_apart"):
         part_near_answers(data)
+    if not data.get("lines_kept"):
+        keep_lines(name, data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     if not data.get("members_kept"):
@@ -1197,6 +1202,23 @@ def part_near_answers(data: dict) -> None:
         if pr["state"] == "open" and pr["checker"] and pr["checker"]["against"]:
             pr["checker"] = None
     data["near_answers_apart"] = True
+
+
+def keep_lines(name: str, data: dict) -> None:
+    """Keep on each question the newest line each thread holds about its card, as say keeps each line it posts now: a reply of the drive's in a thread whose words link the card, read once from the dashboard's said events, each edit in its message's place; marked so this runs once."""
+    from drive import view
+
+    carded: dict[str, list[dict]] = {}
+    for job in data["jobs"].values():
+        for question in job["questions"]:
+            if question["card"]:
+                carded.setdefault(view.message_key(question["card"]), []).append(question)
+    for event, _ in read_events(name):
+        if event["kind"] == "said" and (message := slack_message(event["url"])) and message[2] != message[1]:
+            for key in ["".join(found) for found in [*BOARD_CARD.findall(event["text"]), *(link[1:3] for link in CARD_LINK.findall(event["text"]))]]:
+                for question in carded.get(key, []):
+                    question["told"][message[2]] = {"link": event["url"], "words": event["text"]}
+    data["lines_kept"] = True
 
 
 def folded(one: dict, other: dict) -> dict:
@@ -2246,7 +2268,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 def new_question(
     file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str | None = ""
 ) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None, "recorded": []}
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None, "recorded": [], "told": {}}
 
 
 def refused_by(question: dict) -> str:

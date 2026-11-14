@@ -1510,6 +1510,21 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     assert state.thread_order(data, card) == "o1"
 
 
+def test_say_keeps_a_post_in_a_thread_as_the_line_that_thread_holds_about_each_card_of_his_it_links(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing")
+    building(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp(), card=CARD_URL) | {"waits": WAITS})
+    talk.posted(demo, {"text": f"{{card:{WAITS}|Your card on the lock}} blocks the fix; it builds on one lock per chat meanwhile.", "thread_ts": thread})
+    line = view.told_line(state.load(demo), thread, WAITS)
+    assert (line["link"], CARD_URL in line["words"]) == (POSTED, True)
+    talk.posted(demo, {"text": "The fix is live.", "thread_ts": thread})
+    assert view.told_line(state.load(demo), thread, CARD_URL) == line
+
+
 def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_thread_in_his_dm_on_a_drive_started_with_no_dm_channel(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], his_dm: str
 ) -> None:

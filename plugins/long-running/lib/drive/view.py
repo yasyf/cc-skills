@@ -220,6 +220,11 @@ def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
     ]
 
 
+def told_line(drive: dict, thread: str, *cards: str) -> dict | None:
+    """The newest line this thread holds about any of these cards of his, by waits id or Slack link, as `talk.keep_line` keeps it on each question drawn on the card: its permalink and words; None when the drive kept none."""
+    return next((question["told"][thread] for _, question in drawn_on(drive, *cards) if thread in question["told"]), None)
+
+
 def stored_waits(drive: dict, waits: list[str], found: dict | None = None) -> list[str]:
     """The waits as a job or PR stores them: each once, a card of his named by its Slack link under its waits id, the one the drive's question drawn on that link holds or else the one cc-slack keeps on its open card there, so one card is one wait whichever way it is named, and a process named as pid:<n> pinned to the second it started by state.pid_waits; every other wait as given."""
     listed = [*found["questions"], *found["pr_cards"]] if found else []

@@ -353,7 +353,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict, order: str | None = None) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and a new post of words alone that cc-slack reports failing is read back from Slack, kept and recorded when it went out anyway, cc-slack's error its warning. A card's line goes in each thread of his DM its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -404,6 +404,8 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
         view.refresh_cards(name)
     else:
         reply |= {"sent": sent}
+        if first[1]:
+            keep_line(name, data, first[1], reply["permalink"], sent)
     cards = [reply.get("card_permalink"), *(linked(name, reply["permalink"], place[1], stack, refs.slack(words, found, place[1]), kept) for place in rest if place[0] == dm)]
     if stack:
         with state.edit(name) as data:
@@ -412,6 +414,16 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     for place in [place for place in rest if place[0] != dm]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
+
+
+def keep_line(name: str, data: dict, thread: str, link: str, sent: str) -> None:
+    """Keep a post in a thread as the line that thread holds about each card of his its words link, on each question drawn on that card, by the thread, an edit's words in its post's place: `drive job ask` asking the card again sends that thread a line only once Jev reads this one as no longer true, and `drive job set --told` reads the line it names."""
+    cards = view.SLACK_TS.findall(sent)
+    if not view.drawn_on(data, *cards):
+        return
+    with state.edit(name) as data:
+        for _, question in view.drawn_on(data, *cards):
+            question["told"][thread] = {"link": link, "words": sent}
 
 
 def landed(name: str, post: dict, began: float, sent: str, error: slack.SlackError) -> dict:

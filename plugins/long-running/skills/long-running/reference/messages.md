@@ -360,13 +360,22 @@ Posting it:
   its message in Slack shows it. A block no job kept meets every rule a new block meets before it
   draws.
 - cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
-  permalink under its question in the thread of the job's order, or of its open incident, when that
-  thread is in his DM. An incident's thread outside his DM, such as an alert's, gets the card's line through a
-  report record `drive job ask` sends the communicator, whose handler posts it there, since only a
-  `say` call carries the ticket cc-slack spends on a write outside his DM. That record goes once for
-  each change to the line: its cci id names the card's `waits` id and the line's hash, so a redraw
-  that leaves the line as it was returns the record cci already holds and starts no handler. His
-  tap comes back as an `answer` record, so "card posted" and "he answered" stay two states.
+  permalink under its question in the thread of the job's order when that thread is in his DM and
+  the job is on no open incident. A card on an open incident draws at his DM root alone, and the
+  incident's thread, in his DM or outside it such as an alert's, gets the card's line instead, as
+  does an order's thread outside his DM, through a report record `drive job ask` sends the
+  communicator, whose handler posts it with `say`, since only a `say` call carries the ticket
+  cc-slack spends on a write outside his DM, so the line is the card's one message in that thread.
+  `say` keeps each post it makes in a thread as the line that thread holds about each card of his it
+  links, on the card's question. A card asked again sends that thread a line only when the line it
+  holds is no longer true: `drive job ask` asks Jev, in the same read that weighs the card against
+  his words, what that line says that no longer holds for the card as asked now, what it asks, what
+  it blocks or what is built meanwhile and as which PR, and sends no report when Jev's likeliest
+  reading is that all of it still holds, by his pick "Owe a line only on news"; else its report
+  names the earlier line and what changed. The record's cci id names the card's `waits` id and the
+  report's hash, so a redraw that leaves the report as it was returns the record cci already holds
+  and starts no handler. His tap comes back as an `answer` record, so "card posted" and "he
+  answered" stay two states.
 - Every question card carries its `waits` id, `<drive>:<job>-<n>`, which `drive job ask` mints when
   it first keeps the question. One question keeps one `waits` id, which every copy of it in Slack and
   the dashboard draws from: `drive job ask` keeps a block asking an open question again as that
