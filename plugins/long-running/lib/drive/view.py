@@ -234,7 +234,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open, each part of an open order until it is delivered, each release until the watch sees it out, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -243,6 +243,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return coming(drive, wait)
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] == "open"
+    if part := state.part_wait(drive, wait):
+        return drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
     return bool(state.RELEASE_WAIT.fullmatch(wait)) or wait == state.SLOT_WAIT or card_open(wait, found)
@@ -274,6 +276,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
+    if part := state.part_wait(drive, wait):
+        return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
@@ -696,6 +700,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
+    if part := state.part_wait(drive, wait):
+        return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
     if card := asked_card(found, wait):

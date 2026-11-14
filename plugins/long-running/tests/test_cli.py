@@ -780,6 +780,27 @@ def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: s
     assert state.load("demo")["jobs"]["j1"]["waits"] == [wait]
 
 
+def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_builder_on_it_returns_done(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Memory moves", "--project", "The drive", "--workstream", "Drive tooling", "move every team", "--parts", "move every team")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o2", "--goal", "move")
+    assert cli.main(["job", "set", "j1", "--waits", "o2:move every tem"]) == 2
+    assert "--waits o2:move every tem: name a part of o2 still to be delivered, word for word, as o2:<part>: move every team" in capsys.readouterr().err
+    wait = "o2:move every team"
+    assert run("job", "set", "j1", "--waits", wait)[0] == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["waits"], view.holding(data, [wait], None), state.card_wait(data, wait)) == ([wait], [wait], False)
+    with state.edit("demo") as data:
+        state.take_result(data, "j2", "DONE https://github.com/Forge-AI/monorepo/pull/7 merged: Forge-AI/monorepo#7 at ccc333ddd444")
+    assert view.holding(state.load("demo"), [wait], None) == [wait]
+    with state.edit("demo") as data:
+        state.take_result(data, "j2", "DONE every team moved, its Job succeeded on each cluster")
+    assert view.holding(state.load("demo"), [wait], None) == []
+    assert cli.main(["job", "set", "j1", "--waits", wait]) == 2
+    assert f"--waits {wait}: name a part of o2 still to be delivered, word for word, as o2:<part>: none is left" in capsys.readouterr().err
+
+
 def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming_the_components_go_ci_finds_they_reach(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

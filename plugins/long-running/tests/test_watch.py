@@ -3109,6 +3109,29 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
         data["jobs"]["j2"]["state"] = "done"
     assert f"FREE {KEY} j1 o1: j2 answered or done, nothing else holds it" in watch.run_pass(watching, T0 + timedelta(minutes=120))
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
+
+
+def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_builders_done_delivers_it_never_on_a_done_at_its_merge(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(demo) as data:
+        files_order(data)
+    waits_on(demo, "o2:stack 1")
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    shown = state.load(demo)["prs"][KEY]["stage"]
+    assert (shown["name"], shown["why"], landers) == ("waiting", "it waits on o2:stack 1, and the watch frees it once each ends", [])
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} merged: {OTHER} at ccc333ddd444")
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
+    assert state.load(demo)["prs"][KEY]["waits"] == ["o2:stack 1"]
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", "DONE stack 1 ran on every cluster")
+    assert f"FREE {KEY} j1 o1: o2:stack 1 answered or done, nothing else holds it" in watch.run_pass(watching, T0 + timedelta(minutes=60))
     assert landers == [(KEY,)]
 
 
@@ -5631,6 +5654,31 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("FREE ", "ORPHAN "))]
     assert provers == []
+
+
+def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_builder_proving_it_live_returns_done(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api"], "touched": ["api"]}})
+    merged_ready(demo, OTHER, None)
+    watch.run_pass(watcher(demo), T0)
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"], state.delivered(data, "o1", "ship the watch")) == ("done", "waiting", False)
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} live on the api release")
+    assert state.delivered(state.load(demo), "o1", "ship the watch")
+
+
+def test_a_part_whose_only_builder_took_done_at_its_merge_reads_orphan_naming_the_builder_that_proves_it_live(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=state.stamp(T0 - timedelta(minutes=10)))
+    data = state.load(demo)
+    assert [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN ")] == [
+        f'ORPHAN o1 "ship the watch": j1 took DONE at its merge, which proves nothing live: {install.proof_gap(data, "j1")}'
+    ]
 
 
 def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder_briefed_to_start_in_the_turn_its_line_wakes(
