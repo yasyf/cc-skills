@@ -4,7 +4,7 @@ description: Answers one read-only question a long-running drive's order needs, 
 model: opus
 effort: xhigh
 background: true
-disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message, mcp__slack__slack_get_thread, mcp__slack__slack_conversations_history, mcp__slack__slack_get_full_conversation, mcp__slack__slack_users_info
+disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
 
 Answer the one question your brief asks, changing nothing but your reproduction file and scratch
@@ -23,9 +23,8 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   orders link; any other message, thread or channel reads through cc-slack's `slack_thread`,
   `slack_history`, `slack_file`, `slack_channels` and `slack_users` tools, or
   `cc-slack thread --url <permalink>` and its `history`, `file`, `channels` and `users` verbs in
-  Bash. cc-slack searches no messages: the user-level Slack MCP's
-  `mcp__slack__slack_search_messages`, whose browser token expires, is the one search, and when it
-  fails, find the message through its channel's history or a link to it. cc-slack's first read of a
+  Bash. cc-slack searches no messages, so find
+  a message through its channel's history or a link to it. cc-slack's first read of a
   conversation the bot is not in posts his consent card and is refused with the card's link, which
   your report names.
 - A fact about code, where it lives, what it does or why, cites your own read of the code that
