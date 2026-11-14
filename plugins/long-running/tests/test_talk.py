@@ -938,7 +938,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
 
 def test_a_report_the_away_check_held_posts_nothing_whatever_its_judge_read(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
-        data["held"] = {"684842": {"order": "o1", "at": state.stamp(), "told": "684843"}}
+        data["held"] = {"684842": {"order": "o1", "at": state.stamp()}}
     report(monkeypatch, {"close": "o1"}, lane="watch")
     with pytest.raises(DriveError, match="nothing posted: report 684842 is held for his catch-up, which carries it: return NOTHING held for his catch-up"):
         talk.say(demo, {"text": "The journal fix merged.", "record": "684842"})
@@ -973,7 +973,7 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
 
 def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
-        data["held"] = {seq: {"order": "o1", "at": state.stamp(), "told": told} for seq, told in (("700", "701"), ("702", "703"))}
+        data["held"] = {seq: {"order": "o1", "at": state.stamp()} for seq in ("700", "702")}
     report(monkeypatch, {"orders": "o1"})
     assert not talk.say(demo, {"text": "The run page fix is live.", "record": "660300"}).endswith("no longer held: 700, 702")
     assert list(state.load(demo)["held"]) == ["700", "702"]
@@ -998,16 +998,6 @@ def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_c
     assert calls == [
         ["cci", "grep", ".", "--drive", "demo", "--kind", "correction", "--kind", "withdraw", "--since", "669902", "--budget", str(agents.AMENDMENT_BYTES), "--json"]
     ]
-
-
-def test_holding_a_report_tells_its_writer_each_correction_cci_already_holds_re_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
-) -> None:
-    cci_amendments["correction"]["669950"] = ["669952"]
-    told: list[list[str]] = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: told.append(argv) or json.dumps({"seq": 669957}))
-    assert talk.hold(demo, "669950", {"writer": "root"}, "o1") == "669957"
-    assert told[0][-1] == talk.HELD.format(seq="669950") + "; the catch-up carries it, corrected by record 669952"
 
 
 def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]) -> None:
@@ -1040,7 +1030,7 @@ def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_
 
     monkeypatch.setattr(cli.reads, "run", shown)
     with state.edit(demo) as data:
-        data["held"] = {"669950": {"order": "o1", "at": state.stamp(), "told": "669957"}}
+        data["held"] = {"669950": {"order": "o1", "at": state.stamp()}}
     with pytest.raises(DriveError, match="nothing posted: record 669952 corrects report 669950, held for his catch-up, which carries this correction with it"):
         talk.say(demo, {"text": "It reads 16 MiB a request, not 64.", "record": "669952"})
     owe(demo)
@@ -1057,7 +1047,7 @@ def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_th
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
     with state.edit(demo) as data:
-        data["held"] = {seq: {"order": order_id, "at": state.stamp(), "told": told} for seq, order_id, told in (("695689", "o946", "695700"), ("695810", "o1015", "695811"))}
+        data["held"] = {seq: {"order": order_id, "at": state.stamp()} for seq, order_id in (("695689", "o946"), ("695810", "o1015"))}
         for order_id, closed_on, done in (("o946", "695689", "open"), ("o1015", "695810", "open"), ("o771", "695689", "done")):
             data["orders"][order_id] = state.new_order("show the run page's history", "terminal", None, {}, ASKED) | {"closed_on": closed_on, "state": done}
     cci_amendments["withdraw"]["695689"] = ["695900"]
@@ -1113,27 +1103,6 @@ def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_clos
     with pytest.raises(DriveError, match="nothing posted: his catch-up counts every open card of his, which cc-slack could not list: cc-slack exited 1"):
         talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
     assert (posts, said(demo)) == ([], [])
-
-
-def test_a_held_report_is_told_to_the_coordinator_session_that_wrote_it_else_the_one_hearing_its_order(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["project"] = "Iris"
-        data["subcoordinators"]["Iris"] = {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
-    told = []
-
-    def cci(argv: list[str], checkout: Path, env: dict | None = None) -> str:
-        told.append(argv[argv.index("--to") + 1])
-        return json.dumps({"seq": 800 + len(told)})
-
-    monkeypatch.setattr(cli.reads, "run", cci)
-    assert talk.hold(demo, "700", {"writer": "builder"}, "o1") == "801"
-    assert talk.hold(demo, "700", {"writer": "root"}, "o1") == "801"
-    assert talk.hold(demo, "702", {"writer": "root"}, "o1") == "802"
-    assert talk.hold(demo, "704", {"writer": "builder"}, None) == "803"
-    assert told == [f"iris@{demo}", f"root@{demo}", f"root@{demo}"]
 
 
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(

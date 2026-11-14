@@ -2487,7 +2487,7 @@ def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_bac
     say(transcript, text="Both are in the merge queue.", thread_ts="1.2", asked="Status?")
     assert state.parse_time(state.load("demo")["owner"]["heard"]) == later
 
-def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_once(
+def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer_no_record(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
@@ -2495,29 +2495,23 @@ def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(), "away": True}
         data["orders"]["o2"]["incident"] = True
-    told = []
+    posted = []
 
     def cci(argv: list[str], checkout: Path, env: dict | None = None) -> str:
         if argv[1] == "show":
             attrs = {"700": {"order": "o1"}, "710": {"order": "o2"}, "720": {"order": "o1", "incident": "true"}}[argv[2]]
             return json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": attrs}})
-        told.append(argv)
+        posted.append(argv)
         return json.dumps({"seq": 701})
 
     monkeypatch.setattr(message_limits.cli.reads, "run", cci)
     reason = say(transcript, text="The fix merged.", record="700")
     assert reason.startswith("Refused on purpose: he is away")
     assert agents.ruled(reason) == {"rule": message_limits.AWAY_RULE, "counted": reason}
-    assert reason.endswith(
-        "Report 700 is marked held: `drive status` lists it until the catch-up posts, and record 701 told its writer so."
-        " Return NOTHING held for his catch-up."
-    )
+    assert reason.endswith("Report 700 is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
+    at = state.load("demo")["held"]["700"]["at"]
     assert say(transcript, text="The fix merged.", record="700") == reason
-    assert told == [
-        ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "refused", "--re", "700", "--to", "root@demo", "--id", "held-700"]
-        + ["--attr", "held=700", "--attr", "order=o1", "--json", "--text", talk.HELD.format(seq="700")]
-    ]
-    assert {seq: (mark["order"], mark["told"]) for seq, mark in state.load("demo")["held"].items()} == {"700": ("o1", "701")}
+    assert (posted, state.load("demo")["held"]) == ([], {"700": {"order": "o1", "at": at}})
     assert say(transcript, text="Users are unblocked.", record="710") is None
     assert say(transcript, text="The sandsql outage is mitigated.", record="720") is None
     assert list(state.load("demo")["held"]) == ["700"]

@@ -661,20 +661,16 @@ def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) 
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
         return None
-    seq = report.get("seq")
-    posted = posted_order(drive, tool_input, order_id)
-    held = (
-        f" Report {seq} is marked held: `drive status` lists it until the catch-up posts, and record {talk.hold(drive['name'], seq, report, posted)}"
-        f" told its writer so. Return NOTHING held for his catch-up."
-        if seq
-        else ""
-    )
+    held = ""
+    if seq := report.get("seq"):
+        talk.hold(drive["name"], seq, posted_order(drive, tool_input, order_id))
+        held = f" Report {seq} is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up."
     away = (
         "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
         " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"

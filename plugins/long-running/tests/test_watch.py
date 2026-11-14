@@ -1496,11 +1496,11 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
         data["owner"] = {"heard": state.stamp(T0), "away": True}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["held"]["669950"] = {"order": "o2", "at": held_at, "told": "669957"}
+        data["held"]["669950"] = {"order": "o2", "at": held_at}
     cci_amendments["correction"]["669950"] = ["669952"]
     calls = catching_up(monkeypatch, demo)
     assert cli.main(["status", "--drive", demo]) == 0
-    assert f"- report 669950 (o2), held {render.when(held_at)}, its writer told in record 669957, corrected by record 669952" in capsys.readouterr().out.splitlines()
+    assert f"- report 669950 (o2), held {render.when(held_at)}, corrected by record 669952" in capsys.readouterr().out.splitlines()
     assert heard_now(demo, capsys) == "heard"
     assert state.load(demo)["catch_up"]["orders"] == ["o2"]
     assert watch.catch_up_lines(watcher(demo), BACK) == []
@@ -1517,12 +1517,12 @@ def test_a_held_report_its_writer_withdrew_reads_withdrawn_in_drive_status_and_s
         data["owner"] = {"heard": state.stamp(T0), "away": True}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["held"] |= {"669950": {"order": "o2", "at": held_at, "told": "669957"}, "669960": {"order": "o2", "at": held_at, "told": "669961"}}
+        data["held"] |= {"669950": {"order": "o2", "at": held_at}, "669960": {"order": "o2", "at": held_at}}
     cci_amendments["withdraw"]["669950"] = ["669970"]
     calls = catching_up(monkeypatch, demo)
     assert cli.main(["status", "--drive", demo]) == 0
     assert (
-        f"- report 669950 (o2), held {render.when(held_at)}, its writer told in record 669957, withdrawn by record 669970, so the catch-up leaves it out and closes no order on it"
+        f"- report 669950 (o2), held {render.when(held_at)}, withdrawn by record 669970, so the catch-up leaves it out and closes no order on it"
         in capsys.readouterr().out.splitlines()
     )
     assert heard_now(demo, capsys) == "heard"
@@ -1535,8 +1535,8 @@ def test_a_held_report_its_writer_withdrew_reads_withdrawn_in_drive_status_and_s
 def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_since_the_first(demo: str) -> None:
     with state.edit(demo) as data:
         data["held"] = {
-            "700": {"order": "o2", "at": state.stamp(T0 + timedelta(minutes=20)), "told": "701"},
-            "702": {"order": None, "at": state.stamp(T0 + timedelta(minutes=10)), "told": "703"},
+            "700": {"order": "o2", "at": state.stamp(T0 + timedelta(minutes=20))},
+            "702": {"order": None, "at": state.stamp(T0 + timedelta(minutes=10))},
         }
     saved = state.stored(demo)
     del saved["catch_up"]
