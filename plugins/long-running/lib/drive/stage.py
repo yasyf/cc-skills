@@ -70,7 +70,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage(pr["state"], NOBODY, f"it is {pr['state']}")
     if land.landing(pr):
         return Stage("landing", LANDER, landing_why(pr))
-    if ended := unlanded(data, pr):
+    if ended := unlanded(data, key, cards):
         return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)
@@ -78,12 +78,12 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
     if failing := red(key, pr):
         if waits := answered(data, key, failing):
-            return blocked(data, failing, waits, cards)
+            return blocked(data, key, failing, waits, cards)
         return Stage("red", BUILDER, failing)
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if state.ships_untapped(data, key):
-        return waiting(data, pr, cards) or Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
+        return waiting(data, key, cards) or Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
     if (flaky := land.flaked(pr)) and data["prs"][flaky["fix"]]["state"] == "open":
@@ -95,18 +95,44 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if state.cleared(pr):
         after = f"; the check against his words objects, for after the merge: {named}" if (named := state.against(pr)) else ""
         unread = f"; its lander's last try ended {lander['outcome']}" if (lander := pr["lander"]) and lander["head"] == pr["head"] and (lander["outcome"] or "").startswith(land.UNREAD) else ""
-        return waiting(data, pr, cards) or Stage("ready", LANDER, (f'green, its exempt class "{pr["exempt"]}" lands it' if state.exempted(pr) else f"green and approved by him at {pr['tap']['head'][:7]}{after}") + unread)
+        return waiting(data, key, cards) or Stage("ready", LANDER, (f'green, its exempt class "{pr["exempt"]}" lands it' if state.exempted(pr) else f"green and approved by him at {pr['tap']['head'][:7]}{after}") + unread)
     if carded(pr):
         objection = f"; at {pr['head'][:7]} the check against his words objects: {named}" if (named := state.against(pr)) else ""
         return Stage("card", HIM, f"green, waits on his Approve{objection}")
     return Stage("author", BUILDER, "green; its author or its own builder lands it with no tap")
 
 
-def waiting(data: dict, pr: dict, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it; None once nothing it waits on holds."""
-    if standing := view.holding(data, pr["waits"], cards):
-        return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
-    return None
+def waiting(data: dict, key: str, cards: dict) -> Stage | None:
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting on what it waits on; None once nothing it waits on holds."""
+    if not (standing := view.holding(data, data["prs"][key]["waits"], cards)):
+        return None
+    if mine := asked(data, key, standing, cards):
+        return Stage("blocked", HIM, f"it waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*standing, *mine]))}")
+    return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
+
+
+def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[str]:
+    """Each end of the PR's waits, by ends(), that only he moves."""
+    return [end for end in ends(data, waits, cards, {key}) if his(data, end, cards)]
+
+
+def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> list[str]:
+    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job waiting or built to the waits holding it and each PR not waiting on his Approve to its own, to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere."""
+    found = []
+    for wait in view.holding(data, waits, cards):
+        release = state.RELEASE_WAIT.fullmatch(wait)
+        if wait in seen or release and release["pr"] in seen:
+            continue
+        seen.add(wait)
+        job, pr = data["jobs"].get(wait), data["prs"].get(wait)
+        onward = job["waits"] if job and job["state"] in ("waiting", "built") else pr["waits"] if pr and not his(data, wait, cards) else []
+        found += ends(data, held, cards, seen) if (held := view.holding(data, onward, cards)) else [wait]
+    return found
+
+
+def his(data: dict, wait: str, cards: dict | None) -> bool:
+    """Whether only he moves a wait: his question card, or a PR waiting on his Approve on its drawn card."""
+    return state.card_wait(data, wait) or wait in data["prs"] and bool(view.tap_card(data["prs"][wait], cards))
 
 
 def carded(pr: dict) -> bool:
@@ -123,10 +149,11 @@ def landing_why(pr: dict) -> str:
     return f"lander pid {lander['pid']} lands {lander['head'][:7]}, started {lander['at']}"
 
 
-def unlanded(data: dict, pr: dict) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, Trunk holds it, GitHub refused its merge for a conflict with its base, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
+def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
+    pr = data["prs"][key]
     lander = pr["lander"]
-    if not lander or lander["head"] != pr["head"] or land.running(pr) or land.refused(pr) or land.conflicted(pr):
+    if not lander or lander["head"] != pr["head"] or ends(data, pr["waits"], cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr):
         return None
     if carded(pr) and not state.cleared(pr) or pr["tap"] and state.parse_time(pr["tap"]["at"]) > state.parse_time(lander["at"]):
         return None
@@ -218,10 +245,10 @@ def answered(data: dict, key: str, failing: str) -> list[str]:
     return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
 
 
-def blocked(data: dict, failing: str, waits: list[str], cards: dict | None) -> Stage:
-    """A red PR whose builder waits on the PRs, releases and question cards of his that fix it: each PR and card named by its link, owed by him while one of them is his question card or waits on his Approve on its drawn card, which it links, else by what it waits on, whose own stage wakes its owner."""
-    asks = any(state.card_wait(data, wait) or wait in data["prs"] and view.tap_card(data["prs"][wait], cards) for wait in waits)
-    return Stage("blocked", HIM if asks else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in waits)}")
+def blocked(data: dict, key: str, failing: str, waits: list[str], cards: dict | None) -> Stage:
+    """A red PR whose builder waits on the PRs, releases and question cards of his that fix it: each PR and card named by its link, owed by him while an end of them is his to move by asked(), which it names and links too, else by what it waits on, whose own stage wakes its owner."""
+    mine = asked(data, key, waits, cards)
+    return Stage("blocked", HIM if mine else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*waits, *mine]))}")
 
 
 def fix_words(data: dict, wait: str, cards: dict | None) -> str:

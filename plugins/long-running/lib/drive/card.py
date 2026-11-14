@@ -270,7 +270,7 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "CI is still running"
         case _, "grading":
             return "Lands once " + in_turn(["CI passes", *held])
-        case _, "held" | "waiting" if held:
+        case _, "held" | "waiting" | "blocked" if held:
             return "Lands once " + in_turn(list(held))
         case _, "ready" | "landing" if state.queued_by_lander(key):
             return "CI passed; the drive queues it for merge"
@@ -569,21 +569,22 @@ def siblings(known: dict[str, tuple[str, dict]], members: list[str], reads: dict
 
 
 def holding(name: str, entry: dict) -> dict[str, str]:
-    """Each wait of the PR that still holds and each card of his holding it by land.pr_cards, each card once, with what it waits for in his card's words."""
-    from drive import land, view
+    """Each wait of the PR that still holds, each card of his holding it by land.pr_cards and each end of its waits only he moves by stage.asked, each card once, with what it waits for in his card's words."""
+    from drive import land, stage, view
 
     data, found = state.load(name), view.live_cards(name)
-    return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*view.holding(data, entry["waits"], found), *land.pr_cards(data, entry)], found)}
+    waits = view.holding(data, entry["waits"], found)
+    return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*waits, *stage.asked(data, state.pr_key(entry["url"]), waits, found), *land.pr_cards(data, entry)], found)}
 
 
-def picks(name: str, held: dict[str, str]) -> dict[str, dict]:
-    """Each card holding the PR, by holding(), drawn for an open question of the drive whose card recommends an option, the one the PR's builder builds: its waits id, its link, its title and that option, by the card cc-slack lists or else the one the drive keeps. His Approve on the PR picks that option there by answered(), so a PR built on his card's recommendation, an incident's repair included, never waits on a card his Approve already answered, by his e55b1cd "The repair lands on the recommendation"."""
-    from drive import view
+def picks(name: str, entry: dict) -> dict[str, dict]:
+    """Each card holding the PR by land.pr_cards, the one rule by which a card holds a PR, so never a card holding() names only at an end of its waits, drawn for an open question of the drive whose card recommends an option, the one the PR's builder builds: its waits id, its link, its title and that option, by the card cc-slack lists or else the one the drive keeps. His Approve on the PR picks that option there by answered(), so a PR built on his card's recommendation, an incident's repair included, never waits on a card his Approve already answered, by his e55b1cd "The repair lands on the recommendation"."""
+    from drive import land, view
 
     data, found = state.load(name), view.live_cards(name)
     return {
         wait: {"waits": asked[-1]["waits"], "url": drawn["url"], "title": drawn["card"]["title"], "option": option}
-        for wait in held
+        for wait in view.stored_waits(data, land.pr_cards(data, entry), found)
         if (asked := [question for _, question in view.drawn_on(data, wait) if question["closed"] is None and question["waits"] and question["card"]])
         and (option := (drawn := found and view.asked_card(found, wait) or view.forgotten(name, asked[-1])).get("recommended"))
     }
@@ -668,7 +669,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         taken: set[str] = set()
         drawings = {key: pictured(known[key][0], reads[key], taken) for key in members}
         held = {key: holding(*known[key]) for key in members}
-        picked = {key: picks(known[key][0], held[key]) for key in members}
+        picked = {key: picks(*known[key]) for key in members}
         card = drawn_card(
             [
                 (
@@ -761,7 +762,7 @@ def answered(ask: dict) -> dict:
         from drive import land, superseded, view
 
         approved = [data["prs"][member] for member in members if data["prs"][member]["state"] == "open" and land.approved(data["prs"][member])]
-        picked = {wait: pick for entry in approved for wait, pick in picks(name, holding(name, entry)).items()}
+        picked = {wait: pick for entry in approved for wait, pick in picks(name, entry).items()}
         seqs = {question_answered({"waits": pick["waits"], "url": pick["url"], "label": pick["option"], "action_ts": ask["action_ts"], "source": ask["source"]})["seq"] for pick in picked.values()}
         superseded.follow(name, [(job_id, question) for job_id, question in view.drawn_on(state.load(name), *picked) if (question["closed"] or {}).get("seq") in seqs])
         land.start(name, members, view.live_cards(name))

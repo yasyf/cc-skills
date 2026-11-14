@@ -4435,6 +4435,60 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
     ]
 
 
+def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_blocked_on_him_over_an_older_unlanded_try_and_wakes_no_one_until_they_close(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    pr, release = "Forge-AI/monorepo#56278", "release:cloudrunner-next:Forge-AI/monorepo#56278"
+    links = {
+        "demo:j4413-1794643689439": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794643689439001",
+        "demo:j4413-1794644613322": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794644613322001",
+    }
+    tried = {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0 + timedelta(minutes=3)), "outcome": "not landed: Forge-AI/monorepo#56232 sits below it with neither his Approve nor an exempt class", "below": ["Forge-AI/monorepo#56232"]}
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j4413"])
+        data["jobs"]["j1"]["prs"].append(state.pr_url(pr))
+        data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *links], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
+        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
+    approve(demo, pr)
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
+    serve(monkeypatch, {pr: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    passes = []
+
+    def at(minutes: int) -> None:
+        said = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith(f"STAGE {pr}")]
+        kept = state.load(demo)["prs"][pr]["stage"]
+        passes.append((minutes, kept["name"], kept["owner"], said, [key for key, _ in woken]))
+        woken.clear()
+
+    for minutes in (5, 35, 64):
+        at(minutes)
+    kept = state.load(demo)["prs"][pr]
+    assert kept["stage"]["why"] == "it waits on j4413, " + ", ".join(f"his answer on {view.link('his question card', link)}" for link in links.values())
+    answers = " and ".join(f"you answer {view.link(f'Pick {waits}?', link)}" for waits, link in links.items())
+    assert his_card_row(demo, pr)["blocks"] == f"Approved by you. Lands once the build of watch finishes, {answers}"
+    assert card.picks(demo, kept) == {}
+    found = view.live_cards(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j4413"]["state"] = "running"
+        assert stage.of(data, pr, found) == stage.Stage("waiting", stage.WAITED, "it waits on j4413, and the watch frees it once each ends")
+        data["jobs"]["j4413"]["state"] = "waiting"
+        for asked in data["jobs"]["j4413"]["questions"]:
+            asked["closed"] = state.new_close("answered", "Yes", None, seq="9")
+    at(65)
+    unlanded = (
+        f"STAGE {pr} unlanded since {state.stamp(T0 + timedelta(minutes=65))}, owed by the session holding its order: its lander's try at aaaaaaa, started {tried['at']},"
+        f" ended {tried['outcome']} [o1 j1]"
+    )
+    assert passes == [
+        (5, "blocked", stage.HIM, [], []),
+        (35, "blocked", stage.HIM, [], []),
+        (64, "blocked", stage.HIM, [], []),
+        (65, "unlanded", stage.ORDER, [unlanded], []),
+    ]
+    assert landers == []
+
+
 def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:
     path = tmp_path / "session.jsonl"
     lines = [
