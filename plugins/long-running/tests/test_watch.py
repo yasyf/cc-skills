@@ -2217,6 +2217,7 @@ def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_s
     brief_text = Path(state.load(demo)["jobs"]["j2"]["brief"]).read_text()
     assert (detached, f"Goal: {BOX_GOAL}\n" in brief_text) == ([["job", "launch", "j2"]], True)
     assert "Handoff: The watch started the first pass of o2's standing part \"codex test box\": no pass of it ran before.\n" in brief_text
+    assert f"Done when: {watch.PASS_DONE}\n" in brief_text
 
 
 def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_another_job_and_the_job_it_names_finished_as_686978_and_686979_missed(

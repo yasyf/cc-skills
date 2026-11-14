@@ -41,6 +41,10 @@ TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDE
 LANE = "watch"
 READS_LOG = "reads.log"
 RELAUNCHES_LOG = "relaunches.log"
+PASS_DONE = (
+    "this pass's round is done: it returns DONE naming what the round did and where the next round starts, which the watch quotes to the next"
+    " pass, since drive status reads a pass's HANDOFF as stopped"
+)
 RELAUNCH_REFUSED = "relaunch_refused"
 PROOFS_LOG = "proofs.log"
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
@@ -2682,7 +2686,7 @@ def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], mome
 
 
 def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return, launched by drive job launch as its own process, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job running with no codex-ask run, which its part's ORPHAN line says."""
+    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return and PASS_DONE as its Done when, launched by drive job launch as its own process, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job running with no codex-ask run, which its part's ORPHAN line says."""
     data = state.load(watcher.name)
     if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()):
         return []
@@ -2703,7 +2707,7 @@ def added_pass(data: dict, key: tuple[str, str], last: str | None, moment: datet
 
 
 def launched_pass(name: str, key: tuple[str, str], last: str | None, job_id: str) -> str:
-    """Brief and launch the pass standing_lines added, the line saying it, or why its brief was not written."""
+    """Brief and launch the pass standing_lines added, the line saying it, or why its brief was not written: its Done when is PASS_DONE, whatever its goal says, so a pass that did its round reads done."""
     from drive import cli
 
     order_id, part = key
@@ -2711,7 +2715,7 @@ def launched_pass(name: str, key: tuple[str, str], last: str | None, job_id: str
     ended = f'{last} ended {data["jobs"][last]["state"]}: "{cut(data["jobs"][last]["said"] or "no line", 160)}"' if last else "no pass of it ran before"
     head = f'STANDING {job_id} {order_id} "{cut(part, 80)}": {ended}; the watch added {job_id}, a codex job on this Mac on its standing goal'
     try:
-        cli.write_brief(name, job_id, {"handoff": pass_handoff(name, data, key, last)})
+        cli.write_brief(name, job_id, {"handoff": pass_handoff(name, data, key, last), "done_when": PASS_DONE})
     except cli.VERB_ERRORS as error:
         return f"{head}, and wrote it no brief: {error}; brief it with drive job brief {job_id}, then drive job launch {job_id}"
     state.detach(name, ["job", "launch", job_id], RELAUNCHES_LOG)
