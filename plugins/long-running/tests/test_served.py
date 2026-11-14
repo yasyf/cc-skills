@@ -440,7 +440,7 @@ def test_a_cited_card_answer_reads_with_the_options_its_card_offered_and_his_dur
     question = state.new_question(str(ask), SEARCH_ASKED, "2026-11-13T01:21:00Z", card=SEARCH_CARD, closed=closed) | {"waits": "demo:j2513-1794535260000"}
     data = {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2513": {"questions": [question]}}, "answers": {}}
     recorded.shown |= {answer["id"][:7]: answer for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)}
-    monkeypatch.setattr(settled, "matched", lambda text, cwd: [{"id": answer["id"][:7]} for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)] if "land the pages that range needs" in text else [])
+    monkeypatch.setattr(settled, "matched", lambda texts, data: [{"id": answer["id"][:7]} for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)] if any("land the pages that range needs" in text for text in texts) else [])
     assert served.answers(data, [f"DESIGN: answer 38dfc32 (card {SEARCH_CARD})"], None) == [
         f'cb82cc3, {at(ONE_PATH["created_at"])}{SEARCH_SUBJECT}, asked "{ONE_PATH["title"]}": "1 and we can unify all logic on that right? Not keep all these random other code paths?"',
         f'af02eaf, {at(LAZY_SLICES["created_at"])}{SEARCH_SUBJECT}, asked "{LAZY_SLICES["title"]}": "{LAZY_SLICES["body"]}"',

@@ -30,6 +30,10 @@ anything truly stick which can go read transcript etc".
   a service it waits on; `NEXT` names no release step either rules out, and puts one to him instead.
   The watch reads a `NEXT` asking the holder for a release step through the drive's release check
   and says its refusal in its place.
+- Each `Answered:` line is an answer of his that cc-notes ranks nearest the job's goal and the
+  services its release waits wait on, with its id, the question he answered, and where he gave it.
+  A `NEXT` never puts to him what one of them settles: it names that answer by its id and link,
+  and orders no card asking it.
 - You may act twice on any stall, a job's or a PR's, by his pick "Report, plus two safe acts,
   rerunning a failed build and messaging the owning job": rerun a failed build of a PR in its
   chain once when its log shows a failure outside the change, such as a lost agent or a timeout,

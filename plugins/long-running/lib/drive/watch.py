@@ -1474,6 +1474,16 @@ def hear_sent(name: str, job_ids: set[str]) -> dict:
     return data
 
 
+def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Record in cc-notes each card answer of his the drive holds and no recorded answer of his does, as settled.note_cards does once."""
+    try:
+        settled.note_cards(watcher.name)
+    except state.DriveError as error:
+        return read_failed(watcher, "cc-notes", error, moment)
+    watcher.failures.pop("cc-notes", None)
+    return []
+
+
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each answer of his that leaves a card still asking him, a part undelivered or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one."""
     if watcher.cards is None or watcher.project:
@@ -2075,7 +2085,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple[str, str]], held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, his hold on every release as settled.hold() reads it, and a Card line per open card of his on the chain or naming a service it waits on."""
+    """The brief a watchdog agent starts on: the stall, its chain, the session holding its order, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, what to read, the drive's rows of everything in the chain, the job's returns and its agent's transcript, the holding session's transcript since the chain last moved, and the checks of each PR in the chain, then what the chain's releases rest on, which the agent reads nowhere else: a Release line per release wait in it, what the watch's own read of that wait last found, his hold on every release as settled.hold() reads it, a Card line per open card of his on the chain or naming a service it waits on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
     job_id, order_id = stall.owner(data, subject)
     job = data["jobs"][job_id]
     holder, holding = state.holding_role(data, data["orders"][order_id])
@@ -2100,6 +2110,7 @@ def watchdog_brief(watcher: Watcher, data: dict, subject: str, links: list[tuple
             *(f"Release: {release_line(watcher, data, link)}" for link, _ in links if state.RELEASE_WAIT.fullmatch(link)),
             f"Hold: {hold_line(data)}",
             *(f"Card: {card}" for card in stall_cards(data, links, watcher.cards)),
+            *(f"Answered: {answer}" for answer in stall_answers(data, job, links)),
         ]
     )
 
@@ -2140,6 +2151,15 @@ def stall_cards(data: dict, links: list[tuple[str, str]], cards: dict) -> list[s
         if card["job"] in subjects or any(view.names_card(card, link) for link in subjects) or (naming and naming.search(f"{card['question']}\n{card['card'].get('body') or ''}"))
     ]
     return [*taps, *asks]
+
+
+def stall_answers(data: dict, job: dict, links: list[tuple[str, str]]) -> list[str]:
+    """His recorded answers ccn ranks nearest a stall's job's goal and each service a release wait of its chain waits on, with where he gave each, so its watchdog agent names the one that settles what it would ask him."""
+    services = dict.fromkeys(found["service"] for link, _ in links if (found := state.RELEASE_WAIT.fullmatch(link)))
+    return [
+        f'{answer["id"]} "{cut(answer["asked"], 200)}": "{cut(answer["said"], 300)}"' + (f" {answer['link']}" if answer["link"] else "")
+        for answer in settled.matched([text for text in [job["goal"], *services] if text], data)
+    ]
 
 
 def stuck_line(data: dict, subject: str, held: dict, moment: datetime) -> str:
@@ -2796,6 +2816,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield close_report_lines(watcher, moment)
         yield waiting_lines(watcher, moment)
         yield answer_lines(watcher, moment)
+        yield noted_lines(watcher, moment)
         yield lane_lines(watcher, moment)
         release_lanes(watcher, moment)
         yield pushed_lines(watcher, moment)

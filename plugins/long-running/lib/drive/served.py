@@ -308,7 +308,7 @@ def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
         card = limits.redrawn(Path(file).read_text())
         at = state.parse_time(question["closed"]["at"]).astimezone()
         read[file] = (at, f'the options his card "{card.title}" offered, numbered as it drew them: {"; ".join(limits.offered(card))}')
-        for match in settled.matched("\n".join([card.title, *card.options, *card.hints.values()]), cwd):
+        for match in settled.matched(["\n".join([card.title, *card.options, *card.hints.values()])], data):
             if match["id"] not in own and (answer := settled.shown(match["id"], cwd))["id"] not in read:
                 read[answer["id"]] = recorded(answer, f', recorded on the subject of "{card.title}"', drawn(data, "answer", answer["id"]))
     return [line for _, line in sorted(read.values())]

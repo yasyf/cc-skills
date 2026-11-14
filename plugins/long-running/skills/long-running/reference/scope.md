@@ -135,6 +135,15 @@ and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
 `drive job ask <j> --drop <file>` drops it.
 
+Jev also reads, in the same call, whether an answer of his that cc-notes ranks nearest the card's
+question, summary and options, or nearest the whole block, already answers what the card asks.
+When it reads one at least 0.8 sure, the verb prints that answer with its id and where he gave it,
+and keeps the card, by his picks 320b7a7 and 679484. When it holds, the agent cites the id in the
+summary and asks the same question again, which redraws the card with his words as its `Already
+answered` tap, by his pick 692284 "Your cited answer as a tap on the card: one tap settles it,
+nothing skipped unseen". Each tap of his on a question card is recorded in cc-notes as `drive
+answer` records one, so a card asking it again in other words is told.
+
 Cite by its id under `Findings:` each recorded answer of his you find that bears on the question.
 When the job's brief binds one with `--ruling`, or the block cites one, his card adds an `Already
 answered` option described by his words, linked to where he gave them. His tap on it closes the

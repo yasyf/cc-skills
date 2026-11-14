@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -3518,9 +3518,45 @@ def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_b
     ]
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text, cwd)) or json.dumps(answers))
     block = "Ship <https://github.com/Forge-AI/monorepo/pull/7|the helper process PR> before the four queue PRs?"
-    found = SETTLED_MATCHED(block, "/work")
+    found = SETTLED_MATCHED([block], {"roles": {"coordinator": {"cwd": "/work"}}, "answers": {}, "jobs": {}})
     assert calls == [(["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], settled.read(block), "/work")]
-    assert (found[0], len(found)) == (WAIT_RULING, settled.CANDIDATES)
+    assert (found[0], len(found)) == (WAIT_RULING | {"link": None}, settled.CANDIDATES)
+
+
+def test_his_card_answers_no_recorded_answer_holds_are_recorded_once_and_one_cc_notes_holds_under_that_question_keeps_its_id(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the door")
+    run("job", "add", "builder", "--order", "o1", "--goal", "hang the door")
+    kept = {"id": f"7ab1e20{'0' * 33}", "title": "Bell or knocker?", "body": "Bell\nNotes: kept from his tap", "tags": ["scope:durable"]}
+    listed: list[list[str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: listed.append(argv) or json.dumps([kept]))
+    given = f"c0de123{'0' * 33}"
+    with state.edit("demo") as data:
+        del data[state.CARDS_NOTED]
+        data["jobs"]["j1"]["questions"] = [
+            state.new_question("asks/j1-bell.md", "Bell or knocker?", "2026-11-12T08:00:00Z", card=DESIGN_CARD, closed=state.new_close("answered", "Bell", DESIGN_CARD)),
+            state.new_question("asks/j1-ring.md", "Ring or knock?", "2026-11-12T08:10:00Z", card=TAP_CARD, closed=state.new_close("answered", "Ring", TAP_CARD)),
+            state.new_question("asks/j1-door.md", "Which door?", "2026-11-12T08:20:00Z", card=PICK, closed=state.new_close("answered", "Front", PICK, answer=given)),
+        ]
+    for _ in range(2):
+        settled.note_cards("demo")
+    assert (noted, [argv[:3] for argv in listed]) == ([("demo", "Ring or knock?", "Ring")], [["ccn", "answer", "list"]])
+    assert [(question["closed"]["answer"], question["closed"]["noted"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(None, kept["id"]), (None, f"1c0ffee{'0' * 33}"), (given, None)]
+
+
+def test_job_ask_prints_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_refuses_nothing(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
+    recorded.matched = [WAIT_RULING | {"link": PICK}]
+    jev.breaks("answers", WAIT_RULING["id"])
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block)]) == 0
+    assert f'Jev reads his answer 9992100 to "{WAIT_RULING["asked"]}" ({PICK}) as already answering this card: "{WAIT_RULING["said"]}"' in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["card"]
 
 
 def test_his_thread_words_reach_only_the_order_they_are_about_never_another_order_sharing_its_thread(run: Run, demo: str, slack_thread: Thread) -> None:
@@ -8160,6 +8196,7 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
         return subprocess.CompletedProcess(argv, 0, json.dumps({"id": "beb09e5f00d"}), "")
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
     assert cli.main(["answer", "--words", WORDS, "--link", PICK]) == 2
     assert "--title" in capsys.readouterr().err
     assert cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK, "--label", "header:topology"]) == 2
@@ -8168,6 +8205,18 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
     assert run("answer", "beb09e5", "--others-stand")[0] == 0
     assert list(state.load("demo")["answers"]) == ["beb09e5f00d"]
+
+
+def test_an_answer_his_tap_on_the_card_recorded_already_goes_on_by_that_id_and_records_none_again(
+    run: Run, designing: str, recorded: Answers, noted: list[tuple[str, str, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    tapped = f"beb09e5f00d{'0' * 29}"
+    recorded.shown["beb09e5"] = {"id": tapped, "title": "Which topology?", "body": WORDS, "tags": [], "created_at": "2026-11-12T11:33:00Z"}
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"].append(state.new_question("asks/j2-topology.md", "Which topology?", "2026-11-12T11:00:00Z", card=PICK, closed=state.new_close("answered", WORDS, PICK, noted=tapped)))
+    cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK])
+    assert (f"his answer {tapped} " in capsys.readouterr().err, noted) == (True, [])
 
 
 def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_never_kept_twice(
@@ -8295,6 +8344,7 @@ def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_
         return subprocess.CompletedProcess(argv, 0, json.dumps({"id": f"{len(added)}eb09e5f00d"}), "")
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
     run("answer", "--title", "New: land it?", "--words", "Approve", "--link", TAP_CARD)
     run("answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK)
     labels = [[arg for arg in argv if arg.startswith("--label=")] for argv in added]
@@ -8549,6 +8599,7 @@ def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_wha
         return subprocess.CompletedProcess(argv, 0, json.dumps({"id": "beb09e5f00d"}), "")
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
     outside = tmp_path / "outside"
     outside.mkdir()
     monkeypatch.chdir(outside)
