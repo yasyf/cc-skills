@@ -129,6 +129,7 @@ MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 SLOT_WAIT = "builder-slot"
+PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
 DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monitors/(\d+)(?:[/?#]\S*)?")
@@ -1211,6 +1212,11 @@ def untaken(job: dict) -> bool:
     return job["state"] in ("running", "waiting") and not (job["agent"] or job.get("dispatch") or job["prs"])
 
 
+def builds_nothing(job: dict) -> bool:
+    """Whether a builder holds no checkout or compiler, so no slot of this Mac's builder cap: one marked with --builds-nothing on drive job add or drive job set, or one whose goal reads prove <PRs> live, as the prover the watch adds at a merge writes it, marked or not."""
+    return job["kind"] == "builder" and (bool(job.get("builds_nothing")) or bool(PROVER_GOAL.fullmatch(job["goal"])))
+
+
 def unstarted_builder(data: dict, job: dict) -> bool:
     """Whether a job is a builder no agent or lane started that waits only on readers, as drive job add records beside a build order's reader, so nothing of its work is under way yet."""
     return (
@@ -1738,22 +1744,6 @@ def merge_proven(order: dict) -> bool:
     """Whether an open order keeps as its proof only merge commits outside yasyf/*, as the watch's DONE at a merge once kept with its close report, though a merge proves no fix live."""
     commits = [MERGE_COMMIT.fullmatch(token) for token in (order["proof"] or "").split()]
     return bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits) and order["state"] not in CLOSED_ORDER_STATES
-
-
-def prover(data: dict, order_id: str, keys: list[str], job_id: str | None = None) -> str | None:
-    """The done builder on the order, other than job_id, whose DONE names one of the PRs keys, never the DONE the watch takes at a merge, which proves nothing live: the job that proved it live."""
-    return next(
-        (
-            other
-            for other in data["orders"][order_id]["jobs"]
-            if other != job_id
-            and (job := data["jobs"][other])["kind"] == "builder"
-            and job["state"] == "done"
-            and not done_at_merge(job)
-            and set(keys) & set(named_prs(data, order_id, job["said"] or ""))
-        ),
-        None,
-    )
 
 
 def may_tell(data: dict, order: dict) -> bool:

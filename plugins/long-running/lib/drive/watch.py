@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proves, reported_prs, unstarted_prover, upgraded, waiting_prover, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, prover_of, proves, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -63,6 +63,7 @@ HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 JOB_LINE = re.compile(r"JOB (?P<job>j\d+) (?P<order>o\d+) ")
+MERGE_ENDS = re.compile(r"(?:READY|PUSHED|WAITING)\b")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which draws his card on it, since no card draws for it until then"
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
@@ -327,7 +328,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             waited = job["waits"]
             ended = released(data, job, job_id, watcher.cards, out | slot if turn else out)
             job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out and state.RELEASE_WAIT.fullmatch(wait))]))
-            if ended and job["state"] not in state.FINISHED_JOB_STATES and not watch_proves(data, job_id):
+            if ended and job["state"] not in state.FINISHED_JOB_STATES and not (watch_proves(data, job_id) or at_merge(data, job_id)):
                 job["updated"] = state.stamp(moment)
                 if turn:
                     job["slot"] = state.stamp(moment)
@@ -2494,11 +2495,11 @@ def unproven(data: dict, job_id: str) -> bool:
 
 
 def at_merge(data: dict, job_id: str) -> bool:
-    """Whether the watch takes DONE at its merge on a builder waiting on a READY or PUSHED whose PRs all merged outside yasyf/*, a product change, with nothing else holding it, serving an open order, its own or one it carries, on an order no job of which proved those PRs live, unless it is an open incident's fix, which is live only once its release is out."""
+    """Whether the watch takes DONE at its merge on a builder waiting on a READY, PUSHED or WAITING line whose PRs, by reported_prs, all merged outside yasyf/*, a product change, held by no open card of his and no wait but on a release, which moves to the builder proving it live, on whatever order it serves, unless it is an open incident's fix, which is live only once its release is out."""
     job = data["jobs"][job_id]
-    if not merged_ready(data, job_id) or job["waits"] or not product(data, job_id) or not open_served(data, job):
+    if job["kind"] != "builder" or job["state"] != "waiting" or not MERGE_ENDS.match(job["said"] or "") or not product(data, job_id):
         return False
-    if state.prover(data, job["order"], reported_prs(data, job_id), job_id):
+    if not all(data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)) or view.open_cards(job) or not all(map(state.RELEASE_WAIT.fullmatch, job["waits"])):
         return False
     return not any(state.INCIDENT_FIX in state.job_parts(job, order_id) for order_id in state.open_incidents(data, [job["order"], *job["carries"]]))
 
@@ -2513,17 +2514,17 @@ def open_served(data: dict, job: dict) -> dict[str, list[str]]:
 
 
 def unproved(data: dict, job_id: str) -> dict[str, list[str]]:
-    """The parts the builder proving a merge outside yasyf/* live goes on, each list under the open order holding it, its own first, as open_served reads them: owed to a builder that at_merge takes DONE on now and to one that took that DONE before the watch added a prover at the merge, alike, while it leaves one of those parts undelivered with no job after it carrying it but one that took DONE at its merge too; none otherwise, so a prover once added holds every part, and one that failed or stopped is said by its part's ORPHAN line, never given a second."""
+    """The parts the builder proving a merge outside yasyf/* live takes, each list under the open order holding it, its own first, as open_served reads them: owed by a builder that at_merge takes DONE on now and by one that took that DONE before, alike, while one of those parts is undelivered, each of them while one of its PRs has no prover, by prover_of, else those the prover of one of its PRs does not hold yet; none otherwise, so a prover once added or found holds every part, and one that failed or stopped is said by its part's ORPHAN line, never given a second."""
     job = data["jobs"][job_id]
     if not (at_merge(data, job_id) or job["kind"] == "builder" and state.done_at_merge(job) and product(data, job_id)):
         return {}
     served = open_served(data, job)
-    return served if any(leaves(data, job_id, order_id, part) for order_id, parts in served.items() for part in parts) else {}
-
-
-def leaves(data: dict, job_id: str, order_id: str, part: str) -> bool:
-    carriers = [other for other, _ in state.carriers(data, order_id, part)]
-    return not state.delivered(data, order_id, part) and all(state.done_at_merge(data["jobs"][other]) for other in carriers[carriers.index(job_id) + 1 :])
+    if all(state.delivered(data, order_id, part) for order_id, parts in served.items() for part in parts):
+        return {}
+    found = [prover_of(data, key) for key in reported_prs(data, job_id)]
+    if None in found:
+        return served
+    return {order_id: unheld for order_id, parts in served.items() if (unheld := [part for part in parts if any(part not in state.job_parts(data["jobs"][prover], order_id) for prover in found)])}
 
 
 def proof_due(data: dict, job_id: str) -> bool:
@@ -2555,7 +2556,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> list[str]:
-    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge; one naming a yasyf/* PR and keeping an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes a prover, at that DONE or one it took before the watch added a prover at the merge, gets one from add_prover on the parts unproved names, or widens the unstarted prover already proving one of its PRs, all read before any is added, waiting on each release its PRs' paths reach, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
+    """Finish each builder the watch hears whose PRs all merged: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits moving to that builder; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on each release their paths reach, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -2566,17 +2567,18 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     merging = [job_id for job_id in heard if at_merge(data, job_id)]
     lines: list[str] = []
     try:
-        reach = cli.release_reach(watcher.name, data, [key for job_id in owed for key in reported_prs(data, job_id)])
+        reach = cli.release_reach(watcher.name, data, [key for job_id in owed for key in reported_prs(data, job_id) if not prover_of(data, key)])
     except (github.GithubError, state.DriveError) as error:
         merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "`tools/ci release select --pr` read of the releases a merged PR reaches", error, moment)
     else:
         watcher.failures.pop("release select", None)
     with state.edit(watcher.name) as data:
+        moved: dict[str, list[str]] = {}
         for job_id, job in list(data["jobs"].items()):
             if not heard_job(watcher, data, job):
                 continue
             if job_id in merging and at_merge(data, job_id):
-                merged_done(watcher.name, data, job_id)
+                moved[job_id] = merged_done(watcher.name, data, job_id)
             elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
             elif unproven(data, job_id):
@@ -2585,18 +2587,20 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         known = set(data["jobs"])
         provers: dict[str, list[str]] = {}
         for job_id, parts in proving.items():
-            provers.setdefault(add_prover(data, job_id, reach, parts), []).append(job_id)
+            provers.setdefault(add_prover(data, job_id, reach, parts, moved.get(job_id, [])), []).append(job_id)
     return lines + [merged_said(watcher.name, builder_id, f"widened to the parts of {', '.join(jobs)}" if builder_id in known else "added") for builder_id, jobs in provers.items()]
 
 
 def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Fold each unstarted prover proving a PR an earlier unstarted prover proves into that earlier one, which widen gives its open parts, the PRs it lacks, its release waits and its handoff, and stop it, one line saying each fold, so the provers two passes or a coordinator added for one PR become one."""
+    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks, its release waits and its handoff, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
     if not doubled(state.load(watcher.name)):
         return []
     folds = []
     with state.edit(watcher.name) as data:
         for job_id in doubled(data):
-            job, first = data["jobs"][job_id], waiting_prover(data, proves(data, job_id))
+            if not (first := folded_into(data, job_id)):
+                continue
+            job = data["jobs"][job_id]
             widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], job["waits"], (job.get("brief_flags") or {}).get("handoff"))
             job.update(state="stopped", said=f"folded into {first}", updated=state.stamp(moment))
             folds.append((first, job_id))
@@ -2604,7 +2608,14 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def doubled(data: dict) -> list[str]:
-    return [job_id for job_id, job in data["jobs"].items() if unstarted_prover(job) and waiting_prover(data, proves(data, job_id)) not in (None, job_id)]
+    return [job_id for job_id, job in data["jobs"].items() if state.untaken(job) and folded_into(data, job_id)]
+
+
+def folded_into(data: dict, job_id: str) -> str | None:
+    """The prover a prover no agent or lane took folds into: the one prover_of names for one of its PRs, when that one can take its other PRs too, no agent or lane having taken it either, or another prover proves each of them."""
+    keys = proves(data, job_id)
+    found = [prover for key in keys if (prover := prover_of(data, key)) != job_id]
+    return found[0] if found and (state.untaken(data["jobs"][found[0]]) or len(found) == len(keys)) else None
 
 
 def finishes(data: dict, job_id: str) -> bool:

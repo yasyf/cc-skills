@@ -66,11 +66,11 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder marked with --builds-nothing on drive job add or drive job set, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
-        if job["kind"] == "builder" and not job.get("builds_nothing") and job["state"] in ("running", "waiting") and (work := at_work_here(job_id, job, data, moment))
+        if job["kind"] == "builder" and not state.builds_nothing(job) and job["state"] in ("running", "waiting") and (work := at_work_here(job_id, job, data, moment))
     }
 
 
@@ -114,7 +114,7 @@ def positions(data: dict) -> dict[str, str]:
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
     """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap", and one that builds nothing starts at once past both, holding no slot."""
     job = data["jobs"].get(job_id)
-    if job and (job.get("builds_nothing") or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
+    if job and (state.builds_nothing(job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
         return None
     builders = local_builders(data, moment)
     others = {other: line for other, line in builders.items() if other != job_id}
