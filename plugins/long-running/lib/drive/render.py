@@ -337,7 +337,7 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
 def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
     due = f" due {when(order['due'])}" if order.get("due") else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
-    return f"{order_id} {order['state']}{due}{where}{reporter_said(order)}: {cut(order['text'], limit)}"
+    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(order)}: {cut(order['text'], limit)}"
 
 
 def reporter_said(order: dict) -> str:

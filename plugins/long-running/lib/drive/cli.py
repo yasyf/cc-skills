@@ -4561,6 +4561,8 @@ def parser() -> argparse.ArgumentParser:
     json_opt = argparse.ArgumentParser(add_help=False)
     json_opt.add_argument("--json", action="store_true", help="print JSON")
     both = [drive_opt, json_opt]
+    dry_opt = argparse.ArgumentParser(add_help=False)
+    dry_opt.add_argument("--dry-run", action="store_true", help="run every check it makes and keep nothing, as an MCP op's dry_run does, saying which command that does more than read it stopped at")
     waits_opt = argparse.ArgumentParser(add_help=False)
     waits_opt.add_argument(
         "--waits",
@@ -4688,7 +4690,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names this order by, since his words stay whole in its task")
     verb.set_defaults(run=order_add)
-    verb = order.add_parser("set", parents=both)
+    verb = order.add_parser("set", parents=[*both, dry_opt])
     verb.add_argument("id", help="the order")
     verb.add_argument(
         "--words",
@@ -4743,7 +4745,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="SEQ",
         help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
-    verb.set_defaults(run=order_set)
+    verb.set_defaults(run=rehearsed(order_set))
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project, workstream or title yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
@@ -4906,7 +4908,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=job_add)
-    verb = job.add_parser("set", parents=[*both, waits_opt, builds_opt])
+    verb = job.add_parser("set", parents=[*both, dry_opt, waits_opt, builds_opt])
     verb.add_argument("id", help="the job")
     verb.add_argument(
         "--agent",
@@ -4947,7 +4949,7 @@ def parser() -> argparse.ArgumentParser:
             " builds on meanwhile; a job on an open incident order takes a card only with it"
         ),
     )
-    verb.set_defaults(run=job_set)
+    verb.set_defaults(run=rehearsed(job_set))
     verb = job.add_parser(
         "ask",
         parents=both,
@@ -5297,7 +5299,7 @@ def parser() -> argparse.ArgumentParser:
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside Forge-AI; needs --why. Every other PR waits on his tap")
     verb.set_defaults(run=pr_add)
-    verb = pr.add_parser("set", parents=[*both, waits_opt])
+    verb = pr.add_parser("set", parents=[*both, dry_opt, waits_opt])
     verb.add_argument("url", help="the PR's URL")
     verb.add_argument(
         "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; --no-tap withdraws his open card for it, needs --why"
@@ -5340,7 +5342,7 @@ def parser() -> argparse.ArgumentParser:
             " and once the fix merges the lander queues the same commit again with stack-enqueue --flake, once; refused unless Trunk ejected it at its head"
         ),
     )
-    verb.set_defaults(run=pr_set)
+    verb.set_defaults(run=rehearsed(pr_set))
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")
     verb.set_defaults(run=pr_tapped)
@@ -5766,6 +5768,24 @@ def main(argv: list[str] | None = None) -> int:
         return refused(args, error, detached)
     except VERB_ERRORS as error:
         return refused(args, error, detached)
+
+
+def rehearsed(run: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Namespace], int]:
+    """The verb, which with --dry-run runs in a dry state.batch as tools.ran runs an MCP op's dry run: refused as it would be, keeping nothing, and stopped at the first command it starts that does more than read, which every check before it passed."""
+
+    def rehearse(args: argparse.Namespace) -> int:
+        if not args.dry_run:
+            return run(args)
+        try:
+            with state.batch(state.resolve(args.drive), dry=True):
+                code = run(args)
+        except state.Rehearsed as reached:
+            print(f"checked up to `{reached}`, which a dry run never starts")
+            code = 0
+        print("a dry run: nothing kept")
+        return code
+
+    return rehearse
 
 
 def folded_waits(name: str | None, value: str | tuple | list) -> str | tuple | list:

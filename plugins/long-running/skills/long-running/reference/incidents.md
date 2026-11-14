@@ -242,7 +242,8 @@ changed and when, its findings the suspects, and its root cause the verdict.
   it, as `--unsettled` naming those words does. That mark makes
   `land.open_cards` keep the card on an incident, so the `bash_guard` hook refuses the
   `ccx vcs ship` that would open its PR, and the lander, `landing_guard` and his PR card hold an
-  open one, until he answers.
+  open one, until he answers on the card or approves the PR, whose card says his Approve picks the
+  recommended option there.
 
 ## Freeze the broken service
 

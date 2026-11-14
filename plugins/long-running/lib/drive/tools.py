@@ -10,7 +10,7 @@ import uuid
 from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
-UNTYPED = {"help", "drive", "json"}
+UNTYPED = {"help", "drive", "json", "dry_run"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
 ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
