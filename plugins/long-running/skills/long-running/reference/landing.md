@@ -460,7 +460,8 @@ the patch.
   session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `status` and
   `watch` still run. A job of a sub-coordinator returns
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
-  for the cut with a `release` record at `root@<drive>`. The top starts the cut in one call on the
+  for the cut with a `release` record at `root@<drive>` naming, in backticks, the one start with the
+  `--order` of his answer, or else asking the top to put it to him. The top starts the cut in one call on the
   record's order, such as `drive job add builder --order o1094 --goal "release the merged SandSQL
   changes" --release "go/ci/.build/ci.dev release start sandsql --from a6f826f01131fb9774a1410f95b3480996409aeb --order b9668c9"`,
   which starts it from the top's checkout, prints its build link and writes the job's brief, whose

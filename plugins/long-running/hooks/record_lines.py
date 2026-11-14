@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, limits, settled, state, superseded
+from drive import agents, brief, limits, settled, state, superseded
 from drive.reports import CALL_FIELDS, addressed, attrs, kind, listed, posted, relayed_time, report_refusals, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
@@ -64,6 +64,8 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield unready(record)
         yield from report_refusals(payload, drive, records, index)
         yield relayed_time(record, drive)
+        words = "\n".join(filter(None, [record.get("text"), record.get("body"), record.get("path") and Path(record["path"]).read_text()]))
+        yield agents.Unjudged(asked) if (asked := brief.release_ask_refusal(kind(record), listed(record.get("to")), words, drive)) else None
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:

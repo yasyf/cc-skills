@@ -11,13 +11,12 @@ from pathlib import Path
 from typing import Self
 
 from drive import install, limits, procs, reads, render, slack, state, superseded
-from drive.brief import BRIEF_JOB, carried, heavier
+from drive.brief import BRIEF_JOB, HIS_KINDS, carried, heavier
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
 RETYPED = re.compile(r"\b(?:POSTED|EDITED|CARD)(?:\s+https://\S+)+\s*;?\s*")
-HIS_KINDS = ("owner", "answer")
 RE_HOPS = 8
 AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20

@@ -354,7 +354,7 @@ check's verdict, or from the order when none ran.
 - An incident filed under a project with a sub-coordinator is that session's to fix and land, and
   the top coordinator starts, approves and rolls back its cuts, one at a time, by his pick "the top
   starts, approves and rolls back production cuts": the sub-coordinator sends the top a `release`
-  record for each, naming the exact start, since the `landing_guard` hook refuses those three from
+  record for each, naming in backticks the exact start with its `--order`, since the `landing_guard` hook refuses those three from
   its session and agents, and the top starts the cut on the incident's order with `drive job add
   builder --order <o> --goal "<one line>" --release "<the one ci release start or hotfix>"`.
 - No incident release starts, a rollback included, before a line to him states the bug it ships

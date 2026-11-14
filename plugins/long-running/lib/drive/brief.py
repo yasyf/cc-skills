@@ -107,6 +107,20 @@ RELEASE_HELD = (
     " approve, rerun or rollback reads from its brief's `Release:` line. Once he says"
     " releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
+HIS_KINDS = ("owner", "answer")
+RELEASE_WORDS = re.compile(r"\b(?:releas|hotfix|rollback|roll(?:ed|ing|s)?[\s-]+(?:\w+[\s-]+)?back\b)", re.IGNORECASE)
+RELEASE_ASK_QUESTION = (
+    "Does this record ask the session it goes to, or a job or agent that session runs, to take a step of a production release"
+    " itself: start, hotfix, resume, approve, rerun or roll back a release, now or once something holds? Pick asks when it does,"
+    " whatever words of his it quotes. Pick none when it only reports a release that ran or is running, quotes a command, plan or"
+    " refusal, asks for a plan or a dry run, or asks that session to put the release to him and start nothing until he answers."
+)
+RELEASE_ASK_OPTIONS = {settled.UNDECIDED: "It asks no session to take a release step.", "asks": "It asks a session to take one."}
+RELEASE_ASKED = "refused: Jev reads this record as asking a session to take a step of a production release"
+RELEASE_UNNAMED = (
+    f"{RELEASE_ASKED}, and it names no release as one `tools/ci release start` or `hotfix` in backticks with `--order <his answer>`:"
+    f" name it so, or ask that session to put the release to him and start nothing until he answers. {RELEASE_APPROVAL}"
+)
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
 ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
@@ -215,6 +229,32 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     except settled.Unheard as failure:
         why = f"Jev did not say whether his answer {orders[-1]} approves it ({failure}); run it again once Jev answers"
     return RELEASE_HELD.format(said=said, where=where, hold=hold["id"][:7], release=release, why=why)
+
+
+def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str | None:
+    """Why a record may not go out: Jev reads it as asking the session it goes to for a step of a production release, at least settled.DECIDES sure, or gives no reading, and it names in backticks no `ci release start` or `hotfix`, or one `drive job add --release` would refuse, his hold included; his owner and answer records, and a record that is no release record and names no release, hotfix or rollback, pass unread."""
+    if kind in HIS_KINDS or not (kind == "release" or RELEASE_WORDS.search(words)):
+        return None
+    record = {"kind": kind, "to": to, "text": words[: settled.BODY_CHARS]}
+    try:
+        read = settled.jev({"state": {"record": record}, "questions": {"asks": {"label": {"instructions": RELEASE_ASK_QUESTION, "options": RELEASE_ASK_OPTIONS}}}})["asks"]
+    except settled.Unheard as failure:
+        return f"refused: Jev did not say whether this record asks a session to take a step of a production release ({failure}); send it again once Jev answers"
+    if read["choice"] != "asks" or read["probabilities"]["asks"] < settled.DECIDES:
+        return None
+    named = []
+    for found in limits.BACKTICKED.findall(words):
+        try:
+            if started(release := found.strip("`")):
+                named.append(release)
+        except ValueError:
+            continue
+    if not named:
+        return RELEASE_UNNAMED
+    for release in named:
+        if refused := release_refusal(release) or approval_refusal(release, data):
+            return f"{RELEASE_ASKED}, and `drive job add --release` would refuse `{release}`: {refused.removeprefix('refused: ')}"
+    return None
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:
