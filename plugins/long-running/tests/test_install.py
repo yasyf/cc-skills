@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from conftest import commit_files, git_in, Jev
-from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, watch
+from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, view, watch
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -1077,7 +1077,15 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
 
 
 def proof_events() -> list[tuple[str, str]]:
-    return [(f"{event['repo']}#{event['number']}", event["change"]) for event, _ in state.read_events("demo") if event["kind"] == "proof"]
+    return [(event.get("job") or f"{event['repo']}#{event['number']}", event["change"]) for event, _ in state.read_events("demo") if event["kind"] == "proof"]
+
+
+def repairing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -> Path:
+    script = proving(config, tmp_path, git, exits)
+    with state.edit("demo") as data:
+        del data["prs"]["yasyf/cc-skills#7"]
+        data["jobs"]["j1"].update(prs=[], **job)
+    return script
 
 
 def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_it_takes_done_and_keeps_the_close_report_for_the_watch(
@@ -1105,6 +1113,43 @@ def test_a_proof_installs_a_merge_its_plugin_lacks_runs_the_jobs_proof_file_on_i
     }
     assert [call for call in git.other_calls() if call[:1] == ["cci"]] == []
     assert proof_events() == [("yasyf/cc-skills#7", proven)]
+
+
+def test_a_repair_its_own_agent_proves_installs_nothing_takes_done_naming_no_pr_and_closes_its_order_under_the_orders_title(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = repairing(config, tmp_path, git, 0, {"state": "running", "said": None})
+    kept = state.proof_path("demo", "j1")
+    versions = f"long-running {state.VERSION}"
+    checked = f"{install.PROVEN} on {versions}: {script} exits 0, its output {kept}"
+    proven = f"{checked}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    assert install.prove("demo", "j1", 900) == f"j1: {proven}"
+    assert not [call for call in git.calls if call[:3] == ["claude", "plugin", "update"]]
+    data = state.load("demo")
+    line = f"DONE j1's repair live: {script} exits 0 on {versions}"
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", line)
+    assert state.returns("demo", "j1")[0]["body"].strip() == f"{line}\nCHECK: {kept}"
+    title = view.order_title(data["orders"]["o1"])
+    assert (data["orders"]["o1"]["close_report"]["text"], data["orders"]["o1"]["close_report"]["body"]) == (f"POST {title} is fixed", f"Fixed: {title}\nProof: {checked}\n")
+    assert proof_events() == [("j1", proven)]
+
+
+@pytest.mark.parametrize("job", [{"state": "running", "said": None}, {"state": "stopped", "said": "HANDOFF its proof waits on his next message"}])
+def test_a_repairs_proof_waiting_on_his_next_word_sets_it_waiting_on_a_kept_waiting_line_its_proof_marked(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], job: dict
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = repairing(config, tmp_path, git, 1, job)
+    script.write_text("#!/bin/sh\necho checked the records\necho WAIT he writes in his thread\nexit 1\n")
+    kept = state.proof_path("demo", "j1")
+    change = f"{install.PROOF_WAITS}: j1's repair: {script} exits 1 on long-running {state.VERSION}, its output {kept}: WAIT he writes in his thread"
+    assert install.prove("demo", "j1", 900) == f"j1: {change}"
+    job = state.load("demo")["jobs"]["j1"]
+    said = f"WAITING {install.PROOF_WAITS}: WAIT he writes in his thread"
+    assert (job["state"], job["said"], job["proof"]["said"], job["proof"]["waits"]) == ("waiting", said, said, "WAIT he writes in his thread")
+    assert state.kept_return("demo", "j1", job, said)
+    assert proof_events() == [("j1", change)]
 
 
 @pytest.mark.parametrize("session", [None, "other-coordinator"])
