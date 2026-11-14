@@ -783,7 +783,7 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
 
 
 def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict], staging: set[str]) -> str:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none; a job whose proof needs staging by state.on_staging waits instead on staging running each of those components staging, the services cli.staging_runs read, holds, when it holds one at least; that builder's id."""
+    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, and add the builder that proves it live there: on the job's parts and each part it carries, in its session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none, briefed then to prove it from its default branch's CI when go/ci answered for every PR; a job whose proof needs staging by state.on_staging waits instead on staging running each of those components staging, the services cli.staging_runs read, holds, when it holds one at least; that builder's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
     report = state.report_text(name, job_id)
@@ -799,6 +799,8 @@ def merged_done(name: str, data: dict, job_id: str, reach: dict[str, dict], stag
     state.take_result(data, job_id, line, whole)
     builder_id = state.next_id(data["jobs"], "j")
     handoff = f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
+    if not waits and merges.keys() <= reach.keys():
+        handoff = f"{merged} merged, and its paths reach no release go/ci makes: prove it from its default branch's CI by the PROVE: line of {job_id}'s return before its DONE, in reports/{job_id}.md"
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(merges)} live", job["parts"], state.stamp()) | {
         "session": job.get("session"),
         "waits": waits,

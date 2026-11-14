@@ -1354,7 +1354,7 @@ def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_star
         data["jobs"]["j1"].update(said=f"READY {port}", prs=[port], repro=None, brief_flags={"native": "none"})
         for url, job_id, sha in ((port, "j1", "fedcba9876543210"), (shown, "j2", "0123456789abcdef")):
             data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
-        asking = install.merged_done("demo", data, "j2", {}, set())
+        asking = install.merged_done("demo", data, "j2", {"Forge-AI/monorepo#10": {"components": ["api", "web"], "touched": []}}, set())
         merging = install.merged_done("demo", data, "j1", {}, set())
     asked, merged = install.merged_said("demo", "j2", asking), install.merged_said("demo", "j1", merging)
     data = state.load("demo")
@@ -1365,7 +1365,10 @@ def test_a_product_merge_whose_paths_reach_no_release_briefs_its_builder_to_star
     )
     assert asked == f'{head}: it waits on no release go/ci makes, so start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
     assert "to prove it there, its DONE giving o1 its proof: it waits on no release go/ci makes" in merged
-    assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it and prove it live" in Path(data["jobs"]["j3"]["brief"]).read_text()
+    assert (
+        "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged, and its paths reach no release go/ci makes: prove it from its default branch's CI by the PROVE: line of j2's return"
+    ) in Path(data["jobs"]["j3"]["brief"]).read_text()
+    assert data["jobs"]["j4"]["brief_flags"]["handoff"].startswith("Forge-AI/monorepo#9 at fedcba987654 merged: install it and prove it live")
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "running", "running"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
