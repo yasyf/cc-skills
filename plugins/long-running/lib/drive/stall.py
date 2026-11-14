@@ -30,7 +30,7 @@ def chains(data: dict, cards: dict, on_hold: bool, moment: datetime, heard: Call
 
 
 def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) -> list[tuple[str, str]] | None:
-    """Each link from a job, PR or wait to the ends it waits on, by id and in words that change only when it moves: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it; None once it reaches a running job or a step of his: a PR whose stage he owes or that his Hold or the hold label stops, his open question card, or a release while on_hold, his hold on every release, stands."""
+    """Each link from a job, PR or wait to the ends it waits on, by id and in words that change only when it moves: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it, each by stage.onward, as stage.ends walks it; None once it reaches a running job or a step of his: a PR whose stage he owes or that his Hold or the hold label stops, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
     if subject in seen:
         return []
     seen.add(subject)
@@ -40,11 +40,11 @@ def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) 
             return None
         owner = stage.owner_job(data, subject) if kept and kept["owner"] in FOLLOWED else None
         here = f"{subject} {kept['name']}, owed by {kept['owner']}: {kept['why']}" if kept else f"{subject} {pr['state']}"
-        nexts = [*view.holding(data, pr["waits"], cards), *([owner] if owner else [])]
+        nexts = [*stage.onward(data, subject, cards), *([owner] if owner else [])]
     elif job := data["jobs"].get(subject):
         if job["state"] == "running":
             return None
-        nexts = view.holding(data, job["waits"], cards) if job["state"] in ("waiting", "built") else []
+        nexts = stage.onward(data, subject, cards)
         here = f"{subject} {job['state']}" + (f" on {', '.join(nexts)}" if nexts else "")
     elif state.card_wait(data, subject) or on_hold and state.RELEASE_WAIT.fullmatch(subject):
         return None

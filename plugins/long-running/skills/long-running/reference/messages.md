@@ -387,8 +387,8 @@ When it is answered, replaced or redone:
   forgot it. Never edit a card with
   `say(edit=…)` or `slack_edit`: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
   it, naming the redraw.
-- Words of his that supersede a card he has not answered, wherever he writes them, withdraw it the
-  moment they are recorded: words that answer its subject, change its question or options, such as
+- Words of his that supersede a card he has not answered, wherever he writes them after it was
+  asked, withdraw it the moment they are recorded: words that answer its subject, change its question or options, such as
   more options or a new constraint, or send its work back to be redone. `drive cards withdraw <its
   waits id> --words "<his words>" --via <his permalink>` settles it in place, showing his words and a
   link to them with no buttons, so a late tap records nothing, and its question, asked again on any
