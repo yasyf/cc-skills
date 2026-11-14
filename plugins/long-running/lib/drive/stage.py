@@ -50,7 +50,7 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 def own(data: dict, key: str, cards: dict | None) -> Stage:
     """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
-    if not pr["rework"] and cards is not None and state.asks_tap(pr) and not view.tap_card(pr, cards):
+    if not pr["rework"] and cards is not None and state.asks_tap(data, pr) and not view.tap_card(data, pr, cards):
         return Stage("uncarded", WATCH, uncarded(pr, cards))
     return alone(data, key, cards)
 
@@ -132,7 +132,7 @@ def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> li
 
 def his(data: dict, wait: str, cards: dict | None) -> bool:
     """Whether only he moves a wait: his question card, or a PR waiting on his Approve on its drawn card."""
-    return state.card_wait(data, wait) or wait in data["prs"] and bool(view.tap_card(data["prs"][wait], cards))
+    return state.card_wait(data, wait) or wait in data["prs"] and bool(view.tap_card(data, data["prs"][wait], cards))
 
 
 def carded(pr: dict) -> bool:
@@ -258,7 +258,7 @@ def fix_words(data: dict, wait: str, cards: dict | None) -> str:
     if wait not in data["prs"]:
         return wait
     pr = data["prs"][wait]
-    asked = f", which waits on his Approve on {view.link('his card', card)}" if (card := view.tap_card(pr, cards)) else ""
+    asked = f", which waits on his Approve on {view.link('his card', card)}" if (card := view.tap_card(data, pr, cards)) else ""
     return view.pr_link(pr) + asked
 
 

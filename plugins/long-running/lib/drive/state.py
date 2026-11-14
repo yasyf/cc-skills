@@ -816,7 +816,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if (tap := pr["tap"]) and pr["state"] == "open" and tap.get("via"):
             pr["tap"] = None
         elif tap:
-            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"])
+            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"))
     data.setdefault("answers", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
@@ -3118,8 +3118,8 @@ def against(pr: dict) -> str:
     return checker["against"] if checker and checker["head"] == pr["head"] else ""
 
 
-def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Approve, his Hold nor the hold label on it, whatever the check against his words says. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
+def tap_refused(pr: dict, picked: Iterable[str]) -> str | None:
+    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Hold, the hold label nor his Approve on it, whatever the check against his words says, his Approve standing only while the picks it kept name each card his Approve would pick on the PR now, the waits ids `picked` gives, so a card of his that came to hold it since he tapped, which his Approve did not answer, has his card on it offer Approve again naming that pick. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     if exempted(pr):
@@ -3127,7 +3127,7 @@ def tap_refused(pr: dict) -> str | None:
     if not pr["wants_tap"]:
         return "its author or its own builder lands it with no tap"
     match (pr["tap"] or {}).get("label"):
-        case "Approve":
+        case "Approve" if set(picked) <= pr["tap"]["picks"].keys():
             return "he approved it already"
         case "Hold":
             return "he held it"
@@ -3136,8 +3136,11 @@ def tap_refused(pr: dict) -> str | None:
     return None
 
 
-def asks_tap(pr: dict) -> bool:
-    return tap_refused(pr) is None
+def asks_tap(data: dict, pr: dict) -> bool:
+    """Whether his card on the PR offers Approve, by tap_refused with the cards his Approve would pick on it now, by card.picks."""
+    from drive import card
+
+    return tap_refused(pr, card.picks(data, pr) if (pr["tap"] or {}).get("label") == "Approve" else ()) is None
 
 
 def rework(pr: dict, by: str, words: str) -> None:
@@ -3150,9 +3153,9 @@ def rework_reason(pr: dict) -> str:
     return f'Being reworked to your words "{pr["rework"]["words"]}". A fresh card asks your tap once its builder says how they are met'
 
 
-def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None) -> dict:
-    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source and the card press's Slack action."""
-    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts}
+def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None, picks: dict[str, dict] | None = None) -> dict:
+    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, and on his Approve each card of his holding the PR whose recommended option it picks, by card.picks as he tapped, under its waits id with the seq of the answer land.start recorded for it, None until then."""
+    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "picks": picks or {}}
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

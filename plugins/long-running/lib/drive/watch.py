@@ -2144,7 +2144,7 @@ def stall_cards(data: dict, links: list[tuple[str, str]], cards: dict) -> list[s
     subjects = [link for link, _ in links]
     services = {found["service"] for link in subjects if (found := state.RELEASE_WAIT.fullmatch(link))}
     naming = re.compile(rf"(?<![\w-])(?:{'|'.join(map(re.escape, sorted(services)))})(?![\w-])") if services else None
-    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(pr, cards))]
+    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(data, pr, cards))]
     asks = [
         f'"{cut(card["question"], 300)}" {card["url"]}, asked by {card["job"] or "no job of the drive"}'
         for card in view.with_questions(data, cards)["questions"]
@@ -2186,9 +2186,9 @@ def stall_report(data: dict, subject: str, links: list[tuple[str, str]], held: d
         f"The STUCK line went to {holder} at {when(held['said'])}, {told} minutes ago.",
         *(f"{label}: {found[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in found),
         *(
-            f"His card on {key} now: {view.tap_card(pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
+            f"His card on {key} now: {view.tap_card(data, pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
             for key in dict.fromkeys(link for link, _ in links)
-            if (pr := data["prs"].get(key)) and state.asks_tap(pr)
+            if (pr := data["prs"].get(key)) and state.asks_tap(data, pr)
         ),
     ]
     return {
@@ -2804,7 +2804,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         checks(watcher, moment)
         yield stage_lines(watcher, moment)
         draw_questions(watcher, moment)
-        landed(watcher)
+        landed(watcher, moment)
         yield settle_lines(watcher, moment)
         yield follow_lines(watcher, moment)
         yield production_lines(watcher, moment)
@@ -2883,7 +2883,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, since a draw cc-slack answers by linking a card he already answered leaves it uncarded, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, and on a held PR whose cards of his holding it changed, so it names only those still open, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug, under a line saying why it asks. A draw that fails clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, since a draw cc-slack answers by linking a card he already answered leaves it uncarded, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, and on a held PR whose cards of his holding it changed, so it names only those still open, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, under a line saying why it asks. A draw that fails clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -2920,7 +2920,8 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             uncarded.setdefault(units[key], []).append(key)
             continue
         if now.owner == stage.HIM and not entered:
-            asked.setdefault(units[key], []).append(key)
+            if state.asks_tap(data, data["prs"][key]):
+                asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
     from drive import talk
@@ -2945,6 +2946,8 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             talk.draw(watcher.name, keys, again=True)
         except (slack.SlackError, state.DriveError) as error:
             lines += failed(watcher, "card ask", f"ask again of his card on {', '.join(keys)}", error, moment)
+            continue
+        watcher.failures.pop("card ask", None)
     return lines
 
 
@@ -3010,12 +3013,17 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
     return said
 
 
-def landed(watcher: Watcher) -> None:
-    """Stop each lander on a PR the watch hears that a hold of his came on since it started, and start the drive's lander on each once its stage reads ready, within one GitHub read of it getting there: green and cleared by his Approve or an exempt class, or a yasyf/* one its builder reported with no check failing at its head, which a head its builder pushes since its lander's try reaches again."""
+def landed(watcher: Watcher, moment: datetime) -> None:
+    """Stop each lander on a PR the watch hears that a hold of his came on since it started, and through land.start answer each card his Approve on one picks that is still unanswered and start the drive's lander on each once its stage reads ready, within one GitHub read of it getting there: green and cleared by his Approve or an exempt class, or a yasyf/* one its builder reported with no check failing at its head, which a head its builder pushes since its lander's try reaches again. A pick that fails to answer again is said to the meta session from its third failure in a row."""
     data = state.load(watcher.name)
     keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
     land.halt(watcher.name, keys)
-    land.start(watcher.name, keys, watcher.cards)
+    try:
+        land.start(watcher.name, keys, watcher.cards)
+    except state.DriveError as error:
+        watcher.unsent.setdefault("meta", []).extend(failed(watcher, "pick answer", "answer of the cards his Approve picks", error, moment))
+        return
+    watcher.failures.pop("pick answer", None)
 
 
 def line_lane(line: str, data: dict, own: str) -> str | None:

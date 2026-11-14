@@ -201,7 +201,7 @@ def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_
     assert not any(watch.wakes(line, state.load(demo), NO_CARDS) for line in lines)
     pr = state.load(demo)["prs"][KEY]
     assert (pr["head"], pr["checks"], pr["review"], pr["title"]) == ("bbbbbbb222", "pass", "approved", "Fix: the watch")
-    assert (draws.keys, view.tap_card(pr, view.live_cards(demo)), pr["stage"]["name"]) == ([[KEY]] * wants_tap, draws.link if wants_tap else None, "uncarded" if wants_tap else "author")
+    assert (draws.keys, view.tap_card(state.load(demo), pr, view.live_cards(demo)), pr["stage"]["name"]) == ([[KEY]] * wants_tap, draws.link if wants_tap else None, "uncarded" if wants_tap else "author")
 
 
 def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict_through_githubs_unknown_at_its_head(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3190,7 +3190,7 @@ def test_an_uncarded_pr_carrying_the_hold_label_reads_held_by_him_never_uncarded
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "hold_label": True}
     now = stage.of(state.load(demo), KEY, NO_CARDS)
-    assert (now.name, now.owner, state.asks_tap(state.load(demo)["prs"][KEY])) == ("held", stage.HIM, False)
+    assert (now.name, now.owner, state.asks_tap(state.load(demo), state.load(demo)["prs"][KEY])) == ("held", stage.HIM, False)
 
 
 def test_a_builders_line_carries_the_head_github_holds_for_each_open_pr_it_names_with_its_stage_and_each_commit_it_names_that_none_is_at(demo: str) -> None:
@@ -3218,7 +3218,7 @@ def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_
     above = "yasyf/cc-skills#8"
     with state.edit(demo) as data:
         for key, head, base, branch in ((YASYF, "aaaaaaa111", "main", "the-watch"), (above, "bbbbbbb222", "the-watch", "above-the-watch")):
-            tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button"}
+            tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button", "picks": {}}
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
                 "head": head, "base": base, "branch": branch, "checks": "pass", "review": "approved", "tap": tap, "checked": CHECKED | {"head": head}
             }
@@ -3311,7 +3311,7 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
     waits_on(demo, "j2")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -3332,7 +3332,7 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_bui
     waits_on(demo, "o2:stack 1")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -3892,7 +3892,7 @@ def test_a_pr_whose_card_draw_fails_stays_uncarded_and_is_drawn_again_each_read_
     watch.run_pass(watching, T0 + timedelta(minutes=3))
     watch.run_pass(watching, T0 + timedelta(minutes=4))
     pr = state.load(demo)["prs"][KEY]
-    assert (len(draws.keys), view.tap_card(pr, view.live_cards(demo)), pr["stage"]["name"]) == (4, draws.link, "card")
+    assert (len(draws.keys), view.tap_card(state.load(demo), pr, view.live_cards(demo)), pr["stage"]["name"]) == (4, draws.link, "card")
 
 
 def test_a_pr_whose_card_draw_goes_out_with_no_open_card_at_its_head_is_drawn_once_while_it_stays_uncarded(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4060,7 +4060,7 @@ def test_a_ports_change_after_his_approve_lands_at_its_first_green_head_and_star
     state.keep_report(demo, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nSERVES: port of #50974\n")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
-        data["prs"][KEY] |= {"wants_tap": True, "checked": None, "port_of": 50974, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}}
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None, "port_of": 50974, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}}
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watch.run_pass(watcher(demo), T0)
     assert (checkers, landers) == ([], [(KEY,)])
@@ -4083,7 +4083,7 @@ def test_a_pr_waiting_on_his_tap_draws_his_card_from_the_watch_on_its_first_read
     assert not any(watch.wakes(line, state.load(demo), NO_CARDS) for line in lines)
     assert (draws.keys, sent) == ([[KEY]], [])
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert (draws.keys, view.tap_card(state.load(demo)["prs"][KEY], view.live_cards(demo))) == ([[KEY]], draws.link)
+    assert (draws.keys, view.tap_card(state.load(demo), state.load(demo)["prs"][KEY], view.live_cards(demo))) == ([[KEY]], draws.link)
 
 
 THIRD = "Forge-AI/monorepo#44"
@@ -4144,6 +4144,19 @@ def test_a_live_bugs_stack_waiting_on_his_card_is_asked_again_every_30_minutes_o
     for minutes in (0, 10, 39, 40, 69, 70):
         watch.run_pass(watching, T0 + timedelta(minutes=minutes))
     assert (draws.keys, draws.again) == ([list(STACKED)] * 3, [False, True, True])
+
+
+def test_a_live_bugs_stack_he_held_is_never_asked_again_since_its_card_would_offer_no_approve(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
+    three_stacked(demo, monkeypatch)
+    with state.edit(demo) as data:
+        for order_id in ("o1", "o2"):
+            data["orders"][order_id]["reporters"] = [state.reporter(REPORTED)]
+        for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"), strict=True):
+            data["prs"][key]["tap"] = state.new_tap("Hold", head, "pressed the button", at=state.stamp(T0))
+    watching = watcher(demo)
+    for minutes in (0, 10, 39, 40, 69, 70):
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    assert (state.load(demo)["prs"][KEY]["stage"]["owner"], draws.again) == (stage.HIM, [])
 
 
 def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is_checked(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
@@ -4608,7 +4621,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     assert kept["stage"]["why"] == "it waits on j4413, " + ", ".join(f"his answer on {view.link('his question card', link)}" for link in links.values())
     answers = " and ".join(f"you answer {view.link(f'Pick {waits}?', link)}" for waits, link in links.items())
     assert his_card_row(demo, pr)["blocks"] == f"Approved by you. Lands once the build of watch finishes, {answers}"
-    assert card.picks(demo, kept) == {}
+    assert card.picks(state.load(demo), kept) == {}
     found = view.live_cards(demo)
     with state.edit(demo) as data:
         data["jobs"]["j4413"]["state"] = "running"
@@ -4710,7 +4723,7 @@ NO_CARDS = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
 def approve(name: str, *keys: str) -> None:
     with state.edit(name) as data:
         for key in keys:
-            data["prs"][key] |= {"wants_tap": True, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
+            data["prs"][key] |= {"wants_tap": True, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button", "picks": {}}}
 
 
 def stacked(name: str, native: list[str] | None = None, cards: list[list[str]] | None = None) -> None:
@@ -5024,17 +5037,17 @@ def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding
         land.mark(data, (KEY,), lander.pid)
     watching = watcher(demo)
     watching.cards = view.live_cards(demo)
-    watch.landed(watching)
+    watch.landed(watching, T0)
     assert (lander.poll(), stage.of(state.load(demo), KEY, watching.cards).name) == (None, "landing")
     holding_asks(demo, f"{BUSY_WAIT}, which #42 carries")
     asking(monkeypatch, demo, HOLDING_CARD)
     watching.cards = view.live_cards(demo)
-    watch.landed(watching)
+    watch.landed(watching, T0)
     assert lander.wait(timeout=10) == -signal.SIGTERM
     assert state.load(demo)["prs"][KEY]["lander"]["outcome"] == f"{land.HELD}: {KEY}: {HELD_WHY}"
     assert (land.unready(state.load(demo), KEY, watching.cards), landers) == (f"held: {HELD_WHY}", [])
     holding_answered(demo)
-    watch.landed(watching)
+    watch.landed(watching, T0)
     assert landers == [(KEY,)]
 
 
@@ -5591,7 +5604,7 @@ def test_a_lander_refuses_a_pr_the_drive_does_not_track_and_one_his_approve_does
 
 def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge_at_the_head_its_stage_read_ready(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     docs = "Forge-AI/design-docs#5"
-    tap = {"label": "Approve", "at": state.stamp(T0), "head": "ddddddd444", "source": "pressed the button"}
+    tap = {"label": "Approve", "at": state.stamp(T0), "head": "ddddddd444", "source": "pressed the button", "picks": {}}
     with state.edit(demo) as data:
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "ddddddd444", "tap": tap}
     runs: list[list[str]] = []
@@ -7206,7 +7219,7 @@ def test_a_pr_someone_else_opened_stays_refused_while_his_card_on_it_cannot_be_w
     for minute in range(watch.FAILURES_BEFORE_SAYING):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack"}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
     assert state.foreign_pr(state.load(demo), KEY) == state.foreign(KEY, "rowan", [])
     with pytest.raises(state.DriveError, match="opened on GitHub by rowan"):
         land.run(demo, [KEY])

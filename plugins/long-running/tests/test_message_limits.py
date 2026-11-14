@@ -1123,7 +1123,7 @@ def test_a_pr_card_for_a_pr_he_tapped_is_refused_and_words_naming_it_go_out(talk
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1")
     assert posted(transcript, text="Fix: approve the update button?", tap_prs=[url]) is None
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#4242"]["tap"] = {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}
+        data["prs"]["Forge-AI/monorepo#4242"]["tap"] = {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack", "picks": {}}
     assert "owes no tap on: Forge-AI/monorepo#4242" in posted(transcript, text="Fix: approve the update button?", tap_prs=[url])
     card = {"title": said(10), "body": f"{said(20)}\n*Show me*\n```\nthe programs hold them until <{url}|the update-button fix> lands\n```", "options": [said(5), said(5)], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
