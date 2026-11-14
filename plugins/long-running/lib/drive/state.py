@@ -560,7 +560,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "subcoordinators": {},
         "handlers": {},
         "slack": {"page": None, "watch": []},
-        "owner": {"heard": None, "away": False},
+        "owner": {"heard": None, "away": False, "absence": None},
         "orders": {},
         "jobs": {},
         "prs": {},
@@ -851,6 +851,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("carried", {})
+    data["owner"].setdefault("absence", None)
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     if data["catch_up"]:
@@ -2794,6 +2795,14 @@ def owner_away(data: dict, moment: datetime) -> bool:
     return bool(owner.get("away")) or bool(heard) and moment - parse_time(heard) >= AWAY_AFTER
 
 
+def present(data: dict, since: datetime, moment: datetime) -> timedelta:
+    """How long he read present from since to moment: all of it but what his last absence the owner row keeps covers, from the moment he read away until he was heard back."""
+    if not (absence := data["owner"]["absence"]):
+        return moment - since
+    gone = min(moment, parse_time(absence["until"])) - max(since, parse_time(absence["from"]))
+    return moment - since - max(gone, timedelta())
+
+
 def timed(data: dict, job: dict, moment: datetime) -> bool:
     """Whether a time is set to come for the job: its own clock from drive job set --due, or a due time of an order it serves."""
     dues = [job["due"], *(data["orders"][order_id]["due"] for order_id in [job["order"], *job["carries"]])]
@@ -2892,6 +2901,11 @@ def owed(order: dict) -> bool:
 
 def owed_at(order: dict) -> str:
     return min((due for due in (order["due"], order["next_due"]) if due), key=parse_time)
+
+
+def owed_at_return(data: dict, order: dict, moment: datetime) -> bool:
+    """Whether the line an order promised him by a time already past is owed at his return: he reads away and the line goes in a thread, so the watch writes no report owing it until the first pass after he is heard, by his words "Just do less realtime more summary / batching, with a catch up post once I'm back"; an order whose lines have no thread keeps the drive's own time."""
+    return owner_away(data, moment) and owed(order) and parse_time(owed_at(order)) <= moment and bool(promise_thread(order))
 
 
 def promise(order: dict, due: str, moment: datetime) -> None:

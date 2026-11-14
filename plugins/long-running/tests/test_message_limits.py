@@ -2608,6 +2608,29 @@ def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer
     assert list(state.load("demo")["held"]) == ["700"]
 
 
+def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_owes_it_at_his_return_and_no_catch_up_carries_it(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    due = "2026-11-14T04:00:00-08:00"
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+    attrs = {"order": "o1", "progress": "true", "quiet": "true", "due": due}
+    monkeypatch.setattr(
+        message_limits.cli.reads,
+        "run",
+        lambda argv, checkout, env=None: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": attrs}}),
+    )
+    reason = say(transcript, text="The fix is in review. Next line by 9:00 AM.", record="705373")
+    assert reason == (
+        "Refused on purpose: he is away, since he said so or has written nothing for an hour, and report 705373 owes the line promised"
+        f" him by {message_limits.render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
+        " so it joins no catch-up. Post nothing and return NOTHING owed at his return."
+    )
+    assert agents.ruled(reason) == {"judged": False}
+    assert (state.load("demo")["held"], state.load("demo")["catch_up"]) == ({}, None)
+
+
 def test_a_report_too_big_for_jevs_prompt_held_while_he_is_away_is_refused_as_held_with_nothing_for_jev_to_size(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -947,18 +947,41 @@ def test_a_due_order_from_his_dm_whose_own_thread_is_an_alerts_and_keeps_none_of
     assert slack_thread.reads == []
 
 
-def test_a_promised_time_passing_while_he_is_away_owes_one_report_and_a_thread_it_cannot_read_is_said_as_a_failed_read_owing_none(
+def test_a_promised_time_passing_while_he_is_away_owes_no_report_until_the_first_pass_after_he_is_heard_which_says_when_he_went_away_and_counts_late_only_his_present_minutes(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
     serve(monkeypatch, {})
     said = due_owed(monkeypatch)
+    gone, due, back = T0 - timedelta(hours=3), state.stamp(T0 - timedelta(minutes=5)), T0 + timedelta(hours=3)
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 - timedelta(hours=3)), "away": True}
-        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=5)), promised=state.stamp(T0 - timedelta(minutes=60)))
+        data["owner"] = {"heard": state.stamp(gone), "away": False}
+        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=due, promised=state.stamp(T0 - timedelta(hours=4)))
     watching = watcher(demo)
-    [report, _] = owed(watching, T0, said)
-    assert report["text"].startswith("POST order o1 owes him the line it promised by ")
-    assert owed(watching, T0 + timedelta(minutes=30), said) == []
+    shown = [T0 + timedelta(minutes=175)]
+    monkeypatch.setattr(render, "now", lambda: shown[0])
+    assert [owed(watching, T0 + timedelta(minutes=minutes), said) for minutes in (0, 30, 175)] == [[], [], []]
+    assert slack_thread.reads == []
+    data = state.load(demo)
+    assert render.order_line(data, "o1", data["orders"]["o1"]).startswith(f"o1 working due {render.when(due)}, waiting on his return: ")
+    watch.hear(demo, back)
+    shown[0] = back + timedelta(minutes=1)
+    data = state.load(demo)
+    assert data["owner"]["absence"] == {"since": state.stamp(gone), "from": state.stamp(gone + state.AWAY_AFTER), "until": state.stamp(back)}
+    assert render.order_line(data, "o1", data["orders"]["o1"]).startswith(f"o1 working due {render.when(due)}: ")
+    [report, _] = owed(watching, back + timedelta(minutes=1), said)
+    assert report["text"] == (
+        f"POST order o1 owes him the line it promised by {render.when(due)}, which waited for his return since he went away at {render.when(state.stamp(gone))}:"
+        " post where it stands now in its thread, saying so"
+    )
+    lines = report["body"].splitlines()
+    assert (
+        f"Its line was promised him by {render.when(due)}, 186 minutes ago, 1 of them while he read present: he went away at {render.when(state.stamp(gone))},"
+        f" read away from {render.when(state.stamp(gone + state.AWAY_AFTER))} and was heard back at {render.when(state.stamp(back))}."
+    ) in lines
+    assert f"opening with its time having waited for his return since he went away at {render.when(state.stamp(gone))}, never calling it late" in report["body"]
+    assert owed(watching, back + timedelta(minutes=5), said) == []
+    [late, _] = owed(watching, back + timedelta(minutes=11), said)
+    assert late["text"] == f"POST order o1's line promised by {render.when(due)} is 11 minutes late: post where it stands now in its thread, saying it is late"
     with state.edit(demo) as data:
         data["orders"]["o1"]["due_said"] = None
 
@@ -967,10 +990,33 @@ def test_a_promised_time_passing_while_he_is_away_owes_one_report_and_a_thread_i
 
     monkeypatch.setattr(slack, "thread", unread)
     for minute in range(2):
-        assert owed(watching, T0 + timedelta(minutes=40 + minute), said) == []
-    [failing] = watch.due_lines(watching, T0 + timedelta(minutes=42))
+        assert owed(watching, back + timedelta(minutes=20 + minute), said) == []
+    [failing] = watch.due_lines(watching, back + timedelta(minutes=22))
     assert failing.startswith("WATCH read of o1's threads for the line promised him by ") and "ratelimited" in failing
     assert said == []
+
+
+def test_a_line_late_before_he_went_away_is_owed_at_once_on_his_return_and_late_by_the_minutes_he_read_present_alone(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    due = T0 - timedelta(hours=2)
+    away, back = due + timedelta(minutes=30), due + timedelta(minutes=33)
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(away), "away": True}
+        data["orders"]["o1"].update(
+            thread=["D123", "1794200000.000100"], due=state.stamp(due), promised=state.stamp(due - timedelta(hours=1)), due_said=state.stamp(due + timedelta(minutes=28))
+        )
+    watching = watcher(demo)
+    assert owed(watching, due + timedelta(minutes=31), said) == []
+    watch.hear(demo, back)
+    [report, _] = owed(watching, back + timedelta(minutes=1), said)
+    assert report["text"] == f"POST order o1's line promised by {render.when(state.stamp(due))} is 31 minutes late: post where it stands now in its thread, saying it is late"
+    assert (
+        f"Its line was promised him by {render.when(state.stamp(due))}, 34 minutes ago, 31 of them while he read present: he went away at {render.when(state.stamp(away))},"
+        f" read away from {render.when(state.stamp(away))} and was heard back at {render.when(state.stamp(back))}."
+    ) in report["body"].splitlines()
 
 
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

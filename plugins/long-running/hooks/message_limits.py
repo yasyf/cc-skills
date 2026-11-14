@@ -708,7 +708,7 @@ def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) 
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's prompt."""
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive, but a report owing a promised line, which is owed at his return and joins no catch-up, since the watch writes it again the first pass after he is heard; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's prompt."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
@@ -721,6 +721,12 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
     )
     if not (seq := report.get("seq")):
         return agents.Ruled(away, AWAY_RULE, away)
+    if due := report.get("due"):
+        return agents.Unjudged(
+            f"Refused on purpose: he is away, since he said so or has written nothing for an hour, and report {seq} owes the line promised"
+            f" him by {render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
+            " so it joins no catch-up. Post nothing and return NOTHING owed at his return."
+        )
     talk.hold(drive["name"], seq, posted_order(drive, tool_input, order_id))
     return agents.Unjudged(f"{away} Report {seq} is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
 

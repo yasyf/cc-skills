@@ -1117,7 +1117,8 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"seq": 661500}\n', ""))
     ask(tap)
-    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": False}
+    absence = {"since": heard, "from": "2026-11-11T13:36:02-08:00", "until": state.stamp(tapped)}
+    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": False, "absence": absence}
     assert state.load(drive)["catch_up"] == state.new_catch_up(heard, [])
 
 
