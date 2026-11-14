@@ -615,8 +615,13 @@ def resume(payload: dict) -> str | None:
     if not names and not os.environ.get(state.REMOTE_LANE_ENV):
         return None
     transcript = Path(payload["transcript_path"])
-    tries = resumes(tail(transcript))
+    rows = tail(transcript)
     handler = seen(payload)
+    if refused(last := next((row for row in reversed(rows) if row["type"] in ("user", "assistant")), {})):
+        if "handler_session" in handler:
+            end_handler(handler | {"last_assistant_message": notice(last)}, lambda _: None)
+        return None
+    tries = resumes(rows)
     if tries >= len(OUTAGE_WAITS):
         if "handler_session" in handler:
             restart_handler(names[0], handler)
@@ -666,6 +671,16 @@ def ended(row: dict) -> bool:
 def died(row: dict) -> bool:
     """Whether a transcript row is a response that ended on an API error or a refusal, the row Claude Code writes itself under model `<synthetic>` or one stopped for any reason but the end of its turn, so the agent's turn ended without its work and a SendMessage meets the same stop."""
     return ended(row) and (row["message"].get("stop_reason") != "end_turn" or row["message"].get("model") == SYNTHETIC)
+
+
+def refused(row: dict) -> bool:
+    """Whether a transcript row is a response a model's safeguards stopped, the one stop_reason the Messages API gives its safety classifiers alone: Claude Code's notice on that stop asks for it to go to the user and for no one to do the agent's work, so nothing resumes or restarts the agent, as the stop of an API error is."""
+    return ended(row) and row["message"].get("stop_reason") == "refusal"
+
+
+def notice(row: dict) -> str:
+    """The text of a transcript row's response on one line, such as the notice Claude Code writes on a stop."""
+    return " ".join(" ".join(part.get("text", "") for part in parts(row) if part.get("type") == "text").split())
 
 
 def brief(payload: dict) -> str:

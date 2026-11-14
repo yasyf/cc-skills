@@ -654,6 +654,39 @@ def test_a_session_no_drive_binds_resumes_after_an_api_error_only_as_an_orca_lan
     assert waits == ([60] if lane else [])
 
 
+NOTICE = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
+SAFEGUARDED = {
+    "type": "assistant",
+    "timestamp": EARLIER,
+    "isApiErrorMessage": True,
+    "error": "invalid_request",
+    "message": {"role": "assistant", "model": agents.SYNTHETIC, "stop_reason": "refusal", "content": [{"type": "text", "text": NOTICE}]},
+}
+
+
+def test_a_handler_a_models_safeguards_stopped_is_never_resumed_and_posts_one_done_carrying_claude_codes_notice(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = start(run, tmp_path)
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    removed: list[list[str]] = []
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    monkeypatch.setattr(agents.time, "sleep", lambda seconds: pytest.fail("a safeguards stop waits on no resume"))
+    assert stop(monkeypatch, capsys, "h-session", transcript, NOTICE, event="StopFailure", rows=(SAFEGUARDED,)) == ""
+    assert [argv for argv in started if "done" in argv] == [
+        ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", NOTICE]
+    ]
+    assert (handler in state.load("demo")["handlers"], removed, len([argv for argv in started if argv[:2] == ["claude", "--bg"]])) == (False, [["claude", "rm", BACKGROUND_JOB]], 1)
+
+
+def test_an_orca_lane_a_models_safeguards_stopped_is_never_resumed(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    monkeypatch.setattr(agents.time, "sleep", lambda seconds: pytest.fail("a safeguards stop waits on no resume"))
+    assert failed(monkeypatch, capsys, "lane-session", tmp_path / "lane.jsonl", (SAFEGUARDED,)) == (0, "")
+
+
 def test_a_handler_whose_stop_check_raises_posts_its_done_before_the_error_goes_on(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

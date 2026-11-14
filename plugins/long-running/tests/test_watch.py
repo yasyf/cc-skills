@@ -2464,6 +2464,12 @@ REFUSED = {
     "timestamp": "2026-11-12T20:44:05.907Z",
     "message": {"model": "<synthetic>", "stop_reason": "refusal", "content": [{"type": "text", "text": REFUSED_TEXT}]},
 }
+OVERLOADED = {
+    "type": "assistant",
+    "timestamp": "2026-11-12T20:44:05.907Z",
+    "isApiErrorMessage": True,
+    "message": {"model": "<synthetic>", "stop_reason": "stop_sequence", "content": [{"type": "text", "text": "API Error: 529 Overloaded"}]},
+}
 
 
 @pytest.mark.parametrize(
@@ -2477,10 +2483,9 @@ REFUSED = {
         ([CALLING, PARKED], timedelta(minutes=10), None),
         ([CALLING, RESULT, REFUSED], timedelta(minutes=10), None),
         (
-            [CALLING, RESULT, REFUSED],
+            [CALLING, RESULT, OVERLOADED],
             timedelta(minutes=45),
-            'j1\'s agent stopped 45 minutes ago on refusal: "API Error: Opus 5.5\'s safeguards flagged this message (https://www.anthropic.com/legal/aup). This…";'
-            " drive job resume j1 <the event> relaunches it on a Sprite with a handoff",
+            'j1\'s agent stopped 45 minutes ago on stop_sequence: "API Error: 529 Overloaded"; drive job resume j1 <the event> relaunches it on a Sprite with a handoff',
         ),
         (
             [CALLING, PARKED],

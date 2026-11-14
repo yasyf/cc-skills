@@ -49,6 +49,7 @@ CUT_OFF = (
     " runs twice: read what a drive command changed, then ask again if it must run again"
 )
 LIVE_JOB_STATES = ("running", "waiting")
+SAFEGUARDED = "stopped by its model's safeguards"
 RELEASES_AT_ONCE = 2
 QUIET_LANE = timedelta(minutes=30)
 LINE_BREAKS = re.compile(r"[\r\n]+")
@@ -1579,11 +1580,11 @@ def agent_death(job: dict, data: dict) -> str | None:
     return stopped_on(turn) if (turn := stopped_turn(holder, job, data)) else None
 
 
-def agent_stop(job: dict, data: dict) -> str | None:
-    """Why the watch hands a running local job to a fresh worker: its agent's last response ended on an API error or a refusal, and the session holding it has had a response answered since, so the fresh worker does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
-    if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)) or not answered_since(holder, turn):
+def agent_stop(job: dict, data: dict) -> dict | None:
+    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines passes to him, and when it ended on an API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
+    if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)):
         return None
-    return stopped_on(turn)
+    return turn if agents.refused(turn) or answered_since(holder, turn) else None
 
 
 def answered_since(holder: dict, turn: dict) -> bool:
@@ -1604,12 +1605,12 @@ def stopped_on(turn: dict) -> str:
 
 
 def lane_stop(worker: dict, data: dict) -> tuple[dict, Path] | None:
-    """The last row of the newest transcript in the worktree of a lane on this Mac, and that transcript, when that response ended on an API error or a refusal and a session bound to the drive has had a response answered since; None until then."""
+    """The last row of the newest transcript in the worktree of a lane on this Mac, and that transcript, when a model's safeguards stopped that response, or when it ended on an API error and a session bound to the drive has had a response answered since; None until then."""
     sessions = config_dir() / "projects" / NOT_SLUG.sub("-", worker["terminal"]["worktreePath"])
     path = max(sessions.glob("*.jsonl"), key=lambda found: found.stat().st_mtime, default=None)
     if not path or not (turn := last_turn(path)) or not agents.died(turn):
         return None
-    return (turn, path) if any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
+    return (turn, path) if agents.refused(turn) or any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
 
 
 def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: tuple[dict, Path], moment: datetime) -> list[str]:
@@ -1681,9 +1682,9 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error or a refusal, which resume_lane resumes through its terminal; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, and an incident fix job's taken run names the builder that ships its fix."""
     data = state.load(watcher.name)
-    gaps, deaths, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, refusals, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -1694,11 +1695,13 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if running and job.get("branch") and (job.get("repo") or remote):
                 heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
             if not remote:
-                if running and (why := agent_stop(job, data)):
-                    if ended := state.lane_death(job):
+                if running and (turn := agent_stop(job, data)):
+                    if agents.refused(turn):
+                        refusals[job_id] = turn
+                    elif ended := state.lane_death(job):
                         gaps[job_id] = ended_gap(job_id, job, ended, moment)
                     else:
-                        deaths[job_id] = (job["agent"], why)
+                        deaths[job_id] = (job["agent"], stopped_on(turn))
                     continue
                 gap = running and agent_gap(job_id, job, data, moment)
                 if isinstance(gap, Answered):
@@ -1746,7 +1749,10 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             elif running:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if (terminal := orca.typed(job, worker)) and (stop := lane_stop(worker, data)):
-                    lines += resume_lane(watcher, job_id, job, terminal, stop, moment)
+                    if agents.refused(stop[0]):
+                        refusals[job_id] = stop[0]
+                    else:
+                        lines += resume_lane(watcher, job_id, job, terminal, stop, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
     if found or taken:
@@ -1762,7 +1768,41 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gap, unlisted.get(job_id, {})) if gap else None for job_id, gap in gaps.items()}
-    return failed + death_lines(watcher.name, deaths, moment)
+    return failed + death_lines(watcher.name, deaths, moment) + safeguard_lines(watcher, refusals, moment)
+
+
+def safeguard_lines(watcher: Watcher, refusals: dict[str, dict], moment: datetime) -> list[str]:
+    """Pass Claude Code's notice on each stop a model's safeguards made of a running job's agent or lane to him in one POST report each, as the notice asks, then set each job stopped, so nothing resumes, relaunches or restarts it or does its work and only `drive job launch` on his word runs it again; a post that fails leaves its jobs running, so the next read posts them again, said from its third failure in a row."""
+    if not refusals:
+        return []
+    data = state.load(watcher.name)
+    try:
+        reported(watcher, [safeguard_report(data, job_id, turn) for job_id, turn in refusals.items()])
+    except state.DriveError as error:
+        return failed(watcher, "safeguards stops", "post to him of a model's safeguards stop", error, moment)
+    watcher.failures.pop("safeguards stops", None)
+    with state.edit(watcher.name) as data:
+        for job_id, turn in refusals.items():
+            data["jobs"][job_id].update(state="stopped", said=f'{SAFEGUARDED}: "{cut(agents.notice(turn), 100)}"; the notice went to him and nothing restarts it', updated=state.stamp(moment))
+    return [
+        f"LANE {job_id} {data['jobs'][job_id]['order']} {SAFEGUARDED}: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
+        f" drive job launch {job_id} runs it again only on his word"
+        for job_id in refusals
+    ]
+
+
+def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
+    """The report passing him whole the notice Claude Code wrote when a model's safeguards stopped a job's agent, in the thread its order's lines to him go in."""
+    job = data["jobs"][job_id]
+    order = data["orders"][job["order"]]
+    facts = [f"Order {job['order']}, job {job_id}: {order['text']}", f"Its work: {job['said'] or job['goal']}", f"Claude Code's notice: {agents.notice(turn)}"]
+    return {
+        "kind": "report",
+        "topic": f"watch-safeguards-{job_id}",
+        "attr": {"order": job["order"], "job": job_id} | state.thread_attr(order),
+        "text": f"POST {job_id}'s agent was {SAFEGUARDED} and the drive restarts nothing: post Claude Code's notice to him whole, as it asks",
+        "body": "\n".join(facts) + "\n",
+    }
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2214,7 +2254,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, unless drive order set --kind answer --part sorted it as an answer, is carried only by a builder, codex or design job, never by research, his card or a post, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs}
@@ -2234,6 +2274,8 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if state.delivered(data, order_id, part):
         return None
     if part != state.IMMEDIATE_FIX and any(job["kind"] in state.WORK_KINDS and job["state"] in ("running", "waiting", "built") for _, job in state.part_jobs(data, order_id, state.IMMEDIATE_FIX)):
+        return None
+    if any(job["state"] == "stopped" and (job["said"] or "").startswith(SAFEGUARDED) for _, job in jobs):
         return None
     if carried := [gaps[job_id] for job_id, _ in state.carriers(data, order_id, part)]:
         return None if None in carried else SETTLING if SETTLING in carried else carried[-1]
