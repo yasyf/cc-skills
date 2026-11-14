@@ -34,6 +34,7 @@ UNLANDABLE = (
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
 FILING = ("project", "workstream", "title")
 TITLE_CHARS = 60
+RECORD_NOTE = re.compile(r"\brecord \w+")
 PAIR_MARK = re.compile(r"[/›>]")
 TOOLING_FILING = ("The drive", "Drive tooling")
 JOB_ID = re.compile(r"j\d+")
@@ -365,14 +366,50 @@ def incident_open(args: argparse.Namespace) -> int:
     args.parts = [state.INCIDENT_FIX, *state.INCIDENT_PARTS["release" if args.release else "none" if args.no_rollback else "rollback"]]
     with state.batch(name):
         order_id, order, started, incidents = added_order(args)
-        argv = ["ccn", "investigation", "open", order["title"], "--body", f"{args.words}\n\nFrom {args.source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
-        try:
-            record = state.unrehearsed(name, lambda: json.loads(reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"])))["id"][:7], "<record>")
-        except reads.ReadError as error:
-            raise DriveError(f"refused, nothing written: its evidence record did not open: {error}; fix that and run drive incident open again") from None
+        record = evidence_record(name, order["title"], args.words, args.source, "drive incident open")
         with state.edit(name) as data:
             data["orders"][order_id]["note"] = order["note"] = f"record {record}"
     return emit(args, "\n".join([f"{order_id} record {record}", *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
+
+
+def evidence_record(name: str, title: str, words: str, source: str, again: str) -> str:
+    """Open an incident's evidence record, a cc-notes investigation titled by its order's title, and return its id, or refuse, so the write waiting on it keeps nothing."""
+    argv = ["ccn", "investigation", "open", title, "--body", f"{words}\n\nFrom {source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
+    try:
+        return state.unrehearsed(name, lambda: json.loads(reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"])))["id"][:7], "<record>")
+    except reads.ReadError as error:
+        raise DriveError(f"refused, nothing written: its evidence record did not open: {error}; fix that and run {again} again") from None
+
+
+def turned_incident(name: str, data: dict, order_id: str, created: str) -> list[str]:
+    """Turn an open order into an incident in the save that marks it, as drive incident open opens one: its fix and cause parts, a build whose other parts an answer order asked stay answers, its evidence record when its note names none, and a codex job by state.incident_job on each of those two parts no unfinished codex job holds, but on an order joined to an open incident, whose owner job carries it; the lines that say so."""
+    if refused := state.held_elsewhere(data, order_id, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError(f"refused, nothing written: {refused}")
+    order = data["orders"][order_id]
+    parts = [state.INCIDENT_FIX, state.INCIDENT_CAUSE]
+    for part in parts:
+        order["parts"].setdefault(part, state.new_part())
+    sort_as_build(order, parts)
+    opened = []
+    if not RECORD_NOTE.search(order["note"] or ""):
+        if not order["title"]:
+            raise DriveError(f"{order_id}: refused, nothing written: its evidence record is titled by the order's title, and it has none; pass --title <a few words>")
+        record = evidence_record(name, order["title"], order["text"], order["from"], f"drive order set {order_id} --incident")
+        order["note"] = "; ".join(filter(None, [order["note"], f"record {record}"]))
+        opened = [f"{order_id} record {record}"]
+    if joined := state.open_incidents(data, [order["joins"]] if order["joins"] else []):
+        return [*opened, f"joins {joined[0]}, an open incident, so no job starts on it: its owner job carries it with drive job set <that job> --carries {order_id}"]
+    coded = {part for part in parts for _, job in state.part_jobs(data, order_id, part) if job["kind"] == "codex" and job["state"] not in state.FINISHED_JOB_STATES}
+    started = [state.incident_job(data, name, order_id, part, created) for part in parts if part not in coded]
+    return [*opened, *started, state.INCIDENT_BRIEF] if started else opened
+
+
+def sort_as_build(order: dict, worked: list[str]) -> None:
+    """Make the order a build whose worked parts are work, each other part of an answer order staying the answer its reader's post delivers."""
+    answering = order["kind"] == "answer"
+    for part, held in order["parts"].items():
+        held["answer"] = part not in worked and (answering or held["answer"])
+    order["kind"] = "build"
 
 
 def incident_stop(args: argparse.Namespace) -> int:
@@ -625,7 +662,7 @@ def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -725,11 +762,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.parts:
             refuse_a_renamed_change(data, args.id, args.parts)
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
-        if args.incident and not order["incident"] and not any(state.INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
-            raise DriveError(
-                f'{args.id}: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "{state.INCIDENT_FIX}"'
-                f" part with --parts and record its job with drive job add codex --order {args.id} --part {state.INCIDENT_FIX} first, then start it with drive job launch <its job>"
-            )
+        turning = args.incident and not order["incident"]
         if args.incident is not None:
             order["incident"] = args.incident
         for part in sorted_parts:
@@ -739,7 +772,9 @@ def order_set(args: argparse.Namespace) -> int:
             if job["order"] == args.id and answered & set(job["parts"]) and state.unstarted_builder(data, job):
                 left = [part for part in job["parts"] if part not in answered]
                 job.update({"parts": left} if left else {"state": "stopped", "said": f"stopped: drive order set {args.id} --kind answer left it nothing to build"}, updated=state.stamp(moment))
-        if args.kind and not sorted_parts:
+        if args.kind == "build" and sorted_parts and order["kind"] == "answer":
+            sort_as_build(order, sorted_parts)
+        elif args.kind and not sorted_parts:
             order["kind"] = args.kind
         if args.complex is not None:
             order["complex"] = args.complex
@@ -750,6 +785,7 @@ def order_set(args: argparse.Namespace) -> int:
             order[field] = (getattr(args, field) or "").strip() or None
         if {"project", "workstream"} & set(filed) and order["project"] and order["workstream"]:
             one_home(data, order["project"], order["workstream"], args.id)
+        turned = turned_incident(name, data, args.id, state.stamp(moment)) if turning else []
         if not filed or args.lined or apart_from_filing(order) != before:
             order["updated"] = state.stamp(moment)
         if args.lined:
@@ -757,7 +793,7 @@ def order_set(args: argparse.Namespace) -> int:
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in sorted_parts]
-    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+    return emit(args, render.order_line(args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
 
 
 def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> list[str]:
@@ -4564,7 +4600,7 @@ def parser() -> argparse.ArgumentParser:
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporters; the order then closes done with no note to them")
     verb.add_argument("--watch", metavar="LINK", help=f"{WATCH_HELP}; it replaces any thread the order watched, reading only messages newer than now")
-    verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
+    verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark it an incident order in one save, as drive incident open opens one: its fix and cause parts, a build whose answer order's other parts stay answers, its evidence record when its note names none and a codex job on each of those two parts no unfinished codex job holds, each printed with its start line; or unmark it")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
         "--kind",
@@ -4576,7 +4612,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         type=str.strip,
-        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left; with --kind build, work again",
+        help="with --kind answer, a part that asks only for an answer, which the post it already holds then delivers, refused while a builder, codex or design job or a drive PR is on it, but for a builder no agent started that waits only on readers, which it takes the part off, stopped once none is left; with --kind build, work again, making an answer order a build whose other parts stay answers",
     )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
