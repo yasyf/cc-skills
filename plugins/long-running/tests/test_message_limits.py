@@ -568,7 +568,7 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
         printed.append(json.loads(capsys.readouterr().out))
     assert printed[0]["post"] == {"text": said(60) + " <https://github.com/yasyf/cc-skills/pull/7|the run page shows its history>", "written": said(60) + " {pr:7}", "thread_ts": "1.2"}
     assert printed[2]["post"]["written"] == said(60) + " {pr:7}, {pr:7|the run page fix} and {pr:acme/tool#9|the run page}"
-    assert printed[2]["post"]["claims"] == [{"claim": "{pr:7} merged", "read": "gh pr view 7"}, {"claim": "the run page fix loads faster", "read": "gh pr view 7"}]
+    assert printed[2]["post"]["claims"] == [{"claim": "{pr:7} merged", "read": "read:1"}, {"claim": "the run page fix loads faster", "read": "read:1"}]
     assert printed[1]["judged"] is False
     assert "his_words" not in printed[1]
     assert printed[1]["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"{{pr:7|the fix}} sits inside the words of the link to {release}")
@@ -955,10 +955,10 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_comman
     claims = [{"claim": "#4817 merged", "read": "drive status o937"}, {"claim": "#4817 merged", "read": str(saved)}]
     by_command, by_path = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
     call = f"Bash {json.dumps(asked)} {saved}"
-    assert (by_command["quote"], by_path["quote"]) == (f"{call}\n{saved.read_text()}", f"{call}\n{message_limits.GIVEN.format(read='read:1')}")
+    assert (by_command["quote"], by_path["quote"]) == (f"{call}\n{saved.read_text()}", message_limits.GIVEN.format(read="read:1"))
 
 
-def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_names_it_beside_its_own_calls_whole(
+def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_names_that_reads_id_in_its_place(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(2000)) + "]}"
@@ -974,9 +974,28 @@ def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_n
     reads = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=claims)
     assert [(read["id"], read["quote"]) for read in reads] == [
         ("read:1", f"{shown(*compound)}\n\n{shown(*build)}"),
-        ("read:2", f"{compound[0]} {json.dumps(compound[1])}\n{message_limits.GIVEN.format(read='read:1')}"),
+        ("read:2", message_limits.GIVEN.format(read="read:1")),
     ]
     assert sum(read["quote"].count(cards) for read in reads) == 1
+
+
+def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_and_each_claim_names_it_by_its_id(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427"}, '{"state": "passed", "jobs": 40}')
+    tool(lane_of(transcript), *build)
+
+    def handed(many: int) -> dict:
+        claims = [{"claim": f"release step {n} passed", "read": "tools/ci bk api /pipelines/release/builds/15427"} for n in range(many)]
+        claims.append({"claim": "the release ran 40 jobs", "read": "bk api /pipelines/release/builds/15427"})
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", claims=claims) | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        return json.loads(capsys.readouterr().out)
+
+    one, many = handed(1), handed(100)
+    assert one["reads"] == many["reads"]
+    assert [(read["id"], read["quote"]) for read in many["reads"]] == [("read:1", shown(*build)), ("read:2", message_limits.GIVEN.format(read="read:1"))]
+    assert [claim["read"] for claim in many["post"]["claims"]] == ["read:1"] * 100 + ["read:2"]
 
 
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(

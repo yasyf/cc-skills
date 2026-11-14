@@ -65,12 +65,16 @@ DRIVE_ID = re.compile(r"^\d+:\d+ drive-term '[oj]\d+'")
 CAUSE_RULE = (
     "State a cause, a number or a state only through the read that measured it, as {record:<seq>} on the same line or, in a handler's post, in claims beside that read: on"
     ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
-    ' 9:49 PM carried a false "disk full".'
+    ' 9:49 PM carried a false "disk full". It covers why a system, tool, run or session did something, or a number or state one'
+    " measured, a cause the session worked out from code, logs or a trace included, never the session's own act or mistake told in"
+    " its first person, nor an alert or error he shared, restated."
 )
 LENGTH_RULE = (
     "A line in his thread is at most 60 words and a summary of two or more features at most 120, the coordinator's reading"
     ' of his words "your messages need to be way shorter rewrite this for a human"; an answer to a question or order of his'
-    " in that thread, his words passed as asked, goes out whole at any length."
+    " in that thread, his words passed as asked, goes out whole at any length. His words are the evidence items holding them, never"
+    " the agent's brief or the records it reads, whatever they quote, and a count counts the post as Slack draws it, each"
+    " reference's drawn words included."
 )
 ACK_RULE = "The communicator's ack is one sentence: what he asked, in his words, and what happens next; its handler answers the rest."
 LINK_RULE = (
@@ -140,16 +144,12 @@ RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
 LINE_NUMBERS = re.compile(r":\d[\d-]*(?=[\s:]|$)")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
-ANCESTRY = (
-    "; an ancestry read, such as `git merge-base --is-ancestor`, measures that a build holds a commit when it is an ancestor,"
-    " never that a build lacks a pull request, since a hotfix carries the PR as a cherry-pick no ancestry read finds"
-)
-NAMED_SOURCE = "the read the posting handler names as {read}, as its own calls whose tool name and input hold its words" + ANCESTRY
-GIVEN = "its whole result is under {read}, given there once"
+NAMED_SOURCE = "the read the posting handler names as {read}, as its own calls whose tool name and input hold its words"
+GIVEN = "its calls that {read} holds are given there once"
 DOC_SOURCE = "; {docs} is a doc, which backs what that doc says and nothing about what code does"
-CITED_SOURCE = "a record the post cites or a claim names, as the posting handler's newest call naming its seq; a record's line names its writer and, after >, the lanes it went to" + ANCESTRY
+CITED_SOURCE = "a record the post cites or a claim names, as the posting handler's newest call naming its seq"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
-CARRIED_SOURCE = "the report this post carries, another agent's words, as the posting handler's newest call naming its seq" + ANCESTRY
+CARRIED_SOURCE = "the report this post carries, another agent's words, as the posting handler's newest call naming its seq"
 
 
 class Warned(str):
@@ -845,16 +845,17 @@ def own_calls(payload: dict) -> dict[str, str]:
 
 
 def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str], newest: bool = False) -> dict:
-    """Jev's item for one read the claims name, or one record by its seq: each call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, or with newest only the last such call, so a narrower read again stands in for a wide one, since each call's result goes whole; each with its whole result or, for a call an earlier item gave, as given records, that item's id, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, a call of it opens."""
+    """Jev's item for one read the claims name, or one record by its seq: each call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, or with newest only the last such call, so a narrower read again stands in for a wide one, since each call's result goes whole; each call whole under the first item holding it, and a later item naming that item's id in its place, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, a call of it opens."""
     words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
     held = [call for call in calls if words and all(word in call.casefold() for word in words)][-1 if newest else 0 :]
     docs = list(dict.fromkeys(doc for call in held for doc in DOC_PATH.findall(call)))
     first = {call: given.setdefault(call, item) for call in held}
+    earlier = ", ".join(dict.fromkeys(first[call] for call in held if first[call] != item))
     return {
         "id": item,
         "read": read,
         "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
-        "quote": "\n\n".join(f"{call}\n{calls[call] if first[call] == item else GIVEN.format(read=first[call])}" for call in held)
+        "quote": "\n\n".join([*(f"{call}\n{calls[call]}" for call in held if first[call] == item), *([GIVEN.format(read=earlier)] if earlier else [])])
         or f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}",
     }
 
@@ -864,6 +865,8 @@ def main() -> None:
     try:
         reason, sent = checked(payload)
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
+        ids = {item["read"]: item["id"] for item in reads if item["id"].startswith("read:")}
+        sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
         judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
