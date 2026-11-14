@@ -2823,6 +2823,23 @@ def test_an_incidents_second_lane_builder_is_judged_by_its_transcript_until_the_
     assert isinstance(watch.agent_gap("j1", job_of, state.load(demo), state.now()), watch.Answered)
 
 
+def test_a_relaunched_codex_job_is_judged_by_its_new_run_never_by_the_agent_an_earlier_lane_left_on_it_as_j3122s_was(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    write_transcript(tmp_path / "config", [CALLING, FINISHED], timedelta(minutes=10))
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text(f"Order (his words): ship the watch\nGoal: watch\nDrive: {demo}, order o1, job j1\n")
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(kind="codex", state="waiting", session="session-under-test", agent="a1")
+    assert cli.main(["job", "launch", "j1", str(brief), "--drive", demo]) == 0
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["agent"], job["session"]) == ("running", None, "session-under-test")
+    assert watch.run_pass(watcher(demo), state.now() + watch.HANDOFF) == []
+
+
 def codex_running(demo: str, folder: Path) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"

@@ -2615,7 +2615,7 @@ def job_launch(args: argparse.Namespace) -> int:
 
 
 def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
-    """Start a codex job's codex-ask run on this Mac from this session's folder on the brief file or the job's brief, with each text the job holds and each answer of his it has not heard under His answers since:, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent; the run's folder. Refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    """Start a codex job's codex-ask run on this Mac from this session's folder on the brief file or the job's brief, with each text the job holds and each answer of his it has not heard under His answers since:, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent, and the run recorded in place of any agent an earlier lane left on the job, so the watch reads this run and never that agent's old turn as its result; the run's folder. Refused as an Agent's start is refused for any other job: while its waits hold, with no brief, on an order another session holds, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
     with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = data["jobs"][job_id]
@@ -2637,6 +2637,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
             job = data["jobs"][job_id]
             job.update(
                 codex_run=str(folder),
+                agent=None,
                 brief=str(kept),
                 researched=brief.research_links(data, job, written),
             )
