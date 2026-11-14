@@ -1383,7 +1383,7 @@ def threaded(demo: str) -> None:
         data["orders"]["o1"]["thread"] = ["D123", INCIDENT_THREAD]
 
 
-def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_and_none_for_news_a_handler_got_and_never_posted(
+def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its_jobs_run_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_or_a_new_head_failing_as_before_and_none_for_news_a_handler_got_and_never_posted(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     threaded(demo)
@@ -1438,6 +1438,7 @@ def test_an_order_with_a_thread_owes_a_line_there_after_each_step_none_while_its
         data["handlers"].clear()
     assert watch.quiet_lines(watching, relined) == []
     with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "2094537"
         stage.stamp(data["prs"][KEY], stage.Stage("behind", stage.BUILDER, "a PR below it in its stack is red"), relined)
     assert watch.quiet_lines(watching, relined + timedelta(minutes=30)) == []
     assert len(calls) == 6
@@ -7206,7 +7207,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief: ("h1", False))
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
     assert ready_records[1:] == []
-    reads[OTHER] = read(headRefOid="bbbbbbb222")
+    reads[OTHER] = read(headRefOid="bbbbbbb222", checks=GREEN)
     watch.run_pass(watching, T0 + watch.QUIET_THREAD)
     assert ([argv[1:3] if argv[0] != "pup" else ["pup"] for argv in calls], [records[0]["attr"] for records in ready_records[1:]]) == (
         [["release", "pull"], ["pup"]],
