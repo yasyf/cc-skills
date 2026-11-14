@@ -4778,8 +4778,9 @@ def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("blocked", stage.HIM, f"it waits on j2, his answer on {view.link('his question card', CARD)}")
 
 
+@pytest.mark.parametrize("named", [True, False], ids=["its waits name his cards", "no wait names his cards"])
 def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_blocked_on_him_over_an_older_unlanded_try_and_wakes_no_one_until_they_close(
-    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], named: bool
 ) -> None:
     pr, release = "Forge-AI/monorepo#56278", "release:cloudrunner-next:Forge-AI/monorepo#56278"
     links = {
@@ -4790,7 +4791,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j4413"])
         data["jobs"]["j1"]["prs"].append(state.pr_url(pr))
-        data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *links], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
+        data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *(links if named else [])], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
         data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
     approve(demo, pr)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
@@ -4812,6 +4813,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     assert his_card_row(demo, pr)["blocks"] == f"Approved by you. Lands once the build of watch finishes, {answers}"
     assert card.picks(state.load(demo), kept) == {}
     found = view.live_cards(demo)
+    assert stall.chain(state.load(demo), found, False, pr, set()) is None
     with state.edit(demo) as data:
         data["jobs"]["j4413"]["state"] = "running"
         assert stage.of(data, pr, found) == stage.Stage("waiting", stage.WAITED, "it waits on j4413, and the watch frees it once each ends")
