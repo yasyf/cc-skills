@@ -105,7 +105,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
    refuse while any card of his bears on its work: one it or its job waits on, or one whose
    question's `Holds:` line names a change its job builds, the design job's included. When an open PR carries a design card he
    has not answered, also run `drive pr set <url> --waits <card>` for each card, which redraws his open PR card for it in
-   place, Approve and Hold kept, to say it lands once he approves and answers that card. While a
+   place, Approve and Hold kept, to say his Approve also picks that card's recommended option, which
+   answers and closes the card, or, for a card recommending none, that it lands once he answers it. While a
    wait holds, `drive pr set --serves` and `drive card` draw no fresh card for it, his Approve lands it
    only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
    closed for this.

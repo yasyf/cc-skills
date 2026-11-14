@@ -932,7 +932,7 @@ def test_order_set_incident_turns_an_open_answer_order_into_an_incident_with_its
     assert run("order", "set", "o1", "--incident") == (
         0,
         (
-            f"o1 open: {words}\n"
+            f"o1 open incident: {words}\n"
             "o1 record 5f6b2b5\n"
             'j2 on "fix": start it now with drive job launch j2 -, its brief on stdin ending Drive: demo, order o1, job j2\n'
             'j3 on "cause": start it now with drive job launch j3 -, its brief on stdin ending Drive: demo, order o1, job j3\n'
@@ -950,7 +950,7 @@ def test_order_set_incident_turns_an_open_answer_order_into_an_incident_with_its
     )
     assert [(data["jobs"][job_id]["kind"], data["jobs"][job_id]["parts"]) for job_id in order["jobs"]] == [("reader", ["Runs refused"]), ("codex", ["fix"]), ("codex", ["cause"])]
     run("order", "set", "o1", "--no-incident")
-    assert run("order", "set", "o1", "--incident") == (0, f"o1 open: {words}")
+    assert run("order", "set", "o1", "--incident") == (0, f"o1 open incident: {words}")
     assert (len(calls), list(state.load("demo")["jobs"])) == (1, ["j1", "j2", "j3"])
 
     def refused(argv: list[str], checkout: Path) -> str:
@@ -1142,6 +1142,18 @@ def test_order_add_json(run: Run, demo: str) -> None:
     code, out = run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words", "--json")
     assert code == 0
     assert json.loads(out)["id"] == "o1"
+
+
+def test_the_set_verbs_with_dry_run_run_their_checks_refusing_as_they_would_and_keep_nothing(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    kept = state.load(demo)
+    for verb in (["order", "set", "o1", "--note", "on it"], ["order", "set", "o1", "--incident"], ["job", "set", "j1", "--said", "pushed"]):
+        code, out = run(*verb, "--dry-run")
+        assert (code, out.splitlines()[-1]) == (0, "a dry run: nothing kept")
+    assert run("job", "set", "j1", "--waits", "the reporter's reply", "--dry-run")[0] == 2
+    assert run("pr", "set", "https://github.com/a/b/pull/1", "--no-tap", "--why", "superseded", "--dry-run")[0] == 2
+    assert state.load(demo) == kept
 
 
 def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) -> None:

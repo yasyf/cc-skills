@@ -34,7 +34,9 @@ for its repository says, then return `DONE <proof>`.
   the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order. A card asking him to lift a ruling of his, which
-  `drive job ask` marks, holds it on an incident too.
+  `drive job ask` marks, holds it on an incident too. His Approve on the PR answers each card holding
+  it: his PR card names each with its recommended option, and his Approve picks that option there and
+  closes the card before the lander starts.
 - A stack draws one card for his Approve whatever its size: the card names every PR, and the PR
   sections past the 50 blocks one Slack message holds open under its Explain more.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A

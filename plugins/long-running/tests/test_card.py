@@ -895,6 +895,45 @@ def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves
     assert landers == [("Forge-AI/monorepo#42",)]
 
 
+JOURNAL_CARD = "https://acme.slack.com/archives/D123/p1794626574759419"
+JOURNAL_QUESTION = "Which heads does the journal read?"
+JOURNAL_PICK = "Journal 15, the build's own heads"
+
+
+@pytest.mark.parametrize(("asker", "holds"), [("j1", None), ("j2", f"{URL}, the relay fix, then one exception release")])
+def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recommended_option_there_closes_the_card_and_starts_the_lander(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], asker: str, holds: str | None
+) -> None:
+    waits = f"{drive}:{asker}-1794626572499"
+    with state.edit(drive) as data:
+        data["orders"]["o1"] |= {"incident": True, "jobs": list(dict.fromkeys(["j1", asker]))}
+        data["jobs"].setdefault(asker, state.new_job("o1", "builder", "format numbers", [], "2026-11-13T19:00:00-08:00"))
+        asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", unsettled="aa5f6ea: Jev reads the recommended option as breaking it", card=JOURNAL_CARD, holds=holds)
+        data["jobs"][asker]["questions"] = [asked | {"waits": waits}]
+        data["prs"]["Forge-AI/monorepo#42"] |= {"checks": "pass", "review": "approved", "parts": ["fix"]}
+    shown = {"question": JOURNAL_QUESTION, "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "url": JOURNAL_CARD, "card": {"title": JOURNAL_QUESTION, "body": "", "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "waits": waits}}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [shown]})
+    view.refresh_cards(drive)
+    monkeypatch.setattr(card, "run", answering(pr_json()))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
+    closed: list[tuple[str, str, str, bool]] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closed.append((card, words, link, settled)) or {})
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert drawn["card"]["prs"][0]["lands"] == f'you approve; your Approve also picks "{JOURNAL_PICK}" on [{JOURNAL_QUESTION}]({JOURNAL_CARD})'
+    assert stage.held(state.load(drive), state.load(drive)["prs"]["Forge-AI/monorepo#42"], view.live_cards(drive)) == f"his cards {JOURNAL_CARD} on its work are open"
+    approve = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "1794626600.000100", "source": "pressed the button"}
+    assert ask({"answer": approve}) == {"ok": True}
+    [question] = state.load(drive)["jobs"][asker]["questions"]
+    assert (question["closed"]["how"], question["closed"]["words"], question["closed"]["link"]) == ("answered", JOURNAL_PICK, JOURNAL_CARD)
+    assert (closed, landers) == ([(JOURNAL_CARD, JOURNAL_PICK, JOURNAL_CARD, True)], [("Forge-AI/monorepo#42",)])
+
+
+def test_a_card_his_approve_picks_on_reads_as_his_answer_on_a_card_that_offers_no_approve() -> None:
+    picked = ((JOURNAL_PICK, f"[{JOURNAL_QUESTION}]({JOURNAL_CARD})"),)
+    drawn = card.render(pr_json(), entry(tap="Approve", checks="pass", now="waiting"), (), (), (), picked)["prs"][0]
+    assert (drawn["lands"], drawn["blocks"]) == ("", f"Approved by you. Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
+
+
 def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     """His card drawn at HEAD, then a push of a new change to MOVED, which the watch read and no check judged yet; the card request that redraws it."""
     asked = {"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}
