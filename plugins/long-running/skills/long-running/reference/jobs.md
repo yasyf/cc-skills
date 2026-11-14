@@ -55,8 +55,8 @@ Contents:
   "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
   check". `drive job add` never refuses one for load. The brief's writer names the step only this
   Mac runs that the job itself runs with `drive job brief <j> --mac "<the step>"`, its `Mac:` line:
-  break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, a
-  devbox (`ci devbox`) or `ci db-read`. A `Release:` line declares one too, since its
+  break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, or a
+  devbox (`ci devbox`). A `Release:` line declares one too, since its
   agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word
@@ -71,7 +71,7 @@ Contents:
   the Agent tool or with `--local`. A brief whose writer left its `Mac:` line out starts on a Sprite,
   which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`,
   which also starts one waiting its turn there at once. A Sprite holds no Buildkite token or Datadog
-  key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
+  key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite and starts `ci db-read` builds only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
   through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
   Mac's processes always run here.
 
