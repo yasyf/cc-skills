@@ -20,6 +20,7 @@ HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1
 LINE = "POSTED https://acme.slack.com/archives/D123/p1794380463481960"
 BACKGROUND_JOB = "b7f2e0aa"
 GONE = agents.gone
+ALERT_THREAD = "1794625385.692939"
 
 
 @pytest.fixture
@@ -378,6 +379,15 @@ LIVE_RECORDS = {
     "690001": {"kind": "report", "attrs": {"order": "o9"}},
     "690002": {"kind": "correction", "re": 690001, "attrs": {}},
     "690839": {"kind": "done", "attrs": {}},
+    "700930": {"kind": "handoff", "attrs": {}},
+    "701014": {"kind": "evidence", "re": 700930, "attrs": {}},
+    "701026": {"kind": "handoff", "re": 701014, "attrs": {}},
+    "701042": {"kind": "report", "attrs": {"order": "o1433", "quiet": "true", "thread": ALERT_THREAD}},
+    "701049": {"kind": "evidence", "re": 701026, "attrs": {}},
+    "701054": {"kind": "report", "re": 701049, "attrs": {"incident": "true", "order": "o1433", "progress": "true", "urgent": "true"}},
+    "701056": {"kind": "report", "re": 700999, "attrs": {"job": "j4247", "order": "o1433", "progress": "true", "replaces": "700999"}},
+    "701099": {"kind": "report", "attrs": {"order": "o1433", "quiet": "true", "thread": ALERT_THREAD}},
+    "701102": {"kind": "report", "re": 701056, "attrs": {"job": "j4244", "order": "o1433", "progress": "true"}},
 }
 WATCH_QUIET = "Record: 678142 Drive: demo Scratch: {scratch}/quiet-678142"
 COMMUNICATOR_QUIET = (
@@ -401,6 +411,10 @@ def brief_of(seq: str) -> str:
     return f"Record: {seq} Drive: demo Scratch: {{scratch}}/communicator"
 
 
+def watch_quiet(seq: str) -> str:
+    return f"Record: {seq} Drive: demo Scratch: {{scratch}}/quiet-{seq}"
+
+
 @pytest.mark.parametrize(
     ("first", "then", "met"),
     [
@@ -416,12 +430,19 @@ def brief_of(seq: str) -> str:
         pytest.param(HIS_FIRST, THREAD_LINE, "handed", id="o1153-threadless-690839-38104256-whose-thread-line-names-8712a691s-thread"),
         pytest.param(HIS_FIRST, HIS_UNLINKED, "handed", id="his-words-with-no-link-in-a-held-thread-is-no-copy"),
         pytest.param(WATCH_QUIET, HIS_IN_INCIDENT, "handed", id="his-words-in-the-thread-the-watchs-quiet-handler-holds"),
+        pytest.param(watch_quiet("701042"), brief_of("701054"), "handed", id="o1433-threadless-701054-while-92404de6-held-701042-in-its-orders-alert-thread"),
+        pytest.param(watch_quiet("701042"), brief_of("701056"), "handed", id="o1433-threadless-701056-re-700999-while-92404de6-held-701042"),
+        pytest.param(watch_quiet("701099"), brief_of("701102"), "handed", id="o1433-threadless-701102-re-701056-while-da98a680-held-701099"),
+        pytest.param(brief_of("701054"), watch_quiet("701042"), "handed", id="o1433-the-watchs-701042-while-a-handler-held-threadless-701054"),
     ],
 )
 def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_is_refused(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], first: str, then: str, met: str
 ) -> None:
     cci_records |= {seq: {"seq": int(seq), "kind": kept["kind"], "lane": "root", "re": kept.get("re"), "fields": {"attrs": kept["attrs"]}} for seq, kept in LIVE_RECORDS.items()}
+    with state.edit("demo") as data:
+        alert = state.new_order("an alert's runs are refused", f"https://acme.slack.com/archives/C0ALERT1/p{ALERT_THREAD.replace('.', '')}", ("C0ALERT1", ALERT_THREAD), {}, state.stamp())
+        data["orders"]["o1433"] = alert | {"incident": True}
     handler = tools.run("handler", "demo", {"brief": first.format(scratch=tmp_path)}).removeprefix("started ")
     if met == "copy":
         with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 678142; this copy needs no handler of its own"):
