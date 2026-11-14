@@ -141,8 +141,10 @@ def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str
 
 
 def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime], str | None]:
-    """When the drive posted in an order's threads, its own, its incident's and each of their cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read."""
-    if not (threads := order_threads(data, order_id, order)):
+    """When the drive posted a line to him in an order's threads, its own, its incident's and each of their cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read; a thread talk.to_him reads as one another channel's members read, such as a staging claim's, holds no line to him, so it is not read."""
+    from drive import talk
+
+    if not (threads := [where for where in order_threads(data, order_id, order) if talk.to_him(data, *where)]):
         return [], "it has no thread to read; give it one with drive order set --thread"
     cards = {(channel, ts) for other in state.incident_orders(data, order_id) for channel, ts, _, kind in data["orders"][other]["threads"] if kind != "posted"}
     since = str(int(state.parse_time(order["promised"]).timestamp()))

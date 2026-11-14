@@ -978,6 +978,36 @@ def test_an_order_an_older_install_saved_keeps_the_threads_posts_on_it_went_in_i
     assert (orders["o2"]["threads"], "asked_in" in orders["o2"]) == ([["D123", "1794300000.000100", created, "posted"]], False)
 
 
+def test_a_drive_saved_keeping_a_staging_claims_thread_as_posted_or_not_at_all_keeps_it_as_members_once_while_his_dm_a_group_dm_an_edit_and_a_reply_join_nothing(
+    state_root: Path,
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["members_kept"]
+    created = "2026-11-14T10:00:00-08:00"
+    staging, first, second = "C0BQSADC7SS", "1794687785.402399", "1794692852.753919"
+    data["orders"] = {"o1": state.new_order("test the batch writer on staging", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"test it": state.new_part()}, created)}
+    data["orders"]["o1"]["threads"] = [[staging, second, created, "posted"]]
+    state.create(data)
+
+    def said(channel: str | None, link: str, order: str = "o1", edited: bool = False) -> None:
+        state.append_event("demo", "said", text="Claiming staging.", channel=channel, thread=None, url=link, card=None, order=order, visuals=[], prs=[], edited=edited)
+
+    said(staging, f"https://acme.slack.com/archives/{staging}/p{first.replace('.', '')}")
+    said(staging, f"https://acme.slack.com/archives/{staging}/p{second.replace('.', '')}")
+    said(staging, f"https://acme.slack.com/archives/{staging}/p1794693000000100?thread_ts={first}&cid={staging}")
+    said("U0REPORTER", "https://acme.slack.com/archives/C0MPIM0001/p1794690000000100")
+    said("C0MPIM0001", "https://acme.slack.com/archives/C0MPIM0001/p1794690000000100", edited=True)
+    said(None, "https://acme.slack.com/archives/D123/p1794691000000100")
+    said(staging, f"https://acme.slack.com/archives/{staging}/p1794694000000100", order="o9")
+    kept = [[staging, second, "members"], [staging, first, "members"]]
+    assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
+    with state.edit("demo") as drive:
+        assert drive["members_kept"] is True
+    said(staging, f"https://acme.slack.com/archives/{staging}/p1794695000000100")
+    assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
+
+
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
     make("demo")
     saved = state.stored("demo")

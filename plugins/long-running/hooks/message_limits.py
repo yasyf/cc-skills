@@ -196,12 +196,11 @@ def coordinator_post(payload: dict) -> str | None:
     return None
 
 
-def posts_to(payload: dict, dm: str) -> bool:
-    """Whether a post is a line to him, which the drive's checks of lines to him read: one in his DM, and a say post in a thread outside it, such as an alert's, or in the group DM of a person, him and the bot, never one at the root of another channel, such as a staging claim to its members."""
+def posts_to(payload: dict, drive: dict, dm: str) -> bool:
+    """Whether a post is a line to him, which the drive's checks of lines to him read: one in his DM, and a say post talk.to_him reads as speaking to him, in a thread outside his DM, such as an alert's, or in the group DM of a person, him and the bot, never one to another channel's members, at its root, such as a staging claim, or in a thread they read, such as that claim's thread, a reporter's or a teammate's he ordered watched."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] == SAY:
-        channel, thread = talk.place(tool_input)
-        return channel == dm or bool(thread) or bool(cli.SLACK_USER.fullmatch(channel))
+        return talk.to_him(drive, *talk.place(tool_input))
     if payload["tool_name"] in DM_POSTS:
         return True
     channel = tool_input.get("channel_id") or next(iter(PERMALINK_CHANNEL.findall(tool_input.get("url") or "")), None)
@@ -253,7 +252,7 @@ def result_text(part: dict) -> str:
 
 
 def unread(payload: dict, dm: str) -> str | None:
-    """Why a handler's new line in his thread waits for a read of that thread, which its own transcript must show in the last 10 minutes; a card is drawn from a record, not written from the thread."""
+    """Why a handler's new line in a thread, his or one another channel's members read, such as a staging claim's, waits for a read of that thread, which its own transcript must show in the last 10 minutes; a card is drawn from a record, not written from the thread."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
         return None
@@ -433,7 +432,7 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 def his_words(payload: dict) -> list[dict]:
     """What Jev judges a post by besides the transcripts: only the words of his in his DM it answers, so his share of Jev's prompt grows with the post, never with his threads: his messages in the thread it goes to since the bot's last post there, his answers on the card that thread is under, each message of his its asked links by permalink, each older word of his in that thread its asked or a quote in its text holds, and the words of his the order it is on keeps, read from the drive; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
-    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := slack.dm()):
+    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, drive, dm := slack.dm()):
         return []
     tool_input = payload["tool_input"]
     text = tool_input.get("text") or ""
@@ -551,8 +550,8 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         )
     if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive):
         return refusal
-    if not posts_to(payload, dm):
-        return None
+    if not posts_to(payload, drive, dm):
+        return unread(payload, dm) if payload["tool_name"] == SAY else None
     report, order_id = said_order(payload, drive)
     if refusal := held_while_away(payload, drive, report, order_id) or talk.misplaced(drive, tool_input) or unread(payload, dm):
         return refusal
@@ -657,7 +656,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
 def unsaid_post(payload: dict, drive: dict) -> str | None:
     """Why a write goes through say: slack_edit rewords a post in his DM, or one say made outside it, with each {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} reference left as raw text and the dashboard still showing its old words, another tool posting a file in his DM, such as a screen recording, puts it in Slack alone and never on the dashboard, and one posting a reference there sends it raw too."""
     dm = slack.dm()
-    if payload["tool_name"] == EDIT and (posts_to(payload, dm) or said_post(drive["name"], edited(payload))):
+    if payload["tool_name"] == EDIT and (posts_to(payload, drive, dm) or said_post(drive["name"], edited(payload))):
         return agents.Ruled(
             "Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…}, {record:…} or {answer:…} reference to him as raw text and"
             " leaves the dashboard showing the post's old words. Reword it with say(edit=<its permalink>, text=<the new words>),"
@@ -665,7 +664,7 @@ def unsaid_post(payload: dict, drive: dict) -> str | None:
             SAY_RULE,
             found="this rewords a post with slack_edit, which sends each drive reference to him as raw text and leaves the dashboard showing the post's old words",
         )
-    if payload["tool_name"] in (SAY, EDIT) or not posts_to(payload, dm):
+    if payload["tool_name"] in (SAY, EDIT) or not posts_to(payload, drive, dm):
         return None
     if payload["tool_input"].get("files"):
         return agents.Unjudged(

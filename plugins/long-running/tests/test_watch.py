@@ -965,6 +965,27 @@ def test_a_due_order_an_older_install_saved_reads_its_thread_in_the_channel_that
     assert slack_thread.reads == [("--channel", channel, "--thread", ts, "--since-ts", since, "--limit", "1000") for channel, ts in (where, ("D123", card))]
 
 
+def test_a_due_order_reads_no_thread_it_keeps_as_members_such_as_a_staging_claims_since_no_line_to_him_goes_there(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    own, claim = "1794292846.190589", "1794692852.753919"
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(
+            {
+                "thread": ["D123", own],
+                "threads": [["C0STAGING1", claim, state.stamp(T0 - timedelta(minutes=90)), "members"]],
+                "due": state.stamp(T0 - timedelta(minutes=30)),
+                "promised": state.stamp(T0 - timedelta(minutes=60)),
+            }
+        )
+    [report, _] = owed(watcher(demo), T0, said)
+    assert report["topic"] == "watch-due-o1"
+    since = str(int((T0 - timedelta(minutes=60)).timestamp()))
+    assert slack_thread.reads == [("--channel", "D123", "--thread", own, "--since-ts", since, "--limit", "1000")]
+
+
 def test_a_due_order_from_his_dm_whose_own_thread_is_an_alerts_and_keeps_none_of_his_dm_says_its_time_once_reading_no_thread(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:

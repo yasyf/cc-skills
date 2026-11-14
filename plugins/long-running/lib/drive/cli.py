@@ -624,17 +624,20 @@ def his_words(link: str, deed: str) -> str:
     return link
 
 
-def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None) -> tuple[dict, bool, tuple[str, str] | None]:
-    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, in his DM or in a thread; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at his DM root on an order whose lines go in no thread, one with no thread or whose own thread holds no line to him, is the thread its next lines reply under."""
+def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None, named: str | None = None) -> tuple[dict, bool, tuple[str, str] | None]:
+    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, as talk.to_him reads where it went, in the channel_id say named, a person's user id for the group DM of that person, him and the bot, else the channel its link names; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at his DM root on an order whose lines go in no thread, one with no thread or whose own thread holds no line to him, is the thread its next lines reply under, and a post say made at the root of another channel, such as a staging claim, the thread that channel's members reply under."""
+    from drive import talk
+
     posted = slack.posted(link, sent) if sent else slack.message(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts"))
     order = data["orders"][order_id]
-    if where == (slack.dm(), None) and not state.promise_thread(order):
+    ours = talk.to_him(data, named or where[0], where[1])
+    if not where[1] and (named and not ours or where[0] == slack.dm() and not state.promise_thread(order)):
         where = (where[0], posted["ts"])
     gained = where if where[1] and where not in slack.order_threads(data, order_id, order) else None
-    return posted, where[0] == slack.dm() or bool(where[1]), gained
+    return posted, ours, gained
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -1137,22 +1140,22 @@ def delivering(name: str, order_id: str, report: dict) -> str:
     return "; ".join(lines)
 
 
-def record_post(name: str, order_id: str, link: str, report: dict, sent: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both; an item naming no order is a part of the order the post went out on, on every order it is recorded on. A post say just made passes the words it sent, so its own post is not read back from Slack."""
+def record_post(name: str, order_id: str, link: str, report: dict, sent: str | None = None, named: str | None = None) -> tuple[str, dict]:
+    """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both; an item naming no order is a part of the order the post went out on, on every order it is recorded on. A post say just made passes the words it sent, so its own post is not read back from Slack, and the channel_id it named, if any."""
     items = state.part_items(report, order_id)
     others = dict.fromkeys(on for on, _ in items if on != order_id)
-    first, *rest = [record_on(name, each, link, report, items, sent) for each in [order_id, *others]]
+    first, *rest = [record_on(name, each, link, report, items, sent, named) for each in [order_id, *others]]
     return "; ".join(line for line, _ in [first, *rest]), first[1] | ({"also": [fields for _, fields in rest]} if rest else {})
 
 
-def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
+def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None, named: str | None = None) -> tuple[str, dict]:
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, each only for a line to him, the parts its report's items deliver there, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
     delivered = reported_parts(data, order_id, order, report, items)
-    posted, ours, gained = drive_post_at(link, data, order_id, sent)
+    posted, ours, gained = drive_post_at(link, data, order_id, sent, named)
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
@@ -1164,7 +1167,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
         if rooted:
             order["thread"] = list(gained)
         elif gained:
-            state.join_thread(order, gained, line, "posted")
+            state.join_thread(order, gained, line, "posted" if ours else "members")
         if ours:
             if state.owed(order) and closing:
                 state.keep_closing(order, [at], state.parse_time(report["written"]))
@@ -1179,7 +1182,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
             order["parts"][part]["posted"] = link
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
-    away = "" if ours else ", at the root of another channel, so it is no line to him and keeps no promised time"
+    away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him and keeps no promised time"
     joined = f", in thread {gained[1]}, now {'its own thread' if rooted else 'one of its threads'}" if gained else ""
     return f"{order_id} {said} {link}{away}{joined}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
