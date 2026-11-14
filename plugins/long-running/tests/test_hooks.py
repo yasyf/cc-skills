@@ -787,24 +787,24 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    folder = tmp_path / "j3"
-    bare = f"Order: Drive tooling: copy one store\nServes: drive tooling\nDrive: demo, order o1, job j3\nScratch: {folder}"
+    folder = tmp_path / "j2"
+    bare = f"Order: Drive tooling: copy one store\nServes: drive tooling\nDrive: demo, order o1, job j2\nScratch: {folder}"
     denied = json.loads(hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", bare))))
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert denied["hookSpecificOutput"]["permissionDecisionReason"].startswith(
-        "refused, no agent started: j3 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+        "refused, no agent started: j2 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
     )
     assert not folder.exists()
-    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j3\n{bare}")) == (
-        "refused, no agent started: Researched: j3 names no reader of j3's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j2\n{bare}")) == (
+        "refused, no agent started: Researched: j2 names no reader of j2's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) is None
     assert "model" not in agents.shaped(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
     assert hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", f"Researched: j1\n{bare}"))) == ""
     assert folder.is_dir()
-    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Handoff: 812\nDrive: demo, order o1, job j3\nScratch: {folder}")) is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Handoff: 812\nDrive: demo, order o1, job j2\nScratch: {folder}")) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", bare, session="another-session")) is None
-    code, out = run("job", "brief", "j3", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     prompt = out.splitlines()[0]
     assert code == 0
     assert "\nResearched: j1\n" in Path(prompt.removeprefix("Read your brief first: ")).read_text()
@@ -945,22 +945,22 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", coordinator)
-    typed = f"Order (his words): I told him since you never did, fix that\nServes: drive tooling\nResearched: j1\nDrive: demo, order o1, job j3\nScratch: {tmp_path / 'j3'}"
+    typed = f"Order (his words): I told him since you never did, fix that\nServes: drive tooling\nResearched: j1\nDrive: demo, order o1, job j2\nScratch: {tmp_path / 'j2'}"
     assert agent_brief.deny_reason(drive_agent("long-running:builder", typed)) == (
-        "refused: a builder serving drive tooling is the meta session's, never the coordinator's: `drive job brief j3 --serves"
-        ' "drive tooling"` gives o1 to the meta session, then send meta@demo a defect record naming j3 and its'
+        "refused: a builder serving drive tooling is the meta session's, never the coordinator's: `drive job brief j2 --serves"
+        ' "drive tooling"` gives o1 to the meta session, then send meta@demo a defect record naming j2 and its'
         " `Read your brief first:` line, and the meta session starts it"
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", typed, session="tooler")) == (
         "refused, no agent started: o1 is the coordinator's order, but a builder serving drive tooling is the meta session's alone:"
-        ' `drive job brief j3 --serves "drive tooling"` gives o1 to the meta session, then start it again'
+        ' `drive job brief j2 --serves "drive tooling"` gives o1 to the meta session, then start it again'
     )
-    code, out = run("job", "brief", "j3", "--serves", "drive tooling", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main")
+    code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main")
     assert code == 0
     assert out.splitlines()[-1] == (
-        "o1 is the meta session's order now, since a builder serving drive tooling is its alone: only the meta session starts j3"
+        "o1 is the meta session's order now, since a builder serving drive tooling is its alone: only the meta session starts j2"
         " and its agents and posts its reports; from the coordinator, start no agent on it and send meta@demo a defect"
-        " record naming j3 and its `Read your brief first:` line"
+        " record naming j2 and its `Read your brief first:` line"
     )
     assert state.load("demo")["orders"]["o1"]["owner"] == "meta"
     prompt = out.splitlines()[0]
@@ -968,14 +968,14 @@ def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_t
         refused = drive_agent("long-running:builder", prompt, session=session)
         assert agent_brief.deny_reason(refused) == (
             f"refused: a builder serving drive tooling is the meta session's, never the {starter}'s, and o1 is the meta session's"
-            " order, session tooler: send meta@demo a defect record naming j3 and its `Read your brief first:` line, and the"
+            " order, session tooler: send meta@demo a defect record naming j2 and its `Read your brief first:` line, and the"
             " meta session starts it"
         )
         assert scratch_folder.deny_reason(refused).startswith("refused, no agent started: o1 is the meta session's order, session tooler")
     metas = drive_agent("long-running:builder", prompt, session="tooler")
     assert agent_brief.deny_reason(metas) is None
     assert scratch_folder.deny_reason(metas) is None
-    assert run("job", "brief", "j3")[1].splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where"
+    assert run("job", "brief", "j2")[1].splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where"
 
 
 def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_complex(demo: str, run: Run) -> None:

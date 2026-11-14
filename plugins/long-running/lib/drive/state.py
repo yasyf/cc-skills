@@ -1515,8 +1515,8 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     return [(job_id, job) for job_id, job in jobs if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or design_builder(data, job_id))]
 
 
-def change_job(data: dict, order_id: str, parts: list[str], job_id: str | None = None) -> tuple[str, dict, str] | None:
-    """The one unfinished builder or codex job but job_id on any of these parts of the order, beside the parts it holds of them, quoted, since a part has one change job at a time, so one reader's return frees one builder and one PR builds one change; none on an incident, whose second job on a brief whose clock ran out races the first by design."""
+def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None) -> tuple[str, dict, str] | None:
+    """The one unfinished builder or codex job but job_id on any of these parts of the order, beside the parts it holds of them, quoted, since a part has one change job at a time, so one reader's return frees one builder and one PR builds one change; none on an incident, whose second job on a brief whose clock ran out races the first by design, and none that these waits name, by its id or a PR it opened, whose next change waits on its own."""
     if data["orders"][order_id]["incident"]:
         return None
     return next(
@@ -1525,6 +1525,7 @@ def change_job(data: dict, order_id: str, parts: list[str], job_id: str | None =
             for other_id in data["orders"][order_id]["jobs"]
             if other_id != job_id
             and (other := data["jobs"][other_id])["kind"] in CHANGE_KINDS
+            and not {other_id, *map(pr_key, other["prs"])} & set(waits)
             and other["state"] not in FINISHED_JOB_STATES
             and (shared := [part for part in parts if part in job_parts(other, order_id)])
         ),

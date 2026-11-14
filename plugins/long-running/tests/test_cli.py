@@ -3954,7 +3954,7 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
     capsys.readouterr()
     assert keep(monkeypatch, capsys, "j2", RESEARCH) == (0, "")
-    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j4"
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j3"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "an order from an older skill")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL copies fail on plat", "--incident", "--parts", "fix", "first check")
     assert state.load("demo")["orders"]["o4"]["kind"] == "build"
@@ -4090,17 +4090,14 @@ def test_a_builder_is_added_waiting_on_another_builders_change_which_names_that_
     assert (code, out.splitlines()[:2]) == (0, ["j3", "j3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended"])
     assert run("pr", "add", state.pr_url(built), "--job", "j2", *LEAD)[0] == 0
     assert state.load("demo")["jobs"]["j3"]["waits"] == [built]
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "x", "--waits", built]) == 2
-    assert capsys.readouterr().err.strip().endswith(
-        'refused, no job added: j2 builder waiting carries "the copy" already, and a change waiting on its change is a part of its own:'
-        " drive order set o1 --parts <every part>, then add this builder on that part"
-    )
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy the next store", "--waits", "j2")[1].splitlines()[0] == "j4"
+    assert state.load("demo")["jobs"]["j4"]["waits"] == [built]
     assert run("job", "add", "reader", "--order", "o1", "--part", "the read", "--goal", "dropped")[0] == 0
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j1"]) == 2
     assert capsys.readouterr().err.strip().endswith("refused, no job added: --waits j1: j1 is done, so nothing of it is left to wait on")
-    assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j4")[1].splitlines()[0] == "j5"
-    assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "y", "--waits", "j2")[1].splitlines()[0] == "j6"
-    assert [state.load("demo")["jobs"][job_id]["waits"] for job_id in ("j5", "j6")] == [["j4"], [built]]
+    assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
+    assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "y", "--waits", "j2")[1].splitlines()[0] == "j7"
+    assert [state.load("demo")["jobs"][job_id]["waits"] for job_id in ("j6", "j7")] == [["j5"], [built]]
 
 
 def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -4129,7 +4126,7 @@ def test_a_proof_builder_starts_with_no_lands_after_a_readers_design_whatever_qu
     kept = state.new_question(asked, DESIGN_TITLE, state.stamp())
     with state.edit("demo") as data:
         data["jobs"]["j3"]["questions"] = [kept | {"card": "https://acme.slack.com/archives/D123/p1794480049653959", "closed": state.new_close("answered", None, None, seq="671985")}]
-        data["jobs"]["j4"]["state"] = "done"
+        data["jobs"]["j2"]["state"] = "done"
     replays = {
         "o319's j819, kept before drive job report sent asks, or its question dropped": [],
         "kept with no waits id": [kept],
@@ -4396,18 +4393,18 @@ def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j1", RESEARCH)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    kept_proof(tmp_path, "j3")
+    kept_proof(tmp_path, "j2")
     ready = "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: drive tooling\n"
-    code, err = keep(monkeypatch, capsys, "j3", ready)
+    code, err = keep(monkeypatch, capsys, "j2", ready)
     assert code == 2
-    assert "j3: refused, nothing kept: j1's research found what already does part of this: supervisor/copies.rs store_copy_at copies one store." in err
-    assert keep(monkeypatch, capsys, "j3", ready + "REUSES: calls store_copy_at for each store\n") == (0, "")
+    assert "j2: refused, nothing kept: j1's research found what already does part of this: supervisor/copies.rs store_copy_at copies one store." in err
+    assert keep(monkeypatch, capsys, "j2", ready + "REUSES: calls store_copy_at for each store\n") == (0, "")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a new verb", "--kind", "build")
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the verb")
-    keep(monkeypatch, capsys, "j4", RESEARCH.replace("exists: supervisor/copies.rs store_copy_at copies one store", "exists: none"))
+    keep(monkeypatch, capsys, "j3", RESEARCH.replace("exists: supervisor/copies.rs store_copy_at copies one store", "exists: none"))
     run("job", "add", "builder", "--order", "o2", "--goal", "build it")
-    kept_proof(tmp_path, "j6")
-    assert keep(monkeypatch, capsys, "j6", ready) == (0, "")
+    kept_proof(tmp_path, "j4")
+    assert keep(monkeypatch, capsys, "j4", ready) == (0, "")
 
 
 def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
@@ -4676,7 +4673,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
-    run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "copy it", "--agent", "a1")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     for finding in (
         "the bucket caps at 5k objects/s, left as is",
@@ -6004,6 +6001,7 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
     recorded.shown["7f91d2f"] = {"id": "7f91d2fa", "title": "Machine profile", "body": "use the machine profile", "tags": [], "created_at": "2026-11-12T11:35:00Z"}
     recorded.shown["bc0da25e"] = recorded.shown["bc0da25"]
     builder = run("job", "add", "builder", "--order", "o1", "--goal", "partition the tables")[1].splitlines()[0]
+    run("job", "set", "j2", "--state", "stopped")
     assert run("job", "set", builder, "--carries", "o2")[0] == 0
     code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert code == 0
@@ -8451,8 +8449,8 @@ def test_his_answer_is_born_sent_to_a_lane_whose_brief_carried_his_words_once_he
     run: Run, designing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    for goal in ("build the store", "build the cache"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote", "--waits", designing)
+    for goal, after in (("build the store", []), ("build the cache", ["--waits", "j3"])):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote", "--waits", designing, *after)
     moment = state.now()
     with state.edit("demo") as data:
         for job_id, text, written in (("j3", f'His answers since:\n- "{WORDS}" ({PICK})\n', moment + timedelta(minutes=1)), ("j4", f"Recommended: {WORDS}\n", moment - timedelta(hours=1))):

@@ -1194,7 +1194,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         parts = pick_parts(args.order, order, args.part)
         refuse_a_shared_at_once_part(parts)
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        held = state.change_job(data, args.order, parts) if args.kind in state.CHANGE_KINDS else None
+        waits = view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found)
+        held = state.change_job(data, args.order, parts, waits) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
@@ -1203,7 +1204,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
             or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits)
-            or (held and one_change_job(data, args.order, args.kind, parts, held, args.waits))
+            or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
         ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
@@ -1218,7 +1219,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             "builds_nothing": args.builds_nothing,
             "model": args.model,
         }
-        waits = view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found)
         took = []
         folds = held and state.untaken(held[1])
         if folds:
@@ -1304,22 +1304,20 @@ def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
 
 
 def one_change_job(data: dict, order_id: str, kind: str, parts: list[str], held: tuple[str, dict, str], waits: list[str], adds: bool = True) -> str | None:
-    """Why a builder or codex job may not take parts another unfinished one carries, a part having one change job: one waiting on that job or a PR it opened builds a second change, a part of its own; while that job runs it takes the event itself; parts two such jobs carry name no one job; and drive job set gives no job a part such a job carries, which drive job add hands that job, folding into it while no worker took it and replacing it once it returned."""
+    """Why a builder or codex job may not take parts another unfinished one carries, a part having one change job: while that job runs it takes the event itself; parts two such jobs carry name no one job; and drive job set gives no job a part such a job carries, which drive job add hands that job, folding into it while no worker took it and replacing it once it returned."""
     held_id, other, shared = held
     carries = f"{held_id} {other['kind']} {other['state']} carries {shared} already"
-    if {held_id, *map(state.pr_key, other["prs"])} & set(waits):
-        return f"{carries}, and a change waiting on its change is a part of its own: drive order set {order_id} --parts <every part>, then add this {kind} on that part"
     if other["state"] == "running" and not state.untaken(other):
         return f'{carries}, so a second {kind} would race it on one change: send it the event with drive job resume {held_id} "<the event>", or stop it with drive job set {held_id} --state stopped before adding the job that replaces it'
     if not adds:
         return f"{carries}, and a part has one change job: drive job add {kind} --order {order_id} on that part takes its place, or stop it first with drive job set {held_id} --state stopped"
-    second = state.change_job(data, order_id, parts, held_id)
+    second = state.change_job(data, order_id, parts, waits, held_id)
     return f"{carries}, and {second[0]} {second[1]['kind']} {second[1]['state']} carries {second[2]}: a part has one change job, so name the parts of one of them" if second else None
 
 
 def refuse_a_second_change_job(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job = data["jobs"][job_id]
-    if job["kind"] in state.CHANGE_KINDS and (held := state.change_job(data, order_id, parts, job_id)):
+    if job["kind"] in state.CHANGE_KINDS and (held := state.change_job(data, order_id, parts, job["waits"], job_id)):
         raise DriveError(f"{job_id}: refused, nothing changed: {one_change_job(data, order_id, job['kind'], parts, held, job['waits'], adds=False)}")
 
 
@@ -1425,9 +1423,9 @@ def job_set(args: argparse.Namespace) -> int:
                 state.carry(data, args.id, order_id, parts)
         elif args.part or args.parts:
             named = pick_parts(job["order"], data["orders"][job["order"]], args.parts or args.part)
-            refuse_a_second_change_job(data, args.id, job["order"], named)
             job["parts"] = named if args.parts else list(dict.fromkeys([*job["parts"], *named]))
             refuse_a_shared_at_once_part(job["parts"])
+            refuse_a_second_change_job(data, args.id, job["order"], named)
         if job["state"] in ("done", "failed") and any(set(state.job_parts(job, order_id)) - parts for order_id, parts in held.items()):
             job["state"] = "running"
         if args.agent and args.agent == job.get("dispatch"):
@@ -4888,7 +4886,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "start a job on an order's parts and print its id; a builder or codex job on a part another unfinished one carries goes to"
-            " that one, a part having one change job outside an incident: refused while it runs, folded into it while no worker took it,"
+            " that one, a part having one change job outside an incident, a builder landing or releasing what is built and the change waiting on that one aside: refused while it runs, folded into it while no worker took it,"
             " and replacing it, its PRs taken and it stopped, once it returned"
         ),
     )
