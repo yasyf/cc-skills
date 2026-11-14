@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from drive import agents, cli, dashboard, picture, reads, refs, render, slack, state, view
+from drive import agents, cli, dashboard, install, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
@@ -60,6 +60,21 @@ def say(name: str, post: dict) -> str:
     except (DriveError, slack.SlackError):
         cli.unclaim_close(name, claimed)
         raise
+    said = {"post": post, "order": order, "report": report, "amended": amended, "reply": reply}
+    try:
+        known = state.load(name)
+    except state.NewerDrive:
+        if not (newer := install.upgraded()):
+            raise
+        receipt = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.said.json"
+        return json.loads(install.handed(newer, name, ["say-finish"], receipt, said, f"say posted {reply['permalink']}", state.DRIVE_LOCK_SECONDS))["line"]
+    return finished(name, said, known)
+
+
+def finished(name: str, said: dict, known: dict) -> str:
+    """What say does once its post went out, from what it kept of the post in said: its line, the handler's copy of it, its corrections, the catch-up it released, its record on its order and the order it closed. When a newer install saved the drive while the post went out, say hands said to the newest install's `drive say-finish`, which runs this, so a post never reads as unposted."""
+    post, order, report, amended, reply = said["post"], said["order"], said["report"], said["amended"], said["reply"]
+    seq, close = report.get("seq"), post.get("close")
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"

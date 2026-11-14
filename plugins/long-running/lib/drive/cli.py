@@ -4165,6 +4165,15 @@ def say_record(args: argparse.Namespace) -> int:
     return emit(args, talk.record_kept(state.resolve(args.drive), Path(args.receipt)), {"receipt": args.receipt})
 
 
+def say_finish(args: argparse.Namespace) -> int:
+    from drive import talk
+
+    name, receipt = state.resolve(args.drive), Path(args.receipt)
+    line = talk.finished(name, json.loads(receipt.read_text()), state.load(name))
+    receipt.unlink()
+    return emit(args, line, {"line": line, "receipt": args.receipt})
+
+
 def handler_start(args: argparse.Namespace) -> int:
     return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
 
@@ -5635,6 +5644,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("say-record", parents=both, help="record a post say made on its order from the receipt say kept; say runs it detached")
     verb.add_argument("receipt", help="the receipt file say kept under the drive's posts folder")
     verb.set_defaults(run=say_record)
+    verb = verbs.add_parser("say-finish", parents=both, help="finish a post an older install's say made, once a newer install saved the drive while it went out; say runs it from the newest install")
+    verb.add_argument("receipt", help="the receipt file say kept under the drive's posts folder")
+    verb.set_defaults(run=say_finish)
     verb = verbs.add_parser(
         "term", parents=both, help="he corrected a word: say's hook finds it from now on for Jev to judge, naming the proper term his words or the code use"
     )

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -628,6 +629,49 @@ def test_a_handlers_post_with_no_record_goes_on_the_order_of_his_message_it_hold
         del data["handlers"]["h1"]
     assert talk.say(demo, post) == f"POSTED {answer}"
     assert (said(demo)[-1]["order"], unrecorded) == (None, [])
+
+
+def test_703819_a_handlers_post_out_when_a_newer_install_saved_the_drive_is_finished_by_the_newest_install_so_it_reads_as_posted(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "did it get released?", "--thread", thread, "--parts", "did it get released?")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = "communicator-session"
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    handling(demo, "o1", "1794201723.677000")
+    answer = slack_thread.post(state.now(), from_claude=True)
+    newest, version, sent, handed = tmp_path / "newest" / "bin" / "drive", state.VERSION, [], []
+    real = subprocess.run
+
+    def cc_slack(*argv: str) -> dict:
+        sent.append(argv)
+        monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return {"permalink": answer, "thread_ts": thread}
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        handed.append(argv[1:])
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(slack, "cc_slack", cc_slack)
+    monkeypatch.setattr(talk.install, "upgraded", lambda: newest)
+    monkeypatch.setattr(talk.install.subprocess, "run", newer)
+    assert talk.say(demo, {"text": "No, the fix is not live: its hotfix was rolled back.", "thread_ts": thread}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
+    [argv] = handed
+    data = state.load(demo)
+    assert (len(sent), argv[0], Path(argv[1]).exists(), data["handlers"]["h1"]["posted"], data["orders"]["o1"]["last_line"] is not None, unrecorded) == (
+        1,
+        "say-finish",
+        False,
+        [f"POSTED {answer}"],
+        True,
+        [],
+    )
 
 
 def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_only_a_job_delivers_none(

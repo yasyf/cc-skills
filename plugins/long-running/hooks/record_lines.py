@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, limits, settled, state, superseded
+from drive import agents, brief, install, limits, settled, state, superseded
 from drive.reports import CALL_FIELDS, addressed, attrs, kind, listed, posted, relayed_time, report_refusals, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
@@ -111,7 +111,14 @@ def decision(payload: dict) -> dict | None:
 
 
 def main() -> None:
-    if made := decision(agents.seen(json.load(sys.stdin))):
+    payload = agents.seen(json.load(sys.stdin))
+    try:
+        made = decision(payload)
+    except state.NewerDrive:
+        if install.rechecked(Path(__file__).name, payload):
+            return
+        raise
+    if made:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", **made}} | agents.ruled(made.get("permissionDecisionReason") or "")))
 
 

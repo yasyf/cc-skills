@@ -2346,6 +2346,26 @@ def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
     assert decision["permissionDecisionReason"].startswith("refused: the drive's message check failed on this post with KeyError: 'timestamp'")
 
 
+def test_a_check_a_newer_installs_save_refused_runs_again_as_the_newest_installs_hook_and_with_none_installed_refuses_the_post(
+    talker: str, transcript: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refused(payload: dict) -> tuple[str | None, dict]:
+        raise state.NewerDrive("demo was saved by long-running 9.9.9")
+
+    newest = tmp_path / "newest"
+    (newest / "hooks").mkdir(parents=True)
+    (newest / "hooks" / "message_limits.py").write_text("import json, sys\nprint(json.dumps({'checked': json.load(sys.stdin)['tool_input']['text']}))\n")
+    monkeypatch.setattr(message_limits, "checked", refused)
+    monkeypatch.setattr(state, "WROTE", set())
+    payload = json.dumps(call("slack_dm_status", transcript, text="Fixed."))
+    for upgraded, expected in [(newest / "bin" / "drive", {"checked": "Fixed."}), (None, "refused: the drive's message check failed on this post with NewerDrive")]:
+        monkeypatch.setattr(message_limits.install, "upgraded", lambda upgraded=upgraded: upgraded)
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+        message_limits.main()
+        out = json.loads(capsys.readouterr().out)
+        assert out == expected if upgraded else out["hookSpecificOutput"]["permissionDecisionReason"].startswith(expected)
+
+
 def test_the_meta_session_posts_nothing_to_slack_and_sends_its_words_and_questions_to_the_communicator(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
