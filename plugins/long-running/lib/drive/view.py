@@ -275,7 +275,7 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
     if wait in drive["prs"]:
         pr = drive["prs"][wait]
-        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
+        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(drive, pr, found)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
     if part := state.part_wait(drive, wait):
@@ -286,9 +286,9 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
     return f"you answer {link('your question card', wait)}" if wait.startswith("https://") else "you answer your question card"
 
 
-def tap_card(pr: dict, found: dict | None) -> str | None:
-    """The link of his card a tap on lands the PR, which every line naming his card on it reads: while the PR waits on his tap, his open card at its head; None with his cards unread."""
-    if found is None or not state.asks_tap(pr):
+def tap_card(drive: dict, pr: dict, found: dict | None) -> str | None:
+    """The link of his card a tap on lands the PR, which every line naming his card on it reads: while the PR waits on his tap, by state.asks_tap, his open card at its head; None with his cards unread."""
+    if found is None or not state.asks_tap(drive, pr):
         return None
     shown = head_card(pr, found["pr_cards"])
     return shown and shown["url"]

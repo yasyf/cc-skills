@@ -40,7 +40,7 @@ def bash(command: str, cwd: str = "/work", **fields: object) -> dict:
 
 def approve(key: str) -> None:
     with state.edit("demo") as data:
-        data["prs"][key]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack"}
+        data["prs"][key]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}}
 
 
 @pytest.mark.parametrize(

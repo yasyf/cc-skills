@@ -444,8 +444,9 @@ When it is answered, replaced or redone:
   naming a PR the drive does not hold is refused: `drive pr add` records it first.
 - His Approve lands exactly those PRs still asking his tap, bottom first. His Hold holds them all. A
   card posts once a PR on it asks his tap, and shows what holds it, such as a card of his it waits
-  on, and the option his Approve picks on each card of his holding it, which his Approve answers and
-  closes before the lander starts, but never while one is being reworked to his words. A PR added later gets its own card when posted
+  on, and the option his Approve picks on each card of his holding it, which the lander's start answers and
+  closes before it lands, but never while one is being reworked to his words. A card of his that
+  holds an approved PR his Approve did not pick has the PR's card offer Approve again, naming it. A PR added later gets its own card when posted
   alone. Posted with the rest of its stack, it joins one new card for them all, and cc-slack marks
   each older card of those PRs replaced, with a link to the new one.
 - The card opens with each PR's lead, the four lines its builder gave `drive pr add`, before any

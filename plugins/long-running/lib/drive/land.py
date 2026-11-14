@@ -275,14 +275,47 @@ def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
 
 
 def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...]]:
-    """Start a lander on each unit among keys that is ready, one his Approve or exempt classes clear or a yasyf/* PR its builder reported, marking its PRs under the drive's lock so no second lander starts on their heads; the units started. With his cards unread, none, since a card of his may hold one."""
-    if cards is None or not units(state.load(name), keys, cards):
-        return []
-    with state.edit(name) as data:
-        started = units(data, keys, cards)
-        for members in started:
-            mark(data, members, spawn(name, members))
+    """Answer each card his Approve on a PR among keys picks an option on, by answer_picks, then start a lander on each unit among keys that is ready, one his Approve or exempt classes clear or a yasyf/* PR its builder reported, marking its PRs under the drive's lock so no second lander starts on their heads; the units started. With his cards unread, none, since a card of his may hold one. A pick that failed to answer holds its PR as its open card does, and raises once the rest started, naming why."""
+    failed = answer_picks(name, keys)
+    started: list[tuple[str, ...]] = []
+    if cards is not None and units(state.load(name), keys, cards):
+        with state.edit(name) as data:
+            started = units(data, keys, cards)
+            for members in started:
+                mark(data, members, spawn(name, members))
+    if failed:
+        raise state.DriveError("; ".join(failed))
     return started
+
+
+def answer_picks(name: str, keys: list[str]) -> list[str]:
+    """Answer with its option, as his tap on that card would, each card his Approve on an open PR among keys picked, by card.picks as he tapped, that is still open and that tap has answered no time before, once however many PRs it picks it on, then stamp the answer's seq on each such pick, so an Undo on that card leaves it his to answer, and close each card its answer ended; why each pick that failed to answer did."""
+    from drive import card, superseded
+
+    data = state.load(name)
+    owed: dict[str, list[tuple[str, dict]]] = {}
+    for key in keys:
+        if (pr := data["prs"][key])["state"] == "open" and approved(pr):
+            for wait, pick in pr["tap"]["picks"].items():
+                if pick["seq"] is None and any(question["closed"] is None for _, question in view.drawn_on(data, wait)):
+                    owed.setdefault(wait, []).append((key, pr["tap"]))
+    failed, seqs = [], {}
+    for wait, taps in owed.items():
+        tap = taps[0][1]
+        pick = tap["picks"][wait]
+        try:
+            seqs[wait] = card.answer_question(name, {"waits": pick["waits"], "url": pick["url"], "label": pick["option"], "action_ts": tap["action_ts"], "source": tap["source"]})["seq"]
+        except state.DriveError as error:
+            failed.append(f'his Approve on {taps[0][0]} picking "{pick["option"]}" on {pick["url"]}: {error}')
+    if not seqs:
+        return failed
+    with state.edit(name) as data:
+        for wait, seq in seqs.items():
+            for key, tap in owed[wait]:
+                if (now := data["prs"][key]["tap"]) and now["at"] == tap["at"]:
+                    now["picks"][wait]["seq"] = seq
+    superseded.follow(name, [(job_id, question) for job_id, question in view.drawn_on(state.load(name), *seqs) if (question["closed"] or {}).get("seq") in seqs.values()])
+    return failed
 
 
 def halt(name: str, keys: list[str]) -> list[str]:

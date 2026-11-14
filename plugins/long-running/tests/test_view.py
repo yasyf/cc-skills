@@ -787,7 +787,7 @@ def test_a_pr_he_approved_on_the_dashboard_leaves_every_queue_at_once_though_the
     rows = []
     for key, (head, tapped) in REPLAYED_TAPS.items():
         _, entry = pr(1, "o1", wants_tap=True)
-        tap = {"label": "Approve", "at": tapped, "head": head, "source": "answered on the dashboard"}
+        tap = {"label": "Approve", "at": tapped, "head": head, "source": "answered on the dashboard", "picks": {}}
         rows.append((key, entry | {"url": state.pr_url(key), "head": head, "tap": tap}))
     data = drive_of({"o1": order("land the journal fixes", ["j1"])}, {"j1": job("o1", "waiting")}, rows)
     assert {key: entry["stage"]["name"] for key, entry in data["prs"].items()} == dict.fromkeys(REPLAYED_TAPS, "card")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Cci, Chrome, Jev, Judge, Redraws
-from drive import card, cli, github, limits, picture, stage, state, superseded, view
+from drive import card, cli, github, land, limits, picture, stage, state, superseded, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -70,7 +70,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "job": "j1",
         "order": "o1",
         "wants_tap": wants_tap,
-        "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"} if tap else None,
+        "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}} if tap else None,
         "exempt": exempt,
         "fundamental": None,
         "rework": None,
@@ -614,7 +614,7 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
     ("held", "labels", "pr_state", "why"),
     [
         ({"exempt": "pure port"}, [], "OPEN", 'its exempt class "pure port" lands it with no tap'),
-        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, [], "OPEN", "he approved it already"),
+        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}}}, [], "OPEN", "he approved it already"),
         ({"tap": {"label": "Hold", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, [], "OPEN", "he held it"),
         ({}, [{"name": github.HOLD_LABEL}], "OPEN", "it carries the hold label"),
         ({}, [], "MERGED", "GitHub reads it merged"),
@@ -964,10 +964,63 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
     assert (closed, landers) == ([(JOURNAL_CARD, JOURNAL_PICK, JOURNAL_CARD, True)], [("Forge-AI/monorepo#42",)])
 
 
-def test_a_card_his_approve_picks_on_reads_as_his_answer_on_a_card_that_offers_no_approve() -> None:
-    picked = ((JOURNAL_PICK, f"[{JOURNAL_QUESTION}]({JOURNAL_CARD})"),)
-    drawn = card.render(pr_json(), entry(tap="Approve", checks="pass", now="waiting"), (), (), (), picked)["prs"][0]
-    assert (drawn["lands"], drawn["blocks"]) == ("", f"Approved by you. Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
+def test_a_card_that_comes_to_hold_his_approved_pr_has_his_card_offer_approve_again_and_that_approve_answers_it_once_however_often_the_lander_starts(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    key, waits = "Forge-AI/monorepo#42", f"{drive}:j1-1794626572499"
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    monkeypatch.setattr(card, "run", answering(pr_json()))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
+    closed: list[tuple[str, str, str, bool]] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closed.append((card, words, link, settled)) or {})
+    with state.edit(drive) as data:
+        data["orders"]["o1"] |= {"incident": True, "jobs": ["j1"]}
+        data["prs"][key] |= {"checks": "fail", "review": "approved", "parts": ["fix"]}
+    approve = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "1794626600.000100", "source": "pressed the button"}
+    assert ask({"answer": approve}) == {"ok": True}
+    assert (state.load(drive)["prs"][key]["tap"]["picks"], landers) == ({}, [])
+    with state.edit(drive) as data:
+        asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", unsettled="aa5f6ea: Jev reads the recommended option as breaking it", card=JOURNAL_CARD, holds="the journal heads, on #42")
+        data["jobs"]["j1"]["questions"] = [asked | {"waits": waits}]
+        data["prs"][key]["checks"] = "pass"
+    shown = {"question": JOURNAL_QUESTION, "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "url": JOURNAL_CARD, "card": {"title": JOURNAL_QUESTION, "body": "", "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "waits": waits}}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [shown]})
+    view.refresh_cards(drive)
+    data = state.load(drive)
+    assert state.asks_tap(data, data["prs"][key])
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert (drawn["card"]["options"], drawn["card"]["prs"][0]["lands"]) == (["Approve", "Hold"], f'you approve; your Approve also picks "{JOURNAL_PICK}" on [{JOURNAL_QUESTION}]({JOURNAL_CARD})')
+    assert ask({"answer": approve | {"action_ts": "1794626700.000100"}}) == {"ok": True}
+    data = state.load(drive)
+    [question] = data["jobs"]["j1"]["questions"]
+    [pick] = data["prs"][key]["tap"]["picks"].values()
+    assert ((question["closed"]["how"], question["closed"]["words"]), pick["seq"], closed, landers) == (
+        ("answered", JOURNAL_PICK),
+        question["closed"]["seq"],
+        [(JOURNAL_CARD, JOURNAL_PICK, JOURNAL_CARD, True)],
+        [(key,)],
+    )
+    with state.edit(drive) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = None
+    land.start(drive, [key], view.live_cards(drive))
+    data = state.load(drive)
+    assert (data["jobs"]["j1"]["questions"][0]["closed"], state.asks_tap(data, data["prs"][key]), len(closed)) == (None, False, 1)
+
+
+def test_a_card_his_approve_picked_reads_as_his_answer_and_one_it_did_not_pick_has_his_card_offer_approve_again_naming_it() -> None:
+    waits = "drive:j1-1794626572499"
+    picked = ((waits, JOURNAL_PICK, f"[{JOURNAL_QUESTION}]({JOURNAL_CARD})"),)
+    approved = entry(tap="Approve", checks="pass", now="waiting")
+    kept = {waits: {"waits": waits, "url": JOURNAL_CARD, "title": JOURNAL_QUESTION, "option": JOURNAL_PICK, "seq": None}}
+    drawn = card.render(pr_json(), approved | {"tap": approved["tap"] | {"picks": kept}}, (), (), (), picked)
+    assert (drawn["status"], drawn["prs"][0]["lands"], drawn["prs"][0]["blocks"]) == ("info", "", f"Approved by you. Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
+    again = card.render(pr_json(), approved, (), (), (), picked)
+    assert (again["status"], again["options"], again["prs"][0]["lands"]) == (
+        "needs_you",
+        ["Approve", "Hold"],
+        f'you approve; your Approve also picks "{JOURNAL_PICK}" on [{JOURNAL_QUESTION}]({JOURNAL_CARD})',
+    )
 
 
 def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:

@@ -81,7 +81,7 @@ def bash(command: str, cwd: str = "/work") -> dict:
 
 def approve(key: str) -> None:
     with state.edit("demo") as data:
-        data["prs"][key]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack"}
+        data["prs"][key]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}}
 
 
 def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stdin: str) -> str:
