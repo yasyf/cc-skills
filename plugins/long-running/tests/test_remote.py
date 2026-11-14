@@ -1085,9 +1085,9 @@ FORBIDDEN = {"type": "assistant", "timestamp": "2026-11-12T20:44:30.000Z", "mess
 EARLIER = {**ANSWERED, "timestamp": "2026-11-12T20:43:00.000Z"}
 
 
-def stopped_agent_watched(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session: list[dict]) -> watch.Watcher:
-    """A running builder whose agent a1 on this Mac stopped on an API error 13 seconds ago, as j577's did, beside the transcript of the session holding it, which ends on session."""
-    agent_on_this_mac(run, demo, tmp_path, monkeypatch, STOPPED, timedelta(seconds=13))
+def stopped_agent_watched(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session: list[dict], last: dict = FORBIDDEN) -> watch.Watcher:
+    """A running builder whose agent a1 on this Mac stopped on last 13 seconds ago, an API error as j577's did by default, beside the transcript of the session holding it, which ends on session."""
+    agent_on_this_mac(run, demo, tmp_path, monkeypatch, last, timedelta(seconds=13))
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="running", waits=[], said="PUSHED https://github.com/Forge-AI/monorepo/pull/54870")
     data = state.load(demo)
@@ -1102,10 +1102,9 @@ def lane_lines(watching: watch.Watcher, moment: datetime) -> list[str]:
 def test_the_watch_hands_a_job_whose_agent_on_this_mac_stopped_on_an_api_error_to_a_fresh_worker_that_pass_once(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
 ) -> None:
-    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [STOPPED, ANSWERED])
-    stop = f'its last response ended on refusal at {watch.when(STOPPED["timestamp"])}: "{render.cut(STOPPED_TEXT, 100)}"'
+    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [FORBIDDEN, LATER])
     assert lane_lines(watching, T0) == [
-        f'LANE j1 o1 died as agent a1 on this Mac: {stop}, while it worked on "PUSHED https://github.com/Forge-AI/monorepo/pull/54870". The watch ran'
+        f'LANE j1 o1 died as agent a1 on this Mac: {FORBIDDEN_STOP}, while it worked on "PUSHED https://github.com/Forge-AI/monorepo/pull/54870". The watch ran'
         " drive job resume j1, which hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff,"
         " its output in the drive's relaunches.log"
     ]
@@ -1122,6 +1121,44 @@ def test_the_watch_holds_a_stopped_agents_job_until_the_session_holding_it_has_a
 ) -> None:
     watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, session)
     assert (lane_lines(watching, T0), relaunches, state.load(demo)["jobs"]["j1"].get("deaths", [])) == ([], [], [])
+
+
+SAFEGUARDED_SAID = f'stopped by its model\'s safeguards: "{render.cut(STOPPED_TEXT, 100)}"; the notice went to him and nothing restarts it'
+SAFEGUARDED_LINE = (
+    "LANE j1 o1 stopped by its model's safeguards: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
+    " drive job launch j1 runs it again only on his word"
+)
+
+
+def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Each POST report the watch sends the communicator on a stop a model's safeguards made."""
+    posted: list[dict] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: posted.extend(records) or [str(seq) for seq, _ in enumerate(records, 9)])
+    return posted
+
+
+def safeguards_reports(posted: list[dict]) -> list[tuple[str, str, list[str]]]:
+    return [(record["text"], record["body"].splitlines()[-1], record["to"]) for record in posted if record.get("topic") == "watch-safeguards-j1"]
+
+
+SAFEGUARDS_REPORT = (
+    "POST j1's agent was stopped by its model's safeguards and the drive restarts nothing: post Claude Code's notice to him whole, as it asks",
+    f"Claude Code's notice: {STOPPED_TEXT}",
+)
+
+
+def test_the_watch_stops_a_job_whose_agent_on_this_mac_a_models_safeguards_stopped_at_once_and_passes_him_the_notice_restarting_nothing(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
+) -> None:
+    posted = safeguards_posts(monkeypatch)
+    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [EARLIER], STOPPED)
+    assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
+    assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert (relaunches, safeguards_reports(posted)) == ([], [(*SAFEGUARDS_REPORT, ["communicator@demo"])])
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
+    assert (job["state"], job["said"], job.get("deaths", [])) == ("stopped", SAFEGUARDED_SAID, [])
+    assert [watch.part_gap(watching, data, "o1", part, T0 + timedelta(minutes=5)) for part in data["orders"]["o1"]["parts"]] == [None]
 
 
 ON_THIS_MAC = {"route": state.LOCAL_ROUTE, "workspace": None, "environment": None}
@@ -1180,6 +1217,18 @@ def test_the_watch_types_nothing_into_a_stopped_lane_on_this_mac_until_a_drive_s
     sends = terminal_sends(monkeypatch)
     watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, FORBIDDEN], session)
     assert (lane_lines(watching, T0), sends) == ([], [])
+
+
+def test_the_watch_stops_a_lane_on_this_mac_a_models_safeguards_stopped_at_once_and_types_nothing_into_it(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
+) -> None:
+    sends = terminal_sends(monkeypatch)
+    posted = safeguards_posts(monkeypatch)
+    watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, STOPPED], [EARLIER])
+    assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
+    assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
+    assert (sends, relaunches, safeguards_reports(posted)) == ([], [], [(*SAFEGUARDS_REPORT, [f"communicator@{remote}"])])
+    assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"]["said"]) == ("stopped", SAFEGUARDED_SAID)
 
 
 def test_the_watch_says_once_and_types_nothing_into_a_lane_on_this_mac_whose_four_resumes_met_the_same_stop(
