@@ -2314,7 +2314,7 @@ def held_since(held: list[dict]) -> str:
 
 
 def handler_id(data: dict, session: str | None) -> str | None:
-    """The handler a `claude --bg` session runs for the communicator, as its SessionStart hook bound it."""
+    """The handler a `claude --bg` session runs for the communicator, as its UserPromptSubmit hook bound it."""
     return next((handler for handler, held in data["handlers"].items() if session and held["session"] == session), None)
 
 

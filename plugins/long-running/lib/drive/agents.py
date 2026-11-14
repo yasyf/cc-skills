@@ -363,7 +363,7 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(name: str, handler: str, entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps: once no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names its session with a status but idle, so an idle `claude --bg` session that outlived its turn, as one does until `claude rm` takes it, holds nothing; its background job's state is no test of a session that ran, since Claude Code sets it from the words of its last message. A handler its SessionStart hook never bound, as a hook that raised or a launch that died before init leaves one, is judged by the background job its launch started: gone once Claude Code failed that job, or once that job's first turn ended and no process runs its session but idle, and in flight until then, since its session's process first reads idle before its turn starts. A handler whose turn an API error ended is not gone until the resume that wakes it."""
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps: once no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names its session with a status but idle, so an idle `claude --bg` session that outlived its turn, as one does until `claude rm` takes it, holds nothing; its background job's state is no test of a session that ran, since Claude Code sets it from the words of its last message. A handler its UserPromptSubmit hook never bound, as a bind that failed or a launch that died before its first prompt leaves one, is judged by the background job its launch started: gone once Claude Code failed that job, or once that job's first terminal time is set, as the end of its first turn or the stop a failed bind makes sets it, and no process runs its session but idle; in flight until then, since Claude Code keeps that time on every job from its launch, null until it is set. A handler whose turn an API error ended is not gone until the resume that wakes it."""
     if (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
         return False
     records = session_records()
@@ -371,7 +371,7 @@ def gone(name: str, handler: str, entry: dict) -> bool:
         return not busy(entry["session"], records)
     if (job := launched(name, handler, entry)) is None or busy(job["sessionId"], records):
         return False
-    return job.get("state") == "failed" or "firstTerminalAt" in job
+    return job.get("state") == "failed" or job.get("firstTerminalAt") is not None
 
 
 def busy(session: str, records: list[tuple[int, dict]]) -> bool:
@@ -513,7 +513,7 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the checkout of the session it runs beside, the communicator's or on a drive with none the coordinator's, whether that session or the drive's watch starts it, its SessionStart hook binding it to the drive by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the checkout of the session it runs beside, the communicator's or on a drive with none the coordinator's, whether that session or the drive's watch starts it, its UserPromptSubmit hook binding it to the drive at its brief by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
     _, held = beside(state.saved(name))
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
@@ -599,10 +599,15 @@ def register(name: str, role: str, project: str | None, worktree: str, session: 
 
 
 def bind_handler(payload: dict, handler: str) -> None:
-    """Bind a handler's session to the drive the moment it starts, before its first step, so every check on the communicator's handlers finds it."""
+    """Bind a handler's session to the drive at each prompt it is given, its brief first, before its first step, so every check on the communicator's handlers finds it. A bind that fails, as it does once the drive no longer holds the handler, stops the session's background job before the error goes on, which the hook's `onFailure` turns into a refusal of the prompt: the handler runs no turn bound to nothing, and Claude Code records its job stopped, which gone reads as over, so it holds no thread."""
     name, _, handler_id = handler.partition("/")
-    with state.edit(name) as data:
-        data["handlers"][handler_id].update(session=payload["session_id"], transcript=payload["transcript_path"])
+    try:
+        with state.edit(name) as data:
+            data["handlers"][handler_id].update(session=payload["session_id"], transcript=payload["transcript_path"])
+    except Exception:
+        own, _ = background_job(payload["session_id"])
+        subprocess.Popen(["claude", "stop", own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        raise
 
 
 def handed(briefs: list[str]) -> str:

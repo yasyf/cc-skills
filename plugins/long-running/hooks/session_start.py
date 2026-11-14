@@ -43,10 +43,9 @@ def respond(payload: dict) -> dict | None:
 
 
 def main() -> None:
-    payload = json.load(sys.stdin)
-    if handler := os.environ.get(state.HANDLER_ENV):
-        agents.bind_handler(payload, handler)
+    if os.environ.get(state.HANDLER_ENV):
         return
+    payload = json.load(sys.stdin)
     try:
         output = respond(payload)
     except Exception:
