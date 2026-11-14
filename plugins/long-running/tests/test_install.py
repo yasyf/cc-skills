@@ -982,13 +982,13 @@ def test_a_plugin_needing_a_newer_captain_hook_app_installs_nothing_until_his_in
     git = needing_the_app(fake, monkeypatch, [{"title": HELPER_CARD, "body": "Not now\nOptions: Install now (recommended) | Installs never need me | Not now"}])
     assert install.main(key, None, None, 900, "demo") == 1
     assert capsys.readouterr().err.strip() == (
-        f'drive install: holds {key} for his card "{HELPER_CARD}" (Install now (recommended), Installs never need me and Not now), asked with drive job ask:'
-        " it needs captain-hook 12.121.70, and Captain Hook.app, which runs every hook, runs 12.121.68; run this again once `drive answer` records his pick"
+        f'drive install: WAIT holds {key} for his card "{HELPER_CARD}" (Install now (recommended), Installs never need me and Not now), asked with drive job ask:'
+        " it needs captain-hook 12.121.70, and Captain Hook.app, which runs every hook, runs 12.121.68; run this again once his tap or `drive answer` records his pick"
     )
     with state.edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "ship", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD, state.stamp())]}
     assert install.main(key, None, None, 900, "demo") == 1
-    assert capsys.readouterr().err.startswith(f"drive install: holds {key} for his card /asks/j1-helper.md: it needs captain-hook 12.121.70")
+    assert capsys.readouterr().err.startswith(f"drive install: WAIT holds {key} for his card /asks/j1-helper.md: it needs captain-hook 12.121.70")
     assert (git.claude_calls(), RESTART in git.calls, git.helper) == ([], False, "12.121.68")
 
 
@@ -1000,6 +1000,17 @@ def test_his_install_now_tap_moves_captain_hook_app_onto_the_release_before_the_
     assert git.calls.index(RESTART) < git.calls.index(["claude", "plugin", "marketplace", "update", "skills"])
     assert git.helper == "12.121.70"
     assert capsys.readouterr().out.splitlines()[0] == "installed long-running@skills 1.0.3"
+
+
+@pytest.mark.parametrize(("closed", "installs"), [(state.new_close("answered", "Install now (recommended)", "https://slack/p1"), True), (None, False)])
+def test_his_tap_on_the_install_card_approves_the_restart_before_drive_answer_records_it(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, closed: dict | None, installs: bool
+) -> None:
+    git = needing_the_app(fake, monkeypatch, [])
+    with state.edit("demo") as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "ask", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD, state.stamp(), closed=closed)]}
+    assert install.main("long-running@skills", SHA, None, 900, "demo") == (0 if installs else 1)
+    assert (RESTART in git.calls, git.helper) == (installs, "12.121.70" if installs else "12.121.68")
 
 
 def test_an_app_already_at_the_floor_is_not_restarted(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1243,13 +1254,17 @@ def proving_hooks(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], mo
     return git, script
 
 
-def test_a_proof_of_a_captain_hook_merge_claude_code_updated_the_plugin_to_installs_it_while_captain_hook_app_lacks_it(
+def test_a_proof_held_for_his_install_card_takes_no_result_and_waits_on_his_next_word(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     git, script = proving_hooks(config, tmp_path, fake, monkeypatch, "12.121.70")
     install.prove("demo", "j1", 900)
-    card = install.HELPER_ASKED.format(release="12.121.71")
-    assert state.load("demo")["jobs"]["j1"]["said"].startswith(f'BLOCKED {HOOKS_URL}: not installed, so {script} did not run: holds captain-hook@captain-hook for his card "{card}"')
+    held = f'WAIT holds captain-hook@captain-hook for his card "{install.HELPER_ASKED.format(release="12.121.71")}"'
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"], job["proof"]["said"]) == ("waiting", f"PUSHED {HOOKS_URL}", f"PUSHED {HOOKS_URL}")
+    assert job["proof"]["waits"].startswith(held)
+    [(key, change)] = proof_events()
+    assert (key, change.startswith(f"{install.PROOF_WAITS}: {HOOKS_URL}: not installed, so {script} did not run: {held}")) == ("yasyf/captain-hook#709", True)
     assert [*install.FETCH, "+refs/tags/v12.121.70:refs/tags/v12.121.70"] in git.git_calls()
     assert (git.claude_calls(), RESTART in git.calls, git.helper) == ([], False, "12.121.70")
 

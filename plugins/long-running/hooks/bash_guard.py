@@ -287,7 +287,7 @@ def helper_install(found: list[list[str]], drives: list[str]) -> str | None:
     return (
         f"refused: {step} installs captain-hook {release}, the newest release, and restarts the hook helper every session on"
         f" this Mac shares; he approves each such restart on its own card, and no answer of his picks {install.INSTALL_NOW} on"
-        f" {card}; run it once `drive answer` records his pick"
+        f" {card}; run it once his tap or `drive answer` records his pick"
     )
 
 
