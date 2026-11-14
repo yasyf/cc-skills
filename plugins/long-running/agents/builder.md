@@ -279,7 +279,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      passes while the default branch stays red, nor by a run the file picks itself, which can be the
      run of a push merged seconds before it; when the file fails while one of those runs still runs,
      `drive job prove` runs it again once they completed. `drive job report` refuses the `READY` or
-     `PUSHED` without one. A `Forge-AI/*` one
+     `PUSHED` without one. A job that opens no PR, such as a repair of the drive's records, keeps
+     the same file and ends with `drive job prove <your job>` in place of `DONE`: it runs the file,
+     installs nothing, takes `DONE` or `BLOCKED` on your job, or on a `WAIT` sets it waiting until
+     he is next heard, and you end the turn on the first line `drive job report <your job>` prints. A `Forge-AI/*` one
      returns `READY` with `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an
      exempt class covers it; the meta session registers it under its Drive tooling order, and the exempt class
      or his Approve on its PR card lands it. Any other PR with no order of his returns

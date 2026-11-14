@@ -6444,6 +6444,27 @@ def test_a_proof_waiting_on_his_next_word_holds_its_job_with_no_orphan_and_runs_
     assert "waits" not in state.load(demo)["jobs"]["j1"]["proof"]
 
 
+def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_and_runs_again_only_once_he_is_heard_after_it_started(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    wait = "WAIT he writes a new message in his DM thread"
+    said = f"WAITING {install.PROOF_WAITS}: {wait}"
+    with state.edit(demo) as data:
+        del data["prs"][KEY]
+        data["jobs"]["j1"].update(state="waiting", said=said, prs=[], repro=proof_file(tmp_path), updated=state.stamp(T0 - timedelta(hours=1)))
+        data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": said, "version": state.VERSION, "waits": wait}
+        data["owner"]["heard"] = state.stamp(T0 - timedelta(minutes=5))
+    watching = watcher(demo)
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
+    assert provers == []
+    watch.hear(demo, T0 + timedelta(minutes=63))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=64)) == []
+    assert provers == ["j1"]
+
+
 def tried(name: str, outcome: str) -> None:
     with state.edit(name) as data:
         lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}

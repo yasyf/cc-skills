@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proves, reported_prs, unstarted_prover, upgraded, waiting_prover, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proves, reported_prs, unstarted_prover, upgraded, waiting_prover, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -320,7 +320,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             waited = job["waits"]
             ended = released(data, job, job_id, watcher.cards, out | slot if turn else out)
             job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out)]))
-            if ended and job["state"] not in state.FINISHED_JOB_STATES and not merged_ready(data, job_id):
+            if ended and job["state"] not in state.FINISHED_JOB_STATES and not watch_proves(data, job_id):
                 job["updated"] = state.stamp(moment)
                 if turn:
                     job["slot"] = state.stamp(moment)
@@ -1048,6 +1048,8 @@ def event_line(event: dict, prs: dict) -> str:
         return f"TAP {event['label']} {key}{suffix}"
     if event["kind"] == "landing" and event["change"].startswith(land.OWN_FAILURE):
         return f"{LANDER}{event['change']}"
+    if event["kind"] == "proof" and "job" in event:
+        return f"JOB {event['job']} {event['order']}: {event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
     if event["kind"] == RELAUNCH_REFUSED:
@@ -2417,7 +2419,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
             return asked
         if can_wake(job_id, job, data, moment):
             return None
-        if merged_ready(data, job_id):
+        if watch_proves(data, job_id):
             return merged_gap(job_id, data)
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
         return f"{job_id} {waiting} and no open PR, card or due time can wake it{ended_waits(data, job_id, job)}"
@@ -2463,9 +2465,9 @@ def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None
 
 
 def merged_gap(job_id: str, data: dict) -> str:
-    """Who proves live a builder's READY or PUSHED whose PRs all merged that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result."""
+    """Who proves live a builder's READY or PUSHED whose PRs all merged, or a repair's marked proof, that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result."""
     if why := proof_gap(data, job_id):
-        return f"{job_id}'s PRs all merged and nothing proves them live: {why}"
+        return f"{job_id}'s PRs all merged and nothing proves them live: {why}" if reported_prs(data, job_id) else f"nothing proves {job_id}'s repair: {why}"
     proof = data["jobs"][job_id]["proof"]
     return f"{job_id}'s proof, drive job prove pid {proof['pid']}, ended with no result, its output in the drive's {PROOFS_LOG}: drive job prove {job_id} runs it again"
 
@@ -2518,9 +2520,9 @@ def leaves(data: dict, job_id: str, order_id: str, part: str) -> bool:
 
 
 def proof_due(data: dict, job_id: str) -> bool:
-    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it."""
+    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, or a repair waiting on the proof its drive job prove marked, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it."""
     job = data["jobs"][job_id]
-    if not merged_ready(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)):
+    if not watch_proves(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)):
         return False
     proof = job.get("proof")
     if not proof or proof["said"] != job["said"]:
@@ -2532,9 +2534,9 @@ def proof_due(data: dict, job_id: str) -> bool:
 
 
 def proving(data: dict, job_id: str) -> bool:
-    """Whether a merged job's proof is to come: a lander still merging or installing one of its PRs, a proof running on its line or waiting on his next word, or one the watch starts on its next read."""
+    """Whether a merged job's or a repair's proof is to come: a lander still merging or installing one of its PRs, a proof running on its line or waiting on his next word, or one the watch starts on its next read."""
     job = data["jobs"][job_id]
-    if not merged_ready(data, job_id) or proof_gap(data, job_id):
+    if not watch_proves(data, job_id) or proof_gap(data, job_id):
         return False
     proof = job.get("proof")
     return (
@@ -2546,7 +2548,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> list[str]:
-    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge; one naming a yasyf/* PR and keeping an executable proof file gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes a prover, at that DONE or one it took before the watch added a prover at the merge, gets one from add_prover on the parts unproved names, or widens the unstarted prover already proving one of its PRs, all read before any is added, waiting on each release its PRs' paths reach, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
+    """Finish each builder the watch hears whose READY or PUSHED's PRs all merged: one whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge; one naming a yasyf/* PR and keeping an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes a prover, at that DONE or one it took before the watch added a prover at the merge, gets one from add_prover on the parts unproved names, or widens the unstarted prover already proving one of its PRs, all read before any is added, waiting on each release its PRs' paths reach, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
     from drive import cli
 
     data = state.load(watcher.name)
