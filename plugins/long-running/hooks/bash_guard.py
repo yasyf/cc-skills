@@ -40,6 +40,7 @@ UNSEEN_PROMPT = (
     " no answer either: reach what it does another way, or return BLOCKED naming the call"
 )
 TEAM_BUCKETS = "origin/dev:release/team-buckets.generated.json"
+CI_CACHE = "origin/dev:tools/artifacts.json"
 STORAGE_TOOLS = {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"}
 SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage",)}
 S3API_OBJECTS = re.compile(r"object|upload|part")
@@ -79,7 +80,8 @@ TEAM_DATA = (
 UNLISTED = (
     "refused: this reads or writes `{location}` where the job runs, and `{folder}`, the folder its session runs in, holds no"
     " `release/team-buckets.generated.json` at origin/dev to say whether that bucket holds a team's data, so it is refused"
-    " as one that does; a `cd` in the command changes nothing, since the list is read where the session runs. Run it from"
+    " as one that does, as is every bucket there but CI's cache, the one its `tools/artifacts.json` names; a `cd` in the"
+    " command changes nothing, since the list is read where the session runs. Run it from"
     " a session in a Forge-AI/monorepo checkout, after `git fetch origin dev` in one fetched before that list landed: the"
     " list names each bucket and folder holding a team's data"
 )
@@ -455,14 +457,15 @@ def remote_location(tool: str, word: str) -> str | None:
 
 
 def team_data(command: str, cwd: str) -> agents.Unjudged | None:
-    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the folder its session runs in, whatever folder the command `cd`s to, or a location holding one, any bucket when that folder holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the folder its session runs in, whatever folder the command `cd`s to, or a location holding one, any bucket but CI's cache, which `tools/artifacts.json` names there, when that folder holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
     for words in reached(command, Place(Path(cwd))):
         for location in bucket_locations(words):
             if TEAM_AREA.search(location):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
-            if (listed := team_buckets(Path(cwd))) is None:
+            listed = shown(Path(cwd), TEAM_BUCKETS)
+            if listed is None and location.split("/")[0] != (shown(Path(cwd), CI_CACHE) or {}).get("bucket"):
                 return agents.Unjudged(UNLISTED.format(location=location, folder=cwd))
-            if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed):
+            if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed or ()):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
         if reach := sandsql_reach(words):
             return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], namespace=reach[1]))
@@ -470,9 +473,10 @@ def team_data(command: str, cwd: str) -> agents.Unjudged | None:
 
 
 @cache
-def team_buckets(cwd: Path) -> tuple[str, ...] | None:
-    done = subprocess.run(["git", "-C", str(cwd), "show", TEAM_BUCKETS], capture_output=True, text=True, check=False)
-    return None if done.returncode else tuple(json.loads(done.stdout))
+def shown(cwd: Path, spec: str) -> list | dict | None:
+    """The JSON a Forge-AI/monorepo file holds at origin/dev of the checkout a folder is in, None when it holds no such file."""
+    done = subprocess.run(["git", "-C", str(cwd), "show", spec], capture_output=True, text=True, check=False)
+    return None if done.returncode else json.loads(done.stdout)
 
 
 def team_route(location: str) -> str:

@@ -472,6 +472,32 @@ def test_a_bucket_call_is_judged_by_the_team_bucket_list_of_its_sessions_folder_
     assert f'"{limits.IRIS_BLOBS_QUOTE}"' in bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/sessions/", **builder))
 
 
+def test_a_wrapper_whose_scripts_reach_only_cis_cache_runs_while_the_team_bucket_list_is_missing(demo: str, tmp_path: Path) -> None:
+    checkout = tmp_path / "stale"
+    checkout.mkdir()
+    git_in(checkout, "init", "-q", "-b", "dev")
+    git_in(checkout, "update-ref", "refs/remotes/origin/dev", commit_files(checkout, "the artifact table", {"tools/artifacts.json": json.dumps({"bucket": "frg-ci-cache"})}))
+    tools = checkout / "tools"
+    (tools / "cc-remote" / "bin").mkdir(parents=True)
+    (tools / "cc-remote" / "bin" / "cc-remote").write_text(
+        '#!/bin/sh\nroot="$(cd "$(dirname "$0")/../../.." && pwd)"\nvalidate_agents_payload() {\n  "$root/tools/cc-remote/payload-url" validate\n}\n'
+        'exec mise x "cc-remote@$version" -- cc-remote "$@"\n'
+    )
+    (tools / "cc-remote" / "payload-url").write_text('#!/bin/sh\nroot="$(cd "$(dirname "$0")/../.." && pwd)"\nexec "$root/tools/artifact.sh" presign cc-remote-agents-tools "$seed"\n')
+    (tools / "artifact.sh").write_text(
+        '#!/bin/bash\nREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\nTABLE="$REPO_ROOT/tools/artifacts.json"\n'
+        "BUCKET=\"$(jq -r '.bucket' \"$TABLE\")\"\naws s3api put-object --bucket \"$BUCKET\" --key \"$object\" --body /dev/null\n"
+    )
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(checkout)}
+    wrapped = ["tools/cc-remote/bin/cc-remote --help", "tools/cc-remote/bin/cc-remote destroy durable-agents-j4517"]
+    assert [bash_guard.deny_reason(bash(command, **builder)) for command in wrapped] == [None, None]
+    assert bash_guard.deny_reason(bash(CI_POINTER, **builder)) is None
+    assert bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/", **builder)).startswith(f"refused: this reads or writes `artifacts-prod/` where the job runs, and `{checkout}`, the folder its session runs in, holds no")
+    assert "It holds a team's data" in bash_guard.deny_reason(bash("aws s3 ls s3://frg-ci-cache/iris/teams/t/runs/", **builder))
+    (tools / "artifacts.json").write_text(json.dumps({"bucket": "artifacts-prod"}))
+    assert bash_guard.deny_reason(bash(wrapped[0], **builder)).startswith("refused: this reads or writes `artifacts-prod/$object` where the job runs")
+
+
 def test_a_refused_team_read_names_the_runs_reader_for_a_teams_runs_and_blocked_for_every_other_prefix(demo: str, monorepo: str) -> None:
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     runs = bash_guard.deny_reason(bash("aws s3 cp s3://artifacts-prod/iris/teams/team_01demo/runs/blobs/x -", **builder))
