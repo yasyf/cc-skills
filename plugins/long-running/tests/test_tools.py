@@ -220,33 +220,62 @@ PLAN = {
 }
 
 
-def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_grants_environment_and_exits_as_it_does(
+GLASS = reads.Grant("https://buildkite.com/forge/break-glass/builds/1926", "plat-prod", state.parse_time("2026-11-12T12:22:25Z"), {"AWS_PROFILE": "plat-prod"}, reads.Stops(-1, []))
+GLASS_RECORD = ["cci", "post", "--drive", "demo", "--lane", "break-glass", "--kind", "evidence", "--to", "root@demo", "--id", "break-glass-1926", "--text"]
+
+
+def test_drive_break_glass_grants_in_the_jobs_name_tells_root_whose_grant_it_is_then_runs_its_command_in_the_grants_environment_and_exits_as_it_does(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
     run("job", "add", "reader", "--order", "o1", "--goal", "count them")
-    granted, ran = [], []
-    grant = reads.Grant("https://buildkite.com/forge/break-glass/builds/1926", "plat-prod", state.parse_time("2026-11-12T12:22:25Z"), {"AWS_PROFILE": "plat-prod"}, reads.Stops(-1, []))
+    granted, ran, posted = [], [], []
 
     @contextlib.contextmanager
-    def held(stack: str, reason: str, asker: str, checkout: object) -> Iterator[reads.Grant]:
+    def held(stack: str, reason: str, asker: str, checkout: object, started: Callable[[str], None]) -> Iterator[reads.Grant]:
         granted.append((stack, reason, asker, str(checkout)))
-        yield grant
+        started(GLASS.link)
+        yield GLASS
 
     monkeypatch.setattr(reads, "break_glass", held)
-    monkeypatch.setattr(reads, "run_granted", lambda command, granted: ran.append((command, granted.env)) or 3)
-    assert run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "sts", "get-caller-identity")[0] == 3
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env: posted.append((argv, env["CCI_PARENT_SESSION"])) or "")
+    monkeypatch.setattr(reads, "run_granted", lambda command, granted: ran.append((command, granted.env, len(posted))) or 3)
+    assert run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "s3", "ls", "s3://forge-ci-logs/a b")[0] == 3
     coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
     assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator)]
-    assert ran == [(["aws", "sts", "get-caller-identity"], grant.env)]
+    assert posted == [([*GLASS_RECORD, f"j1 [o1] break-glass grant {GLASS.link} on sandsql/plat-usw2-prod for: aws s3 ls 's3://forge-ci-logs/a b'; reason: count rows, read only"], "drive")]
+    assert ran == [(["aws", "s3", "ls", "s3://forge-ci-logs/a b"], GLASS.env, 1)]
     assert run("break-glass", "j9", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
 
     def failed(*args: object) -> Iterator[reads.Grant]:
-        raise reads.ReadError(f"the break-glass grant {grant.link} failed, so nothing ran")
+        raise reads.ReadError(f"the break-glass grant {GLASS.link} failed, so nothing ran")
 
     monkeypatch.setattr(reads, "break_glass", failed)
     assert run("break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
-    assert len(granted) == len(ran) == 1
+    assert len(granted) == len(ran) == len(posted) == 1
+
+
+def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    posted = []
+
+    @contextlib.contextmanager
+    def held(stack: str, reason: str, asker: str, checkout: object, started: Callable[[str], None]) -> Iterator[reads.Grant]:
+        started(GLASS.link)
+        yield GLASS
+
+    def refused(argv: list[str], checkout: object, env: object) -> str:
+        posted.append(argv)
+        raise reads.ReadError("cci post exited 1: the inbox store is locked")
+
+    monkeypatch.setattr(reads, "break_glass", held)
+    monkeypatch.setattr(reads, "run", refused)
+    monkeypatch.setattr(reads, "run_granted", lambda *args: pytest.fail("a grant root has no record of ran its command"))
+    assert cli.main(["break-glass", "o1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "s3", "ls"]) == 2
+    assert "break-glass: cci post exited 1: the inbox store is locked" in capsys.readouterr().err
+    assert posted == [[*GLASS_RECORD, f"o1 break-glass grant {GLASS.link} on sandsql/plat-usw2-prod for: aws s3 ls; reason: count rows, read only"]]
 
 
 @pytest.mark.parametrize(
