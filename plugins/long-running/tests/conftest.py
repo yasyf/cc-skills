@@ -679,7 +679,7 @@ def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def unread_mail(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     mail: list[dict] = []
-    monkeypatch.setattr(orca, "unread", lambda dispatch: mail)
+    monkeypatch.setattr(orca, "unread", lambda job: mail)
     return mail
 
 

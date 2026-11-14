@@ -103,6 +103,7 @@ class Watcher:
     fix_waits: dict[str, list[str]] | None = None
     live_at: datetime | None = None
     sending: dict[str, int] = field(default_factory=dict)
+    mail_read: set[str] = field(default_factory=set)
     resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
     untracked: dict[str, str] = field(default_factory=dict)
@@ -810,9 +811,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports become JOB lines, Orca's notice that it could not continue a reported worker with mail it never read ends that worker's turn with no STOPPED, its job holding that mail for its next worker by cli.hold_unread and its JOB line naming what it held, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
-    from drive import cli
-
+    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, since agent_lines holds that mail once it reads the worker ended, read and `DRIVE` questions queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes = lane_handles(watcher, data)
@@ -827,7 +826,6 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
     asks = kept_asks(data, lanes, messages, kept)
-    unread = []
     if messages:
         with state.edit(watcher.name) as data:
             heard, recorded = lane_handles(watcher, data), workers(data)
@@ -848,13 +846,9 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] in state.TURN_ENDS and message["from_handle"] == f"dispatch:{job['dispatch']}":
                     job["turn_open"] = False
                 if orca.unread_notice(message):
-                    unread.append(job_id)
                     continue
                 taken = message["type"] in state.TURN_ENDS and (state.lane_ended(job) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken))
-    for job_id in dict.fromkeys(unread):
-        if held := cli.hold_unread(watcher.name, job_id):
-            lines.append(f"JOB {job_id} {data['jobs'][job_id]['order']} {held}")
     watcher.made += [line for line in lines if line]
     return [line for line in read_lines(watcher, data, moment) if line]
 
@@ -1950,9 +1944,9 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
     data = state.load(watcher.name)
-    gaps, deaths, refusals, heads, found, taken, shippers, lines = {}, {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, refusals, heads, found, taken, shippers, finished, lines = {}, {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -2010,6 +2004,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lane |= orca.run_of(worker)
             if any(job.get(field) != value for field, value in lane.items()):
                 found[job_id] = lane
+            if (orca.death(worker) or worker["worker"]["state"] in orca.FINISHED) and job["dispatch"] not in watcher.mail_read:
+                finished[job_id] = job | lane
             if job["undelivered"] and state.SLOT_WAIT not in job["waits"] and orca.takes_messages(job, worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
                 watcher.sending[job_id] = send_held(watcher.name, job_id)
             if why := orca.death(worker):
@@ -2032,11 +2028,35 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     shippers[job_id] = builder_id
     for job_id in taken:
         state.returned(watcher.name, data, job_id, "; ".join([data["jobs"][job_id]["said"], *codex_asks(watcher.name, job_id), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])]))
+    lines += unread_lines(watcher, finished, {job_id for job_id, job in finished.items() if job_id in deaths and job["state"] == "running"}, moment)
     watcher.made += lines
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gap, unlisted.get(job_id, {})) if gap else None for job_id, gap in gaps.items()}
     return failed + death_lines(watcher.name, deaths, moment) + safeguard_lines(watcher, refusals, moment)
+
+
+def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[str], moment: datetime) -> list[str]:
+    """Hold on each job whose lane's worker ended, finished or exited, while the job runs or waits, the texts Orca queued in that worker's Dispatch and it never read, read once for that dispatch from the Orca that keeps its mailbox, by cli.hold_unread, since a sent text lives only there until its worker reads it and Orca shows a finished worker none of it; each job that held any gets `drive job resume` as a process of its own, whose relaunch carries them in its next worker's handoff, unless the death this pass records already relaunches it, and a JOB line naming them. A read Orca refuses is read again next pass."""
+    from drive import cli
+
+    lines = []
+    for job_id, lane in finished.items():
+        source = f"unread mail of {job_id}"
+        try:
+            held = cli.hold_unread(watcher.name, job_id, lane)
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, source, error, moment)
+            continue
+        watcher.failures.pop(source, None)
+        watcher.mail_read.add(lane["dispatch"])
+        if not held:
+            continue
+        carried = "its lane's relaunch carries it" if job_id in relaunched else f"the watch ran drive job resume {job_id}, whose relaunch carries it, its output in the drive's {RELAUNCHES_LOG}"
+        if job_id not in relaunched:
+            watcher.sending[job_id] = send_held(watcher.name, job_id)
+        lines.append(f"JOB {job_id} {lane['order']} {render.unread(held)}; {carried}")
+    return lines
 
 
 def safeguard_lines(watcher: Watcher, refusals: dict[str, dict], moment: datetime) -> list[str]:

@@ -629,14 +629,16 @@ def mail(run: str, after: int) -> list[dict]:
     return sorted((message for message in messages if message["to_handle"] == f"run:{run}" and message["sequence"] > after), key=lambda message: message["sequence"])
 
 
-def unread(dispatch: str) -> list[dict]:
-    """The mail Orca holds for the Dispatch's worker that it never read, oldest first, read without binding or consuming as mail reads a Run's."""
-    messages = call("inbox", "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
+def unread(job: dict) -> list[dict]:
+    """The mail the job's Dispatch worker never read, oldest first, from the Orca that keeps that mailbox: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads a Run's."""
+    dispatch = job["dispatch"]
+    environment = [] if state.on_mac(job) else ["--environment", job["environment"]]
+    messages = call("inbox", *environment, "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
     return sorted((message for message in messages if message["to_handle"] == f"dispatch:{dispatch}" and not message["read"]), key=lambda message: message["sequence"])
 
 
 def unread_notice(message: dict) -> bool:
-    """Whether the message is Orca's notice that it could not continue a reported worker with the mail it never read: an escalation whose payload names a reason and, unlike each of Orca's stop escalations, no stopReason."""
+    """Whether the message is Orca's notice that its mail did not reach a finished worker, which says nothing of the lane's work, since the watch reads that mail itself once it reads the worker ended: an escalation whose payload names a reason and, unlike each of Orca's stop escalations, no stopReason."""
     if message["type"] != "escalation":
         return False
     payload = json.loads(message["payload"] or "{}")
@@ -1047,10 +1049,11 @@ def answer(drive: str, job: dict, kept: dict) -> str:
 
 
 def send(drive: str, job: dict, subject: str, text: str, request: str | None = None) -> str:
-    """Send the text to the lane's Dispatch as a message, as the drive's own terminal, which neither answers nor clears a question it asked."""
+    """Send the text to the lane's Dispatch as a message, as the drive's own terminal, which neither answers nor clears a question it asked; what came of it: queued in that Dispatch's mailbox, where its live worker reads it at its next check, and carried by the job's next worker when this one ends with it unread, which the watch's read of an ended worker's mail holds it for."""
     speak_as_drive(drive)
     call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text, *retried(request))
-    return woke(job, f"sent to dispatch {job['dispatch']}")
+    queued = woke(job, f"queued in dispatch {job['dispatch']} for its live worker, read at its next check")
+    return f"{queued}; its next worker carries it if this one ends with it unread"
 
 
 def woke(job: dict, how: str) -> str:
