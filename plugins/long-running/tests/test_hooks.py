@@ -1356,6 +1356,39 @@ def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_br
     assert [asked["state"]["action"] for asked in jev.asked] == [f"start this production release: `{release}`"]
 
 
+def test_a_running_codex_jobs_resume_and_wake_hold_each_text_its_run_hears_once_at_its_next_bash_call(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_calls: list[list[str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the incident")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
+    with state.edit("demo") as data:
+        state.start(data["jobs"]["j1"])
+        data["jobs"]["j1"]["codex_run"] = str(tmp_path / "codex")
+    held = "j1: held; its codex-ask run hears it at its next Bash call while it goes, else its next launch carries it"
+    resumed, woken, refused = "Block 3 is the router's retry loop: drop it", "No commit in 30 minutes", "Leave the release running"
+    assert run("job", "resume", "j1", resumed) == (0, held)
+    assert run("job", "wake", "j1", "--text", woken) == (0, held)
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setenv(state.DRIVE_ENV, "demo")
+    call = bash("git status") | {"session_id": "a-codex-session", "transcript_path": str(tmp_path / "rollout.jsonl")}
+    told = "A message for j1 from drive job resume or drive job wake, held while your run went:\n"
+    assert json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(call))) == {
+        "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"{told}{resumed}\n\n{told}{woken}"}
+    }
+    assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(call)) == ""
+    assert run("job", "resume", "j1", refused) == (0, held)
+    cancel = call | {"tool_input": {"command": "tools/ci release cancel releases/2026-11-13/2"}}
+    denied = landing_guard.denial(landing_guard.RELEASE_CANCEL)
+    denied["hookSpecificOutput"]["additionalContext"] = f"{told}{refused}"
+    assert json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(cancel))) == denied
+    assert run("job", "resume", "j1", resumed) == (0, held)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "stopped"
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(call)) == ""
+    assert [kept["words"] for kept in state.load("demo")["jobs"]["j1"]["undelivered"]] == [resumed]
+
+
 def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]

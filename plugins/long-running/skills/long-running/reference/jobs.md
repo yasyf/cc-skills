@@ -149,9 +149,11 @@ scratch>/codex-result.json` on the job's brief, with `-m <model>` on a job added
 model his order names, and `--incident` on an incident, after the checks the Agent hooks run on
 every other job's brief, and records the run folder on the job. Its brief carries each text the job
 holds and each answer of his it has not heard under `His answers since:`, as a first launch does,
-and the launch drops those texts off the job and marks it sent those answers. A text held while
-the run goes waits for its end: the watch starts no launch while it goes, and its next launch
-carries the text. The `scratch_folder` hook refuses a
+and the launch drops those texts off the job and marks it sent those answers. `drive job resume`
+and `drive job wake` on a codex job hold the text on it, and while its run goes, `landing_guard`,
+which codex runs before each of the run's Bash calls, hands each held text to the run as that
+call's `additionalContext`, which codex records into the running turn, and drops it off the job; a
+text still held when the run ends rides its next launch. The `scratch_folder` hook refuses a
 `codex:` agent started on a codex job's brief. The schema holds codex's final message to three
 required fields: `state`, a result word of the table above, `line`, the rest of the result line, and
 `report`, the return below it, so no reply lacks its state.

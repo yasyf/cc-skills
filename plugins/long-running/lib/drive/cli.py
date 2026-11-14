@@ -2498,12 +2498,15 @@ def unstopped(job_id: str, job: dict) -> None:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, as does one on a Sprite whose worker returned its line when --local moves it to this Mac, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a codex job holds the text, which landing_guard hands its codex-ask run at that run's next Bash call and its next launch carries once the run ended, a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, as does one on a Sprite whose worker returned its line when --local moves it to this Mac, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
     with state.launch_waits(name, args.id) if text is None and args.local else nullcontext(), state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
         if text is not None:
             unstopped(args.id, job)
+            if job["kind"] == "codex":
+                hold(name, args.id, text)
+                return emit(args, f"{args.id}: held; its codex-ask run hears it at its next Bash call while it goes, else its next launch carries it", {"id": args.id, "how": "held"})
         taker = other_sessions_agent(job)
         if taker and text is not None:
             return hand_over(args, name, data, taker)
@@ -2982,9 +2985,12 @@ def job_held(args: argparse.Namespace) -> int:
 
 
 def job_wake(args: argparse.Namespace) -> int:
-    """Send the text to the job's lane as a message to its Dispatch while Orca holds its worker taking messages, under the job's own lock as drive pr wake sends one, and refuse, sending and starting nothing, a job that is stopped, whose lane ended or that no lane Orca holds runs: the one way the watchdog's agent messages the job answering for a stall, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job", never starting a worker."""
+    """Send the text to the job's lane as a message to its Dispatch while Orca holds its worker taking messages, under the job's own lock as drive pr wake sends one, or hold it for a codex job as drive job resume does, and refuse, sending and starting nothing, a job that is stopped, whose lane ended or that no lane Orca holds runs: the one way the watchdog's agent messages the job answering for a stall, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job", never starting a worker."""
     name = state.resolve(args.drive)
-    if not find(state.load(name)["jobs"], args.id, "job").get("dispatch"):
+    job = find(state.load(name)["jobs"], args.id, "job")
+    if job["kind"] == "codex":
+        return relaunch(args, name, args.text)
+    if not job.get("dispatch"):
         raise DriveError(f"{args.id}: refused, nothing sent: no lane Orca holds runs it, and an agent on this Mac takes a message only from its own session")
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         job = state.load(name)["jobs"][args.id]
@@ -5001,7 +5007,8 @@ def parser() -> argparse.ArgumentParser:
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive, by the one relaunch drive"
             " job launch shares, under the job's own lock, so a resume arriving while another starts the job's next worker waits"
             " for it, about 150 s, and sends that worker the text; one that finds the job stopped once it holds that lock exits 2,"
-            " sending, holding and starting nothing, and drive job launch runs a stopped job again. One that finds another verb holding that lock while Orca cannot reach the lane's Sprite exits 2 at once, sending and holding nothing, rather than wait up to 1800 s behind a wake of that Sprite, and names drive job launch --local; one holding the lock while a drive job launch --local waits for it stands down, exiting 2 before it wakes, sends or starts anything, the texts the job holds left for that launch's handoff. An agent on this Mac whose last response ended on an API error or"
+            " sending, holding and starting nothing, and drive job launch runs a stopped job again. A codex job holds the text, which"
+            " landing_guard hands its codex-ask run at that run's next Bash call, and its next launch carries one still held once the run ended. One that finds another verb holding that lock while Orca cannot reach the lane's Sprite exits 2 at once, sending and holding nothing, rather than wait up to 1800 s behind a wake of that Sprite, and names drive job launch --local; one holding the lock while a drive job launch --local waits for it stands down, exiting 2 before it wakes, sends or starts anything, the texts the job holds left for that launch's handoff. An agent on this Mac whose last response ended on an API error or"
             " a refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff carrying the job's brief and this text. When its "
             "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
             "in that terminal, or, when Orca no longer finds that terminal or worktree, as a dead worker's; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
@@ -5068,7 +5075,7 @@ def parser() -> argparse.ArgumentParser:
         help="instead, why his hold on every release refuses this release, a `ci release start` or `hotfix` as the job runs it, or a release verb naming none; the landing_guard hook on a Sprite lane asks it before the lane starts, resumes, approves, reruns or rolls back a release",
     )
     verb.set_defaults(run=job_held)
-    verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
+    verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, or hold it for a codex job's run, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
     verb.add_argument("id", help="the job")
     verb.add_argument("--text", required=True, help="the message")
     verb.set_defaults(run=job_wake)

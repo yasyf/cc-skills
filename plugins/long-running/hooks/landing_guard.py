@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, card, github, land, limits, public_check, reports, settled, slack, state, superseded, view
-from drive.cli import tap_verdict
+from drive.cli import sent_kept, tap_verdict
 from drive.github import repo_name
 from drive.shell import expanded, runnable, templates
 
@@ -453,7 +453,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     if (verb := release_verb(words)) is None:
         return None
     lane = os.environ.get(state.REMOTE_LANE_ENV)
-    codex = None if lane else os.environ.get(state.OWN_JOB_ENV)
+    codex = codex_job()
     job = shell.job or bool(lane or codex)
     if verb == "cancel" and job:
         return RELEASE_CANCEL
@@ -735,6 +735,16 @@ def denial(reason: str) -> dict:
 
 
 def main() -> None:
+    output = verdict()
+    if told := heard():
+        output = output or {"hookSpecificOutput": {"hookEventName": "PreToolUse"}}
+        said = output["hookSpecificOutput"]
+        said["additionalContext"] = "\n\n".join(filter(None, [said.get("additionalContext"), told]))
+    if output:
+        print(json.dumps(output))
+
+
+def verdict() -> dict | None:
     try:
         payload = agents.seen(json.load(sys.stdin))
         unjudged = cli_posted(payload)
@@ -742,16 +752,30 @@ def main() -> None:
         reason = unjudged or judged or guarded_reason(payload)
         context = None if reason else unprevented_reports(payload)
     except (ValueError, KeyError):
-        return
+        return None
     except github.GithubError as error:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
-        return
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}
     if reason:
-        print(json.dumps(denial(reason) if os.environ.get(state.OWN_JOB_ENV) else denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)))
-        return
+        return denial(reason) if os.environ.get(state.OWN_JOB_ENV) else denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)
     agents.hold(payload)
-    if context:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}} if context else None
+
+
+def heard() -> str | None:
+    """Each text drive job resume or drive job wake held for the running codex job whose codex-ask run makes this Bash call, dropped from the job by sent_kept as the run takes it, since this hook is the one thing a running codex run hears from outside it; a call while the job holds none reads only its own row."""
+    if not (job_id := codex_job()):
+        return None
+    job = state.saved_job(name := os.environ[state.DRIVE_ENV], job_id)
+    if job["state"] != "running" or not job["undelivered"]:
+        return None
+    for kept in job["undelivered"]:
+        sent_kept(name, job_id, kept | {"ask": job.get("ask")})
+    return "\n\n".join(f"A message for {job_id} from drive job resume or drive job wake, held while your run went:\n{kept['words']}" for kept in job["undelivered"])
+
+
+def codex_job() -> str | None:
+    """The job whose codex-ask run makes this call, which its environment names, as a Sprite lane's names its own."""
+    return None if os.environ.get(state.REMOTE_LANE_ENV) else os.environ.get(state.OWN_JOB_ENV)
 
 
 if __name__ == "__main__":
