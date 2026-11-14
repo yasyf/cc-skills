@@ -830,9 +830,9 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     unread = []
     if messages:
         with state.edit(watcher.name) as data:
-            heard = lane_handles(watcher, data)
+            heard, recorded = lane_handles(watcher, data), workers(data)
             for run, message in messages:
-                job_id = sender(heard, run, message)
+                job_id = sender(heard, recorded, run, message)
                 if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"]:
                     continue
                 data["jobs"][job_id]["mail_seen"] = message["sequence"]
@@ -861,9 +861,9 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def kept_asks(data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]]) -> dict[str, str]:
     """The files of each new `ASK <file> [<file>…]` question a remote lane asked naming only blocks `drive job ask` kept for its job, by its message id, as a job on this Mac returns `ASK <file>`; any other ASK goes on to the coordinator, whose `drive job ask <j>` keeps it."""
-    asks = {}
+    asks, recorded = {}, workers(data)
     for run, message in messages:
-        job_id = sender(lanes, run, message)
+        job_id = sender(lanes, recorded, run, message)
         if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or message["id"] in kept(job_id):
             continue
         if questions := state.asked_in(data["jobs"][job_id], reads.opening(message["body"] or "")):
@@ -906,21 +906,32 @@ def replaced(job: dict) -> set[str]:
 
 
 def lane_handles(watcher: Watcher, data: dict) -> dict[str, dict[str | None, str]]:
-    """Whose each live lane's Run's mail is: a Run the drive keeps for one job alone maps None to that job, which takes the mail of every worker there, one the job never recorded included, such as the first of two workers two racing resumes started; a Run several jobs share, as drives kept lanes before each job got its own, maps each dispatch handle, the ones a job replaced included, to its job."""
+    """Whose each live lane's Run's mail is: each dispatch handle of a live job, the ones it replaced included, maps to that job on its Run, and a Run the drive keeps for one job alone also maps None to that job, which takes the mail of every worker there the drive never recorded, such as the first of two workers two racing resumes started; a Run several jobs share, as drives kept lanes before each job got its own, takes only its jobs' recorded workers' mail."""
     holders = collections.Counter(job.get("run") for job in data["jobs"].values())
     lanes: dict[str, dict[str | None, str]] = {}
     for job_id, job in live_lanes(watcher, data).items():
+        handles = lanes.setdefault(job["run"], {})
+        handles.update(dict.fromkeys(worker_handles(job), job_id))
         if holders[job["run"]] == 1:
-            lanes[job["run"]] = {None: job_id}
-            continue
-        for dispatch in [job["dispatch"], *(ended["dispatch"] for ended in job.get("deaths", []))]:
-            lanes.setdefault(job["run"], {})[f"dispatch:{dispatch}"] = job_id
+            handles[None] = job_id
     return lanes
 
 
-def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> str | None:
+def worker_handles(job: dict) -> list[str]:
+    return [f"dispatch:{dispatch}" for dispatch in [job.get("dispatch"), *(ended["dispatch"] for ended in job.get("deaths", []))] if dispatch]
+
+
+def workers(data: dict) -> set[str]:
+    """The dispatch handle of every worker any job of the drive recorded, live or finished."""
+    return {handle for job in data["jobs"].values() for handle in worker_handles(job)}
+
+
+def sender(lanes: dict[str, dict[str | None, str]], recorded: set[str], run: str, message: dict) -> str | None:
+    """The job a message on a lane's Run is from, by the worker that sent it: its `dispatch:<id>` sender, or for a worker on this Mac sending from its terminal's handle the dispatch Orca's payload names. A worker some job recorded sends only that job's mail, and only from that job's Run, so mail Orca files on one job's Run from another job's worker, as it files a lane's send to the drive's terminal on whichever Run that terminal last bound, is no job's; a message from a worker no job recorded, or naming none, is the mail of the job holding the Run alone."""
     handles = lanes.get(run, {})
-    return handles.get(None) or handles.get(message["from_handle"])
+    dispatch = json.loads(message["payload"] or "{}").get("dispatchId")
+    handle = message["from_handle"] if message["from_handle"].startswith("dispatch:") or not dispatch else f"dispatch:{dispatch}"
+    return handles.get(handle) if handle in recorded else handles.get(None)
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
