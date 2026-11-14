@@ -235,13 +235,15 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them."""
+    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the job's PRs, such as a teammate's, is left to other changes with that PR named; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
         order = data["orders"][order_id]
-        parts = [part for part in state.job_parts(job, order_id) if not named or part in named]
-        rest = [part for part in order["parts"] if part not in parts] if named or parts else []
+        carried = [part for part in state.job_parts(job, order_id) if not named or part in named]
+        merged = {part: link for part in carried if (link := order["parts"][part]["posted"]) and state.PR_URL.search(link) and state.pr_key(link) not in map(state.pr_key, job["prs"])}
+        parts = [part for part in carried if part not in merged]
+        rest = [f"{part}, which {merged[part]} merged" if part in merged else part for part in order["parts"] if part not in parts] if named or carried else []
         lines.append(
             f'{order_id}, {order["created"]}: "{order["text"]}"'
             + (f"\n  {delivers}: {'; '.join(parts)}" if parts else "")
