@@ -15,15 +15,18 @@ import one_line_result
 import pre_compact
 import pytest
 import quiet_turn
+import record_lines
 import scratch_folder
 import session_start
-from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, land, limits, place, render, settled, state, watch
+from conftest import LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, drawn_card, label, Answers, Jev, WatchProcess
+from drive import agents, brief, cli, land, limits, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 EARLIER = "2026-01-01T00:00:00+00:00"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
+HANDOFF_START = "tools/ci release start sand sand-next cloudrunner-next --from 4f06b6d"
+RELEASE_ASK = f"Start the regular sand-next release carrying #55784 while he is away: `{HANDOFF_START}{{}}`"
 
 
 @pytest.fixture
@@ -1304,6 +1307,60 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     recorded.listed = recorded.listed[1:]
     jev.picks("5d0c4a1")
     assert [brief.approval_refusal(start.format("5d0c4a1"), data), landing_guard.deny_reason(bash(HELD_VERBS[0]) | top)] == [None, None]
+
+
+def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_start_his_answer_approves(
+    demo: str, run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads = {"asks": "asks", "decides": "5d0c4a1"}
+
+    def read(request: dict) -> dict:
+        if not reads:
+            raise settled.Unheard("no jev decision within 20s")
+        return {key: label(reads[key], {"none": 0.1, reads[key]: 0.9}) for key in request["questions"]}
+
+    monkeypatch.setattr(settled, "jev", read)
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_PICK, PR_TAP)}
+    data, to = state.load(demo), ["platform@demo"]
+    unordered = f"{brief.RELEASE_ASKED}, and `drive job add --release` would refuse `{HANDOFF_START}`: --release names no --order. {brief.RELEASE_APPROVAL}"
+    assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data) == unordered
+    assert brief.release_ask_refusal("release", ["root@demo"], "Start the k8s-only production release at 65dd6d778c26 now", data) == brief.RELEASE_UNNAMED
+    assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order 5d0c4a1"), data) is None
+    assert [brief.release_ask_refusal(kind, ["root@demo"], RELEASE_ASK.format(""), data) for kind in ("owner", "answer")] == [None, None]
+    reads["decides"] = "none"
+    assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order ac61348"), data).startswith(
+        f"{brief.RELEASE_ASKED}, and `drive job add --release` would refuse `{HANDOFF_START} --order ac61348`: `--order ac61348` names his answer to"
+    )
+    reads["asks"] = "none"
+    assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data) is None
+    reads |= {"asks": "asks", "decides": "5d0c4a1"}
+    with state.edit(demo) as held_data:
+        held_data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, RELEASE_PICK | {"created_at": EARLIER}]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    stale = f"{HANDOFF_START} --order 5d0c4a1"
+    assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order 5d0c4a1"), state.load(demo)) == (
+        f"{brief.RELEASE_ASKED}, and `drive job add --release` would refuse `{stale}`: "
+        + held(stale, '`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold').removeprefix("refused: ")
+    )
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "release the clock")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", demo, "--role", "coordinator", "--project", "Platform")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    handoff = {"kind": "handoff", "text": RELEASE_ASK.format(""), "attrs": {"order": "o1"}}
+    with pytest.raises(state.DriveError) as refused:
+        tools.run("record", demo, {"records": [handoff], "dry_run": True})
+    assert unordered in str(refused.value)
+    made = record_lines.decision({"session_id": "talker", "tool_name": "mcp__plugin_cc-inbox_cci__post", "tool_input": handoff | {"to": "platform@demo"}})
+    assert made == {"permissionDecision": "deny", "permissionDecisionReason": unordered}
+    assert agents.ruled(made["permissionDecisionReason"]) == {"judged": False}
+    posted = f"cci post --kind handoff --lane communicator --to platform@demo --attr order=o1 '{RELEASE_ASK.format('')}'"
+    assert landing_guard.deny_reason(bash(posted) | {"session_id": "talker"}) == unordered
+    reads.clear()
+    assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data).startswith(
+        "refused: Jev did not say whether this record asks a session to take a step of a production release (no jev decision within 20s)"
+    )
 
 
 def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_every_release(

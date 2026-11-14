@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import uuid
 
-from drive import cli, limits, reads, render, settled, state, superseded, talk, view
+from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -775,7 +775,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record, and any other session's handoff, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, or an item whose re names several seqs, is refused."""
+    """The cci record an item posts as, to the lane it names, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record, and any other session's handoff, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, an item whose re names several seqs, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
@@ -814,4 +814,6 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
     if item.get("undone"):
         attrs["undone"], text = text, f"undone: {text}"
     made |= {"text": text} | ({"attr": attrs} if attrs else {})
+    if asked := brief.release_ask_refusal(item["kind"], made["to"], f"{text}\n{made.get('body') or ''}", data):
+        raise DriveError(asked)
     return limits.shortened(made) or made
