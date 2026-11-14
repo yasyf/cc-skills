@@ -276,6 +276,7 @@ BOUND = re.compile(
     r"(?:\b(?:at most|at least|up to|more than|fewer than|less than|over|under|about|around|roughly|nearly|almost|some|every|per|each|within|than)|[~<>≤≥])\s*$",
     re.IGNORECASE,
 )
+RATE = re.compile(r"\s*(?:at a time|at once|per|instead of|rather than)\b", re.IGNORECASE)
 MEMBERS = re.compile(r"\A[^:(—–.;\n]{0,40}?[:(—–]\s*(?P<members>[^.;)\n]*?\b(?:and|or)\s+[^,.;)\n]+|[^.;)\n]+)", re.IGNORECASE)
 MEMBER_BREAK = re.compile(r"\s*(?:,|\band\b|\bor\b|/)\s*", re.IGNORECASE)
 LIST_LINE = re.compile(r"^[ \t]*(?:[-*•]|\d+[.)]|[A-Za-z][.)])[ \t]+\S")
@@ -615,18 +616,20 @@ def card_words(card: dict) -> int:
 
 
 def card_refusal(card: dict, beside: str) -> str | None:
-    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it, so a drive's question card, whose words `drive job ask` kept and counted, carries none. A cc-slack permission card, its waits `slack:…`, holds the whole post it asks to send and keeps no limit."""
+    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it. A drive's question card carries no text beside it and is never counted again: `drive job ask` counted its words when it kept them, so a card he was shown redraws under the rules it was asked under. A cc-slack permission card, its waits `slack:…`, holds the whole post it asks to send and keeps no limit."""
     if (card.get("waits") or "").startswith(PERMISSION_WAITS):
         return None
-    options = card.get("options") or []
-    long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
     body = card.get("body") or ""
     drawn = beside.strip() not in body
-    if drawn and card.get("drive") and card.get("waits"):
+    if asked_card(card):
         return (
             f"refused: this post's text is {words(beside)} words cc-slack draws atop the card, and a drive's question card carries"
             " only the words of the ASK block `drive job ask` kept and counted: post the same card with no text." + from_ask(card)
+            if drawn
+            else None
         )
+    options = card.get("options") or []
+    long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
     count = card_words(card | {"body": f"{beside}\n{body}"} if drawn else card)
     problems = [f"each option is one line of at most {OPTION_WORDS} words, {OPTION_SHAPE}: {', '.join(long)}"] if long else []
     summary, *show_me = SHOWN.split(body, maxsplit=1)
@@ -639,6 +642,11 @@ def card_refusal(card: dict, beside: str) -> str | None:
     if not problems:
         return None
     return f"refused: {'; '.join(problems)} ({READING})." + from_ask(card)
+
+
+def asked_card(card: dict) -> bool:
+    """Whether a card is a drive's question card, drawn from an ASK block `drive job ask` checked against every rule when it kept it, never a cc-slack permission card."""
+    return bool(card.get("drive") and card.get("waits")) and not card["waits"].startswith(PERMISSION_WAITS)
 
 
 def from_ask(card: dict) -> str:
@@ -665,7 +673,7 @@ def out_of_shape(problems: list[str]) -> str:
 
 
 def question_problems(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> tuple[Question, list[str]]:
-    """The one question a job's ASK block puts to him, as far as its words read, and every way they are out of shape, each rule one entry of the list; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on. Its length is counted on the card it draws, each reference filled, which `cli.checked_ask` counts once."""
+    """The one question a job's ASK block puts to him, as far as its words read, and every way they are out of shape, each rule one entry of the list; a block `drive job ask` already kept, or one rebuilt from his card, is read with no rule at all once its words parse, so a card he was shown redraws under the rules it was asked under whatever rule came since, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on. Its length is counted on the card it draws, each reference filled, which `cli.checked_ask` counts once."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -685,6 +693,21 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
             described[-1].append(line)
     marked = [option for option in options if RECOMMENDED.search(option)]
     options = [RECOMMENDED.sub("", option) for option in options]
+    hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
+    held = HOLDS.search(findings[0]) if findings else None
+    replaces = REPLACES.search(findings[0]) if findings else None
+    asked = Question(
+        title,
+        summary,
+        show_me,
+        options,
+        RECOMMENDED.sub("", marked[0]) if len(marked) == 1 else "",
+        hints,
+        None if held is None else "" if NONE_WHY.match(held[1]) else held[1],
+        replaces[1] if replaces else "",
+    )
+    if kept:
+        return asked, []
     prose = [(f'option "{option}"', line) for option, lines in zip(options, described, strict=True) for line in lines]
     problems = []
     if not 1 <= len(summary) <= SUMMARY_LINES:
@@ -692,15 +715,15 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
             f"the summary is {len(summary)} lines; it is one to three: the work it serves and what your pick changes,"
             " then the recommendation"
         )
-    problems += show_me_problems(show_me, bool(example and above), kept, len(options))
-    if headings and not kept:
+    problems += show_me_problems(show_me, bool(example and above), len(options))
+    if headings:
         problems.append(f'"{headings[0]}" is not a line of an ASK block: the `- ` options follow the Show me directly, with no heading')
     if len(options) not in OPTION_COUNT:
         problems.append(f"{len(options)} options; an ASK has {OPTION_COUNT.start} to {OPTION_COUNT.stop - 1}, one line each")
     if len(marked) != 1:
         problems.append(f"{len(marked)} options end with (recommended); exactly one does")
-    elif not kept and (recommended := RECOMMENDED.sub("", marked[0])) != options[0]:
-        problems.append(f'the recommended option "{recommended}" is not first: put it first, as the card draws it')
+    elif asked.recommended != options[0]:
+        problems.append(f'the recommended option "{asked.recommended}" is not first: put it first, as the card draws it')
     problems += [
         f'option "{option}" is {words(option)} words; each is one line of at most {OPTION_WORDS}: {OPTION_SHAPE}'
         for option in options
@@ -718,7 +741,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         f'"{found}" points at an option by number or position; cards renumber, so each option says its own words'
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
     ]
-    problems += unlinked([*summary, *captions(show_me), *([] if kept else [line for _, line in prose])], [title, *options], DRIVE_KINDS)
+    problems += unlinked([*summary, *captions(show_me), *(line for _, line in prose)], [title, *options], DRIVE_KINDS)
     problems += counted_problems(title, summary, options, show_me)
     problems += [
         f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
@@ -727,37 +750,31 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
         for found in MARKUP.findall(line)
     ]
-    if not kept:
-        problems += [
-            f'{where} names a mechanism by a bare word in "{found}", which leaves him to guess what runs, what it watches and what'
-            f" reaches whom: say {MECHANISM_SHAPE}, such as {MECHANISM_EXAMPLE} ({MECHANISM_RULING})"
-            for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
-            for found in bare_mechanisms(line)
-        ]
-        problems += option_problems(options, unsettled)
-        problems += description_problems(options, described)
-        problems += sign_in_problems([("the question", title), *(("the summary", line) for line in summary), *((f'option "{option}"', option) for option in options), *prose])
-    if not kept and marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
+    problems += [
+        f'{where} names a mechanism by a bare word in "{found}", which leaves him to guess what runs, what it watches and what'
+        f" reaches whom: say {MECHANISM_SHAPE}, such as {MECHANISM_EXAMPLE} ({MECHANISM_RULING})"
+        for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
+        for found in bare_mechanisms(line)
+    ]
+    problems += option_problems(options, unsettled)
+    problems += description_problems(options, described)
+    problems += sign_in_problems([("the question", title), *(("the summary", line) for line in summary), *((f'option "{option}"', option) for option in options), *prose])
+    if marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
             f" every PR it lands, bottom first, and the stack card that carries them needs no Show me ({STACK_RULING})"
         )
-    if not kept:
-        problems += vague_problems(title, [*summary, *(findings[:1])])
-        problems += opening_problems(summary)
+    problems += vague_problems(title, [*summary, *(findings[:1])])
+    problems += opening_problems(summary)
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
-    elif not kept and len(marked) == 1:
+    elif len(marked) == 1:
         problems += root_cause_problems(findings[0], options)
-    held = HOLDS.search(findings[0]) if findings else None
-    if not kept and not (held and held[1] and held[1].casefold() != "none"):
+    if not (held and held[1] and held[1].casefold() != "none"):
         problems.append(f"no `Holds:` line under `Findings:` naming what his open card holds: write {HOLDS_SHAPE} ({HOLDS_RULING})")
-    if hurting and not kept:
+    if hurting:
         problems += interim_fix_problems("".join(findings[:1]))
-    hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
-    replaces = REPLACES.search(findings[0]) if findings else None
-    recommended = RECOMMENDED.sub("", marked[0]) if len(marked) == 1 else ""
-    return Question(title, summary, show_me, options, recommended, hints, None if held is None else "" if NONE_WHY.match(held[1]) else held[1], replaces[1] if replaces else ""), problems
+    return asked, problems
 
 
 def unshot(asked: Question) -> str | None:
@@ -870,7 +887,7 @@ def options_start(lines: list[str]) -> int:
 
 
 def counted_problems(title: str, summary: list[str], options: list[str], show_me: list[str]) -> list[str]:
-    """Each count of two to twelve things the card's question, summary or options name, as "four strategies" does, that the card never lists: as many options, Show me table rows or columns, list lines, captions, pictures, fenced blocks or compared options, or members named right after a count on the card, as "four strategies: A, B, C and D" names them. A measure such as "30 days" or "3 requests" and a bound such as "at most 3" count no members he must see."""
+    """Each count of two to twelve things the card's question, summary or options name, as "four strategies" does, that the card never lists: as many options, Show me table rows or columns, list lines, captions, pictures, fenced blocks or compared options, or members named right after a count on the card, as "four strategies: A, B, C and D" names them. A measure such as "30 days" or "3 requests", a bound such as "at most 3" and a rate or swap such as "four tests at a time" or "eight machines instead of two" count no members he must see."""
     lines = [title, *(line for line in summary if not line.startswith(REDONE)), *options]
     counted = [(line, bare, match) for line in lines for bare in [masked(line)] for match in COUNTED.finditer(bare)]
     sizes = listed_sizes(options, show_me) | {named_count(bare[match.end() :]) for _, bare, match in counted}
@@ -878,7 +895,7 @@ def counted_problems(title: str, summary: list[str], options: list[str], show_me
     for line, bare, match in counted:
         noun, before = match["noun"].casefold(), bare[: match.start()]
         count = NUMBER_WORDS.get(match["count"].casefold()) or int(match["count"])
-        if noun not in MEASURES | NOT_NOUNS and not BOUND.search(before) and count not in sizes:
+        if noun not in MEASURES | NOT_NOUNS and not BOUND.search(before) and not RATE.match(bare, match.end()) and count not in sizes:
             found.append(
                 f'"{" ".join(line[match.start() : match.end()].split())}" names {count} {match["noun"]}, and the card lists no {count} of them:'
                 f' name each where the count is, as "four strategies: A, B, C and D", or give each its own option, Show me table row or caption ({COUNTED_RULING})'
@@ -1063,7 +1080,7 @@ def option_head(option: str) -> str:
     return HEAD_END.split(option, maxsplit=1)[0].strip()
 
 
-def show_me_problems(show_me: list[str], below_options: bool, kept: bool, options: int) -> list[str]:
+def show_me_problems(show_me: list[str], below_options: bool, options: int) -> list[str]:
     if below_options:
         return ["the options come after the Show me, never above it: summary, then `Show me:` and its example, then the options"]
     if not any(line.strip() for line in show_me):
@@ -1083,11 +1100,7 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool, option
     fences = [line for line in show_me if FENCE.match(line)]
     if len(fences) % 2:
         problems.append("a ``` fence in the Show me is never closed")
-    return (
-        problems
-        if kept
-        else [*problems, *visual_problems(show_me, options), *chart_problems(show_me), *column_problems(show_me), *gallery_problems(show_me, options), *flow_problems(show_me)]
-    )
+    return [*problems, *visual_problems(show_me, options), *chart_problems(show_me), *column_problems(show_me), *gallery_problems(show_me, options), *flow_problems(show_me)]
 
 
 def placeholder_problems(show_me: list[str]) -> list[str]:
@@ -1568,8 +1581,10 @@ def kind_words(data: dict, pr: dict) -> str:
 
 
 def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
-    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary, Show me captions and option descriptions, carry each link where the thing is named, to a target Slack opens, and its title and options, drawn as plain text, name only what the body links."""
-    if card := post.get("card"):
+    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary, Show me captions and option descriptions, carry each link where the thing is named, to a target Slack opens, and its title and options, drawn as plain text, name only what the body links. A drive's question card is never read again, since `drive job ask` read its words when it kept them."""
+    if (card := post.get("card")) and asked_card(card):
+        return None
+    if card:
         summary, *example = SHOWN.split(card.get("body") or "", maxsplit=1)
         problems = unlinked(
             [summary, *captions(example[0].splitlines() if example else []), *(card.get("hints") or {}).values(), post.get("text") or ""],

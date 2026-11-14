@@ -25,7 +25,8 @@ its bytes, and under `Findings:` the findings of the newest block `drive job
 ask` kept for its job asking the same question, unchanged since, else `Root cause: none: rebuilt from
 the posted card`. A card holding an attached picture no such file holds gets no file, and `drive cards
 redraw` names it rather than draw it without the picture. It also runs only once, and each file it
-writes meets every rule a new block meets before it draws.
+writes redraws under no rule, since he was already shown its card, only while its question, summary,
+recommended option and options are the ones his card shows.
 
 ## From one driver to two sessions
 
