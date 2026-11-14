@@ -39,7 +39,7 @@ INSTRUCTIONS = (
     " the job's start; neither is ever when a release, build or deploy started, which is quoted as its build or tool printed"
     " it, in backticks or its link's words, on the line linking it; a time a tool or query measured, such as an outage window, is typed in Pacific on the line linking it, and otherwise only a time after the write, as in \"next line by 5:40 AM\", is typed, naming its day when it falls on another, as \"6:54 AM tomorrow\". Its hook finds a clock time typed for work already done, a line naming a cause"
     " with no {record:}, a line of a session posting on its own telling him work is fixed, merged, queued, live or covers his"
-    " case with no {record:} of the read that measured it and no unverified on it, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, and"
+    " case with no {record:} of the read that measured it and no unverified on it, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, a handler's line naming a PR or quoting an error one of his open question cards already asks about with no {card:} of that card, and"
     " each `cc-slack check-post` finding, and Jev judges each by the rule it stands for and his words once say has"
     " posted it, so say stays fast: a post Jev holds stays in his DM as written, and the session that posted it hears Jev's"
     " reason and rewords it in place with say(edit=<its permalink>, text=…) before its turn ends; a post with a finding"

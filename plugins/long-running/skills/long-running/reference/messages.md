@@ -81,8 +81,11 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   waits for the next turn, each item that waits on him kept first with its card's permalink or
   `waits` id, which `record_lines` refuses a report without, so the handler never searches.
 - When a line names a card or says something waits on him, name the card as `{card:<its waits id>}`
-  in `say`'s text, which `say` links under words that name it. Slack then draws the card with its
-  buttons under the line, so he answers it where it sits. In that card's own thread `say` writes it
+  in `say`'s text, which `say` links under words that name it. A line naming a PR or quoting an
+  error one of his open question cards already asks about names that card too: `say`'s hook refuses
+  a handler's post without it, naming the card, so a failure he was already told about reads as
+  that card's news. Slack then draws the card with its buttons under the line, so he answers it
+  where it sits. In that card's own thread `say` writes it
   as the words after its `|` or as "this card", with no link, and cc-slack writes any link to a
   thread's own parent as its words, since he is already under the card. His words: "why are you
   showing me a card in the thread of the same post that this is a thread of".

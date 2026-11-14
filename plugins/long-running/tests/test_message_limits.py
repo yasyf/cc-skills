@@ -2646,15 +2646,40 @@ def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, tal
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
+    ask = state.drive_dir("demo") / "asks" / "j1-ab.md"
+    ask.parent.mkdir(parents=True, exist_ok=True)
+    ask.write_text("ASK Which store?\n")
     with state.edit("demo") as data:
-        question = state.new_question("/drive/asks/j1-ab.md", "Which store?", state.stamp(), card=card)
+        question = state.new_question(str(ask), "Which store?", state.stamp(), card=card)
         data["jobs"]["j1"]["questions"].append(question | {"waits": "demo:j1-661229"})
     for edit in (call("slack_edit", transcript, text="Reworded.", url=card), call("slack_edit", transcript, text="Reworded.", channel_id=DM, ts="1794288799.976279")):
         reason = message_limits.deny_reason(edit)
         assert reason.startswith("Refused on purpose: that message is his question card")
-        assert "`drive job card /drive/asks/j1-ab.md --waits demo:j1-661229`" in reason
+        assert f"`drive job card {ask} --waits demo:j1-661229`" in reason
     assert say(transcript, edit=card, text="Reworded.").startswith("Refused on purpose: that message is his question card")
     assert say(transcript, edit=link("1794288799.000001"), text="Reworded.") is None
+
+
+def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_is_refused_until_it_links_that_card(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
+    error = "cannot set upsert_condition without corresponding upsert writes"
+    ask = state.drive_dir("demo") / "asks" / "j1-7.md"
+    ask.parent.mkdir(parents=True, exist_ok=True)
+    ask.write_text(f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether https://github.com/acme/app/pull/55 lands.\nFindings:\nRoot cause: the writer sends `{error}`\n")
+    card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=card) | {"waits": "demo:j1-7"})
+    for text, about in ((f'The batch writer still prints "{error}".', f'"{error}"'), ("https://github.com/acme/app/pull/55 is red again.", "acme/app#55")):
+        reason = say(transcript, text=text)
+        assert f"his open card {card} already asks about {about}: Keep upsert_condition?, so link it as {{card:demo:j1-7}}" in reason
+        assert message_limits.KNOWN_RULE in reason.rule
+    assert say(transcript, text=f'The batch writer still prints "{error}", which {{card:demo:j1-7}} asks about.') is None
+    assert say(transcript, text=f'The batch writer still prints "{error}".', about="demo:j1-7") is None
+    assert say(transcript, text="The batch writer still prints nothing new.") is None
 
 
 def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_dashboard_shows_it(talker: str, transcript: Path) -> None:
