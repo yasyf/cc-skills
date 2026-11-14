@@ -1335,6 +1335,34 @@ def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_s
     assert [where[:2] for where in state.load(demo)["orders"]["o1"]["threads"]] == [["D123", his]]
 
 
+def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_members_whose_replies_keep_no_line_to_him(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own, claim = "1794100000.000100", "1794687785.402399"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging", "--thread", own, "--due", "+30m")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    root = f"https://acme.slack.com/archives/C0STAGING1/p{claim.replace('.', '')}"
+    reply = f"https://acme.slack.com/archives/C0STAGING1/p1794689000000100?thread_ts={claim}&cid=C0STAGING1"
+    away = "so it is no line to him and keeps no promised time"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": root})
+    assert talk.say(demo, {"text": "Claiming staging for 30 minutes to test the batch writer.", "channel_id": "C0STAGING1", "record": "677158"} | TICKET) == (
+        f"POSTED {root}; o1 progress line, no part delivered: {root}, at the root of another channel, {away}, in thread {claim}, now one of its threads"
+    )
+    before = state.load(demo)
+    assert [[where[0], where[1], where[3]] for where in before["orders"]["o1"]["threads"]] == [["C0STAGING1", claim, "members"]]
+    assert not talk.to_him(before, "C0STAGING1", claim) and talk.to_him(before, "C0STAGING1", "1794600000.000100") and talk.to_him(before, "D123", own)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": claim})
+    assert talk.say(demo, {"text": "Staging is free again: the batch writer test passed.", "channel_id": "C0STAGING1", "thread_ts": claim, "record": "677159"} | TICKET) == (
+        f"POSTED {reply}; o1 progress line, no part delivered: {reply}, in a thread of another channel its members read, {away}"
+    )
+    after = state.load(demo)["orders"]["o1"]
+    assert [after[field] for field in ("last_line", "due", "threads")] == [before["orders"]["o1"][field] for field in ("last_line", "due", "threads")]
+
+
 def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him_is_the_thread_its_next_lines_go_in(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:

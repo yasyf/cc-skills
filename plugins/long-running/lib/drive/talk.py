@@ -87,7 +87,7 @@ def finished(name: str, said: dict, known: dict) -> str:
     if report.get("catch_up"):
         line += released(name, reply["permalink"], amended)
     if order:
-        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": seq, "sent": reply.get("sent")}, report if close else None)
+        line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": seq, "sent": reply.get("sent"), "channel": post.get("channel_id")}, report if close else None)
     if close:
         line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
     return line
@@ -130,7 +130,7 @@ def recorded(name: str, receipt: dict, report: dict | None, where: str) -> str:
     """Record a say post on its order on its report, read from cci by the receipt's record unless given; one that cannot be recorded is sent to the meta session as a defect, `where` naming the receipt when one was kept."""
     try:
         report = report if report is not None else cli.report_attrs(receipt["record"]) if receipt["record"] else {}
-        return cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"])[0]
+        return cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"], receipt["channel"])[0]
     except (DriveError, slack.SlackError) as error:
         return unkept(name, receipt, error, where)
 
@@ -428,6 +428,22 @@ def place(post: dict) -> tuple[str, str | None]:
         raise DriveError(f"nothing edited: edit {post['edit']} is no Slack permalink; pass the link the post's POSTED line gave")
     channel, ts, thread = message
     return channel, None if thread == ts else thread
+
+
+def to_him(data: dict, channel: str, thread: str | None) -> bool:
+    """Whether a say post in this channel and thread, None at its root, speaks to him, which the drive's checks of a line to him and the line an order owes him both read: one in his DM, one in the group DM of a person, him and the bot, its channel that person's user id as say names it, and one in a thread outside his DM, such as an alert's, unless an order keeps that thread as one whose readers are the channel's members: a reporter's, a teammate's he ordered watched, or the thread under a say post at that channel's root, such as a staging claim's; never one at the root of another channel."""
+    if channel == slack.dm() or cli.SLACK_USER.fullmatch(channel):
+        return True
+    members = (
+        where
+        for order in data["orders"].values()
+        for where in [
+            *((held["channel"], held["thread"]) for held in order["reporters"]),
+            *([(order["watch"]["channel"], order["watch"]["thread"])] if order["watch"] else []),
+            *((kept[0], kept[1]) for kept in order["threads"] if kept[3] == "members"),
+        ]
+    )
+    return bool(thread) and (channel, thread) not in members
 
 
 def shown_at(place: tuple[str, str | None]) -> str:

@@ -2800,6 +2800,35 @@ def test_a_say_post_at_a_channels_root_speaks_to_its_members_so_no_check_of_a_li
     assert message_limits.his_words(call("slack_dm_status", transcript, text=claim, channel_id="C0STAGING1") | {"tool_name": message_limits.SAY}) == []
 
 
+def test_a_say_reply_in_a_thread_an_order_keeps_as_members_skips_the_checks_of_a_line_to_him_that_an_alerts_thread_keeps_but_waits_for_its_read(
+    run: Run, talker: str, transcript: Path, checked: Checked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
+    pr = "https://github.com/acme/app/pull/55"
+    ask = state.drive_dir("demo") / "asks" / "j1-7.md"
+    ask.parent.mkdir(parents=True, exist_ok=True)
+    ask.write_text(f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether {pr} lands.\n")
+    claim, alert = "1794692852.753919", "1794642787.010109"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
+        state.join_thread(data["orders"]["o1"], ("C0STAGING1", claim), state.stamp(), "members")
+    checked.findings = ["1:1 jargon 'staging': say it plainly"]
+    done = " ".join([f"Staging is free again, since {pr} passed the batch writer test there."] * 8)
+    members = {"text": done, "channel_id": "C0STAGING1", "thread_ts": claim}
+    assert "Read it with slack_thread(channel_id=C0STAGING1, thread_ts=1794692852.753919" in say(transcript, **members)
+    reads(lane_of(transcript), claim, channel="C0STAGING1")
+    assert say(transcript, **members) is None
+    assert checked.texts == []
+    assert message_limits.his_words(call("slack_dm_status", transcript, **members) | {"tool_name": message_limits.SAY}) == []
+    reads(lane_of(transcript), alert, channel="C0822AHFY3G")
+    refusal = say(transcript, text=done, channel_id="C0822AHFY3G", thread_ts=alert)
+    assert "a line in his thread is at most 60 words" in refusal
+    assert "so link it as {card:demo:j1-7}" in refusal
+    assert checked.texts != []
+
+
 def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_dashboard_shows_it(talker: str, transcript: Path) -> None:
     reason = message_limits.deny_reason(call("slack_edit", transcript, url=link(EDITED), text="Reworded."))
     assert reason.startswith("Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…}, {record:…} or {answer:…} reference to him as raw text")

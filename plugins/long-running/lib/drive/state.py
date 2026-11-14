@@ -586,6 +586,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "taps_dated": True,
         "holds_owed": True,
         "builder_goals_named": True,
+        "members_kept": True,
         CARDS_NOTED: True,
     }
 
@@ -870,7 +871,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -916,6 +917,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         owe_holds(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
+    if not data.get("members_kept"):
+        keep_members(name, data)
     return data, keep and not unkept
 
 
@@ -941,6 +944,19 @@ def keep_threads(name: str, data: dict) -> None:
     for event, _ in read_events(name):
         if event["kind"] == "said" and event.get("card") and (keys := [key for key in event.get("prs") or [] if key in data["prs"]]):
             join_pr_cards(data, keys, [event["card"]], event["at"])
+
+
+def keep_members(name: str, data: dict) -> None:
+    """Keep as members, on the order say recorded it on, the thread under each say post at the root of a channel outside his DM, such as a staging claim, read once from the dashboard's said events, since an older install kept that thread as posted from its first reply, or not at all, so a reply there read as a line to him; a post in a person's group DM, whose said event names that person, not the channel its link names, and an edit, whose event names the channel it edited in, stay his; marked so this runs once."""
+    for event, _ in read_events(name):
+        if event["kind"] != "said" or event.get("edited") or event.get("order") not in data["orders"] or not (found := slack_message(event.get("url") or "")) or (found[0], found[1]) != (event.get("channel"), found[2]):
+            continue
+        order = data["orders"][event["order"]]
+        for kept in order["threads"]:
+            if kept[:2] == list(found[:2]):
+                kept[3] = "members"
+        join_thread(order, (found[0], found[1]), event["at"], "members")
+    data["members_kept"] = True
 
 
 def cite_returned_designs(name: str, data: dict) -> None:
@@ -2476,7 +2492,7 @@ def heard_lane(data: dict, order_id: str) -> str:
 
 
 def join_thread(order: dict, where: tuple[str, str], at: str, kind: str) -> None:
-    """Keep a thread among the order's from when it joined, once, unless it is the order's own: posted for a thread a post naming the order went in, question for a card its jobs drew, pr for a card drawn for a PR it serves."""
+    """Keep a thread among the order's from when it joined, once, unless it is the order's own: posted for a thread a post naming the order went in, members for one whose readers are another channel's members, such as the thread under a staging claim say posted at that channel's root, question for a card its jobs drew, pr for a card drawn for a PR it serves."""
     if where != own_thread(order) and all((channel, ts) != where for channel, ts, _, _ in order["threads"]):
         order["threads"].append([*where, at, kind])
 
