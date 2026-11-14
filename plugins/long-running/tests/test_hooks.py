@@ -24,7 +24,6 @@ from drive import agents, brief, cli, github, land, limits, orca, place, render,
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
-EARLIER = "2026-01-01T00:00:00+00:00"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 HANDOFF_START = "tools/ci release start sand sand-next cloudrunner-next --from 4f06b6d"
 RELEASE_ASK = f"Start the regular sand-next release carrying #55784 while he is away: `{HANDOFF_START}{{}}`"
