@@ -64,7 +64,8 @@ COMMUNICATOR_RULES = (
     ),
     (
         'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
-        " terminal, and an owner record from the coordinator, are his message, acked at his DM root. His message to the"
+        " terminal are his message, acked at his DM root, and so is an owner record from another session of the drive,"
+        " acked in the thread of his message its url links, at his DM root for terminal. His message to the"
         " bot in another channel (relayed) gets no ack there, and the handler tool only when it orders the drive or"
         " rules on a job's work; his lines to the people there never reach you."
     ),

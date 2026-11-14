@@ -52,7 +52,8 @@ RECORD_ORDER = (
     ' ask for>" with its title, or his question in his own words with its title, project and workstream, added from his message at url in'
     " his thread, or the id of the open order the meta session holds that his words carry on, whatever its words open with, which takes"
     " them as a new part; left out, they carry on the open one the record's attr order, job or thread names, and with none the record is refused."
-    " The record goes out naming it as attr order, and the part it added as attr part, <o>:<part>"
+    " The record goes out naming it as attr order, and the part it added as attr part, <o>:<part>. Only the communicator names it:"
+    " any other session sends words of his it heard first with no order and no to, reaching the communicator, which takes them as his message"
 )
 RECORD = {
     "type": "object",
@@ -527,7 +528,14 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
     ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) for made in posts]
     if unordered := [index for index, (item, alone) in enumerate(zip(records, ordering, strict=True), start=1) if "order" in item and not alone]:
-        raise DriveError(f"{unordered[0]}: refused, nothing posted: order is the order the communicator's owner record about the drive goes to; name the order any other record serves as attrs.order")
+        raise DriveError(
+            f"{unordered[0]}: refused, nothing posted: order is the order the communicator's owner record about the drive goes to; "
+            + (
+                "name the order any other record serves as attrs.order"
+                if role == "communicator"
+                else "words of his this session heard first go with no order and no to, reaching the communicator, which takes them as his message, and words it passes on name the order they serve as attrs.order"
+            )
+        )
     said = ordered_first(name, records, posts, [state.his_words(role, made["kind"]) for made in posts], dry_run)
     if dry_run:
         said += [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
