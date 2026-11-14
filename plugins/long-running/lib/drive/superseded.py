@@ -3,9 +3,10 @@
 import re
 import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
-from drive import github, limits, settled, slack, state, view
+from drive import github, limits, served, settled, slack, state, view
 from drive.render import cut, when
 from drive.settled import TERMINAL
 from drive.state import DriveError
@@ -89,8 +90,8 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
     return asked
 
 
-def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
-    """A new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, none marked heard yet. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
+def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
+    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, each marked heard only when the text its worker started on carries his words, as hear_start reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if ended_at(link, question)}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
@@ -107,7 +108,7 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
         )
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
-    return {
+    kept = data["answers"][answer_id] = {
         "words": words,
         "link": link,
         "at": moment,
@@ -119,6 +120,9 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], changes: s
             if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running"
         },
     }
+    for job_id in kept["jobs"]:
+        hear_start(data, job_id)
+    return kept
 
 
 def binding(data: dict, link: str, asked: dict[str, dict], cwd: str) -> dict[str, list[str]]:
@@ -361,11 +365,37 @@ def delivery(data: dict, job_id: str, job: dict) -> str:
     return f"drive job launch {job_id} on its FREE line, which carries his words to its first worker"
 
 
-def hear(data: dict, job_id: str, text: str) -> None:
-    """Mark the job sent his words on each answer of his it has not heard whose words the text delivered to its worker holds: a message sent to it, or the brief or handoff it started on."""
-    for kept in owed(data, job_id):
-        if carries(text, kept["words"]):
-            kept["jobs"][job_id] = {"mark": "sent"}
+def hear(data: dict, job_id: str, text: str, written: datetime) -> None:
+    """Mark the job sent each answer of his it has not heard whose words the text delivered to its worker holds, a message sent to it or the brief, handoff or launch text it started on, written once he gave that answer: a text written before it, such as a brief quoting a card's option ahead of his tap, carried words he had not said yet."""
+    for answer_id, kept in owed(data, job_id):
+        if carries(text, kept["words"]) and given(data, answer_id) <= written:
+            heard(data, job_id, kept, "sent")
+
+
+def hear_start(data: dict, job_id: str) -> None:
+    """Hear the text the job's worker started on, as it was written then: the handoff its relaunch or takeover kept, else the brief its launch or agent started on; a job no agent or lane started hears his words from the launch that starts it."""
+    job = data["jobs"][job_id]
+    if (job.get("agent") or job.get("dispatch")) and (path := job.get("handoff") or job.get("brief")):
+        started = Path(path)
+        hear(data, job_id, started.read_text(), datetime.fromtimestamp(started.stat().st_mtime).astimezone())
+
+
+def heard(data: dict, job_id: str, kept: dict, mark: str) -> None:
+    """Mark the job sent this answer of his or untouched by it, taking the copy of it the job holds off: the one way a job stops owing his words."""
+    kept["jobs"][job_id] = {"mark": mark}
+    unhold(data["jobs"][job_id], kept["words"])
+
+
+def owe(data: dict, answer_id: str, job_id: str) -> None:
+    """List the job as waiting to hear his answer, unless the text its worker started on already carried it."""
+    if job_id not in (kept := data["answers"][answer_id])["jobs"]:
+        kept["jobs"][job_id] = None
+        hear_start(data, job_id)
+
+
+def given(data: dict, answer_id: str) -> datetime:
+    """When he gave this answer, as the PR check dates it: by the close of the drive's question it answered, his tap's own time for a tap, else when the drive recorded it."""
+    return served.given(served.drawn(data, "answer", answer_id), state.parse_time(data["answers"][answer_id]["at"]))
 
 
 def unhold(job: dict, words: str) -> None:
@@ -373,9 +403,9 @@ def unhold(job: dict, words: str) -> None:
     job["undelivered"] = [kept for kept in job["undelivered"] if not carries(kept["words"], f'verbatim: "{words}"')]
 
 
-def owed(data: dict, job_id: str) -> list[dict]:
-    """Each answer of his that lists the job as waiting to hear it, unmarked."""
-    return [kept for kept in data["answers"].values() if job_id in kept["jobs"] and kept["jobs"][job_id] is None]
+def owed(data: dict, job_id: str) -> list[tuple[str, dict]]:
+    """Each answer of his that lists the job as waiting to hear it, unmarked, by its id."""
+    return [(answer_id, kept) for answer_id, kept in data["answers"].items() if job_id in kept["jobs"] and kept["jobs"][job_id] is None]
 
 
 def carries(text: str, words: str) -> bool:
@@ -552,7 +582,7 @@ def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
         if job["state"] in state.FINISHED_JOB_STATES:
             continue
         if job["parts"] or job["carries"]:
-            data["answers"][answer_id]["jobs"].setdefault(job_id, None)
+            owe(data, answer_id, job_id)
             continue
         job.update(state="stopped", said=f"his answer {answer_id} dropped every part it delivered")
         stopped.append(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}")
@@ -576,7 +606,7 @@ def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:
             if order_id in job["carries"]:
                 del job["carries"][order_id]
                 job["updated"] = state.stamp()
-                kept["jobs"].setdefault(job_id, None)
+                owe(data, answer_id, job_id)
             continue
         job.update(state="stopped", said=f"his answer {answer_id} dropped its order {order_id}", updated=state.stamp())
         done.append(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}")

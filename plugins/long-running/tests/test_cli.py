@@ -8071,12 +8071,50 @@ def test_a_remote_lane_waiting_on_an_order_his_answer_touches_is_marked_sent_onl
     )
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
     with state.edit("demo") as data:
-        superseded.hear(data, "j3", f"His answer, verbatim:\n\n{WORDS}\n\nAct on it.")
+        superseded.hear(data, "j3", f"His answer, verbatim:\n\n{WORDS}\n\nAct on it.", state.now())
     assert run("answer", "a1", "--stands", designing, "--sent", "j3") == (
         0,
         "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
     )
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
+
+
+def test_his_answer_is_born_sent_to_a_lane_whose_brief_carried_his_words_once_he_gave_them_and_owed_to_one_whose_brief_quoted_them_before(
+    run: Run, designing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    for goal in ("build the store", "build the cache"):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote", "--waits", designing)
+    moment = state.now()
+    with state.edit("demo") as data:
+        for job_id, text, written in (("j3", f'His answers since:\n- "{WORDS}" ({PICK})\n', moment + timedelta(minutes=1)), ("j4", f"Recommended: {WORDS}\n", moment - timedelta(hours=1))):
+            brief = tmp_path / f"{job_id}.md"
+            brief.write_text(text)
+            os.utime(brief, (written.timestamp(), written.timestamp()))
+            data["jobs"][job_id].update(state="waiting", dispatch=f"ctx_lane000{job_id[1]}", brief=str(brief))
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert ("  j3 waits on o1" in listed, "  j4 waits on o1 and has not heard a1: drive job resume j4 with his words verbatim, or mark it untouched" in listed) == (False, True)
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}, "j4": None}
+
+
+def test_an_agent_set_on_a_job_whose_brief_carries_his_answer_marks_it_sent_and_takes_off_the_copy_it_held(
+    run: Run, designing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["state"] = "waiting"
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
+    brief = tmp_path / "j3.md"
+    brief.write_text(f'Order (his words): build the store\nHis answers since:\n- "{WORDS}" ({PICK})\n')
+    held = {"seq": "661500", "words": f'His answer on card {DESIGN_CARD}, verbatim: "{WORDS}"', "at": state.stamp(), "said": None, "request": "r-1"}
+    with state.edit("demo") as data:
+        data["jobs"]["j3"].update(brief=str(brief), undelivered=[held])
+    run("job", "set", "j3", "--agent", "agent-3")
+    drive = state.load("demo")
+    assert (drive["answers"]["a1"]["jobs"], drive["jobs"]["j3"]["undelivered"]) == ({"j3": {"mark": "sent"}}, [])
 
 
 def test_sent_on_a_job_no_worker_runs_is_refused_and_his_answer_finishes_without_it_since_the_launch_that_starts_it_carries_his_words(

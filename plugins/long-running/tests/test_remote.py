@@ -33,7 +33,7 @@ from conftest import (
     git_in,
     staged,
 )
-from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, tools, watch
+from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -466,6 +466,29 @@ def test_a_first_launch_marks_its_job_sent_the_answer_its_brief_carries_and_carr
     answers = state.load(demo)["answers"]
     assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": {"mark": "sent"}})
     assert orca.brief_of((state.drive_dir(demo) / "jobs" / "j1.md").read_text()).endswith(f'{heard}\nHis answers since:\n- "{unsaid}" ({link})')
+
+
+def test_a_lane_whose_launch_carried_his_words_only_in_a_report_its_brief_names_is_sent_them_once_his_answer_lists_it(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    words = "keep the one snapshot file"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    with state.edit(demo) as data:
+        data["answers"]["a1"] = {"words": words, "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    state.keep_report(demo, "j1", "DONE the reader's findings", f"DONE the reader's findings\nHis answer, verbatim: \"{words}\"\n")
+    (tmp_path / "brief.md").write_text("Order (his words): ship it\nResearched: j1\nDrive: demo, order o1, job j2\n")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields})
+    assert run("job", "launch", "j2", "brief.md")[0] == 0
+    launched = (state.drive_dir(demo) / "jobs" / "j2.md").read_text()
+    assert (words in launched, words in orca.brief_of(launched)) == (True, False)
+    with state.edit(demo) as data:
+        superseded.owe(data, "a1", "j2")
+    assert state.load(demo)["answers"]["a1"]["jobs"] == {"j2": {"mark": "sent"}}
 
 
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
