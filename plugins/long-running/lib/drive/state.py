@@ -2843,14 +2843,26 @@ def names_pr(words: str, key: str) -> bool:
     return any(bare == number if (bare := found.groups()[-1]) else pr_key(found[0]).casefold() == key.casefold() for found in PR_REF.finditer(words))
 
 
-def foreign(key: str, author: str | None, orders: Iterable[dict]) -> str | None:
-    """Why the drive may not track, card, tap or land a PR: someone other than him opened it on GitHub, and none of the orders of his it serves names it by link, key or #N; None for his own, one such an order names, or one whose author no GitHub read has given since this install, which the watch's next read does."""
-    if author is None or author.casefold() == HIS_LOGIN or any(names_pr(order["text"], key) for order in orders):
+def foreign(key: str, author: str | None, words: Iterable[str]) -> str | None:
+    """Why the drive may not track, card, tap or land a PR: someone other than him opened it on GitHub, and none of his words on the orders it serves, as `his_words_on` reads them, names it by link, key or #N; None for his own, one his words name, or one whose author no GitHub read has given since this install, which the watch's next read does."""
+    if author is None or author.casefold() == HIS_LOGIN or any(names_pr(said, key) for said in words):
         return None
     return (
-        f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and no order of his it serves names it by link or #N: the drive"
-        f" tracks, cards, taps, rebases and lands no one else's PR unless his order's words name it, by his ruling {FOREIGN_RULING}"
+        f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and neither an order of his it serves nor a question card of that order he answered names it by link or #N: the drive"
+        f" tracks, cards, taps, rebases and lands no one else's PR unless his words name it, by his ruling {FOREIGN_RULING}"
     )
+
+
+def his_words_on(data: dict, orders: Iterable[dict]) -> Iterator[str]:
+    """His words on these orders: each order's text, and each question card a job of the order drew that he answered, as its ASK file shows it above its Findings:, so a PR the card links is one his answer names."""
+    from drive import limits
+
+    for order in orders:
+        yield order["text"]
+        for job_id in order["jobs"]:
+            for question in data["jobs"][job_id]["questions"]:
+                if question["card"] and question["file"] and (question["closed"] or {}).get("how") == "answered":
+                    yield limits.FINDINGS.split(Path(question["file"]).read_text(), maxsplit=1)[0]
 
 
 def served(data: dict, pr: dict) -> Iterator[dict]:
@@ -2860,7 +2872,7 @@ def served(data: dict, pr: dict) -> Iterator[dict]:
 
 def foreign_pr(data: dict, key: str) -> str | None:
     """Why the drive may not keep a PR it tracks, from the author its last GitHub read stored."""
-    return foreign(key, data["prs"][key]["author"], served(data, data["prs"][key]))
+    return foreign(key, data["prs"][key]["author"], his_words_on(data, served(data, data["prs"][key])))
 
 
 def drop_pr(data: dict, key: str) -> None:
