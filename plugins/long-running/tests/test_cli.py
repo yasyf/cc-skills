@@ -5139,7 +5139,7 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
         ("builder", "DONE installed 1.0.76", "done"),
         ("builder", "READY https://github.com/yasyf/cc-skills/pull/1", "waiting"),
         ("builder", "WAITING: CI on #7", None),
-        ("design", "DESIGN the table move", "waiting"),
+        ("design", "DESIGN the table move", "done"),
         ("builder", "BLOCKED no order of his names this", "failed"),
         ("builder", "HANDOFF /scratch/j1/left.md", "stopped"),
         ("reader", "The flag exists since 1.0.40", "done"),
@@ -5155,14 +5155,15 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     kept_proof(tmp_path, "j1")
     if first.startswith("READY "):
         run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
-    run("job", "add", "builder", "--order", "o1", "--part", "ship" if kind == "design" else "ship again", "--goal", "ship again")
+    run("job", "add", "builder", "--order", "o1", "--part", "ship again", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
     for job_id in ("j1", "j2"):
         monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\n{rest}CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
         run("job", "report", job_id, "-")
     jobs = state.load("demo")["jobs"]
-    assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, first) if taken else ("running", None))
+    said = "carried by builder j3" if kind == "design" else first
+    assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, said) if taken else ("running", None))
     assert (jobs["j2"]["state"], jobs["j2"]["said"]) == ("stopped", None)
 
 
