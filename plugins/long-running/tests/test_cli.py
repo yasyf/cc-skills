@@ -8651,13 +8651,13 @@ def test_jev_reads_every_option_of_a_card_in_one_call_against_his_words_and_the_
     [request] = jev.asked
     questions = request["questions"]
     assert list(questions) == ["breaks1", "breaks2", "breaks3", "worked1", "worked2", "worked3", "untapped", "card"]
-    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:32f49af"]
+    assert list(questions["breaks2"]["label"]["options"]) == ["none", NOT_SPECIAL["id"], "ruling:32f49af", limits.FACT_WORDS["id"]]
     assert list(questions["worked2"]["label"]["options"]) == ["none", limits.WORKED_WORDS["id"]]
-    assert list(questions["card"]["label"]["options"]) == ["none", "ruling:0c59046", "ruling:32f49af"]
+    assert list(questions["card"]["label"]["options"]) == ["none", "ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"]]
     assert '"One api start: no runner on any host" (recommended)' in questions["breaks1"]["label"]["instructions"]
     assert f'The option: "{asked.options[2]}".' in questions["worked3"]["label"]["instructions"]
     assert "Option 1 (recommended): One api start: no runner on any host -- agent::start in" in request["state"]["card"]
-    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS]
+    assert request["state"]["his_words"] == [NOT_SPECIAL, limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.FACT_WORDS, limits.WORKED_WORDS]
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
     settled.judged(case, asked, [NOT_SPECIAL], [], {})
@@ -8728,7 +8728,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
         assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append((list(request["questions"]["card"]["label"]["options"]), request["state"]["his_words"]))
-    assert offered == [(["none", "ruling:0c59046", "ruling:32f49af"], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.WORKED_WORDS])] * 2
+    assert offered == [(["none", "ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"]], [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES["found"]}, limits.TEAM_DATA_WORDS, limits.FACT_WORDS, limits.WORKED_WORDS])] * 2
     assert "story" not in settled.CARD_QUESTION
 
 
@@ -9426,6 +9426,45 @@ def test_cards_withdraw_settles_a_card_an_event_overtook_showing_what_happened_a
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
 
 
+def test_j4873_cards_withdraw_via_the_done_job_whose_report_names_the_card_asking_him_for_a_value_settles_it_linking_the_card_and_refuses_any_other(
+    run: Run, asking: str, heard: Heard, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shown = open_card(7, {"title": "Will you paste PlatClaude's Client ID?", "options": ["Paste it", "Join the bot"], "recommended": "Paste it", "waits": "demo:j1-7"})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    kept = tmp_path / "j1-client-id.md"
+    block = explained(
+        "ASK Which way should cc-slack read a channel its bot is not in?\nDrive tooling: your pick decides how cc-slack reads such a channel.\n"
+        "- Paste it (recommended)\n- Join the bot\nFindings:\nRoot cause: none: a pick\nSimplest: Join the bot\nHolds: none: no option changes code any job builds\n"
+    )
+    kept.write_text(block)
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "read PlatClaude's client ID from the app's settings")[0] == 0
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), shown["question"], state.stamp(), None, shown["url"]) | {"waits": "demo:j1-7"})
+    calls: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
+    heard.refusal = "j2 could not be read for his words"
+    words = "A reader read PlatClaude's Client ID from the app's settings"
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j2"]) == 2
+    assert f"demo:j1-7: refused, not withdrawn: {heard.refusal}; nor did an event at j2 overtake it: job j2 is not done: it reads running" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = "done"
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j2"]) == 2
+    assert "nor did an event at j2 overtake it: job j2's report never names demo:j1-7, so nothing shows its read was the value that card asks him for" in capsys.readouterr().err
+    read = "DONE PlatClaude's Client ID, read from the app's settings, answers card demo:j1-7"
+    state.keep_report("demo", "j2", read, read)
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j2"]) == 2
+    assert "nor did an event at j2 overtake it: the card asks him for no fact or value, the one question a job's own read overtakes" in capsys.readouterr().err
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j9"]) == 2
+    assert "nor did an event at j9 overtake it: the drive has no job j9" in capsys.readouterr().err
+    assert calls == []
+    kept.write_text(block.replace("Which way should cc-slack read a channel its bot is not in?", "Will you paste PlatClaude's Client ID so cc-slack can read channels its bot is not in as you?"))
+    code, line = run("cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j2")
+    assert (code, calls) == (0, [("card-answer", "--card", shown["url"], "--label", words, "--withdrawn", "--via", shown["url"])])
+    assert f"demo:j1-7: his card {shown['url']} now shows what happened with no buttons, its question withdrawn" in line.splitlines()
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
+
+
 def test_j4737_cards_withdraw_via_another_open_card_of_the_drive_folds_its_question_into_that_cards_question_so_his_one_answer_there_ends_both(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -9492,7 +9531,7 @@ def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_
         f"https://buildkite.com/forge/release/builds/15516#{running}": f"forge/release build 15516 has no job {running}",
         "terminal": f"the drive reads no such event; {settled.EVENTS} overtakes a card",
     }
-    assert {link: settled.unhappened(link) for link in reasons} == reasons
+    assert {link: settled.unhappened(link, "demo:j1-7", "demo") for link in reasons} == reasons
 
 
 def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(

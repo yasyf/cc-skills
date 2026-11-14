@@ -70,6 +70,10 @@ to tell yoiu": its PR is a `flake fix` by [landing.md](landing.md), serving that
 it, and its lines name it. Nothing else is.
 
 Ask him only what is his to decide: architecture and abstractions, scope, and his own workflow.
+A fact or value a job can read, such as an ID, key or URL where the app or infra defining it keeps
+it, is never his question: the job reads it there, by his words "no, go pull it from wherver it was
+befofre and set it", and a card that asked him for one is withdrawn with `--via` the done job whose
+report names that card and the value it read.
 Within his orders, do everything else and report the result with a count: ports, closes, restarts,
 backfills, CI fixes, cleanups, and tool fixes. A repair he calls a one-off runs once, with no code
 path, PR, or release step. When he picked something and the route to run it is missing, build the

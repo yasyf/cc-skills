@@ -206,8 +206,8 @@ def answer_cards(data: dict, answer_id: str, kept: dict) -> list[tuple[str, dict
 
 
 def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
-    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, or withdrawn for them; every route that closes a question card goes through this one call. Words he typed into a terminal have no permalink, so the card links itself."""
-    return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", card if link == TERMINAL else link)
+    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, or withdrawn for them; every route that closes a question card goes through this one call. Words he typed into a terminal, and a drive job that read the value a card asked him for, have no page, so the card links itself."""
+    return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", link if limits.PAGE_LINK.fullmatch(link) else card)
 
 
 def close_card(card: str, closed: dict) -> dict:

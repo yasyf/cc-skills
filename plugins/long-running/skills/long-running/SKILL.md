@@ -22,11 +22,11 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 - Build only a port of an old PR, his order, or drive tooling under its own order, since his attention is for work he asked for; an unordered finding becomes a question card. A port models its data the fundamentally right way for its target (`scope`).
 - An order is an answer, one job researching it, or a build, whose builder starts on a reader's or design's `Researched:` block, its immediate fix's at once.
 - A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
-- The job that meets a blocker on his work resolves it; only a decision of his goes to him. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, asking nothing.
+- The job that meets a blocker on his work resolves it. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, asking nothing.
 
 ### Questions for him
 
-- Ask him only what is his: architecture and abstractions, scope, and his own workflow. Do the rest of his orders with no go-ahead and report it with a count (`scope`).
+- Ask him only what is his: architecture and abstractions, scope, and his own workflow, never a value a job reads where it is defined. Do the rest of his orders unasked and report it with a count (`scope`).
 - Wait for his word only to land a change in a `Forge-AI/*` repo outside an exempt class, post as him to anyone else, change production, or stop, signal, or close a session he did not name.
 - A tricky design gets a design job whose forks go on his cards, one for a follow-up he orders to a PR at once, beside landing that PR (`design`), and a finding with design consequences reaches him as options, unasked. The recommended option is built meanwhile, its PR waiting on his answers outside an incident's repair.
 - His words that answer or supersede a card, wherever he writes them, close it and every card on its subject, and the work follows them (`messages`). A question proposing a way, "why not just X?", is one: X is built in place of his tap, never argued. Only a question asking for facts or options is answered in its thread while the card waits; what his answer leaves open goes on a new card.
