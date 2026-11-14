@@ -137,7 +137,8 @@ PART_CHARS = 80
 READER_QUESTION_GOAL = re.compile(r"build what j\d+'s research finds: ")
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
-WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
+BARE_WAITS = re.compile(r"(j\d+)-(\d+)")
+WAITS_ID = re.compile(rf"([\w.-]+):{BARE_WAITS.pattern}")
 TAP_ID = re.compile(r"tap:.+:(\d+\.\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
@@ -1705,6 +1706,11 @@ def refused_by(question: dict) -> str:
 def new_waits(name: str, job_id: str) -> str:
     """The waits id a job's new question draws its one card under, numbered by the millisecond it was minted, so no two questions of a job share one and none carries a character cc-slack refuses."""
     return f"{name}:{job_id}-{time.time_ns() // 1_000_000}"
+
+
+def waits_of(name: str | None, wait: str) -> str:
+    """The waits id the drive stores a card under, for a wait as typed: a bare `<job>-<n>`, a waits id with its drive left off as a coordinator abbreviates it, names that card on the drive the verb acts on, `<drive>:<job>-<n>`; every other wait as given."""
+    return f"{resolve(name)}:{wait}" if BARE_WAITS.fullmatch(wait) else wait
 
 
 def waits_job(data: dict, waits: str) -> str:

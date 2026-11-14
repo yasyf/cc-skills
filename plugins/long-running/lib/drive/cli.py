@@ -51,6 +51,7 @@ RULING = "ruling"
 CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
+WAITS_ARGS = ("waits", "redraws", "card", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 READER_RESEARCH = "the Researched: block this build needs"
@@ -5595,6 +5596,9 @@ def main(argv: list[str] | None = None) -> int:
     if "TMUX" in os.environ and (attached := orca.own_terminal()):
         os.environ["ORCA_TERMINAL_HANDLE"] = attached
     try:
+        for key in WAITS_ARGS:
+            if value := getattr(args, key, None):
+                setattr(args, key, folded_waits(getattr(args, "drive", None), value))
         return args.run(args)
     except state.NewerDrive as error:
         if not state.WROTE and argv is not None and install.upgraded():
@@ -5605,6 +5609,15 @@ def main(argv: list[str] | None = None) -> int:
         return refused(args, error, detached)
     except VERB_ERRORS as error:
         return refused(args, error, detached)
+
+
+def folded_waits(name: str | None, value: str | tuple | list) -> str | tuple | list:
+    """A verb's card argument with each waits id in it as the drive stores it, by state.waits_of, so a card named `<job>-<n>` is the card `<drive>:<job>-<n>` names at every verb: a mark's KEY=FILE, KEY=stop or KEY=JOB folds its KEY alone."""
+    if isinstance(value, str):
+        return state.waits_of(name, value)
+    if isinstance(value, tuple):
+        return (state.waits_of(name, value[0]), *value[1:])
+    return [folded_waits(name, each) for each in value]
 
 
 def relaunching(args: argparse.Namespace) -> bool:

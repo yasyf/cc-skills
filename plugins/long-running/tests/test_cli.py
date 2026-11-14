@@ -2212,8 +2212,9 @@ def test_j3997_a_question_asked_again_in_new_words_whose_redraw_fails_stays_on_i
     assert state.kept_in(state.load("demo")["jobs"]["j1"], again) is not None
 
 
+@pytest.mark.parametrize("drive", ["demo:", ""])
 def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_its_question_pointing_at_the_live_one(
-    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
+    run: Run, asking: str, drive: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
 ) -> None:
     first, second = "https://acme.slack.com/archives/D123/p1794543147831659", "https://acme.slack.com/archives/D123/p1794548757330289"
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
@@ -2231,11 +2232,11 @@ def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_
         )
     reworded = SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.")
     monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
-    assert cli.main(["job", "ask", asking, "-", "--redraws", "demo:j1-9"]) == 2
+    assert cli.main(["job", "ask", asking, "-", "--redraws", f"{drive}j1-9"]) == 2
     assert "--redraws demo:j1-9: no question of o1 holds that card, so j1 takes over none" in capsys.readouterr().err
     monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
     again = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(reworded)}.md"
-    assert run("job", "ask", asking, "-", "--redraws", "demo:j1-685522") == (
+    assert run("job", "ask", asking, "-", "--redraws", f"{drive}j1-685522") == (
         0,
         f"{again}\nhis card {slack_card(1)} asks it under demo:j1-685522;"
         f" demo:j1-686860: his card {second} now shows his words with no buttons, its question superseded",
@@ -2248,6 +2249,18 @@ def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_
         ("demo:j1-685522", slack_card(1), None),
     ]
     assert (job["waits"], [question["waits"] for question in view.open_questions(job)]) == (["demo:j1-685522"], ["demo:j1-685522"])
+
+
+def test_j4239_a_waits_id_typed_without_its_drive_names_the_card_its_drive_stores_and_every_other_wait_stays_as_typed(
+    asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    others = ["demo:j1-7", asking, "o1", "acme/app#12", "merge:acme:app:12", "release:api:acme/app#12", slack_card(1), state.SLOT_WAIT]
+    assert [state.waits_of("demo", wait) for wait in ["j1-7", *others]] == ["demo:j1-7", *others]
+    assert cli.folded_waits("demo", [("j1-7", None), ("j1-8", "j2")]) == [("demo:j1-7", None), ("demo:j1-8", "j2")]
+    with state.edit("demo") as data:
+        data["jobs"][asking]["questions"] = [state.new_question("ask.md", "Which layout?", state.stamp(), card=slack_card(1)) | {"waits": "demo:j1-7"}]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": []})
+    assert refs.resolved("demo", "{card:j1-7}")["{card:j1-7}"]["url"] == slack_card(1)
 
 
 def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_open_card_with_redraws_and_his_answer_there_is_its_alone(

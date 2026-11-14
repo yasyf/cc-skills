@@ -63,7 +63,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
         match match[1]:
             case "card":
                 cards = cards or drawn_cards(name)
-                found[match[0]] = card(cards, data, match[2])
+                found[match[0]] = card(cards, data, state.waits_of(name, match[2]))
             case "pr":
                 found[match[0]] = pr(data["prs"], match[2], label)
             case "order":
