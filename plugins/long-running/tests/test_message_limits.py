@@ -749,9 +749,8 @@ def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(t
     slack_thread.messages.append({"ts": "1794418890.901979", "from_bot": True, "text": "", "shares": [{"text": f"Renew the sign-in or skip the hand repair?\n✓ <{HIS_PICK}|{BREAK_GLASS}> · 9:41am"}]})
     reason = posted(transcript, text=said(100), thread_ts="1.2", asked=BREAK_GLASS)
     assert reason is None
-    words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2"))
-    assert [(word["id"], word["source"]) for word in words] == [("slack:1794310000.000000", "slack"), ("card:1794418890.901979:0", "card")]
-    assert words[1]["quote"] == f"<{HIS_PICK}|{BREAK_GLASS}> · 9:41am"
+    words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2", asked=BREAK_GLASS))
+    assert [(word["id"], word["source"], word["quote"]) for word in words] == [("card:1794418890.901979:0", "card", f"<{HIS_PICK}|{BREAK_GLASS}> · 9:41am")]
     assert posted(transcript, text=said(100), thread_ts="1.2", asked="Use break glass every time").startswith("refused: this post is 100 words")
 
 
@@ -765,7 +764,7 @@ def test_his_explain_more_tap_on_a_card_in_the_thread_asks_for_the_whole_reply(t
         slack_thread.messages[-1]["text"] = f"{card}\n{drawn} *You asked for more at 12:06pm.* An explanation follows in this thread.\ndurable-agents · 9:52am"
         assert posted(transcript, text=said(100), thread_ts="1.2", asked="Explain more") is None
     assert posted(transcript, text=said(100), thread_ts="1.2", asked="Explain the names route").startswith("refused: this post is 100 words")
-    words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2"))
+    words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2", asked="Explain more"))
     assert [(word["id"], word["quote"], word["detail"]) for word in words] == [("card:1794505940.419019:0", "Explain more", message_limits.EXPLAIN_TAPPED)]
 
 
@@ -794,7 +793,7 @@ def test_a_share_he_ordered_to_another_persons_dm_answers_his_order_by_its_perma
 
 
 def test_a_line_saying_how_a_failure_is_prevented_carries_his_ruling_asking_for_it_to_jev(talker: str, transcript: Path, slack_thread: Thread) -> None:
-    his(slack_thread, "why was the card never posted?")
+    slack_thread.messages.append({"ts": "1794310000.000000", "user": "U1", "text": "why was the card never posted?"})
     cause = "The card never posted because the approval check read an old head; {order:o2} makes it read the current one."
     words = message_limits.his_words(call("slack_dm_status", transcript, text=f"Fixed.\n{cause}", thread_ts="1.2"))
     assert [word["id"] for word in words] == ["slack:1794310000.000000", "ruling:6a6edbf"]
@@ -805,11 +804,11 @@ def test_a_line_saying_how_a_failure_is_prevented_carries_his_ruling_asking_for_
     assert [word["id"] for word in unrelated] == ["slack:1794310000.000000"]
 
 
-def test_a_post_under_an_orders_pr_card_hands_jev_his_answer_on_its_question_card_in_the_orders_other_thread(
+def test_a_post_under_an_orders_pr_card_hands_jev_that_cards_answer_and_the_orders_words_and_reads_no_other_thread_of_the_order(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     question, card = "1794520890.022349", "1794526059.841239"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'he asked "give the sprite what it needs"')
     with state.edit("demo") as data:
         state.join_thread(data["orders"]["o1"], (DM, question), state.stamp(), "question")
         state.join_thread(data["orders"]["o1"], (DM, card), state.stamp(), "pr")
@@ -817,13 +816,15 @@ def test_a_post_under_an_orders_pr_card_hands_jev_his_answer_on_its_question_car
         question: [{"ts": question, "from_bot": True, "text": "What should the sprite get?\n✓ *give the sprite what it needs* · answered 2:03pm"}],
         card: [{"ts": card, "from_bot": True, "text": "Approve lands PR 7\n✓ *Approve* · answered 3:28pm"}],
     }
-    monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[where.index("--thread") + 1]]))
+    read = []
+    monkeypatch.setattr(slack, "thread", lambda *where: read.append(ts := where[where.index("--thread") + 1]) or list(threads[ts]))
     reported(monkeypatch)
     words = message_limits.his_words(call("slack_dm_status", transcript, text="PR 7 merged.", thread_ts=card, record="1") | {"tool_name": message_limits.SAY})
-    assert [(word["quote"], word["detail"]) for word in words] == [
-        ("*Approve* · answered 3:28pm", message_limits.CARD_ANSWERED),
-        ("*give the sprite what it needs* · answered 2:03pm", message_limits.ORDER_CARD),
+    assert [(word["id"], word["quote"], word["detail"]) for word in words] == [
+        (f"card:{card}:0", "*Approve* · answered 3:28pm", message_limits.CARD_ANSWERED),
+        ("order:o1", '"give the sprite what it needs"', message_limits.ORDER_WORDS),
     ]
+    assert read == [card]
 
 
 def test_a_post_in_his_question_cards_thread_carries_his_ruling_that_each_option_it_explains_is_worked_out_to_jev(
@@ -845,12 +846,37 @@ def test_a_post_in_his_question_cards_thread_carries_his_ruling_that_each_option
 def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carries_none(
     talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    his(slack_thread, "is the release out?")
+    slack_thread.messages.append({"ts": f"{state.now().timestamp():.6f}", "user": "U1", "text": "is the release out?"})
     for text, judged in ((said(61), True), (said(5), False)):
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=text, thread_ts="1.2"))))
         message_limits.main()
         printed = capsys.readouterr().out
         assert (json.loads(printed)["his_words"][0]["quote"] if printed else None) == ("is the release out?" if judged else None)
+
+
+def test_jev_gets_the_same_words_of_his_at_1_and_at_100_older_messages_and_card_answers_in_the_thread(
+    talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handed, asked = [], f"{state.now().timestamp():.6f}"
+    for many in (1, 100):
+        slack_thread.messages[:] = [
+            *(
+                message
+                for index in range(many)
+                for message in (
+                    {"ts": f"1794300000.{index:06d}", "user": "U1", "text": f"look into run {index:03d} too"},
+                    {"ts": f"1794300001.{index:06d}", "from_bot": True, "text": "", "shares": [{"text": f"Which run first?\n✓ *run {index:03d}* · 9:41am"}]},
+                )
+            ),
+            {"ts": asked, "user": "U1", "text": "is the release out?"},
+        ]
+        slack_thread.reads.clear()
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=said(61), thread_ts="1.2") | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        printed = capsys.readouterr().out
+        handed.append((len(printed), len(slack_thread.reads), [(word["id"], word["detail"]) for word in json.loads(printed)["his_words"]]))
+    assert handed[0] == handed[1]
+    assert handed[0][2] == [(f"slack:{asked}", message_limits.ANSWERED)]
 
 
 CODE_READ = "mcp__plugin_cc-context_cc-context__ccx_code_read"
@@ -963,7 +989,7 @@ def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
     assert backed["quote"] == shown(*read)
 
 
-def test_a_record_the_post_cites_a_claim_names_or_it_carries_reaches_jev_as_the_handlers_newest_read_of_it_never_its_whole_body(
+def test_a_record_the_post_cites_or_a_claim_names_reaches_jev_as_the_handlers_newest_read_of_it_never_its_whole_body_and_one_it_only_carries_never(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     bodies = {seq: " ".join(["measured"] * 400) for seq in ("673870", "675111", "675192", "675300")}
@@ -984,9 +1010,10 @@ def test_a_record_the_post_cites_a_claim_names_or_it_carries_reaches_jev_as_the_
         ("record:675192", message_limits.CITED_SOURCE, shown(*narrower)),
         ("record:675111", message_limits.CITED_SOURCE, 'none: no call of the handler\'s own holds "675111"'),
         ("record:675300", message_limits.CITED_SOURCE, shown(*one)),
-        ("record:673870", message_limits.CARRIED_SOURCE, shown(*both)),
     ]
     assert bodies["675192"] not in json.dumps(reads)
+    named = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="673870", claims=[*claims, {"claim": "A pack deletes the run's values", "read": "record:673870"}])
+    assert (named[-1]["id"], named[-1]["source"], named[-1]["quote"]) == ("record:673870", message_limits.CARRIED_SOURCE, shown(*both))
     assert evidence(transcript, monkeypatch, capsys, text="On it; next line by 5:40 AM.", thread_ts="1.2") == [message_limits.UNCLAIMED]
 
 
@@ -2315,10 +2342,7 @@ def test_a_reply_in_his_thread_is_checked_as_the_answer_to_his_messages_since_th
     assert posted(transcript, text=ack, thread_ts="1794479000.000100") is None
     assert posted(transcript, text=ack, thread_ts="1794479000.000100", asked="the release?") is None
     assert checked.asked == [["sot hat was asnwet 1 right"], ["the release?", "sot hat was asnwet 1 right"]]
-    assert [word["detail"] for word in message_limits.thread_words(slack_thread.messages)] == [
-        "his message in the thread this post goes to",
-        message_limits.ANSWERED,
-    ]
+    assert [word["detail"] for word in message_limits.thread_words(slack_thread.messages)] == [message_limits.EARLIER, message_limits.ANSWERED]
 
 
 def test_main_prints_a_pretooluse_denial(
@@ -2507,7 +2531,7 @@ def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer
     monkeypatch.setattr(message_limits.cli.reads, "run", cci)
     reason = say(transcript, text="The fix merged.", record="700")
     assert reason.startswith("Refused on purpose: he is away")
-    assert agents.ruled(reason) == {"rule": message_limits.AWAY_RULE, "counted": reason}
+    assert agents.ruled(reason) == {"judged": False}
     assert reason.endswith("Report 700 is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
     at = state.load("demo")["held"]["700"]["at"]
     assert say(transcript, text="The fix merged.", record="700") == reason
@@ -2515,6 +2539,29 @@ def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer
     assert say(transcript, text="Users are unblocked.", record="710") is None
     assert say(transcript, text="The sandsql outage is mitigated.", record="720") is None
     assert list(state.load("demo")["held"]) == ["700"]
+
+
+def test_a_report_too_big_for_jevs_prompt_held_while_he_is_away_is_refused_as_held_with_nothing_for_jev_to_size(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+    monkeypatch.setattr(
+        message_limits.cli.reads,
+        "run",
+        lambda argv, checkout, env=None: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": "o1"}}}),
+    )
+    tool(lane_of(transcript), CCI_READ, {"seqs": [704431]}, "704431 report root>communicator " + said(3000))
+    claims = [{"claim": "The fix merged", "read": "record:704431"}]
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="The fix merged.", record="704431", claims=claims) | {"tool_name": message_limits.SAY})))
+    message_limits.main()
+    printed = json.loads(capsys.readouterr().out)
+    reason = printed["hookSpecificOutput"]["permissionDecisionReason"]
+    assert printed == message_limits.denial(reason) | {"judged": False}
+    assert reason.startswith("Refused on purpose: he is away")
+    assert "Report 704431 is marked held" in reason
+    assert list(state.load("demo")["held"]) == ["704431"]
 
 
 def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his_own_message_still_posts(
@@ -2531,9 +2578,9 @@ def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his
     assert message_limits.deny_reason(root).startswith("Refused on purpose: he is away")
     assert message_limits.his_words(root) == []
     his(slack_thread, "tell me when resume works from the meta session")
-    answer = agents.seen(relayed | {"tool_input": {"text": "Resume works from the meta session now.", "thread_ts": "1.2"}})
+    answer = agents.seen(relayed | {"tool_input": {"text": "Resume works from the meta session now.", "thread_ts": "1.2", "asked": "tell me when resume works from the meta session"}})
     assert [(word["id"], word["quote"]) for word in message_limits.his_words(answer)] == [("slack:1794310000.000000", "tell me when resume works from the meta session")]
-    assert message_limits.deny_reason(answer | {"tool_input": answer["tool_input"] | {"asked": "tell me when resume works from the meta session"}}) is None
+    assert message_limits.deny_reason(answer) is None
 
 
 def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(talker: str, transcript: Path) -> None:
