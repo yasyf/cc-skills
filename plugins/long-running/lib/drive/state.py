@@ -2424,6 +2424,11 @@ def incident_orders(data: dict, order_id: str) -> list[str]:
     return [head, *joined_orders(data).get(head, [])]
 
 
+def orders_jobs(data: dict, orders: list[str]) -> dict[str, dict]:
+    """Each job on these orders' jobs lists once, by its id, in the order they list them, since carry puts a job on its own order's list and on each order it carries."""
+    return {job_id: data["jobs"][job_id] for order_id in orders for job_id in data["orders"][order_id]["jobs"]}
+
+
 def joined_orders(data: dict) -> dict[str, list[str]]:
     """The orders joined with --joins to each order some joined, by the order they joined, in the order they came."""
     joined: dict[str, list[str]] = {}

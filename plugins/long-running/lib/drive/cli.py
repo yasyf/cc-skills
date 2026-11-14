@@ -334,7 +334,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         started += [state.INCIDENT_BRIEF] if started else []
         repeats = joined and not state.hurts_now(data, order)
         group = [other for other in state.incident_orders(data, order_id) if other != order_id] if repeats else []
-        carriers = list(dict.fromkeys(job_id for other in group for job_id in data["orders"][other]["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES))
+        carriers = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] not in state.FINISHED_JOB_STATES]
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
     if joined:
