@@ -2723,39 +2723,59 @@ def moving_launch(monkeypatch: pytest.MonkeyPatch) -> dict:
     return launched
 
 
-def test_a_launch_local_of_a_job_whose_live_sprite_worker_returned_its_line_moves_it_here_as_j1134_needed_and_a_running_one_stays_refused(
+def stopping(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Each Run and dispatch orca.reclaim stops, as drive job end stops a lane's worker."""
+    reclaimed: list[tuple[str, str]] = []
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: reclaimed.append((run_id, dispatch)) or f"stopped {dispatch}")
+    return reclaimed
+
+
+@pytest.mark.parametrize(
+    ("job_state", "said", "why"),
+    [
+        ("failed", "BLOCKED its PROVE step runs ci db-read, which no Sprite lane runs", "its worker returned its line and still takes messages there"),
+        ("running", "j1 sweeps the sessions", "its worker was still at work there"),
+    ],
+    ids=["returned-j1134", "at-work-j4507"],
+)
+def test_a_launch_local_of_a_job_whose_live_sprite_worker_returned_its_line_or_still_works_stops_that_worker_and_moves_the_job_here(
     run: Run,
     remote: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     saved_on_github: dict[str, list[str]],
     kept_logs: list[tuple[str, str]],
     kept_transcripts: list[tuple[str, str]],
+    job_state: str,
+    said: str,
+    why: str,
 ) -> None:
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove the session sweep\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running")
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state=job_state, said=said)
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane a launch moves: {args}"))
-    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a lane still at work is never moved"))
-    assert cli.main(["job", "launch", "j1", "--local"]) == 2
-    assert capsys.readouterr().err == f"drive: j1 already started as dispatch {DISPATCH}, whose worker takes messages: drive job resume j1 <the event> sends it one\n"
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="failed", said="BLOCKED its PROVE step runs ci db-read, which no Sprite lane runs")
+    reclaimed = stopping(monkeypatch)
     launched = moving_launch(monkeypatch)
     assert run("job", "launch", "j1", "--local") == (
         0,
-        "j1: the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff carrying its"
-        " brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one had finished (its worker returned"
-        " its line and still takes messages there), and what pool-one held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e",
+        f"stopped {DISPATCH}\nj1: the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff carrying its"
+        f" brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one was stopped ({why}),"
+        " and what pool-one held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e",
     )
-    assert (launched["lane"], launched["route"], launched["workspace"], kept_logs, kept_transcripts) == ("demo-j1-2", state.LOCAL_ROUTE, None, [], [("j1", DISPATCH)])
+    assert (reclaimed, launched["lane"], launched["route"], launched["workspace"], kept_logs, kept_transcripts) == (
+        [(RUN, DISPATCH)],
+        "demo-j1-2",
+        state.LOCAL_ROUTE,
+        None,
+        [],
+        [("j1", DISPATCH)],
+    )
     brief = orca.brief_of(launched["brief"])
     assert "## Taking over from a lane that finished\n\nThe lane that held this job finished on Sprite pool-one at " in brief
-    assert "Its last line: BLOCKED its PROVE step runs ci db-read, which no Sprite lane runs\n" in brief
+    assert f"Its last line: {said}\n" in brief
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], job["state"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == (
         state.LOCAL_ROUTE,
@@ -2763,6 +2783,128 @@ def test_a_launch_local_of_a_job_whose_live_sprite_worker_returned_its_line_move
         "running",
         [(DISPATCH, "pool-one")],
     )
+
+
+def test_a_plain_launch_of_a_sprite_job_whose_worker_takes_messages_and_that_declares_no_mac_step_stays_refused(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(orca, "reclaim", lambda *args: pytest.fail("a lane still at work that declares no Mac step is never stopped"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a lane still at work that declares no Mac step is never moved"))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="running")
+    assert cli.main(["job", "launch", "j1"]) == 2
+    assert capsys.readouterr().err == f"drive: j1 already started as dispatch {DISPATCH}, whose worker takes messages: drive job resume j1 <the event> sends it one\n"
+
+
+J4455_STEP = "the plan-only tools/ci release start --dry-run at #56299's head and the run's cases on plat-usw2-staging, and tools/ci mac-box prove for its Mac case"
+
+
+def test_a_resume_of_a_sprite_job_whose_brief_gained_a_mac_line_sends_its_live_worker_nothing_and_moves_the_job_here_with_the_text_as_j4455_needed(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_on_github: dict[str, list[str]], kept_transcripts: list[tuple[str, str]]
+) -> None:
+    cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="waiting", said="WAITING its staging slot")
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
+    reclaimed = stopping(monkeypatch)
+    launched = moving_launch(monkeypatch)
+    text = "Handoff: the staging slot is yours; run the cases"
+    assert run("job", "resume", "j1", text) == (
+        0,
+        f"stopped {DISPATCH}\nj1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one was stopped (its worker returned its line"
+        " and still takes messages there), and what pool-one held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e;"
+        f" it moved to this Mac, since its brief, its last report or the message declares {J4455_STEP}, a step only this Mac runs",
+    )
+    assert (reclaimed, launched["route"], launched["workspace"], kept_transcripts) == ([(RUN, DISPATCH)], state.LOCAL_ROUTE, None, [("j1", DISPATCH)])
+    assert f"which you act on now:\n\n{text}" in orca.brief_of(launched["brief"])
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], job["undelivered"]) == (state.LOCAL_ROUTE, "dispatch-2", [])
+
+
+def test_a_resume_of_a_sprite_job_declaring_a_mac_step_while_eight_builders_hold_this_macs_slots_holds_its_text_and_waits_its_turn_to_move_whatever_its_waits(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="waiting", waits=["Forge-AI/monorepo#56299"])
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that waits to move here: {args}"))
+    monkeypatch.setattr(orca, "reclaim", lambda *args: pytest.fail("a move waiting its turn stops nothing"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a move waiting its turn launches nothing"))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    text = "Handoff: the staging slot is yours; run the cases"
+    assert cli.main(["job", "resume", "j1", text]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.endswith(
+        "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local"
+        " as its turn comes, its handoff carrying the texts the job holds\n"
+    )
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
+    assert (job["state"], job["waits"], job["where"], job["dispatch"], [held["words"] for held in job["undelivered"]]) == (
+        "waiting",
+        ["Forge-AI/monorepo#56299", state.SLOT_WAIT],
+        "remote",
+        DISPATCH,
+        [text],
+    )
+    assert (place.waiting_builders(data), "j1" in place.local_builders(data, state.now())) == (["j1"], False)
+
+
+def test_the_watchs_turn_for_a_sprite_job_waiting_to_move_here_stamps_its_slot_keeps_its_other_waits_and_starts_the_move_itself(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("job", "add", "reader", "--order", "o1", "--goal", "read the staging run", "--agent", "r")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="pool-one", environment="pool-one", state="waiting", waits=["j2", state.SLOT_WAIT])
+    held = state.load(remote)
+    assert watch.carrier("j1", held["jobs"]["j1"] | {"waits": [state.SLOT_WAIT]}, held, None) is None
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or os.getpid())
+    moment = state.now()
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert watch.waits_lines(watching, moment) == []
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
+    assert (detached, job["waits"], job["slot"], watching.sending["j1"]) == ([["job", "launch", "j1", "--local"]], ["j2"], state.stamp(moment), os.getpid())
+    assert place.local_builders(data, moment)["j1"] == f"j1 on o1, its turn to move here from its Sprite came at {render.when(state.stamp(moment), seconds=True)}, its lane here not started yet"
+    assert (place.local_builders(data, moment + watch.RELAUNCH), place.waiting_builders(data)) == ({}, [])
+    assert watch.waits_lines(watching, moment) == [] and detached == [["job", "launch", "j1", "--local"]]
+
+
+J4507_STEP = "kubectl exec into the staging sandsql pod and the node reads, under drive break-glass for plat-usw2-staging"
+
+
+def test_a_resume_of_a_running_sprite_job_that_builds_nothing_and_declares_a_mac_step_moves_it_here_at_once_past_a_full_cap_as_j4507_needed(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_on_github: dict[str, list[str]], kept_transcripts: list[tuple[str, str]]
+) -> None:
+    cloned(tmp_path, remote)
+    saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running", builds_nothing=True)
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    reclaimed = stopping(monkeypatch)
+    launched = moving_launch(monkeypatch)
+    code, out = run("job", "resume", "j1", "Handoff: run the cluster steps of the staging cases here")
+    assert (code, out.splitlines()[0], reclaimed, launched["route"]) == (0, f"stopped {DISPATCH}", [(RUN, DISPATCH)], state.LOCAL_ROUTE)
+    assert "relaunched in a fresh worktree on this Mac as dispatch dispatch-2" in out
+    assert "its lane on Sprite pool-one was stopped (its worker was still at work there)" in out
+    assert out.endswith(f"; it moved to this Mac, since its brief, its last report or the message declares {J4507_STEP}, a step only this Mac runs")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], state.SLOT_WAIT in job["waits"], kept_transcripts) == (state.LOCAL_ROUTE, "dispatch-2", False, [("j1", DISPATCH)])
 
 
 J738_PROVE = 'PROVE: once that release is live on cloudrunner-next, on a run that hits the claude-sonnet-4-5 pool, Datadog "llm call failed" stage llm_policy shows none'

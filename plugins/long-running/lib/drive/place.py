@@ -66,7 +66,7 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line gave its turn for a slot whose agent has not started yet, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder marked with --builds-nothing on drive job add or drive job set, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder marked with --builds-nothing on drive job add or drive job set, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
@@ -75,6 +75,8 @@ def local_builders(data: dict, moment: datetime) -> dict[str, str]:
 
 
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    if on_sprite(job):
+        return f"its turn to move here from its Sprite came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None
     if job["state"] == "waiting":
         return "freed to start here, its agent not started yet" if job.get("slot") and not job["waits"] and not job["agent"] and job.get("where") != "remote" else None
     if job.get("where") != "remote":
@@ -92,8 +94,12 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
 
 
 def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs waiting their turn for a slot on this Mac, earliest due first: the earliest time promised him on an order each serves, then the oldest added."""
-    waiting = [job_id for job_id, job in data["jobs"].items() if job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]]
+    """The builder jobs waiting their turn for a slot on this Mac, earliest due first: the earliest time promised him on an order each serves, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
+    waiting = [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if state.SLOT_WAIT in job["waits"] and (job["state"] == "waiting" or on_sprite(job) and job["state"] not in state.FINISHED_JOB_STATES)
+    ]
     return sorted(waiting, key=lambda job_id: due_first(data, data["jobs"][job_id]))
 
 
@@ -140,8 +146,17 @@ def queueable(data: dict, job_id: str) -> bool:
 
 
 def queue(job: dict, moment: datetime) -> None:
-    """Hold a builder job no agent runs waiting its turn for a slot on this Mac, so the watch reads it waiting, never abandoned, until its FREE line names it."""
-    job.update(state="waiting", where="local", waits=list(dict.fromkeys([*job["waits"], state.SLOT_WAIT])), said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs waiting, so the watch reads it waiting, never abandoned, until its FREE line names it, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
+    waits = list(dict.fromkeys([*job["waits"], state.SLOT_WAIT]))
+    if on_sprite(job):
+        job.update(waits=waits, slot=None, updated=state.stamp(moment))
+        return
+    job.update(state="waiting", where="local", waits=waits, said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+
+
+def on_sprite(job: dict) -> bool:
+    """Whether the job's lane runs on a Sprite, so a start here moves it from there."""
+    return job.get("where") == "remote" and bool(job.get("dispatch")) and not state.on_mac(job)
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
