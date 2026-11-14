@@ -3353,6 +3353,20 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
 
 
+def test_job_ask_asked_again_with_no_unsettled_is_marked_by_jevs_fresh_read_never_by_his_earlier_mark(run: Run, demo: str, tmp_path: Path, jev: Jev, recorded: Answers) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
+    recorded.matched = [WAIT_RULING]
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    unsettled = []
+    for ruled in ({"breaks1": (WAIT_RULING["id"], 0.9)}, {}):
+        jev.ruled = ruled
+        assert run("job", "ask", "j1", str(block))[0] == 0
+        unsettled.append(state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"])
+    assert unsettled == [f"9992100: {settled.MARKED.format(option='the recommended option')}", None]
+
+
 NIGHTLY_EXPORT = {
     "id": "7a1c0de" + "0" * 33,
     "title": "Which identity runs each team's nightly export?",
