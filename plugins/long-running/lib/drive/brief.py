@@ -223,7 +223,7 @@ def approval_refusal(command: str, data: dict) -> str | None:
         return f"refused: `--order {answer_id}` names no answer of his that could be read: {error}. {RELEASE_APPROVAL}"
     except settled.Unheard as failure:
         return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
-    asked, said = cut(answer["title"], 200), cut(answer["body"], settled.QUOTED_CHARS)
+    asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
 
 

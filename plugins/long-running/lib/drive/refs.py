@@ -238,7 +238,7 @@ def answer(data: dict, answer_id: str) -> dict:
     found = settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])
     said = render.when(state.parse_time(found["created_at"]).astimezone().isoformat())
     url = ack[1] if (ack := ACK.search(found["body"])) else None
-    return {"kind": "answer", "title": f'his {said} ruling "{opening(found["body"].splitlines()[0])}"', "url": url, "board": url}
+    return {"kind": "answer", "title": f'his {said} ruling "{opening(settled.his(found["body"]).partition("\n")[0])}"', "url": url, "board": url}
 
 
 def answer_ids(findings: list[str], data: dict) -> list[str]:
