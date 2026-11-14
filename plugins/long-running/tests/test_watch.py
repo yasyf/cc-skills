@@ -1372,6 +1372,66 @@ def test_a_job_only_carrying_an_order_and_its_pr_owe_that_orders_thread_no_line_
     assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
 
 
+@pytest.mark.parametrize("incident", [False, True])
+def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_after_the_line_promising_it_whatever_was_answered_naming_each_record_re_it_until_a_job_of_its_order_is_made_or_started(
+    demo: str, monkeypatch: pytest.MonkeyPatch, incident: bool
+) -> None:
+    """The o1102 thread: a handler promised "A job reading why that blob is missing is being started" on handoff 701640 alone, the coordinator answered it with evidence 701688 and started no job, and the thread had no line for five and a half hours."""
+    threaded(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = incident
+        data["jobs"]["j1"].update(state="waiting", said="WAITING on his card")
+    calls = catching_up(monkeypatch, demo)
+    evidence = {"seq": 701688, "kind": "evidence", "lane": "platform", "re": 701640, "text": "No new job from Platform: those 500s are the incident the sandsql lane already runs"}
+    monkeypatch.setattr(watch.agents, "answering", lambda name, seq: [evidence] if seq == "701640" else [])
+    watching = watcher(demo)
+
+    def posted(moment: datetime) -> None:
+        with state.edit(demo) as data:
+            data["orders"]["o1"]["last_line"] = state.stamp(moment)
+            data["handlers"].clear()
+        assert watch.quiet_lines(watching, moment) == []
+
+    def handed(seq: str, moment: datetime) -> None:
+        with state.edit(demo) as data:
+            data["orders"]["o1"]["handoffs"].append({"seq": seq, "text": "start a job reading why that blob is missing", "at": state.stamp(moment)})
+
+    def owed(moment: datetime) -> list[str]:
+        data = state.load(demo)
+        return [key for key in watch.line_facts(data, ["o1"], render.prs_by_job(data), moment) if key.startswith(watch.HANDOFF_FACT)]
+
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    handed("701640", T0 + timedelta(minutes=2))
+    posted(T0 + timedelta(minutes=3))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=7, seconds=59)) == []
+    assert calls == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=8)) == []
+    [(report, body), _] = calls
+    assert report["topic"] == "watch-quiet-o1"
+    lines = body.splitlines()
+    assert "Moved since the thread's last line or the watch's last report on it: handoff 701640. At work: no job." in lines
+    assert lines[-3:] == [
+        "Handoffs no job of their order was made or started after: 1. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
+        f"- handoff 701640, sent {render.when(state.stamp(T0 + timedelta(minutes=2)))}: start a job reading why that blob is missing",
+        f"  - 701688 evidence from platform re it: {evidence['text']}",
+    ]
+    posted(T0 + timedelta(minutes=9))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=40)) == []
+    assert len(calls) == 2
+    handed("701700", T0 + timedelta(minutes=41))
+    assert owed(T0 + timedelta(minutes=45, seconds=59)) == ["handoff 701640"]
+    assert owed(T0 + timedelta(minutes=46)) == ["handoff 701640", "handoff 701700"]
+    with state.edit(demo) as data:
+        state.start(data["jobs"]["j1"])
+    assert owed(BACK) == []
+    handed("701750", BACK + timedelta(minutes=1))
+    assert owed(BACK + timedelta(minutes=6)) == ["handoff 701750"]
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(kind="reader", created=state.stamp(BACK + timedelta(minutes=2)))
+    assert owed(BACK + timedelta(minutes=6)) == []
+
+
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])
 def test_an_order_owes_its_thread_no_line_while_he_is_away_until_he_is_back_nor_once_a_report_closing_it_is_kept(demo: str, monkeypatch: pytest.MonkeyPatch, held: str) -> None:
     threaded(demo)

@@ -27,6 +27,7 @@ FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
+HANDOFF_FACT = "handoff"
 FREED_AGAIN = timedelta(minutes=30)
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
@@ -1102,7 +1103,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
         source = f"due {order_id}"
         order = data["orders"][order_id]
         group = [order_id, *state.joined_orders(data).get(order_id, [])]
-        facts = line_facts(data, group, registered)
+        facts = line_facts(data, group, registered, moment)
         working = [job_id for each in group for job_id in data["orders"][each]["jobs"] if data["jobs"][job_id]["state"] == "running"]
         try:
             seq = quiet_report(watcher, data, {order_id: group}, quiet_since(data, group), moment, untold(order, facts) if order["quiet"] else list(facts), working, state.owed_at(order))
@@ -1136,15 +1137,21 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
     return max([last_line(data, group), *([state.parse_time(owed["at"])] if owed and owed["at"] else [])])
 
 
-def line_facts(data: dict, group: list[str], registered: dict[str, list[str]]) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job or PR it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, and each PR registered on those jobs or named in its orders' words, by its state, head, checks, Trunk ejection and tap as the watch last read them; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
+def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], moment: datetime) -> dict[str, list]:
+    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, head, checks, Trunk ejection and tap as the watch last read them, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or started; never a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
     jobs = {job_id: data["jobs"][job_id] for order_id in group for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["order"] in group}
     prs = {key: data["prs"][key] for key in incident_prs(data, group, jobs, registered) if key in data["prs"]}
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
         **{job_id: state.job_news(job["state"], job["waits"], view.open_cards(job), job["said"]) for job_id, job in jobs.items() if job["state"] != "running"},
         **{key: [pr["state"], pr["head"], pr["checks"], pr["ejected"], pr["tap"] and pr["tap"]["label"]] for key, pr in prs.items()},
+        **{f"{HANDOFF_FACT} {handoff['seq']}": ["owed"] for handoff in quiet_handoffs(data, group, moment)},
     }
+
+
+def quiet_handoffs(data: dict, group: list[str], moment: datetime) -> list[dict]:
+    """Each handoff state.owed_handoffs names on the orders that went out five quiet minutes or more before moment."""
+    return [handoff for handoff in state.owed_handoffs(data, group) if moment - state.parse_time(handoff["at"]) >= QUIET_THREAD]
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1156,7 +1163,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     threads: dict[tuple[str, str] | str, list[str]] = {}
     for head in groups:
         threads.setdefault(state.promise_thread(data["orders"][head]) or head, []).append(head)
-    facts = {head: line_facts(data, group, registered) for head, group in groups.items()}
+    facts = {head: line_facts(data, group, registered, moment) for head, group in groups.items()}
     heard = {head: state.stamp(max(last_line(data, groups[other]) for other in heads)) for heads in threads.values() for head in heads}
     if stale := [head for head in groups if not data["orders"][head]["quiet"] or data["orders"][head]["quiet"]["heard"] != heard[head]]:
         with state.edit(watcher.name) as data:
@@ -1218,6 +1225,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     past = int((moment - state.parse_time(due)).total_seconds() // 60) if due else 0
     late = timedelta(minutes=past) >= DUE_EVERY
     jobs = [f"- {render.job_line(job_id, data['jobs'][job_id])}" for group in groups.values() for order_id in group for job_id in data["orders"][order_id]["jobs"]]
+    handoffs = [handoff for group in groups.values() for handoff in quiet_handoffs(data, group, moment)]
     if due:
         asked = (
             f"post where it stands now in its thread{', opening with that line being late' if late else ''}: what moved since its last line, what each job at work is doing, and the clock time of his next line, as \"Next line by <time>\", which that post promises him."
@@ -1238,6 +1246,14 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
         f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then {asked}",
         f"Jobs: {len(jobs)}",
         *jobs,
+        *(
+            [
+                f"Handoffs no job of their order was made or started after: {len(handoffs)}. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
+                *(line for handoff in handoffs for line in handoff_lines(watcher.name, handoff)),
+            ]
+            if handoffs
+            else []
+        ),
     ]
     head = heads[0]
     order = data["orders"][head]
@@ -1262,6 +1278,16 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     }
     [seq] = reported(watcher, [record])
     return seq
+
+
+def handoff_lines(name: str, handoff: dict) -> list[str]:
+    """A handoff as a quiet report names it, with each record cci holds re it."""
+    answers = agents.answering(name, handoff["seq"])
+    return [
+        f"- {HANDOFF_FACT} {handoff['seq']}, sent {when(handoff['at'])}: {handoff['text']}",
+        *(f"  - {answer['seq']} {answer['kind']} from {answer['lane']} re it: {answer['text']}" for answer in answers),
+        *([] if answers else ["  - no record re it"]),
+    ]
 
 
 def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2672,7 +2698,7 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
         if back and since:
             registered = render.prs_by_job(data)
             for head, group in news_groups(data, state.open_orders(data)).items():
-                order, facts = data["orders"][head], line_facts(data, group, registered)
+                order, facts = data["orders"][head], line_facts(data, group, registered, moment)
                 if order["quiet"] and untold(order, facts):
                     order["quiet"]["news"] = facts
                     news += group
