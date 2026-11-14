@@ -1041,7 +1041,8 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             return {"changes": label(max(read, key=read.__getitem__), read)}
         if "card" in questions:
             return judged.judges(questions)
-        return {key: judged.answer for key in request["questions"]}
+        ruled = {part: label(word_id, {"none": round(1 - probability, 2), word_id: probability}) for part, (word_id, probability) in judged.ruled.items() if part in questions}
+        return {key: judged.answer for key in questions} | ruled
 
     monkeypatch.setattr(settled, "jev", answered)
     return judged

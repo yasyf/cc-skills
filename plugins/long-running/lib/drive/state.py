@@ -1134,11 +1134,15 @@ def job_parts(job: dict, order_id: str) -> list[str]:
 def split_research(data: dict, order_id: str, parts: list[str]) -> None:
     """Give each part a `drive order set --parts` list adds to each reader of the part it splits, a part the list leaves out or else the order's one part, so a builder on a part split from read work starts on that reader's research, as the remedy of a part every option on his card shares being its own builder job needs."""
     held = data["orders"][order_id]["parts"]
-    added = [part for part in parts if part not in held]
     split = {part for part in held if part not in parts} or (set(held) if len(held) == 1 else set())
+    share_research(data, order_id, split, [part for part in parts if part not in held])
+
+
+def share_research(data: dict, order_id: str, read: set[str], added: list[str]) -> None:
+    """Give these added parts to each reader of the order, on it or carrying it, that reads one of the read parts, so a builder on an added part starts on that reader's research."""
     for job_id in data["orders"][order_id]["jobs"] if added else []:
         job = data["jobs"][job_id]
-        if job["kind"] != "reader" or not split & set(job_parts(job, order_id)):
+        if job["kind"] != "reader" or not read & set(job_parts(job, order_id)):
             continue
         if job["order"] == order_id:
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
@@ -1507,9 +1511,11 @@ def unread_since_take(data: dict, job_id: str) -> list[str]:
 
 
 def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
-    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, and each change a builder's return lists so, a piece of its plan it left to a follow-up, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
     job = data["jobs"][job_id]
     found = [(whole_order(line["change"]), change_waits(line)) for line in CHANGE_LINE.finditer(report)]
+    if job["kind"] == "builder" and found:
+        return left_changes(name, data, job_id, found)
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or not found:
         return []
     order = data["orders"][job["order"]]
@@ -1522,8 +1528,22 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
+def left_changes(name: str, data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
+    """Make each change a builder's return lists on its `Change:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, whose research a builder of the part starts on, or, where its parts have none, read by each reader of them, by share_research; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
+    builder = data["jobs"][builder_id]
+    order = data["orders"][builder["order"]]
+    design = next((held["design"] for part, held in order["parts"].items() if part in builder["parts"] and held["design"]), None)
+    for change, _ in found:
+        held = order["parts"].setdefault(change, new_part())
+        held["design"] = held["design"] or design
+    if not design:
+        share_research(data, builder["order"], set(builder["parts"]), [change for change, _ in found])
+    order["updated"] = stamp()
+    return change_builders(name, data, design or builder_id, [([change], waits) for change, waits in found])
+
+
 def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
+    """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each open card of his on the design's parts and on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
@@ -1542,7 +1562,7 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
         change = "; ".join(uncarried)
         builder = data["jobs"][builder_id] = new_job(order_id, "builder", f"build {design_id}'s change: {change}", uncarried, created) | {
             "waits": waits,
-            "brief_flags": {"plan": f'{design_id}\'s design, change "{change}": drive job report {design_id}'},
+            "brief_flags": {"plan": f'{design_id}\'s {"design" if data["jobs"][design_id]["kind"] == "design" else "return"}, change "{change}": drive job report {design_id}'},
         }
         hold_unstarted(builder)
         data["orders"][order_id]["jobs"].append(builder_id)
