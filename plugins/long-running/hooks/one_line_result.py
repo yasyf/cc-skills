@@ -84,7 +84,7 @@ def unbuilt(job_id: str, job: dict) -> str | None:
         f" decides. Build it on your branch, push it with `ccx vcs ship --no-pr`, keep `BUILT <branch>, waits on <the card's waits id,"
         f" which drive status {job_id} shows>` and its lines with `drive job report {job_id} -`, and end on that line; on an open"
         " incident open its PR, which lands on that option while his card stays open, and end on `PUSHED <its url>`, unless the card"
-        " was kept with --unsettled, asking him to lift a ruling of his, whose PR waits on his answer there too. Only when his"
+        " was kept unsettled, asking him to lift a ruling of his, whose PR waits on his answer there too. Only when his"
         f" words ask for options and no build, or the recommended option is no change you build, keep this ASK with `drive job report"
         f" {job_id} -` and end on it again."
     )

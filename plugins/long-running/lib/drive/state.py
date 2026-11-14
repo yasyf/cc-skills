@@ -65,7 +65,7 @@ INCIDENT_CHOICE = {
     "builder": (
         "a choice never stops it: keep the ASK block with drive job ask the moment the fork shows, which puts his card up, then build"
         " its recommended option in the same run and open its PR, which lands on that option while his card stays open, but for a card"
-        " kept with --unsettled, which asks him to lift a ruling of his: push that branch with ccx vcs ship --no-pr and return BUILT,"
+        " kept unsettled, which asks him to lift a ruling of his: push that branch with ccx vcs ship --no-pr and return BUILT,"
         " since its PR waits on his answer; never BLOCKED on a choice"
     ),
 }
