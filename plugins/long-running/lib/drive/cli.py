@@ -1202,7 +1202,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
-        beside = [f'{other_id} {other["kind"]} {other["state"]} on {shared}: {other["goal"][:60]}' for other_id, other, shared in live]
+        beside = [other_id for other_id, _, _ in live]
         job_id = state.next_id(data["jobs"], "j")
         job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | {
             "agent": args.agent,
@@ -1222,9 +1222,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order["updated"] = created
         state.end_carried_designs(data, args.order, created)
         named = state.named_prs(data, args.order, args.goal)
-    if named:
-        with_cards(name, data)
-    history = [line for key in named for line in render.pr_history(data, key, job_id)]
+        history = {key: state.pr_orders(data, key, args.order) for key in named}
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if args.waits else []
     waiting += render.builder_lines(data, [builder_id] if builder_id else [])
     if crowd:
@@ -1232,7 +1230,12 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     started = state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
-    return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*started, *waiting, *beside, *history]
+    folded = [f"beside {', '.join(beside)}"] if beside else []
+    if named:
+        also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
+        folded.append(f"names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else ""))
+    names = [f"{job_id} {'; '.join(folded)}: drive status <id>"] if folded else []
+    return job_id, job | {"builder": builder_id, "beside": beside, "history": history}, [*started, *waiting, *names]
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:

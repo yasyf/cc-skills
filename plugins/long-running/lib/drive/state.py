@@ -1551,6 +1551,20 @@ def named_prs(data: dict, order_id: str, words: str) -> list[str]:
     return [key for key in dict.fromkeys(keys) if key]
 
 
+def pr_orders(data: dict, key: str, skip: str) -> list[str]:
+    """The orders but skip whose jobs opened the drive PR at key, list it or name it in their goal."""
+    pr = data["prs"][key]
+    number = key.rpartition("#")[2]
+    return list(
+        dict.fromkeys(
+            job["order"]
+            for job_id, job in data["jobs"].items()
+            if job["order"] != skip
+            and (job_id == pr["job"] or key in map(pr_key, job["prs"]) or number in job["goal"] and key in named_prs(data, job["order"], job["goal"]))
+        )
+    )
+
+
 def local_lane(dispatch: str) -> dict:
     """The fields of a job whose Orca worker runs on this Mac: a lane read through its Dispatch like a Sprite's, with no Sprite."""
     return {"where": "remote", "route": LOCAL_ROUTE, "dispatch": dispatch, "workspace": None, "environment": None}
