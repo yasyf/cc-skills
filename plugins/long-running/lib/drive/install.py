@@ -34,7 +34,6 @@ RELOAD_WAIT_SECONDS = 30
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 MANIFEST = ".claude-plugin/plugin.json"
 FLOOR = re.compile(r">=(\d+\.\d+\.\d+)")
-PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 HOOKS = "captain-hook"
 LONG_RUNNING = "long-running"
 HELPER = "capt-hook"
@@ -626,8 +625,10 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
 
 
 def reported_prs(data: dict, job_id: str) -> list[str]:
-    """The drive PRs a builder's said line names, its READY or PUSHED's PRs, the ones its proof proves: a PR registered on the job that the line leaves out, such as one closed as superseded, owes the proof nothing."""
+    """The drive PRs a builder's said line names, its READY or PUSHED's PRs, the ones its proof proves: a PR registered on the job that the line leaves out, such as one closed as superseded, owes the proof nothing; on a WAITING line, which names what it waits on, such as a release, rather than its PRs, each PR registered on the job but one closed unmerged."""
     job = data["jobs"][job_id]
+    if re.match(r"WAITING\b", job["said"] or ""):
+        return [key for key in dict.fromkeys(map(state.pr_key, job["prs"])) if key in data["prs"] and data["prs"][key]["state"] != "closed"]
     return state.named_prs(data, job["order"], job["said"] or "")
 
 
@@ -818,8 +819,10 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
         state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
 
 
-def merged_done(name: str, data: dict, job_id: str) -> None:
-    """Take DONE at its merge on a builder whose READY or PUSHED's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, where the builder add_prover adds proves it."""
+def merged_done(name: str, data: dict, job_id: str) -> list[str]:
+    """Take DONE at its merge on a builder whose READY, PUSHED or WAITING line's PRs all merged outside yasyf/*, a product change, its merge commits its CHECK:, keeping no proof and no close report on its order, since a merge goes live only once a release holding it is out, where the builder add_prover hands it to proves it; the release waits it held, which move to that builder."""
+    job = data["jobs"][job_id]
+    waits = job["waits"]
     merges = merges_of(data, job_id)
     urls = " ".join(map(state.pr_url, merges))
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
@@ -828,27 +831,31 @@ def merged_done(name: str, data: dict, job_id: str) -> None:
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
+    state.rewait(job, [])
+    return waits
 
 
-def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]]) -> str:
-    """Add the builder that proves live, on the release holding each merge, a builder's PRs that all merged outside yasyf/*, marked as building nothing, so it holds no builder slot: on parts, each list under the order holding it, the first order its own, in the merged job's session, on its brief flags with a merge handoff, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch, or on none, its handoff, when every PR changes only tests or CI config, proving them by their tests passing on dev; that builder's id. When an unstarted prover already proves one of the PRs, widen gives it these parts, the PRs it lacks, their release waits and this handoff instead, so a second pass over those PRs adds no job."""
+def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], waits: list[str]) -> str:
+    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks, their release waits, the release waits the merged job held, waits, and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch. That prover's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
+    found = list(dict.fromkeys(filter(None, (prover_of(data, key) for key in merges))))
+    keys = [key for key in merges if not prover_of(data, key)]
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     handoff = (
         f"{merged} merged, changing only tests or CI config, which no release ships: prove it by its tests passing on dev at or after its merge commit"
-        if all(reach.get(key, {}).get("tested") for key in merges)
+        if keys and all(reach.get(key, {}).get("tested") for key in merges)
         else f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
     )
-    builder_id = waiting_prover(data, list(merges))
-    keys = [key for key in merges if not builder_id or key not in proves(data, builder_id)]
-    waits = [f"release:{component}:{key}" for key, answer in reach.items() if key in keys for component in answer["touched"]]
-    if builder_id:
-        widen(data, builder_id, parts, keys, waits, handoff)
-        return builder_id
+    waits = list(dict.fromkeys([*waits, *(f"release:{component}:{key}" for key, answer in reach.items() if key in keys for component in answer["touched"])]))
+    lead = next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None)
+    for builder_id in found:
+        widen(data, builder_id, parts, *((keys, waits, handoff) if builder_id == lead else ([], [], None)))
+    if lead or not keys:
+        return lead or found[0]
     (order_id, own), *carried = parts.items()
     builder_id = state.next_id(data["jobs"], "j")
-    builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(merges)} live", own, state.stamp()) | {
+    builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(keys)} live", own, state.stamp()) | {
         "session": job.get("session"),
         "waits": waits,
         "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff},
@@ -862,42 +869,62 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
 
 
 def widen(data: dict, builder_id: str, parts: dict[str, list[str]], keys: list[str], waits: list[str], handoff: str | None) -> None:
-    """Give an unstarted prover more parts, each list under the order holding it, the PRs keys in its goal, their release waits and a handoff it lacks, so one prover proves each merged PR live."""
+    """Give a prover more parts, each list under the order holding it, and, while no agent or lane took it, the PRs keys in its goal, their release waits and a handoff it lacks, so one prover proves each merged PR live; a prover at work or done takes the parts alone, its DONE delivering them."""
     builder = data["jobs"][builder_id]
+    for order_id, held in parts.items():
+        state.deliver(data, builder_id, order_id, held)
+    if not state.untaken(builder):
+        return
     if keys:
         builder["goal"] = f"prove {', '.join([*proves(data, builder_id), *keys])} live"
     flags = builder.get("brief_flags") or {}
     if handoff and handoff not in (flags.get("handoff") or ""):
         builder["brief_flags"] = flags | {"handoff": "; ".join(filter(None, [flags.get("handoff"), handoff]))}
-    state.rewait(builder, list(dict.fromkeys([*builder["waits"], *waits])))
+    state.rewait(builder, [wait for wait in dict.fromkeys([*builder["waits"], *waits]) if wait != state.SLOT_WAIT])
     state.hold_unstarted(builder)
-    for order_id, held in parts.items():
-        state.deliver(data, builder_id, order_id, held)
 
 
-def waiting_prover(data: dict, keys: list[str]) -> str | None:
-    """The earliest prover no agent or lane started yet that proves one of the PRs keys, the one a merge of them widens rather than adding a second."""
-    return next((job_id for job_id, job in data["jobs"].items() if unstarted_prover(job) and set(keys) & set(proves(data, job_id))), None)
+def prover_of(data: dict, key: str) -> str | None:
+    """The one builder proving the merged PR at key live, on whatever order holds it, marked as building nothing or not: the earliest done, whose DONE proved it, then the earliest an agent or lane took, then the earliest none took yet, of the builders whose goal reads prove <PRs> live naming it or whose DONE names it, never the DONE the watch takes at a merge, which proves nothing live; else the earliest such prover that failed or stopped, so its part reads ORPHAN and the watch adds no second; None while no builder proves it."""
+    number = key.rpartition("#")[2]
+    found = [
+        (rank, position, job_id)
+        for position, (job_id, job) in enumerate(data["jobs"].items())
+        if job["kind"] == "builder" and (number in job["goal"] or number in (job["said"] or "")) and (rank := proof_rank(data, job_id, key)) is not None
+    ]
+    return min(found)[2] if found else None
 
 
-def unstarted_prover(job: dict) -> bool:
-    return job["kind"] == "builder" and bool(job.get("builds_nothing")) and job["state"] in ("running", "waiting") and not (job.get("agent") or job.get("dispatch"))
+def proof_rank(data: dict, job_id: str, key: str) -> int | None:
+    job = data["jobs"][job_id]
+    if state.done_at_merge(job):
+        return None
+    if job["state"] == "done":
+        return 0 if key in proves(data, job_id) or key in state.named_prs(data, job["order"], job["said"] or "") else None
+    if key not in proves(data, job_id):
+        return None
+    if job["state"] in state.ENDED_JOB_STATES:
+        return 3
+    return 2 if state.untaken(job) else 1
 
 
 def proves(data: dict, job_id: str) -> list[str]:
-    """The PRs a builder marked as building nothing proves live, named in its goal as add_prover writes it, prove <PRs> live."""
+    """The PRs a builder whose goal reads prove <PRs> live, as add_prover writes it, proves live."""
     job = data["jobs"][job_id]
-    goal = PROVER_GOAL.fullmatch(job["goal"]) if job["kind"] == "builder" and job.get("builds_nothing") else None
+    goal = state.PROVER_GOAL.fullmatch(job["goal"]) if job["kind"] == "builder" else None
     return state.named_prs(data, job["order"], goal["keys"]) if goal else []
 
 
 def merged_said(name: str, builder_id: str, change: str) -> str:
-    """The one line saying the builder add_prover added or widened, by change, to prove live the PRs of builders that took DONE at their merge, whatever their number, counting the releases it waits on, which drive status lists, briefed here so its agent starts on the watch's FREE once the last is out, or in the turn this line wakes when it waits on none, or why its brief was not written."""
+    """The one line saying the builder add_prover added or widened, by change, to prove live the PRs of builders that took DONE at their merge, whatever their number, counting the releases it waits on, which drive status lists, briefed here so its agent starts on the watch's FREE once the last is out, or in the turn this line wakes when it waits on none, or why its brief was not written; one an agent or lane already took, or that finished, keeps its brief and says its state."""
     from drive import cli
 
     data = state.load(name)
     builder = data["jobs"][builder_id]
-    head = f"JOB {builder_id} {builder['order']} {change}, proves {', '.join(proves(data, builder_id))}"
+    proven = proves(data, builder_id) or state.named_prs(data, builder["order"], builder["said"] or "")
+    head = f"JOB {builder_id} {builder['order']} {change}, proves {', '.join(proven)}"
+    if not state.untaken(builder):
+        return f"{head}, already {builder['state']}: drive status {builder_id}"
     try:
         started = cli.write_brief(name, builder_id, {})[0].splitlines()[0]
     except cli.VERB_ERRORS as error:

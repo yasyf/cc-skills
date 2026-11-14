@@ -37,7 +37,8 @@ Contents:
   starts here at once past the cap and the line, and holds a slot against later builders once it
   runs.
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
-  checkout or compiler, such as a merged PR's live proof or a read, holds no slot at all: it starts
+  checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
+  live proof, marked or not, holds no slot at all: it starts
   here at once past the cap and the line, and no later builder counts it. `drive job set <j> --builds-nothing`
   marks a builder already added the same way, a waiting one included, so a message wakes it past a full
   cap and one waiting its turn leaves the line.
@@ -115,7 +116,7 @@ refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
-open incident's order or an `immediate fix` part or marked with `--builds-nothing`, while eight hold this Mac's builder slots or one
+open incident's order or an `immediate fix` part or building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, while eight hold this Mac's builder slots or one
 waits its turn ahead of it, sending one whose brief declares no step only this Mac runs to a
 Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
 its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build

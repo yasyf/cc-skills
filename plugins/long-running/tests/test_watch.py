@@ -3728,7 +3728,7 @@ def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_wi
     freed = f"FREE j1 o1: every cluster of api, plat-usw2-prod, plat-usw2-staging, tnt-usw2-0ddq7rb, serves {KEY} with no release running there, nothing else holds it"
     with state.edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
-        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], prs=[], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     del serving[2]["running"]
@@ -6684,8 +6684,9 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
     assert list(state.load(demo)["jobs"]) == ["j1", "j2", "j3"]
 
 
-def test_a_second_unstarted_prover_of_a_pr_folds_into_the_first_which_takes_its_parts_prs_waits_and_handoff_and_a_second_pass_changes_nothing(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("marked", [True, False])
+def test_a_second_unstarted_prover_of_a_pr_marked_or_not_folds_into_the_first_which_takes_its_parts_prs_waits_and_handoff_and_a_second_pass_changes_nothing(
+    demo: str, monkeypatch: pytest.MonkeyPatch, marked: bool
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
@@ -6700,8 +6701,8 @@ def test_a_second_unstarted_prover_of_a_pr_folds_into_the_first_which_takes_its_
             state="done", said=f"DONE {state.pr_url(KEY)} {state.pr_url(OTHER)} merged: {KEY} at ccc333ddd444, {OTHER} at aaa111bbb222", carries={"o2": [carried]}, updated=earlier
         )
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
-        data["jobs"]["j2"] = unstarted_prover([KEY], ["ship the watch"], [f"release:api:{KEY}"], first)
-        data["jobs"]["j3"] = unstarted_prover([KEY, OTHER], ["ship the watch"], [f"release:api:{KEY}", f"release:web:{OTHER}"], second, carries={"o2": [carried]})
+        data["jobs"]["j2"] = unstarted_prover([KEY], ["ship the watch"], [f"release:api:{KEY}"], first, builds_nothing=marked)
+        data["jobs"]["j3"] = unstarted_prover([KEY, OTHER], ["ship the watch"], [f"release:api:{KEY}", f"release:web:{OTHER}"], second, carries={"o2": [carried]}, builds_nothing=marked)
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
     assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 took the parts and waits of j3, a duplicate now stopped, proves {KEY}, {OTHER}, waits on 2 releases: drive status j2"]
@@ -6720,6 +6721,41 @@ def test_a_second_unstarted_prover_of_a_pr_folds_into_the_first_which_takes_its_
     assert state.load(demo)["jobs"]["j2"]["waits"] == [f"release:api:{KEY}", f"release:web:{OTHER}"]
 
 
+@pytest.mark.parametrize("out", [False, True])
+def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge_with_no_free_and_its_prover_waits_on_the_releases_still_to_come(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], out: bool
+) -> None:
+    serve(monkeypatch, {})
+    live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "ccc333ddd444eee"}] if out else None, {"ccc333ddd444eee"})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["web"]}})
+    merged_ready(demo, OTHER, None)
+    wait = f"release:api:{OTHER}"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(said=f"WAITING {wait}", waits=[wait])
+    lines = watch.run_pass(watcher(demo), T0)
+    assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
+    waits = [f"release:web:{OTHER}"] if out else [wait, f"release:web:{OTHER}"]
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {OTHER}, waits on {'1 release' if out else '2 releases'}: drive status j2"]
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], data["jobs"]["j2"]["waits"], provers) == ("done", [], waits, [])
+
+
+def test_a_merge_whose_pr_an_unmarked_prover_at_work_on_another_order_proves_gives_that_prover_its_parts_and_adds_no_second(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, None)
+    carried = "prove the dashboard"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text=carried, jobs=["j9"], parts={carried: state.new_part()})
+        data["jobs"]["j9"] = state.new_job("o2", "builder", f"prove {OTHER} live", [carried], state.stamp()) | {"state": "running", "agent": "a-9"}
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j9 o2 widened to the parts of j1, proves {OTHER}, already running: drive status j9"]
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], list(data["jobs"]), data["jobs"]["j9"]["carries"], "j9" in data["orders"]["o1"]["jobs"]) == ("done", ["j1", "j9"], {"o1": ["ship the watch"]}, True)
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith("JOB ")]
+
+
 def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder_briefed_to_start_in_the_turn_its_line_wakes(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
@@ -6734,7 +6770,7 @@ def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder
 
 
 @pytest.mark.parametrize("proved", [False, True])
-def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_live_takes_no_done_at_its_merge_and_gets_no_second_prover(
+def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_live_takes_done_at_its_merge_and_gets_no_prover(
     demo: str, monkeypatch: pytest.MonkeyPatch, proved: bool
 ) -> None:
     serve(monkeypatch, {})
@@ -6748,8 +6784,8 @@ def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_liv
             data["orders"]["o1"]["state"] = "done"
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
-    assert not [line for line in lines if line.startswith("JOB ")]
-    assert (data["jobs"]["j1"]["state"], list(data["jobs"])) == ("waiting", ["j1", "j9"] if proved else ["j1"])
+    assert not [line for line in lines if line.startswith(("JOB ", "FREE "))]
+    assert (data["jobs"]["j1"]["state"], list(data["jobs"])) == ("done", ["j1", "j9"] if proved else ["j1"])
 
 
 @pytest.mark.parametrize(("fix", "sha"), [("Forge-AI/monorepo#55420", "485f9f408150"), ("Forge-AI/monorepo#55448", "6ec574a4f779")])

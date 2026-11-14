@@ -231,6 +231,17 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     assert run("job", "set", "j11", "--builds-nothing")[0] == 2
 
 
+def test_a_builder_whose_goal_proves_merged_prs_live_builds_nothing_unmarked_so_it_starts_here_past_a_full_cap_and_holds_no_slot(demo: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
+    code, out = run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "prove Forge-AI/monorepo#42 live")
+    proof = state.load(demo)["jobs"]["j9"]
+    assert (code, out.splitlines()[0], proof["state"], proof["waits"], proof["where"], bool(proof["builds_nothing"]), state.builds_nothing(proof)) == (0, "j9", "running", [], "local", False, True)
+    run("job", "set", "j9", "--agent", "a9")
+    assert list(place.local_builders(state.load(demo), state.now())) == [f"j{number}" for number in range(1, 9)]
+
+
 def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:

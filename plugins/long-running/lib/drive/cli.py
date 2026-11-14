@@ -1356,12 +1356,13 @@ def refuse_a_second_change_job(data: dict, job_id: str, order_id: str, parts: li
 
 
 def proven_again(data: dict, order_id: str, kind: str, goal: str) -> str | None:
-    """Why a builder whose goal names a merged PR may not start on a done order: its fix was proven live already, by the job state.prover names, else by the proof the order keeps."""
+    """Why a builder whose goal names a merged PR may not start on a done order: its fix was proven live already, by the done prover install.prover_of names on any order, else by the proof the order keeps."""
     order = data["orders"][order_id]
     if kind != "builder" or order["state"] != "done" or not (merged := [key for key in state.named_prs(data, order_id, goal) if data["prs"][key]["merged_sha"]]):
         return None
     named = ", ".join(merged)
-    held = f"{proved} proved {named} live" if (proved := state.prover(data, order_id, merged)) else f"its proof is {order['proof']}" if order["proof"] else "it closed"
+    proved = next((found for key in merged if (found := install.prover_of(data, key)) and data["jobs"][found]["state"] == "done"), None)
+    held = f"{proved} proved {named} live" if proved else f"its proof is {order['proof']}" if order["proof"] else "it closed"
     return f"{order_id} is done and {held}, so no builder proves {named} live on it again"
 
 
@@ -1440,7 +1441,7 @@ def job_set(args: argparse.Namespace) -> int:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.change_wait(data, wait) for wait in args.waits], args.no_waits, found)
-        state.rewait(job, [wait for wait in waits if not (job.get("builds_nothing") and wait == state.SLOT_WAIT)])
+        state.rewait(job, [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)])
         state.hold_unstarted(job)
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
@@ -4831,7 +4832,7 @@ def parser() -> argparse.ArgumentParser:
         "--builds-nothing",
         action=argparse.BooleanOptionalAction,
         help=(
-            "mark or unmark a builder whose whole work holds no checkout or compiler, such as a merged PR's live proof or a read: it holds"
+            "mark or unmark a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds"
             " no slot of this Mac's builder cap, drops any turn it waits for one, and starts or takes a message here at once"
         ),
     )
@@ -5118,7 +5119,7 @@ def parser() -> argparse.ArgumentParser:
         "--builds-nothing",
         action="store_true",
         default=None,
-        help="a builder whose whole work holds no checkout or compiler, such as a merged PR's live proof or a read: it holds no slot of this Mac's builder cap and starts here at once",
+        help="a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds no slot of this Mac's builder cap and starts here at once",
     )
     verb.add_argument("kind", type=job_kind, choices=state.JOB_KINDS, help="what the job is; designer, its agent type's name, is design")
     verb.add_argument("--order", required=True, help="the order whose parts it delivers")
