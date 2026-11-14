@@ -7878,7 +7878,7 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_
     assert (len(ready_records), len(ran)) == (1, 1)
 
 
-def test_the_watch_starts_a_handler_on_each_post_report_to_a_communicator_its_drive_lacks_once_and_reads_again_one_that_did_not_start(
+def test_the_watch_starts_a_handler_on_each_post_report_to_the_communicator_once_beside_whichever_session_holds_the_drive_and_reads_again_one_that_did_not_start(
     demo: str, monkeypatch: pytest.MonkeyPatch, posts_to_communicator: list[str]
 ) -> None:
     ran: list[list[str]] = []
@@ -7906,7 +7906,7 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_a_communicator_its_dr
         data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
     posts_to_communicator.append("697200")
     assert watch.post_lines(watching, T0 + timedelta(seconds=10)) == []
-    assert (len(ran), posts_to_communicator) == (3, ["697200"])
+    assert ([argv[-1].split()[1] for argv in ran][3:], json.loads(ran[-1][ran[-1].index("--settings") + 1])["env"]["CCI_PARENT_SESSION"]) == (["697200"], "communicator-session")
 
 
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
