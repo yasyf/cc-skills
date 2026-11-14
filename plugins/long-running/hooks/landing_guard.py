@@ -107,7 +107,7 @@ RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "r
 READS_ONLY = frozenset({"--plan", "--dry-run", "--help", "-h"})
 RELEASE_PIPELINE = "release"
 RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
-RELEASE_BUILDKITE = f"forge/{RELEASE_PIPELINE}"
+RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
 RELEASE_START_ENV = "RELEASE_START"
 HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."

@@ -278,7 +278,22 @@ def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run
     assert bash_guard.deny_reason(bash(typed)) is None
 
 
-def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_read(demo: str) -> None:
+@pytest.fixture
+def builds(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    states = {("forge/test", "131031"): "passed", ("forge/test", "131040"): "failed", ("forge/test", "131041"): "failing"}
+    read = []
+
+    def build(pipeline: str, number: str) -> dict:
+        read.append((pipeline, number))
+        if (pipeline, number) not in states:
+            raise github.GithubError("HTTP 404")
+        return {"state": states[pipeline, number]}
+
+    monkeypatch.setattr(github, "build", build)
+    return read
+
+
+def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_read(demo: str, builds: list[tuple[str, str]]) -> None:
     for command, step in (
         ("cd /work && .agents/skills/submit-pr/scripts/stack-enqueue 4244 --flake", "stack-enqueue --flake"),
         ("tools/ci bk rerun 0190a1b2-job", "ci bk rerun"),
@@ -290,6 +305,27 @@ def test_a_drive_call_retrying_past_a_failing_check_is_refused_naming_the_log_re
     assert bash_guard.deny_reason(bash("tools/ci bk log 0190a1b2-job")) is None
     assert bash_guard.deny_reason(bash(".agents/skills/submit-pr/scripts/stack-enqueue 4244")) is None
     assert bash_guard.deny_reason(bash("tools/ci bk rerun 0190a1b2-job", session="ordinary")) is None
+    assert builds == []
+
+
+def test_a_forced_rerun_runs_only_of_a_build_that_reads_passed(demo: str, builds: list[tuple[str, str]]) -> None:
+    for command in ("tools/ci bk rerun test 131031 --unit sand-next", "cd /work && tools/ci bk rerun --unit sand --unit=sand-next --count 3 test 131031"):
+        assert bash_guard.deny_reason(bash(command)) is None
+    assert builds == [("forge/test", "131031")] * 2
+    green = ". A `tools/ci bk rerun <pipeline> <build>` runs once that build reads passed, a forced uncached regrade of a green build, and"
+    for command, read in (
+        ("tools/ci bk rerun test 131040 --unit sand-next", "forge/test build 131040 reads failed"),
+        ("tools/ci bk rerun test 131041 --unit sand-next --count 3", "forge/test build 131041 reads failing"),
+        ("tools/ci bk rerun test 9 --unit sand-next", "forge/test build 9 could not be read from Buildkite: HTTP 404"),
+        ("tools/ci bk rerun test dev --unit sand-next", "this one names no build number"),
+    ):
+        reason = bash_guard.deny_reason(bash(command))
+        assert reason.startswith("refused: `ci bk rerun` retries past a failing check, and a check that fails is fixed at its cause")
+        assert reason.endswith(f"{green} {read}")
+    for command, step in (("bk job retry 0190a1b2-job", "bk job retry"), ("gh run rerun 123", "gh run rerun")):
+        reason = bash_guard.deny_reason(bash(command))
+        assert reason.startswith(f"refused: `{step}` retries past a failing check")
+        assert reason.endswith("a test that flakes gets a flake fix of its own")
 
 
 def test_the_watchdog_runs_its_reads_and_two_acts_and_nothing_else(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -23,6 +23,7 @@ FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STAR
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
+BUILDKITE_ORG = "forge"
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 TRUNK_CHECK = "Trunk Merge Queue"
@@ -332,11 +333,16 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
     return found
 
 
+def build(pipeline: str, number: str) -> dict:
+    """A Buildkite build as `bk build view` reads it now, such as its state, env and jobs."""
+    return json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))
+
+
 @cache
 def build_env(pipeline: str, number: str) -> dict[str, str]:
     """The environment a Buildkite build started with, such as a go/ci release's RELEASE_START or a cluster job's CLUSTER_JOB, read once a process, since a build's env never changes."""
     try:
-        return json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))["env"]
+        return build(pipeline, number)["env"]
     except GithubError as error:
         raise GithubError(f"could not read the start of {pipeline} build {number} from Buildkite: {error}") from None
 

@@ -26,7 +26,10 @@ SHIP = ("ccx", "vcs", "ship")
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
 PUSH_ONLY = {"--no-pr", "--dry-run"}
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
-RERUNS = (("ci", "bk", "rerun"), ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
+FORCED_RERUN = ("ci", "bk", "rerun")
+RERUNS = (FORCED_RERUN, ("bk", "job", "retry"), ("bk", "build", "rebuild"), ("gh", "run", "rerun"))
+FORCED_RERUN_VALUED = {"--unit", "--count"}
+GREEN = "passed"
 FLAKE = "--flake"
 BREW_RESTARTS = {"upgrade", "reinstall"}
 RESUME_TIMEOUT = 20000
@@ -242,19 +245,46 @@ def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
 
 
 def retried(found: list[list[str]]) -> str | None:
-    """Why a call retries past a failing check: `stack-enqueue --flake` requeues a PR past its failed verification, and a rerun runs the failed job again unchanged."""
+    """Why a call retries past a failing check: `stack-enqueue --flake` requeues a PR past its failed verification, and a rerun runs the failed job again unchanged, but for a `ci bk rerun` of a build that reads passed, which regrades a green build with Go's test cache and the unit's witness off."""
     for words in found:
         named = verb(words)
         if named[0] == "stack-enqueue" and any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words):
-            step = f"stack-enqueue {FLAKE}"
-        elif not (step := next((" ".join(rerun) for rerun in RERUNS if tuple(named[: len(rerun)]) == rerun), None)):
+            step, read = f"stack-enqueue {FLAKE}", ""
+        elif rerun := next((rerun for rerun in RERUNS if tuple(named[: len(rerun)]) == rerun), None):
+            step, read = " ".join(rerun), forced_rerun(words) if rerun == FORCED_RERUN else ""
+        else:
+            continue
+        if read is None:
             continue
         return (
             f"refused: `{step}` retries past a failing check, and a check that fails is fixed at its cause, never retried past"
             f" with {FLAKE} or a rerun. Read the failed job's own output with `tools/ci bk log '<job URL>'`, or `gh run view <run>"
             " --log-failed` on GitHub Actions, fix the cause and push the fix; a test that flakes gets a flake fix of its own"
+            + read
         )
     return None
+
+
+def forced_rerun(words: list[str]) -> str | None:
+    """Why a `ci bk rerun` may retry past a failing check, said as the clause the refusal ends on: the build it names does not read passed on Buildkite, could not be read, or it names none, such as dev's head; None when that build reads passed."""
+    named, rest = [], iter(words[words.index("rerun") + 1 :])
+    for word in rest:
+        if word == "--":
+            named += rest
+            break
+        if word in FORCED_RERUN_VALUED:
+            next(rest, None)
+        elif not word.startswith("-"):
+            named.append(word)
+    green = f". A `tools/ci bk rerun <pipeline> <build>` runs once that build reads {GREEN}, a forced uncached regrade of a green build"
+    if len(named) != 2 or not named[1].isdigit():
+        return f"{green}, and this one names no build number"
+    pipeline = f"{github.BUILDKITE_ORG}/{named[0]}"
+    try:
+        built = github.build(pipeline, named[1])["state"]
+    except github.GithubError as error:
+        return f"{green}, and {pipeline} build {named[1]} could not be read from Buildkite: {error}"
+    return None if built == GREEN else f"{green}, and {pipeline} build {named[1]} reads {built}"
 
 
 def watchdog_call(found: list[list[str]]) -> str | None:
