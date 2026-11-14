@@ -2046,18 +2046,19 @@ def cards_redraw(args: argparse.Namespace) -> int:
 
 
 def cards_withdraw(args: argparse.Namespace) -> int:
-    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them, withdraw, or whose question or options they change, and its card follows: it shows his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it."""
+    """End as withdrawn each open question drawn on his card that his words, wherever he wrote them, withdraw, or whose question or options they change, or that an event at --via overtook, as settled.unhappened reads it, so a tap has nothing left to pick, and its card follows: it shows his words, or what happened, and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job, or any job of its order carrying on that work, asks again with `drive job ask --redraws` and the card's waits id once the work is back, which redraws it. The event's words are never recorded as his."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
-    if unsaid := settled.unsaid([args.words], args.via, view.live_cards(name), state.load(name)):
-        raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}")
+    unsaid = settled.unsaid([args.words], args.via, view.live_cards(name), state.load(name))
+    if unsaid and (unhappened := settled.unhappened(args.via)):
+        raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}; nor did an event at {args.via} overtake it: {unhappened}")
     with state.edit(name) as data:
         closed = state.new_close("withdrawn", args.words, args.via)
         ended = [each for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
     if not ended:
         raise DriveError(f"{args.card}: no open question of this drive is drawn on that card, by its waits id or permalink; drive status <job> names the card each question is drawn on")
-    done = superseded.follow(name, ended)
+    done = superseded.follow(name, ended, "what happened" if unsaid else "his words")
     asked = sorted(
         {
             f"drive job ask <job> <file> --redraws {question['waits']} asks it again once its work is back, from {job_id} or any job of {data['jobs'][job_id]['order']}, which redraws its card"
@@ -5454,18 +5455,27 @@ def parser() -> argparse.ArgumentParser:
     verb = cards.add_parser(
         "withdraw",
         parents=both,
-        help="withdraw his open question card that his words withdraw or change",
+        help="withdraw his open question card that his words withdraw or change, or that an event overtook",
         description=(
             "Withdraw his open question card that his words withdraw, wherever he wrote them, or whose question or options they"
-            " change, such as more options, a new constraint or a rework of its work: it settles in place showing his words and"
-            " a link to them, with no buttons, so a late tap records nothing; once the work is back, its job, or any job of its"
-            " order carrying on that work, asks again with drive job ask <job> <file> --redraws <this card's waits id>, which"
-            " redraws it under its waits id."
+            " change, such as more options, a new constraint or a rework of its work, or that an event overtook so a tap has"
+            f" nothing left to pick, such as a hold on a deploy that applied: {settled.EVENTS}. It settles in place showing his"
+            " words, or what happened, with no buttons, so a late tap records nothing, and what happened is never recorded as"
+            " his; once the work is back, its job, or any job of its order carrying on that work, asks again with drive job ask"
+            " <job> <file> --redraws <this card's waits id>, which redraws it under its waits id."
         ),
     )
     verb.add_argument("card", help="the card, by its waits id or its permalink")
-    verb.add_argument("--words", required=True, help="his words that withdraw or change it, verbatim, which the card shows; refused unless his message at --via holds them")
-    verb.add_argument("--via", required=True, help="the permalink of his message, which the card links, or terminal for words he typed into a drive session's terminal")
+    verb.add_argument(
+        "--words",
+        required=True,
+        help="his words that withdraw or change it, verbatim, refused unless his message at --via holds them; or, for an event, what happened, in plain words; the card shows them",
+    )
+    verb.add_argument(
+        "--via",
+        required=True,
+        help="the permalink of his message, which the card links, terminal for words he typed into a drive session's terminal, or the link of the event that overtook it",
+    )
     verb.set_defaults(run=cards_withdraw)
     card_help = "cc-slack's card_command: reads one request JSON on stdin and prints one JSON reply"
     verbs.add_parser("card", help=card_help, description=card_help).set_defaults(run=card_command)

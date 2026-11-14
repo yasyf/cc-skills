@@ -370,7 +370,11 @@ When it is answered, replaced or redone:
   more options or a new constraint, or send its work back to be redone. `drive cards withdraw <its
   waits id> --words "<his words>" --via <his permalink>` settles it in place, showing his words and a
   link to them with no buttons, so a late tap records nothing, and its question, asked again on any
-  job once the work is back, keeps that card's waits id and redraws it. One question has one card. `drive job ask` refuses a question another job's
+  job once the work is back, keeps that card's waits id and redraws it. An event that leaves a
+  card's tap nothing to pick, such as a teammate lifting a freeze so the deploy the card would hold
+  applies, withdraws it the moment the drive reads it: `drive cards withdraw <its waits id> --words
+  "<what happened>" --via <the PR, build, job or message link>` settles it showing what happened,
+  never recorded as his. A card still worth a tap while its work is reworked keeps its buttons. One question has one card. `drive job ask` refuses a question another job's
   open card asks in the same words, naming the `drive job set --waits` that frees its job at his
   answer. `drive answer` lists every open card
   his answer decides, rules options out of or makes moot, whatever job, order or words it shares with

@@ -8432,6 +8432,60 @@ def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_
     assert "demo:j1-8: no open question of this drive is drawn on that card" in capsys.readouterr().err
 
 
+def test_cards_withdraw_settles_a_card_an_event_overtook_showing_what_happened_and_refuses_before_the_event(
+    run: Run, asking: str, heard: Heard, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shown = open_card(7, {"title": "Hold the deploy?", "options": ["Hold", "Let it apply"], "recommended": "Hold", "waits": "demo:j1-7"})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Hold the deploy?", state.stamp(), None, shown["url"]) | {"waits": "demo:j1-7"})
+    calls: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
+    read = {"state": "OPEN"}
+    monkeypatch.setattr(github, "graphql", lambda text, what: {"data": {"r0": {"p42": read}}})
+    heard.refusal = "his message at --via does not hold those words"
+    words = "The freeze lifted and the deploy applied"
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", PR]) == 2
+    assert f"demo:j1-7: refused, not withdrawn: {heard.refusal}; nor did an event at {PR} overtake it: Forge-AI/monorepo#42 is still open" in capsys.readouterr().err
+    assert calls == []
+    read["state"] = "MERGED"
+    code, line = run("cards", "withdraw", "demo:j1-7", "--words", words, "--via", PR)
+    assert (code, calls) == (0, [("card-answer", "--card", shown["url"], "--label", words, "--withdrawn", "--via", PR)])
+    assert f"demo:j1-7: his card {shown['url']} now shows what happened with no buttons, its question withdrawn" in line.splitlines()
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]["how"] == "withdrawn"
+
+
+def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_or_a_teammate_or_another_bot_wrote(
+    slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    his, ours, theirs = (slack_thread.post(datetime(2026, 11, 14, 0, minute, tzinfo=UTC), text="The freeze is lifted", **flags) for minute, flags in ((1, {"from_user": True}), (2, {"from_claude": True}), (3, {})))
+    states = {"42": "OPEN", "43": "MERGED"}
+    monkeypatch.setattr(github, "graphql", lambda text, what: {"data": {"r0": {f"p{number}": {"state": states[number]} for number in re.findall(r"pullRequest\(number: (\d+)\)", text)}}})
+    deployed, running, missing = "01a1d675-2646-4852-9362-f7eeade5e8c7", "01a1d672-1b16-4b2a-9d0e-3c5f6a7b8c9d", "01a1d699-0000-4000-8000-000000000000"
+    builds = {
+        "15515": {"state": "passed", "finished_at": "2026-11-14T00:57:12.057Z", "jobs": [{"id": deployed, "state": "passed", "finished_at": "2026-11-14T00:51:27.139Z"}, {"id": running, "state": "running", "finished_at": None}]},
+        "15516": {"state": "running", "finished_at": None, "jobs": []},
+    }
+    monkeypatch.setattr(github, "run", lambda cmd, **kwargs: json.dumps(builds[cmd[3]]))
+    release, gone = "https://buildkite.com/forge/release/builds/15515", "https://acme.slack.com/archives/D123/p1794300000000999"
+    reasons = {
+        his: "it is his own message, which withdraws a card only by his words there, verbatim",
+        ours: "it is a post of the drive or of another agent, never an event",
+        theirs: None,
+        gone: f"it could not be read: no message 1794300000.000999 in the thread at --url {gone}",
+        PR: "Forge-AI/monorepo#42 is still open",
+        STACKED: None,
+        release: None,
+        f"{release}#{deployed}": None,
+        f"{release}#{running}": "that job has not finished: it reads running",
+        f"{release}#{missing}": f"forge/release build 15515 has no job {missing}",
+        "https://buildkite.com/forge/release/builds/15516": "that build has not finished: it reads running",
+        "terminal": f"the drive reads no such event; {settled.EVENTS} overtakes a card",
+    }
+    assert {link: settled.unhappened(link) for link in reasons} == reasons
+
+
 def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
