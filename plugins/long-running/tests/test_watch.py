@@ -5753,15 +5753,29 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     assert state.delivered(state.load(demo), "o1", "ship the watch")
 
 
-def test_a_part_whose_only_builder_took_done_at_its_merge_reads_orphan_naming_the_builder_that_proves_it_live(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting_on_its_release_in_place_of_their_orphans_and_a_second_pass_adds_none(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
+) -> None:
     serve(monkeypatch, {})
+    production_reads(monkeypatch, {"42": [{"component": "api", "env": "plat-usw2-prod"}]})
+    asked = []
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"components": ["api", "web"], "touched": ["api"]}})
+    earlier, carried, merged = state.stamp(T0 - timedelta(days=2)), "ship the dashboard", f"{KEY} at ccc333ddd444"
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
-        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()}, updated=earlier)
+        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {merged}", carries={"o2": [carried]}, updated=earlier)
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    said = [line for line in lines if line.startswith(f"PR {KEY}: {install.MERGED_DONE}: {merged}; no proof kept")]
+    assert len(said) == 1 and watch.wakes(said[0], state.load(demo), NO_CARDS) and f"it waits on release:api:{KEY}, so start its agent on the watch's FREE once the last is out" in said[0]
+    assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     data = state.load(demo)
-    assert [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN ")] == [
-        f'ORPHAN o1 "ship the watch": j1 took DONE at its merge, which proves nothing live: {install.proof_gap(data, "j1")}'
-    ]
+    builder = data["jobs"]["j2"]
+    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "waiting", [f"release:api:{KEY}"], ["ship the watch"], {"o2": [carried]})
+    assert f"Handoff: {merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md" in Path(builder["brief"]).read_text()
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("FREE ", "ORPHAN "))]
+    assert (list(state.load(demo)["jobs"]), asked, provers) == (["j1", "j2"], [[KEY]], [])
 
 
 def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder_briefed_to_start_in_the_turn_its_line_wakes(

@@ -1203,7 +1203,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits)
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release), args.waits, bool(args.builds_nothing))
             or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
         ):
             raise DriveError(f"refused, no job added: {refused}")

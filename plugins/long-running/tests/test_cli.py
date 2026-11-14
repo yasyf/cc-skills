@@ -4001,6 +4001,23 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
 
 
+def test_a_builds_nothing_prover_on_a_build_orders_part_whose_builder_took_done_at_its_merge_starts_with_no_research(
+    run: Run, communicator: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
+    key = "Forge-AI/monorepo#54900"
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["jobs"].append("j1")
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "copy one store", list(data["orders"]["o1"]["parts"]), state.stamp()) | {
+            "state": "done",
+            "said": f"DONE {state.pr_url(key)} merged: {key} at b70dea086d86",
+        }
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "b70dea086d86"}
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live"]) == 2
+    assert "o1 is a build order, so its builder starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live", "--builds-nothing")[1].splitlines()[0] == "j2"
+
+
 def test_a_build_orders_design_job_waits_on_its_readers_research(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
