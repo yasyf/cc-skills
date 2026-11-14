@@ -2486,7 +2486,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
     earlier = [line for other in order["jobs"] if other != job_id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
-    found = brief.research(name, data, job["order"], job["parts"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
+    found = brief.research(name, data, job["order"], job["parts"], job_id) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
     ids, heard = brief.bound(name, data, job | {"brief_flags": flags})
     rulings = [*dict.fromkeys(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
@@ -2535,7 +2535,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         if data["jobs"][job_id].get("brief_flags") != over:
             return None
         state.after_save(name, kept)
-        data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data["jobs"][job_id], text))
+        data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data, data["jobs"][job_id], text))
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
     line = f"Read your brief first: {written}\nhis words from {', '.join([job['order'], *job['carries']])}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
@@ -2626,7 +2626,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
             job.update(
                 codex_run=str(folder),
                 brief=str(kept),
-                researched=brief.research_links(job, written),
+                researched=brief.research_links(data, job, written),
             )
             state.start(job)
             superseded.hear(data, job_id, written, state.now())
@@ -2894,7 +2894,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         job = data["jobs"][job_id]
         if taker or died:
             job.update(agent=None, dispatch=None, session=taker or job["session"])
-        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(job, written))
+        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
         state.rewait(job, [wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
         state.start(job)
     kept.parent.mkdir(exist_ok=True)
@@ -4740,7 +4740,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "answer: one reader lane researches it and answers him, with no other job; build: an Opus reader keeps its"
             " Researched: block before any builder, designer or codex lane starts, except the immediate fix's and a follow-up part's"
-            " designer, which start at once, and their briefs name it."
+            " designer, which start at once, the follow-up's designer keeping the Researched: block its changes' builders start on, and their briefs name it."
             " An incident order is a build"
         ),
     )
@@ -5174,7 +5174,7 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
             " holds, verbatim; From, where the order came from, its --from; Goal from the job; Decisions that bind from each --ruling's recorded answer, each one the brief of any job on its order binds, and each one that"
-            " settled a question of the reader its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
+            " settled a question of the reader or design its Researched: line names, its title and his words above the drive's Notes:; Transcripts from each"
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept;"

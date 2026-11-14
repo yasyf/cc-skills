@@ -104,7 +104,7 @@ waits its turn ahead of it, sending one whose brief declares no step only this M
 Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
 its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
-writes once its reader's research is kept, unless its job ships the order's `immediate fix` part.
+writes once its reader's or design's research is kept, unless its job ships the order's `immediate fix` part.
 Each refusal names its fix: do it, never route around it. These hooks run in the long-running
 capt-hook pack, which sends each refusal to Jev first: one Jev finds the rule never meant lets the
 call through, and a merge, release or public-body refusal of `landing_guard` blocks outright.
@@ -446,7 +446,7 @@ Release build: <beside Release only: the build that start printed, which the job
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <each ruling the call's ruling field names, each one the brief of any job on its order binds, a reader's or a design's included, each that settled a question of the reader Researched names and each the `rulings:` line of every reader of its parts of its order and of each order it carries names by id, the older readers' beside the newest's, whatever words surround it, an id cc-notes keeps no answer under, such as a commit or a session, left out, its answer's title and his words above its `Notes:` word for word, never the drive's notes under it, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when none of these names one>
 Research: <a build order's reader only: the Researched: block this build needs>
-Researched: <a build order's builder, designer or codex lane only: the reader job of its own part, a change a design listed counting as that design's part, whose kept report holds the order's rulings, what exists and its open questions>
+Researched: <a build order's builder, designer or codex lane only: the reader or design job of its own part, a change a design listed counting as that design's part, whose kept report holds the order's rulings, what exists and its open questions>
 Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>
 Interactions: <when Native names his surface: his user stories on the result, one per `;`, each what he does, a click, key or hover, and what he must then see; its job writes each story's strict acceptance criteria into its proof file before building, which `drive pr add` refuses its PR without, and proves each on the installed surface with a picture or recording of it, or the live post's link its proof file reads back, which a builder's or codex job's `DONE` and `drive job prove` need one per story, Jev reading the proof against those criteria; its order is proven done by them or the live post>
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>

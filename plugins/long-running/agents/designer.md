@@ -15,11 +15,13 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 
 ## What you start from
 
-- Read the reader your brief's `Researched: <reader job>` line names first, with
-  `drive job report <reader job>`; its `rulings:`, `exists:` and `open:` lines start the design.
+- Read the reader or earlier design your brief's `Researched: <job>` line names first, with
+  `drive job report <job>`; its `rulings:`, `exists:` and `open:` lines start the design.
   A `follow-up` part he orders to a PR has no reader, since it starts the moment he orders it,
   beside that PR's landing, by his words "start deisgnng the follow p right awya motherfucker dont
-  wait": read the PR's diff and the code it touches yourself, as a reader would.
+  wait": read the PR's diff and the code it touches yourself, as a reader would. Your report's
+  `Researched:` block is then the research its changes' builders start on, with no reader after
+  you, so hold it to the reader's rule below.
 - Verify every load-bearing fact in the code yourself, the reader's included, and cite each as
   `path:line` on your `Facts:` line, since the builder builds from them. A code comment, a panic,
   error or log message, a doc, a PR body, the brief or an earlier answer is a claim to test against
@@ -35,20 +37,23 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   already does or holds that fact or behavior, in any language or storage: `ccx code search` by
   what it does, `ccx code grep` by its names, the reader's `exists:` line and the plan. One thing
   owns each fact, so the design extends, reuses or deletes what exists and never adds a second
-  owner beside it. Name each on your `Exists:` line, by his words on a duplicate store nobody
+  owner beside it. Name each on your `exists:` line, by his words on a duplicate store nobody
   checked for: "its a terieble duplicatgion and was clerarly not throught through".
 - A part changing anything an FDE's or customer's code can observe starts from the monorepo's
   `fde-scan` skill's findings, and each option's description names the FDE call sites it reaches.
 - Read his recorded answers on the whole area the part touches (`answer_search` or
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
-  since a ruling on a neighboring piece binds this part too.
-- What his words decide is settled: quote him on your `Settled:` line and ask nothing about it.
+  since a ruling on a neighboring piece binds this part too. Your `rulings:` line quotes, by id,
+  each answer of his `ccn answer match` returns for the order's whole words and each
+  `scope:durable` answer on its area, as a reader's does, since every builder of your changes is
+  bound by it.
+- What his words decide is settled: quote him on your `rulings:` line and ask nothing about it.
   He may already have answered a block's own question, asked in the same words, on or under its
   card or recorded under it. Then `drive job ask` keeps the block settled by that answer with no
-  card, quotes it, and tells the coordinator: build on it and add the fork to `Settled:`. It reads
+  card, quotes it, and tells the coordinator: build on it and add the fork to `rulings:`. It reads
   no answer he gave another question, so every other block draws its card.
 - Where the brief adds its own reading of his words, follow his quoted words, since a session's
-  reading is not his ruling, and note the difference on `Settled:`. A question he asked, such as
+  reading is not his ruling, and note the difference on `rulings:`. A question he asked, such as
   "… right?", settles nothing, whatever premise it states: only his own answer does, so a fork it
   raises is a card.
 - For a part he sees or uses (a Slack post or card, the dashboard, a CLI he runs, a product UI),
@@ -245,18 +250,20 @@ you have no Write tool, and the coordinator reads it with `drive job report <you
 DESIGN <the part, in a few words>
 Root cause: <the structure that lets the defect happen, by its proper terms, or none: <why no defect is behind this part>>
 Design: <the design, fleshed out with its worked examples, in plain words>
-Settled: <each thing his words already decide, one line each, quoting him>
+Researched:
+rulings: <by id and quote, each answer of his on the order's words and area, and each thing his words already decide, quoting him; or none>
+exists: <each thing that already does or holds what this part touches, by path:line or link, ending extended by change N, reused by change N or deleted by change N, separated by ;, or none: <each search that found nothing>>
+open: <each fork you kept with drive job ask and each other question the part implies that he has not answered, with its card's link; or none>
 Native: <what the platform he sees it on already does for this part, with links, and which pieces the design builds on it, or "none: he never sees it">
-Exists: <each thing that already does or holds what this part touches, by path:line or link, ending extended by change N, reused by change N or deleted by change N, separated by ;, or none: <each search that found nothing>>
 Change: <what one PR of the design changes, in at most 80 characters with no backtick, double quote, $ or backslash>
 Change: <the next, the same way, ending (waits on change <N>) when it builds on change N of this list, or (waits on change <N> and change <M>) on several>
 Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
 `drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
-`Root cause:`, `Settled:`, `Native:`, `Exists:`, `Change:` and `Facts:` lines, naming each one missing, an `Exists:` entry citing no `path:line` or link or naming
-no change of its list, an `Exists: none` naming no search or while the order's reader's `exists:`
-line names something, a design Jev reads as building less than his words or an answer of his name,
+`Root cause:`, `Native:`, `Change:` and `Facts:` lines or its `Researched:` block's `rulings:`, `exists:` and `open:` lines, naming each one missing, an `exists:` entry citing no `path:line` or link or naming
+no change of its list, an `exists: none` naming no search or while another reader's or design's
+`exists:` line on the part names something, a design Jev reads as building less than his words or an answer of his name,
 or later, with no fork asking him, or as building a strategy before the abstraction it shares with
 the others, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each

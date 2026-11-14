@@ -20,7 +20,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 ### Jobs
 
 - Build only a port of an old PR, his order, or drive tooling under its own order, since his attention is for work he asked for; an unordered finding becomes a question card. A port models its data the fundamentally right way for its target (`scope`).
-- An order is an answer, one job doing its own research, or a build, whose builder starts on an Opus reader's `Researched:` block, its immediate fix's at once.
+- An order is an answer, one job researching it, or a build, whose builder starts on a reader's or design's `Researched:` block, its immediate fix's at once.
 - A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
 - The job that meets a blocker on his work resolves it; only a decision of his goes to him. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, asking nothing.
 

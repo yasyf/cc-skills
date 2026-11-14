@@ -27,7 +27,8 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      on it. A follow-up he orders to a PR, as in "just land this then do a follow up", is its own
      `follow-up` part, and its design job starts in the turn he orders it, beside the builder landing
      that PR, with no reader and no `--waits`, which `drive job add` refuses on it: its designer does
-     its own research. His words: "start deisgnng the follow p right awya motherfucker dont wait".
+     its own research and keeps it as its report's `Researched:` block, which its changes' builders
+     start on, so no reader runs after it. His words: "start deisgnng the follow p right awya motherfucker dont wait".
    - Brief it with `drive job brief <j> --serves "<his order>" --done-when "<the DESIGN return>" --where "<repo>" --plan "<what exists>"`,
      plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files,
      PRs and findings it starts from, and says to design from what his words need, the code an
@@ -37,13 +38,15 @@ words "get codex to design and stop doing the bare minimum", and its builder bui
      one), and the `Read your brief first: <path>` line as the whole `prompt`. The `agent_brief`
      hook starts a design job's brief given any other type as `long-running:designer`, since only
      that definition keeps it read only, settled questions off his cards and each fork in shape.
-   - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design, a
-     `Settled:` line quoting his words, an `Exists:` line naming each table, column, store, file,
-     process, mechanism, check or verb that already does or holds what the part touches, by
-     `path:line` or link, each ending `extended by change N`, `reused by change N` or
-     `deleted by change N`, or `none:` with the searches that found nothing, so one thing owns each
-     fact; `drive job report` refuses an entry naming no change of its list, and a `none` while the
-     order's reader found something. Then a `Change:` line for each PR its builders open, in at most 80
+   - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design and
+     its `Researched:` block, held to a reader's rule, which every builder of its changes starts on:
+     `rulings:` quoting each answer of his on the order's words and area, `exists:` naming each
+     table, column, store, file, process, mechanism, check or verb that already does or holds what
+     the part touches, by `path:line` or link, each ending `extended by change N`,
+     `reused by change N` or `deleted by change N`, or `none:` with the searches that found nothing,
+     so one thing owns each fact, and `open:` each question it leaves him; `drive job report`
+     refuses an entry naming no change of its list, and a `none` while another reader or design of
+     its part found something. Then a `Change:` line for each PR its builders open, in at most 80
      characters with no backtick, double quote, `$` or backslash, which becomes a part of the order
      under those words with a builder of its own the drive adds as the design returns. Its forks are the `ASK` blocks it kept with `drive job ask`, each an
      `asks him:` line under it in `drive status <j>`. Each piece has a worked example, such as an API's calls, imperative beside

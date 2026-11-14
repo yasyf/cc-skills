@@ -72,9 +72,11 @@ DESIGN_RESEARCH = (
 )
 DESIGNED = f"""DESIGN the store copy
 Design: one copy per store, in the order the stores list
-{ROOT_CAUSE}Settled: "copy one store"
+{ROOT_CAUSE}Researched:
+rulings: "copy one store"
+exists: none: ccx code search "store copy" and rg store_copy found nothing
+open: none
 Native: none: he never sees it
-Exists: none: ccx code search "store copy" and rg store_copy found nothing
 Change: copy each store in list order
 Facts: lib/drive/state.py:18
 """
@@ -4054,7 +4056,7 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
     assert run("job", "add", "reader", "--order", "o1", "--goal", "answer him")[0] == 0
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
-    assert "o2 is a build order, so its builder starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert "o2 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j2", "DONE read the copy path\n")
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
@@ -4081,7 +4083,7 @@ def test_a_builds_nothing_prover_on_a_build_orders_part_whose_builder_took_done_
         }
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "b70dea086d86"}
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live"]) == 2
-    assert "o1 is a build order, so its builder starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert "o1 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     assert run("job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live", "--builds-nothing")[1].splitlines()[0] == "j2"
 
 
@@ -4090,7 +4092,7 @@ def test_a_build_orders_design_job_waits_on_its_readers_research(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     assert cli.main(["job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs"]) == 2
-    assert "o1 is a build order, so its design starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert "o1 is a build order, so its design starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j1", RESEARCH)
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
@@ -4193,11 +4195,11 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     assert keep(monkeypatch, capsys, "j5", owned) == (0, "")
     assert state.load("demo")["jobs"]["j7"]["parts"] == ["the reads through it"]
     code, out = run("job", "brief", "j7", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
-    assert (code, "\nResearched: j1\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()) == (0, True)
+    assert (code, "\nResearched: j5\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()) == (0, True)
     data = state.load("demo")
     assert brief.brief_refusal("demo", data, "j7", "Researched: j1\nDrive: demo, order o1, job j7") is None
     assert brief.brief_refusal("demo", data, "j7", "Researched: j3\nDrive: demo, order o1, job j7") == (
-        "Researched: j3 names no reader of j7's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+        "Researched: j3 names no reader or design of j7's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
 
 
@@ -4343,6 +4345,28 @@ def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_
     assert run("job", "add", "design", "--order", "o1", "--part", "follow-up", "--goal", "design the follow-up") == (0, "j3")
 
 
+def test_a_follow_ups_design_adds_its_changes_builders_the_moment_it_returns_on_its_own_research_with_no_second_reader(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
+        "--kind", "build", "--parts", "the card fix", "follow-up",
+    )
+    assert run("job", "add", "design", "--order", "o1", "--part", "follow-up", "--goal", "design the follow-up") == (0, "j1")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
+    jobs = state.load("demo")["jobs"]
+    assert {job_id: job["parts"] for job_id, job in jobs.items() if job["kind"] == "builder"} == {
+        "j2": ["the moved-table interface"],
+        "j3": ["the reads through it"],
+        "j4": ["the writes through it"],
+    }
+    assert not [job_id for job_id, job in jobs.items() if job["kind"] == "reader"]
+    cli.write_brief("demo", "j3", {})
+    written = Path(state.load("demo")["jobs"]["j3"]["brief"]).read_text()
+    assert ("\nResearched: j1\n" in written, '\nPlan: j1\'s design, change "the reads through it": drive job report j1\n' in written) == (True, True)
+    assert brief.brief_refusal("demo", state.load("demo"), "j3", written) is None
+
+
 def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_while_he_picks(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4414,7 +4438,7 @@ def test_a_cause_reports_fix_linking_a_pr_the_drive_does_not_track_is_kept_and_r
 def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "set", "o1", "--kind", "build")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land it"]) == 2
-    assert "o1 is a build order, so its builder starts only once an Opus reader of its part" in capsys.readouterr().err
+    assert "o1 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     assert cli.main(["job", "add", "codex", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
     assert "--lands names the PRs a builder lands" in capsys.readouterr().err
     assert cli.main(["job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
@@ -4574,8 +4598,8 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert code == 2
     assert (
         "j1: refused, nothing kept: a design lane's report is the design in its shape, which the coordinator reads for its"
-        " forks, and this one lacks a first line DESIGN <the part>, a Root cause: line, a Settled: line, a Native: line, an Exists: line,"
-        " a Change: line, a Facts: line"
+        " forks, and this one lacks a first line DESIGN <the part>, a Researched: line and under it rulings:, exists: and open: lines,"
+        " a Root cause: line, a Native: line, a Change: line, a Facts: line"
     ) in err
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert (state.load("demo")["jobs"]["j1"]["state"], state.load("demo")["jobs"]["j1"]["said"]) == ("done", "carried by builder j2")
@@ -4590,13 +4614,13 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
 @pytest.mark.parametrize(
     ("exists", "refusal"),
     [
-        ("none: nothing like it", 'its Exists: line "none: nothing like it" names no search that found nothing'),
-        ("supervisor/copies.rs:40 store_copy_at copies one store", 'its Exists: entry "supervisor/copies.rs:40 store_copy_at copies one store" does not cite'),
-        ("store_copy_at copies one store, extended by change 1", 'its Exists: entry "store_copy_at copies one store, extended by change 1" does not cite'),
-        ("supervisor/copies.rs:40 store_copy_at, extended by change 2", 'its Exists: entry "supervisor/copies.rs:40 store_copy_at, extended by change 2" does not cite'),
+        ("none: nothing like it", 'its exists: line "none: nothing like it" names no search that found nothing'),
+        ("supervisor/copies.rs:40 store_copy_at copies one store", 'its exists: entry "supervisor/copies.rs:40 store_copy_at copies one store" does not cite'),
+        ("store_copy_at copies one store, extended by change 1", 'its exists: entry "store_copy_at copies one store, extended by change 1" does not cite'),
+        ("supervisor/copies.rs:40 store_copy_at, extended by change 2", 'its exists: entry "supervisor/copies.rs:40 store_copy_at, extended by change 2" does not cite'),
         ("supervisor/copies.rs:40 store_copy_at, extended by change 1; lib/drive/state.py:18 the store list, reused by change 1", None),
         ("lib/sprite/drive:17-41 the Sprite's drive script, extended by change 1; bin/drive:5 the drive wrapper, reused by change 1", None),
-        ("cci:683904 the defect, extended by change 1", 'its Exists: entry "cci:683904 the defect, extended by change 1" does not cite'),
+        ("cci:683904 the defect, extended by change 1", 'its exists: entry "cci:683904 the defect, extended by change 1" does not cite'),
     ],
 )
 def test_a_design_names_what_already_does_what_it_touches_and_the_change_that_owns_it_before_adding_anything(
@@ -4618,7 +4642,7 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
     run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")
     code, err = keep(monkeypatch, capsys, "j3", DESIGNED)
     assert code == 2
-    assert "its Exists: line says none, but j1's research found what already does part of this: \"supervisor/copies.rs store_copy_at copies one store\"" in err
+    assert "its exists: line says none, but j1's research found what already does part of this: \"supervisor/copies.rs store_copy_at copies one store\"" in err
     owned = DESIGNED.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
 
