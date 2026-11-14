@@ -699,7 +699,10 @@ restating it.
   is no claim, since `say` draws it under the PR's title or the card's question, and Jev reads the post's
   words as written beside it, so it needs no read, and so is one whose words after its `|` quote that title or question word for
   word, with … where they skip words, and a claim copying those words, such as a claim that the PR merged, claims only that
-  PR's state; any other words after its `|` are the handler's own claim. The say hook hands Jev every call those
+  PR's state; any other words after its `|` are the handler's own claim. A `{started:<job>}` or `{at:<seq>}` is no claim either:
+  `say` draws its time from the drive's stamp of when that job was added or that record went out, and Jev reads it in the post's
+  stamps beside the words drawn for it, so the time needs no read, while what the line says that job or record did is the
+  handler's own claim. The say hook hands Jev every call those
   words name with its whole result, each call once, and each record the post cites or a claim names, the report it carries
   among them, as the handler's newest call naming its seq, never the record's whole body; each claim names its read by
   that read's id, so claims sharing a read add only their own words. Jev's prompt takes at most 10,000

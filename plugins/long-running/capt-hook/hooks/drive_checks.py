@@ -140,9 +140,10 @@ DRIVE_POST = "drive.post"
 POST_FRAME = """
     You decide whether one pending post to the user goes out, by <rules>. <evidence> holds items under ids: his words,
     the only items in which he speaks, and the reads, records and rules <rules> name, each item's source saying which.
-    <action> is the post, its claims, and what the drive's checks found in it, none when they found nothing. No post in
-    his DM or its threads needs words of his permitting it, and cc-slack's permission hook, not you, permits any other,
-    so hold none back as unpermitted or for saying more than his message asked.
+    <action> is the post, its claims, and what the drive's checks found in it, none when they found nothing. post.text
+    is the post as Slack gets it, post.written as the agent wrote it, and post.stamps each time say drew from the
+    drive's own stamps. No post in his DM or its threads needs words of his permitting it, and cc-slack's permission
+    hook, not you, permits any other, so hold none back as unpermitted or for saying more than his message asked.
 
     Cite in relied_on the id in square brackets of every item your verdict rests on: an allow rests on the reads and
     rules it cites as fully as on his words, and one citing none is refused. Reason first, quoting the rule, read or
@@ -174,8 +175,9 @@ READS_RULES = """
       read from one metric, span or log series also needs a second source with no shared emitter.
     - A mechanism the line proposes stands on a read or his words showing the system controls that piece, by his words
       "we cant do that since we dont control the poloices on customer bucket".
-    - The handler's own act, when its next line is due, his words quoted back, and the title or question say draws
-      for a bare {pr:} or {card:} need no read; a claim copying those drawn words claims only that PR's or card's state.
+    - The handler's own act, when its next line is due, his words quoted back, the title or question say draws for a
+      bare {pr:} or {card:}, and a time post.stamps lists need no read; a claim copying those drawn words claims only
+      that PR's or card's state, and a stamp only what it stamps, never what that job or record did.
     A claim stands when its reads or his words hold what it says, without the whole decision path. Hold the post back
     only for a claim its reads do not back, a read matching no call, or a line needing a read the claims leave out,
     naming each and the read it needs.
@@ -218,6 +220,10 @@ TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
 GUESSED = "The cloud's inbox reader queries Postgres straight."
 GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
+STAMPED = "The stop alert fired a third time; a reader, {started:j4750}, is naming the runs it counted."
+STAMPED_CLAIMS = [{"claim": "fired a third time; a reader is naming the runs it counted", "read": "grep -m1 -o 'j4750 reader running'"}]
+STAMPED_READ = "Bash {\"command\": \"drive status o1535 | grep -m1 -o 'j4750 reader running'\"}\nj4750 reader running: read which runs the stop monitor counted in its third firing"
+JOB_STARTED = "5:54 AM (job start)"
 
 
 @workflow_state("drive-say")
@@ -231,6 +237,14 @@ def handler_reads(read: str) -> str:
     """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results, and the claim naming that read by its id."""
     named = {"id": "read:1", "read": "cloudrunner/inbox.go", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": [{"claim": GUESSED, "read": "read:1"}]}})
+
+
+def stamped_post() -> dict:
+    """What message_limits.py hands Jev for the j4750 post Jev held for a start time no read measured: say drew that time from the drive's stamp of when it added job j4750, which post.stamps lists, and the one claim stands on the read it names."""
+    named = {"id": "read:1", "read": STAMPED_CLAIMS[0]["read"], "source": "the read the posting handler's claims name", "quote": STAMPED_READ}
+    stamp = {"written": "{started:j4750}", "drawn": JOB_STARTED, "stamps": "when the drive added job j4750"}
+    post = {"text": STAMPED.replace(stamp["written"], JOB_STARTED), "written": STAMPED, "stamps": [stamp], "thread_ts": THREAD, "claims": [STAMPED_CLAIMS[0] | {"read": "read:1"}]}
+    return {"his_words": [], "reads": [named], "post": post}
 
 
 def refused_post(text: str, reason: str, counted: str = "") -> dict:
@@ -775,7 +789,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads("x" * 6_200)},
+            commands={"python3 -I": handler_reads("x" * 5_950)},
         ): Allow(),
         Input(
             tool=SAY,
@@ -874,6 +888,18 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             llm={"reason": "read 1 holds the cloud's reader querying Postgres", "allow": True, "relied_on": ["read:1"]},
+        ): Allow(),
+        Input(
+            tool=SAY,
+            tool_input={"text": STAMPED, "thread_ts": THREAD, "claims": STAMPED_CLAIMS},
+            output=f"POSTED {SAID_LINK}",
+            tool_use_id=SAID_CALL,
+            state=sent_found(stamped_post()),
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            llm={"reason": "5:54 AM is the time post.stamps lists for {started:j4750}, which needs no read, and read 1 holds the reader naming the runs", "allow": True, "relied_on": ["read:1"]},
         ): Allow(),
         Input(
             tool=SAY,

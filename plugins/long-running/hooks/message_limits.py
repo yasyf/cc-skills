@@ -487,7 +487,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
-    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
+    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, each {started:} or {at:} stamp say fills from the drive's stamps listed beside the words drawn for it and what it stamps, when that job was added or that record went out, so Jev never reads a time say drew as one the poster typed, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
         return posted, payload["tool_input"]
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -502,7 +502,13 @@ def checked(payload: dict) -> tuple[str | None, dict]:
     except DriveError as error:
         return agents.Unjudged(str(error)), payload["tool_input"]
     titled = bare(said, found)
-    sent = payload["tool_input"] | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": refs.REF.sub(lambda match: titled.get(match[0], match[0]), said)} if found else {}) | ({"claims": [claim | {"claim": claimed(claim["claim"], titled)} for claim in claims]} if claims else {})
+    stamps = [{"written": reference, "drawn": shown["title"], "stamps": shown["stamps"]} for reference, shown in found.items() if "stamps" in shown]
+    sent = (
+        payload["tool_input"]
+        | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": refs.REF.sub(lambda match: titled.get(match[0], match[0]), said)} if found else {})
+        | ({"stamps": stamps} if stamps else {})
+        | ({"claims": [claim | {"claim": claimed(claim["claim"], titled)} for claim in claims]} if claims else {})
+    )
     return found_in(payload | {"tool_input": sent}, drive, said, found), sent | ({"thread_ts": thread} if thread else {}) | ({"channel_id": channel} if channel != slack.dm() else {})
 
 
