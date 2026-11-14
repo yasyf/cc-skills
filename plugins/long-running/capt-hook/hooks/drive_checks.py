@@ -138,62 +138,57 @@ ASKED = (
 )
 DRIVE_POST = "drive.post"
 POST_FRAME = """
-    You decide whether one pending post to the user goes out. <rules> are the hook's own rules for this post; follow
-    them. <evidence> holds, each under an id, the user's words, the only items in which the user speaks, and the reads,
-    records and rules <rules> name, each item's source saying which. <action> is the post, its claims beside it, and
-    what the drive's fixed checks found in it, none when they found nothing. No post in the user's DM or its threads
-    needs words of his permitting it, and cc-slack's permission hook, not you, permits any other, so hold none back as
-    unpermitted or for saying more than his message asked.
+    You decide whether one pending post to the user goes out, by <rules>. <evidence> holds items under ids: his words,
+    the only items in which he speaks, and the reads, records and rules <rules> name, each item's source saying which.
+    <action> is the post, its claims, and what the drive's checks found in it, none when they found nothing. No post in
+    his DM or its threads needs words of his permitting it, and cc-slack's permission hook, not you, permits any other,
+    so hold none back as unpermitted or for saying more than his message asked.
 
-    Cite in relied_on the ids of every evidence item your verdict rests on, copied exactly from the square brackets in
-    <evidence>: an allow rests on the reads and rules it cites as fully as on his words, and one citing none is refused.
-    When you refuse, set refusal to one plain sentence for the agent, under 150 characters, with no quotation marks,
-    ids, dates, or times: what holds against which words of the post, and its fix. Reason first, quoting the rule, read
-    or user words you relied on, then set allow.
+    Cite in relied_on the id in square brackets of every item your verdict rests on: an allow rests on the reads and
+    rules it cites as fully as on his words, and one citing none is refused. Reason first, quoting the rule, read or
+    words of his you relied on, then set allow. When you refuse, set refusal to one plain sentence for the agent, under
+    150 characters, with no quotation marks, ids, dates or times: what holds against which words of the post, and its
+    fix.
 """
 POST_RULES = """
-    The agent is about to post one line to the user in his Slack DM with the app. Judge only what the parts below name,
-    and whether the post keeps each ruling of his in <evidence> on how such a post is written, holding it where it
-    breaks one and naming what it owes.
+    The agent posts one line to the user in his Slack DM with the app. Judge only what the parts below name, and
+    whether the post keeps each ruling of his in <evidence> on how such a post is written, naming what it owes where
+    it breaks one.
 """
 FINDINGS_RULES = """
-    Findings. Each is a pattern standing for a rule whose words <evidence> holds, numbered as the findings are, and a
-    pattern can match words its rule never meant. A finding holds back the line it names only when its rule holds
-    against that line and no word of his lifts it.
-    - A post answering a message, card answer or order of his goes out whole, at any length. His words are the evidence
-      items holding them, never the agent's brief or the records it reads, whatever they quote.
-    - A finding that flags his own words quoted back, or a term he used himself, holds nothing back.
-    - The cause rule covers a claim of why a system, tool, run or session did something, or a number or state one
-      measured, a cause the session worked out from code, logs or a trace included. It never covers the session's own
-      act or mistake told in its first person, nor an alert or error he shared, restated.
-    - A line stating or applying a rule of the installed skill promises nothing beyond his words, and a rule of his in
-      <evidence> limiting this kind of post holds it back.
-    - A line saying how a failure the post tells is prevented, by the tool change and the order or PR carrying it, is
-      within his words.
-    - A finding counting words counts the post as Slack draws it, each reference's drawn words included.
+    Findings. Each is a pattern standing for the rule numbered as it is in <evidence>, and can match words its rule
+    never meant: it holds back the line it names only when that rule holds against the line and no word of his lifts
+    it. A finding on his own words quoted back, or on a term he used himself, holds nothing back.
 """
 READS_RULES = """
     Reads, by his words "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
-    evakuate them". Each claim in <action> names the read behind it. <evidence> holds each read as the handler's own
-    calls whose words it names, each with its whole result or the id of the item already holding it, and each record
-    the post cites or carries as the handler's newest call naming it. Check each claim against its reads together:
+    evakuate them". Each claim in <action> names the id of its read in <evidence>, which holds the handler's own calls
+    whose words that read names, each whole once, under the first item holding it. Check each claim against its reads
+    together:
     - A line about code, where it lives, what it does or why, stands only on a read of that code: its lines, a grep or
       a diff. A doc, report, brief, PR body, earlier answer, or a comment, panic, error or log message is a claim to
       test, never a read of the code.
-    - A number or state stands on the call or record that measured it, and one told as it stands now on the newest
-      read of it. A record backs a line telling what it says or where it went, and any other line only where it
-      measured what that line says.
-    - A line telling what a named source says, such as a job's report, stands on the read of that source.
+    - A number or state stands on the call that measured it, and one told as it stands now on the newest read of it.
+    - A line telling what a named source, such as a job's report, says stands on the read of that source.
     - A line about every case, with each, all, always, never or only, stands on a read of what decides it; an absence
       read from one metric, span or log series also needs a second source with no shared emitter.
     - A mechanism the line proposes stands on a read or his words showing the system controls that piece, by his words
       "we cant do that since we dont control the poloices on customer bucket".
-    - The handler's own act, when its next line is due, his words quoted back, and the PR title or card question say
-      draws for a bare {pr:} or {card:} of the written field need no read, and a claim copying those drawn words claims
-      only that PR's or card's state.
+    - The handler's own act, when its next line is due, his words quoted back, and the title or question say draws
+      for a bare {pr:} or {card:} need no read; a claim copying those drawn words claims only that PR's or card's state.
     A claim stands when its reads or his words hold what it says, without the whole decision path. Hold the post back
     only for a claim its reads do not back, a read matching no call, or a line needing a read the claims leave out,
-    naming each and the read it needs; the fix is that read, or the line cut to what the reads show.
+    naming each and the read it needs.
+"""
+RECORD_RULES = """
+    A record item is the handler's newest call naming its seq, and a record's line names its writer and, after >, the
+    lanes it went to. It backs a line telling what the record says or where it went, and any other line only where it
+    measured what that line says.
+"""
+ANCESTRY_RULES = """
+    An ancestry read, such as `git merge-base --is-ancestor`, measures that a build holds a commit when it is an
+    ancestor, never that a build lacks a pull request, since a hotfix carries the PR as a cherry-pick no ancestry read
+    finds.
 """
 RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
 JEV_PROMPT_CHARS = 10_000
@@ -233,9 +228,9 @@ class SentPosts(WorkflowState):
 
 
 def handler_reads(read: str) -> str:
-    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results."""
+    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as the calls of its own that read names with their whole results, and the claim naming that read by its id."""
     named = {"id": "read:1", "read": "cloudrunner/inbox.go", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
-    return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS}})
+    return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": [{"claim": GUESSED, "read": "read:1"}]}})
 
 
 def refused_post(text: str, reason: str, counted: str = "") -> dict:
@@ -518,14 +513,21 @@ def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | Non
 
 
 def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, Decide, list[Evidence]]:
-    """The post as Jev weighs it, in its place with what the drive's checks found in it, the judge for its session with the rules this post needs, the findings' only when the checks found something and the reads' only on a handler's post, and the evidence the check hands with it: his words, each read the post's claims name and each record it cites or carries, as the handler's own calls read them, and the rule each finding stands for, which the judge reads beside the user's words its own items find."""
+    """The post as Jev weighs it, in its place with what the drive's checks found in it, the judge for its session with only the rules this post can trip, the findings' only when the checks found something, each finding's own rule beside it, and the reads' only on a handler's post, the record rule only beside a record and the ancestry rule only beside a read the claims name, and the evidence the check hands with it: his words, each read the post's claims name and each record it cites or carries, as the handler's own calls read them, and the rule each finding stands for, which the judge reads beside the user's words its own items find."""
     post = output["post"]
     place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
     where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
     if post.get("channel_id") and not place["thread"]:
         where = f"in the group DM of {post['channel_id']}, him and the bot"
     ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason or "none"}, f"post this line {where}"))
-    rules = dedent_text(POST_RULES + (FINDINGS_RULES if reason else "") + (READS_RULES if output.get("reads") else ""))
+    reads = [item["id"] for item in output.get("reads", [])]
+    rules = dedent_text(
+        POST_RULES
+        + (FINDINGS_RULES if reason else "")
+        + (READS_RULES if reads else "")
+        + (RECORD_RULES if any(read.startswith("record:") for read in reads) else "")
+        + (ANCESTRY_RULES if any(read.startswith(("read:", "record:")) for read in reads) else "")
+    )
     judge = replace(HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE, rules=rules)
     words = [Evidence.model_validate(item) for item in [*output["his_words"], *output.get("reads", [])]]
     found = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if (rule := output.get("rule")) else []
@@ -766,6 +768,15 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads("x" * JEV_PROMPT_CHARS)},
         ): Block(pattern=r'(?s)over the 10,000 it takes\. Cut your reads by at least \d,\d{3} .*read:1 "cloudrunner/inbox\.go" 10,\d{3}'),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": handler_reads("x" * 6_200)},
+        ): Allow(),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
