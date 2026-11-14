@@ -474,10 +474,12 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   after an `ASK` ended your run: build his pick where it differs. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
 - Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
-  prompt Claude Code raises on any of your calls. Bypass permissions mode still asks when Claude
-  Code's parser cannot read a Bash command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write
-  such a command, and any multi-step logic, to a script file under your scratch directory and run
-  the file. No question reaches him there either: you have no AskUserQuestion, and a question for him
+  prompt Claude Code shows it on any of your calls. Claude Code's own dangerous-rm safety check reaches
+  no hook and asks in bypass permissions mode too. On a Bash command its parser cannot read, such as a
+  loop around a nested `$( … || ( …; … ))` or a zsh expansion flag like `${(s:,:)tables}`, it holds the
+  call 2:00 at its prompt, then refuses it. Write a loop, a nested substitution and any multi-step logic
+  to a script file under your scratch directory from the first call, and run the file.
+  No question reaches him there either: you have no AskUserQuestion, and a question for him
   is your `ASK`, which reaches him as a card.
 - Read a file whole, once, with Read, or one section of a large file with `ccx code read --section`,
   and work from your context: page through no file in `sed -n` windows and read no lines twice.
