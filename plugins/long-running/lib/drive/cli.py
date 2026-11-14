@@ -1430,7 +1430,7 @@ def job_set(args: argparse.Namespace) -> int:
         if job["state"] in ("done", "failed") and any(set(state.job_parts(job, order_id)) - parts for order_id, parts in held.items()):
             job["state"] = "running"
         if args.agent and args.agent == job.get("dispatch"):
-            job.update(lane, where="remote", agent=None, handed_to=None)
+            job.update(lane, where="remote", agent=None)
         elif lane:
             job.update(lane, where="remote", agent=None)
             state.start(job)
@@ -2403,10 +2403,19 @@ def remote_job(data: dict, job_id: str) -> dict:
     )
 
 
-def other_sessions_agent(job: dict) -> str | None:
-    """This session, when the job runs as an Agent another session started, which only that session's SendMessage reaches, so this one hands the job to a fresh agent or lane of its own."""
+def other_sessions_agent(data: dict, job: dict) -> str | None:
+    """This session, when the job ran as an Agent another session started that ended with that session, which no role holds any more, so this one hands the job to a fresh agent or lane of its own."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    return session if session and job["where"] == "local" and job["agent"] and job["session"] != session else None
+    return session if session and job["where"] == "local" and job["agent"] and job["session"] != session and state.agent_gone(data, job) else None
+
+
+def starters_lane(data: dict, job: dict) -> str | None:
+    """The cci lane of the session of the drive that started the Agent running the job, when that is not this session and its agent still takes messages, since only that session's SendMessage reaches it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; None for any other job."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not (session and job["where"] == "local" and job["agent"] and job["session"] != session):
+        return None
+    lane = state.session_lane(data, job["session"])
+    return lane if lane and not watch.agent_death(job, data) else None
 
 
 def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
@@ -2579,7 +2588,7 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or that another session holds; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps."""
     name = state.resolve(args.drive)
     if find(state.load(name)["jobs"], args.id, "job")["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
@@ -2677,13 +2686,20 @@ def unstopped(job_id: str, job: dict) -> None:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, as does one on a Sprite whose worker returned its line when --local moves it to this Mac, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session holds hands it to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, as does one on a Sprite whose worker returned its line when --local moves it to this Mac, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session of the drive started and still holds gets a resume's text through that session by to_starter and refuses a launch, an agent whose session ended hands the job to this one, and a job with no worker yet starts its first."""
     with state.launch_waits(name, args.id) if text is None and args.local else nullcontext(), state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
         if text is not None:
             unstopped(args.id, job)
-        taker = other_sessions_agent(job)
+        if lane := starters_lane(data, job):
+            if text is None:
+                raise DriveError(
+                    f"{args.id}: refused, not launched: it runs as agent {job['agent']} of session {job['session']}, which still holds it and whose SendMessage"
+                    f' alone reaches it, so the agent finishes its job: drive job resume {args.id} "<the event>" posts the event to {lane}@{name}'
+                )
+            return to_starter(args, name, job, lane)
+        taker = other_sessions_agent(data, job)
         if taker and text is not None:
             return hand_over(args, name, data, taker)
         if job.get("where") == "remote" and (dispatch := job.get("dispatch")):
@@ -2714,6 +2730,21 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
     if died:
         line += f", taking over from its agent {agent} on this Mac, which takes no message: {died}"
     return emit(args, line, started)
+
+
+def to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
+    """Post a resume's text verbatim, at once, as one handoff record to the lane of the session that started the job's agent and still holds it, whose SendMessage alone reaches that agent, so it finishes its job with the text, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; nothing held, handed over or started."""
+    from drive import tools
+
+    record = {
+        "kind": "handoff",
+        "to": [f"{lane}@{name}"],
+        "attr": {"order": job["order"], "job": args.id},
+        "text": f"{args.id} runs as agent {job['agent']} of your session {job['session']}, whose SendMessage alone reaches it: send it this text verbatim\n\n{args.text}",
+    }
+    [seq] = tools.sent(name, args.id, [limits.shortened(record) or record])
+    line = f"{args.id}: posted to {lane}@{name} as handoff record {seq}, since agent {job['agent']} takes SendMessage only from session {job['session']}, which started it"
+    return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seq": seq})
 
 
 def returned(job: dict) -> str | None:
@@ -2825,7 +2856,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session holds, with the text in its handoff when a resume brought one, and under His answers since: each text the job holds and each answer of his it has not heard whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs. Once nothing refuses it the job runs, stamped as launching, its line no longer naming the waits that ended, so the watch reads a builder whose reader finished before its FREE line as starting, never as waiting on nothing."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and under His answers since: each text the job holds and each answer of his it has not heard whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs. Once nothing refuses it the job runs, stamped as launching, its line no longer naming the waits that ended, so the watch reads a builder whose reader finished before its FREE line as starting, never as waiting on nothing."""
     from drive import view
 
     data = state.load(name)
@@ -2835,7 +2866,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         return {field: adopted[field] for field in LAUNCHED} | {"brief": str(kept)}
     if not job.get("agent") and (waits := [wait for wait in view.holding(data, job["waits"], None) if local or wait != state.SLOT_WAIT]):
         raise DriveError(f"{job_id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends")
-    taker = other_sessions_agent(job)
+    taker = other_sessions_agent(data, job)
     if not (brief_file or job.get("brief")):
         write_brief(name, job_id, {})
         data = state.load(name)
@@ -2971,7 +3002,7 @@ def started_job(data: dict, job_id: str) -> dict:
 
 
 def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> int:
-    """Hand a job another session's Agent holds to a fresh agent of this session: a handoff brief carrying the job's brief, what that agent left and the text, whose `Read your brief first:` line is the fresh agent's whole prompt, and the job marked handed to this session, so the drive records that agent on it."""
+    """Hand a job whose Agent ended with the session that started it, which no role holds any more, to a fresh agent of this session: a handoff brief carrying the job's brief, what that agent left and the text, whose `Read your brief first:` line is the fresh agent's whole prompt, and which the drive records that agent on."""
     job = data["jobs"][args.id]
     if refused := state.held_elsewhere(data, job["order"], session, state.starts_cut(job)):
         raise DriveError(f"{args.id}: refused, not handed over: {refused}")
@@ -2980,10 +3011,10 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.handoff.md"
     kept.write_text(orca.agent_handoff(rebriefed(name, args.id), job, args.text, None))
     with state.edit(name) as data:
-        data["jobs"][args.id].update(handoff=str(kept), handed_to=session, updated=state.stamp())
+        data["jobs"][args.id].update(handoff=str(kept), updated=state.stamp())
     line = (
-        f"Read your brief first: {kept}\n{args.id} runs as agent {job['agent']} of session {job['session']}, which this session cannot"
-        f" SendMessage: start a fresh {job['kind']} agent here on the line above as its whole prompt, and the drive records {args.id} as this session's"
+        f"Read your brief first: {kept}\n{args.id} ran as agent {job['agent']} of session {job['session']}, which ended with that session:"
+        f" start a fresh {job['kind']} agent here on the line above as its whole prompt, and the drive records {args.id} as this session's"
     )
     return emit(args, line, {"id": args.id, "handoff": str(kept), "handed_to": session})
 

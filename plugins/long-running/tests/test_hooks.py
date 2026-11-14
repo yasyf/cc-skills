@@ -627,7 +627,7 @@ def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_sessio
     assert state.agent_job(data, "a-9") == "j1"
 
 
-def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_to_that_sessions_fresh_agent(
+def test_resume_from_a_session_that_did_not_start_the_jobs_ended_agent_hands_the_job_to_that_sessions_fresh_agent(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-before-restart")
@@ -648,7 +648,7 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_t
     assert state.load("demo")["jobs"]["j1"]["agent"] == "a-1"
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, out.splitlines()[0], session="meta-session")))
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["agent"], job["session"], job["handed_to"], job["state"]) == ("a-9", "meta-session", None, "running")
+    assert (job["agent"], job["session"], job["state"]) == ("a-9", "meta-session", "running")
 
 
 def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_session_to_this_sessions_fresh_agent(

@@ -357,7 +357,7 @@ def unheard(data: dict, kept: dict) -> list[str]:
 
 
 def delivery(data: dict, job_id: str, job: dict, what: str = "his words") -> str:
-    """The one step by which the session holding the job gets a text to its worker: a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which the drive reads from that agent's transcript; drive job resume for a job any other worker runs or ran, which sends the text to its lane, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
+    """The one step by which the session holding the job gets a text to its worker: a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which the drive reads from that agent's transcript; drive job resume for a job any other worker runs or ran, which sends the text to its lane, posts it as a handoff record to the session that started a live agent and still holds it, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
     from drive import place
 
     if (lane := state.agent_lane(data, job)) and not place.woken(data, job_id, state.now()):

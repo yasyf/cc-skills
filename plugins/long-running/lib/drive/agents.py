@@ -749,15 +749,15 @@ def takes(name: str, job_id: str, payload: dict) -> bool:
         return False
     if not {"state", "agent", "where"} <= job.keys():
         return True
-    return free({"jobs": {job_id: job}} | state.saved(name), job_id, payload["session_id"], payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
+    return free({"jobs": {job_id: job}} | state.saved(name), job_id, payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
 
 
-def free(data: dict, job_id: str, session: str, agent: str) -> bool:
-    """Whether an agent of the session at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more, or one drive job resume handed over to this session."""
+def free(data: dict, job_id: str, agent: str) -> bool:
+    """Whether an agent at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, and no agent runs it already but one that ended with its session, which no role holds any more."""
     job = data["jobs"].get(job_id)
     if not job or (job["state"] == "stopped" and job["agent"] == agent) or (job["where"] == "remote" and job.get("dispatch")):
         return False
-    return job.get("handed_to") == session or not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
+    return not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
 
 
 def woken(payload: dict, job: dict) -> datetime | None:
@@ -782,15 +782,15 @@ def hold(payload: dict) -> None:
         return
     known = state.load(names[0])
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
-    if not job_id or not free(known, job_id, payload["session_id"], payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
+    if not job_id or not free(known, job_id, payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
         return
     returned = known["jobs"][job_id]["state"] != "running" and bool(known["jobs"][job_id]["returned"])
     if returned and not (resumed := woken(payload, known["jobs"][job_id])):
         return
     with state.edit(names[0]) as data:
-        if free(data, job_id, payload["session_id"], payload["agent_id"]):
+        if free(data, job_id, payload["agent_id"]):
             job = data["jobs"][job_id]
-            job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], handed_to=None, undelivered=[])
+            job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[])
             if returned:
                 job["resumed"] = state.stamp(resumed.astimezone())
             state.start(job)
