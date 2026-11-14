@@ -2131,7 +2131,7 @@ def files_order(data: dict, **overrides: object) -> None:
     data["jobs"]["j2"] = job(order="o2", parts=["stack 1"])
 
 
-def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_order_moved_which_drive_status_lists_until_it_heals(
+def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_order_moved_which_drive_status_lists_until_a_job_joins_it_before_any_pass(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -2141,11 +2141,14 @@ def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_ord
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (6, 35, 65, 95)] == [[], [], [], []]
-    assert render.orphans(state.load(demo)["orders"]["o2"], 80) == [f'  ORPHAN "stack 2", said {render.when(state.stamp(T0 + timedelta(minutes=5)))}: no job']
+    assert render.orphans(state.load(demo), "o2", 80) == [f'  ORPHAN "stack 2", said {render.when(state.stamp(T0 + timedelta(minutes=5)))}: no job']
+    joined = T0 + timedelta(minutes=96)
     with state.edit(demo) as data:
-        data["jobs"]["j2"]["parts"] = ["stack 1", "stack 2"]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=96)) == []
-    assert render.orphans(state.load(demo)["orders"]["o2"], 80) == []
+        data["jobs"]["j2"].update(parts=["stack 1", "stack 2"], updated=state.stamp(joined))
+    assert render.orphans(state.load(demo), "o2", 80) == []
+    assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] == state.stamp(T0 + timedelta(minutes=5))
+    assert [watch.run_pass(watching, joined + timedelta(minutes=minutes)) for minutes in (0, 2)] == [[], []]
+    assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
 def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_another_job_and_the_job_it_names_finished_as_686978_and_686979_missed(

@@ -974,8 +974,8 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "work": active,
         "history": told,
         "review": review(drive, found),
-        "incidents": [entry | {"orphaned": orphaned(heard, entry["id"])} for entry in incidents(drive)],
-        "bug_reports": [entry | {"orphaned": orphaned(heard, entry["id"])} for entry in bug_reports(drive, moment, served)],
+        "incidents": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in incidents(drive)],
+        "bug_reports": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in bug_reports(drive, moment, served)],
         "channel": slack.dm(),
     }
 
@@ -1023,9 +1023,14 @@ def heard_of(heard: dict[str, list[dict]], ids: list[str]) -> list[dict]:
     return sorted(lines.values(), key=lambda line: line["seq"], reverse=True)[:HEARD_LINES]
 
 
-def orphaned(heard: dict[str, list[dict]], order_id: str) -> str | None:
-    """When the watch last said nothing works on the order, from the newest records naming it."""
-    return next((line["at"] for line in heard.get(order_id, []) if line["text"].startswith("ORPHAN")), None)
+def orphaned(drive: dict, order_id: str) -> str | None:
+    """When the watch said the newest ORPHAN on a part of the order that still stands, the line drive status lists under it, by state.orphan_stands, so it drops once the part heals or a job on it moves."""
+    parts = drive["orders"][order_id]["parts"]
+    return max(
+        (held["orphan_said"] for part, held in parts.items() if held["orphan_gap"] not in (None, state.FREED) and state.orphan_stands(drive, order_id, part)),
+        key=state.parse_time,
+        default=None,
+    )
 
 
 def newest_word(job_id: str, job: dict, heard: dict[str, list[dict]]) -> dict | None:

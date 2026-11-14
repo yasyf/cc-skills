@@ -2725,7 +2725,7 @@ def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str,
 
 
 def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: datetime) -> str | None:
-    """Whether the part's gap is said or healed: said once as it appears, by his pick "Said once, then listed in drive status: no repeats and a standing gap stays readable", and again only once a job on the part changes, or 30 minutes after a FREE line said its job's last wait ended, since drive status lists the gap it said until it heals."""
+    """Whether the part's gap is said or healed: said once as it appears, by his pick "Said once, then listed in drive status: no repeats and a standing gap stays readable", and again only once a job on the part changes, by state.orphan_stands, or 30 minutes after a FREE line said its job's last wait ended, since drive status lists the gap it said until it heals or a job on the part moves."""
     part = data["orders"][key[0]]["parts"][key[1]]
     if gap is None:
         return "heal" if part["orphan_said"] else None
@@ -2733,10 +2733,9 @@ def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: dat
         return None
     if not part["orphan_said"]:
         return "say"
-    said = state.parse_time(part["orphan_said"])
-    if part["orphan_gap"] == state.FREED and moment - said >= FREED_AGAIN:
+    if part["orphan_gap"] == state.FREED and moment - state.parse_time(part["orphan_said"]) >= FREED_AGAIN:
         return "say"
-    return "say" if any(state.parse_time(job["updated"]) > said for _, job in state.part_jobs(data, *key)) else None
+    return None if state.orphan_stands(data, *key) else "say"
 
 
 def orphan_lines(watcher: Watcher, moment: datetime) -> list[str]:
