@@ -3380,15 +3380,18 @@ TENANT_API = {"component": "api", "env": "tnt-usw2-0ddq7rb"}
 PROD_SANDSQL = {"component": "sandsql", "env": "plat-usw2-prod"}
 
 
-def production_reads(monkeypatch: pytest.MonkeyPatch, behind: dict[str, list[dict]]) -> list[list[str]]:
+def production_reads(monkeypatch: pytest.MonkeyPatch, behind: dict[str, list[dict]], serving: list[dict] | None = None, holding: set[str] | None = None) -> list[list[str]]:
     calls = []
 
     def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
+        if argv[1:3] == ["release", "live"]:
+            return json.dumps(serving or [])
         calls.append(argv[3:-1])
         return json.dumps([{"number": int(number), "liveInProduction": not behind[number], "productionBehind": behind[number]} for number in argv[3:-1]])
 
     monkeypatch.setattr(watch.reads, "run", run)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
+    monkeypatch.setattr(watch.github, "contains", lambda repo, ref, commit: ref in (holding or set()))
     return calls
 
 
@@ -3397,9 +3400,10 @@ def test_a_release_wait_frees_once_no_production_cluster_of_its_service_is_behin
 ) -> None:
     serve(monkeypatch, {})
     behind = {"42": [TENANT_API, PROD_SANDSQL]}
-    calls = production_reads(monkeypatch, behind)
+    serving = [{"target": "api", "env": env, "commit": "abc123"} for env in ("plat-usw2-staging", "plat-usw2-prod", "tnt-usw2-0ddq7rb")]
+    calls = production_reads(monkeypatch, behind, serving, {"abc123"})
     wait = f"release:api:{KEY}"
-    freed = f"FREE j1 o1: every production cluster of api serves {KEY} with no release running there, nothing else holds it"
+    freed = f"FREE j1 o1: every cluster of api, plat-usw2-prod, plat-usw2-staging, tnt-usw2-0ddq7rb, serves {KEY} with no release running there, nothing else holds it"
     with state.edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -3409,7 +3413,7 @@ def test_a_release_wait_frees_once_no_production_cluster_of_its_service_is_behin
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [freed]
     assert [state.load(demo)["jobs"]["j1"][field] for field in ("waits", "shipped")] == [[], [wait]]
     behind["42"] = [TENANT_API]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"REWAIT j1 o1: {wait} holds again: release pull reads tnt-usw2-0ddq7rb behind it"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"REWAIT j1 o1: {wait} holds again: tnt-usw2-0ddq7rb behind it"]
     assert [state.load(demo)["jobs"]["j1"][field] for field in ("waits", "shipped")] == [[wait], []]
     behind["42"] = []
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == [freed]
@@ -3418,6 +3422,38 @@ def test_a_release_wait_frees_once_no_production_cluster_of_its_service_is_behin
     behind["42"] = [TENANT_API]
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=4)) if line.startswith(("REWAIT", "FREE"))]
     assert (calls, state.load(demo)["jobs"]["j1"]["waits"]) == ([["42"]] * 4, [])
+
+
+def test_a_release_wait_frees_only_once_every_cluster_running_its_service_production_or_not_serves_its_pr_and_never_while_no_cluster_runs_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    merged = "Forge-AI/monorepo#43"
+    serving = [
+        {"target": "iris-computer", "component": "iris", "env": "plat-usw2-staging", "commit": "2349e3617ce1"},
+        {"target": "api", "component": "platform", "env": "plat-usw2-staging", "commit": "2349e3617ce1"},
+        {"target": "api", "component": "platform", "env": "plat-usw2-prod", "commit": "6c751b8b1015"},
+    ]
+    holding = {"6c751b8b1015"}
+    production_reads(monkeypatch, {"43": []}, serving, holding)
+    computer, api, smoke = (f"release:{service}:{merged}" for service in ("iris-computer", "api", "staging-smoke"))
+    with state.edit(demo) as data:
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j1", "o1") | {"state": "merged", "merged_sha": "ade22e0af2fd"}
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of iris-computer", waits=[computer, api, smoke], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    data = state.load(demo)
+    assert data["jobs"]["j1"]["waits"] == [computer, api, smoke]
+    assert [watch.release_line(watching, data, wait) for wait in (computer, smoke)] == [
+        f"{computer}: iris-computer on plat-usw2-staging is behind {merged}'s merge commit ade22e0af2fd, running an older build or a release still running there",
+        f"{smoke}: tools/ci release live reads staging-smoke on no cluster, so no cluster serving {merged} frees it",
+    ]
+    serving[0]["commit"] = serving[1]["commit"] = "8f0e1d2c3b4a"
+    holding.add("8f0e1d2c3b4a")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [computer, api, smoke]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [smoke]
 
 
 def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3654,11 +3690,11 @@ def test_a_prs_release_wait_whose_release_is_already_out_is_stored_and_freed_on_
     shipped = "Forge-AI/monorepo#43"
     with state.edit(demo) as data:
         data["prs"][shipped] = state.new_pr(state.pr_url(shipped), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
-    production_reads(monkeypatch, {"43": [{"component": "api", "env": "plat-usw2-prod"}]})
+    production_reads(monkeypatch, {"43": [{"component": "api", "env": "plat-usw2-prod"}]}, [{"target": target, "env": "plat-usw2-prod", "commit": "abc123"} for target in ("dashboard", "api")], {"abc123"})
     assert cli.main(["pr", "set", KEY, "--waits", f"release:dashboard:{shipped}", "--waits", f"release:api:{shipped}", "--drive", demo]) == 0
     assert state.load(demo)["prs"][KEY]["waits"] == [f"release:dashboard:{shipped}", f"release:api:{shipped}"]
     watching = watcher(demo)
-    assert (watch.production_lines(watching, T0), watch.waits_lines(watching, T0)) == ([], [])
+    assert (watch.production_lines(watching, T0), watch.serving_lines(watching, T0), watch.waits_lines(watching, T0)) == ([], [], [])
     assert state.load(demo)["prs"][KEY]["waits"] == [f"release:api:{shipped}"]
 
 
@@ -7169,11 +7205,12 @@ def test_a_stalls_watchdog_is_handed_the_watchs_own_read_of_each_release_wait_hi
     watching = watcher(demo)
     watching.cards = NO_CARDS | {"questions": [on_it, elsewhere]}
     watching.production = {KEY: {"number": 42, "liveInProduction": False, "productionBehind": [{"component": "sand-next", "env": "plat-usw2-prod"}, {"component": "api", "env": "tnt-usw2-0ddq7rb"}]}}
+    watching.serving = {wait: {"plat-usw2-prod": True, "plat-usw2-staging": True}}
     for minutes in (0, 60):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     [(brief, _)] = watchdogs
     assert [line for line in brief.splitlines() if line.startswith(("Release:", "Hold:", "Card:"))] == [
-        f"Release: {wait}: tools/ci release pull reads sand-next on plat-usw2-prod behind {KEY}'s merge commit bd434a0f1b2c, running an older build or a release still running there",
+        f"Release: {wait}: sand-next on plat-usw2-prod is behind {KEY}'s merge commit bd434a0f1b2c, running an older build or a release still running there",
         'Hold: he holds every release, by his words "no releases until I say we can again" (15c4de1): a release runs only on an answer of his recorded since that approves that one release',
         f'Card: "{asked}" {CARD}, asked by no job of the drive',
     ]

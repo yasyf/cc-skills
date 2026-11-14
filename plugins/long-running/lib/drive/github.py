@@ -31,6 +31,7 @@ PRS_PER_QUERY = 25
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
+HOLDS = ("ahead", "identical")
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 FLOOR = re.compile(r"ccx: GitHub rate limit floor: [^(]*\((?P<reset>[^)]+)\)")
 
@@ -118,6 +119,11 @@ def split(key: str) -> tuple[str, str, int]:
 
 def repo_of(key: str) -> str:
     return key.split("#")[0]
+
+
+def contains(repo: str, ref: str, commit: str) -> bool:
+    """Whether ref holds commit, by GitHub's compare of the two read through ccx's cache up to an hour old, since neither changes."""
+    return read(f"whether {repo}'s {ref} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{ref}", "--jq", ".status"], max_age="1h").strip() in HOLDS
 
 
 def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
