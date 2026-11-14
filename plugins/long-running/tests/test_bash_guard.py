@@ -391,6 +391,13 @@ def test_a_drive_job_reads_no_teams_blobs_where_it_runs_even_through_break_glass
     assert bash_guard.deny_reason(bash(replay, cwd=str(root), session="ordinary")) is None
 
 
+def test_a_script_a_shell_only_parses_runs_none_of_its_commands(demo: str, tmp_path: Path) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(scratch(tmp_path, str(tmp_path / "j2386")))}
+    assert bash_guard.deny_reason(bash("zsh fetch-one.sh x", **builder)).startswith("refused: this reads or writes `artifacts-prod/iris/teams/team_01demo/runs/blobs/$1`")
+    parsed = ["zsh -n fetch-one.sh", "bash -xn fetch-one.sh", "chmod +x fetch-one.sh && zsh -n fetch-one.sh && drive job set j2386 --repro fetch-one.sh"]
+    assert [bash_guard.deny_reason(bash(command, **builder)) for command in parsed] == [None] * len(parsed)
+
+
 def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_box_call_is_not(demo: str, monorepo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     refused = {
         "aws s3 ls s3://artifacts-prod/iris/teams/team_01demo/sessions/": "artifacts-prod/iris/teams/team_01demo/sessions/",
@@ -451,12 +458,15 @@ def test_a_script_setting_its_bucket_from_its_own_json_table_is_judged_by_the_bu
     assert bash_guard.deny_reason(hashed) is None
 
 
-def test_a_bucket_call_from_a_checkout_holding_no_team_bucket_list_is_refused_until_it_runs_from_one(demo: str, monorepo: str) -> None:
+def test_a_bucket_call_is_judged_by_the_team_bucket_list_of_its_sessions_folder_whatever_folder_it_cds_to(demo: str, monorepo: str, tmp_path: Path) -> None:
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     reason = bash_guard.deny_reason(bash(CI_POINTER, **builder))
-    assert reason.startswith("refused: this reads or writes `frg-ci-cache/cache-seeds/ci-go-pointer/dev` where the job runs, and the checkout it runs in holds no `release/team-buckets.generated.json` at origin/dev")
-    assert "Run it from a Forge-AI/monorepo checkout" in reason
-    assert bash_guard.deny_reason(bash(f"cd {monorepo} && {CI_POINTER}", **builder)) is None
+    assert reason.startswith("refused: this reads or writes `frg-ci-cache/cache-seeds/ci-go-pointer/dev` where the job runs, and `/work`, the folder its session runs in, holds no `release/team-buckets.generated.json` at origin/dev")
+    assert "Run it from a session in a Forge-AI/monorepo checkout" in reason
+    assert bash_guard.deny_reason(bash(f"cd {monorepo} && {CI_POINTER}", **builder)) == reason
+    release = "aws s3 cp s3://frg-core-usw2-artifacts-internal-release-artifacts/sand/0.162.3983/latest.json -"
+    assert bash_guard.deny_reason(bash(f"cd {tmp_path} && {release}", cwd=monorepo, **builder)) is None
+    assert "It holds a team's data" in bash_guard.deny_reason(bash(f"cd {tmp_path} && aws s3 ls s3://artifacts-prod/", cwd=monorepo, **builder))
     computed = 'B=$(jq -r .bucket tools/artifacts.json); aws s3 ls "s3://$B/cache-seeds/"'
     assert bash_guard.deny_reason(bash(computed, **builder)).startswith("refused: this reads or writes `$B/cache-seeds/` where the job runs")
     assert bash_guard.deny_reason(bash(computed, cwd=monorepo, **builder)) is None
