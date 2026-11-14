@@ -532,7 +532,7 @@ def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, D
 
 
 def fitted(ctx: Context, judge: Decide, items: list[Evidence]) -> list[Evidence]:
-    """The evidence Jev's prompt holds within JEV_PROMPT_CHARS: each item said at no time whole, every read, record, finding rule and ruling of his the checks add, and of his words said at a time, his messages and card answers in the post's thread and the order's other threads and his prompts in the transcripts, the newest first, each that still fits beside them, in the order they came, since those words grow with his threads, 41,070 characters in one incident's, and no post there could pass otherwise."""
+    """The evidence Jev's prompt holds within JEV_PROMPT_CHARS: each item said at no time whole, every read, record, finding rule and ruling of his the checks add, and of his words said at a time, the messages and card answers of his the post answers and his prompts in the transcripts, the newest first, each that still fits beside them, in the order they came, since his prompts grow with his sessions and no post could pass otherwise."""
     kept = [item for item in items if item.said_at is None]
     for item in sorted((item for item in items if item.said_at), key=lambda item: item.said_at.timestamp(), reverse=True):
         if len(str(judge.framed(ctx, [*kept, item], DETAIL_SHOWN))) <= JEV_PROMPT_CHARS:

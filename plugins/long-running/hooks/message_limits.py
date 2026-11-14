@@ -29,12 +29,10 @@ ALERT_LINK = re.compile(r"^\d+:\d+ bare-url 'https://(?:[\w-]+\.slack\.com/archi
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
-CARD_ANSWERED = "his answer, as the card the bot drew in this thread shows it"
-ORDER_CARD = "his answer, as a card the bot drew in another thread of the order this post is on shows it"
-ORDER_MESSAGE = "his message in another thread of the order this post is on"
+CARD_ANSWERED = "his answer on a card"
 EXPLAIN_TAP = re.compile(r"\*You asked for more at [^*\n]+\.\*")
 EXPLAIN_MORE = "Explain more"
-EXPLAIN_TAPPED = "his tap on the card's Explain more button, as the card the bot drew in this thread shows it, which asks for the reply that explains the card"
+EXPLAIN_TAPPED = "his Explain more tap on a card, asking for the reply that explains it"
 COORDINATOR = re.compile(r"\bcoordinator\b", re.IGNORECASE)
 DOWN = re.compile(
     r"\b(?:is|was|went|has been|had been|seems?|looks?)\s+(?:down|dead|gone|offline|unresponsive)\b|\b(?:crashed|exited|died|not running|stopped responding)\b",
@@ -107,8 +105,10 @@ NO_READ = "your transcript shows no read of his thread {thread}, and a read by a
 OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and a read counts for 10"
 FAILED_READ = "your slack_thread call on his thread {thread} failed"
 UNOPENED_READ = "your read of his thread {thread} was saved to {file}, which you have not opened since"
-ANSWERED = "his message in the thread this post goes to since the bot's last post there, which this post answers"
-LINKED_ASK = "his message in his DM with the app, which this post answers and names as asked by its permalink"
+ANSWERED = "his message this post answers"
+EARLIER = "his earlier message this post quotes"
+LINKED_ASK = "his message this post answers, linked as asked"
+ORDER_WORDS = "his words on the order this post is on"
 HIS_PERMALINK = re.compile(r"<?(https://[\w.-]+/archives/([A-Z0-9]+)/p\d{16}[^\s|<>]*)>?")
 PREVENTION_WORDS = {
     "id": "ruling:6a6edbf",
@@ -320,19 +320,19 @@ def unanswered(messages: list[dict]) -> list[dict]:
     return list(itertools.takewhile(lambda message: not message.get("from_bot"), reversed(messages)))[::-1]
 
 
-def thread_words(messages: list[dict], here: bool = True) -> list[dict]:
-    """His words in the thread the post goes to, or in another thread of the order it is on, each as the evidence Jev cites, those since the bot's last post in the post's own thread marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and, in the post's own thread, his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
-    answers = {message["ts"] for message in unanswered(messages)} if here else set()
+def thread_words(messages: list[dict]) -> list[dict]:
+    """His words in the thread the post goes to, each as the evidence Jev cites, those since the bot's last post there marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
+    answers = {message["ts"] for message in unanswered(messages)}
     words = []
     for message in messages:
         said_at = slack.sent_at(message).isoformat()
         if not message.get("from_bot"):
-            detail = ANSWERED if message["ts"] in answers else "his message in the thread this post goes to" if here else ORDER_MESSAGE
+            detail = ANSWERED if message["ts"] in answers else EARLIER
             words.append({"id": f"slack:{message['ts']}", "source": "slack", "quote": message["text"], "said_at": said_at, "detail": detail})
             continue
         cards = [message["text"], *(share.get("text") or "" for share in message.get("shares") or [])]
-        taps = {answer: CARD_ANSWERED if here else ORDER_CARD for card in cards for answer in CARD_ANSWER.findall(card)}
-        taps |= {EXPLAIN_MORE: EXPLAIN_TAPPED for card in cards if here and EXPLAIN_TAP.search(card)}
+        taps = {answer: CARD_ANSWERED for card in cards for answer in CARD_ANSWER.findall(card)}
+        taps |= {EXPLAIN_MORE: EXPLAIN_TAPPED for card in cards if EXPLAIN_TAP.search(card)}
         words += [
             {"id": f"card:{message['ts']}:{index}", "source": "card", "quote": quote, "said_at": said_at, "detail": detail}
             for index, (quote, detail) in enumerate(taps.items())
@@ -399,25 +399,31 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in his DM in the thread it goes to and in each other thread of the order it is on, read from Slack, his messages and the answers its cards show, and each message of his in his DM its asked links by permalink; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
+    """What Jev judges a post by besides the transcripts: only the words of his in his DM it answers, so his share of Jev's prompt grows with the post, never with his threads: his messages in the thread it goes to since the bot's last post there, his answers on the card that thread is under, each message of his its asked links by permalink, each older word of his in that thread its asked or a quote in its text holds, and the words of his the order it is on keeps, read from the drive; a handler's brief and the record it reads in are the communicator's and a writer's words, never his, and a thread outside his DM, such as a bug report's, holds others' words; a post naming a cause or failure with the order or PR preventing it carries his ruling asking for that line, and a post in a question card's thread his ruling that each option it explains is worked out."""
     if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, dm := slack.dm()):
         return []
-    ruled = [PREVENTION_WORDS] if refs.prevented(payload["tool_input"].get("text") or "") else []
-    ruled += [WORKED_WORDS] if in_card_thread(drive, payload["tool_input"]) else []
+    tool_input = payload["tool_input"]
+    text = tool_input.get("text") or ""
+    ruled = [PREVENTION_WORDS] if refs.prevented(text) else []
+    ruled += [WORKED_WORDS] if in_card_thread(drive, tool_input) else []
     try:
-        words = [*thread_words(thread_messages(payload, dm)), *order_words(drive, payload["tool_input"], dm, said_order(payload, drive)[1])]
-        shown = {word["id"] for word in words}
-        return [*words, *(word for word in linked_words(payload["tool_input"].get("asked"), dm).values() if word["id"] not in shown), *ruled]
+        thread = thread_words(thread_messages(payload, dm))
+        linked = linked_words(tool_input.get("asked"), dm)
     except slack.SlackError:
         return ruled
+    quoted = [squashed(part) for part in quotes([*answered_words(tool_input.get("asked"), linked), *limits.SAID.findall(text)])]
+    card = f"card:{talk.place(tool_input)[1]}:"
+    answered = [word for word in thread if word["detail"] == ANSWERED or word["id"].startswith(card) or any(part in squashed(word["quote"]) for part in quoted)]
+    words = {word["id"]: word for word in [*answered, *order_words(drive, tool_input, said_order(payload, drive)[1]), *linked.values()]}
+    return [*words.values(), *ruled]
 
 
-def order_words(drive: dict, tool_input: dict, dm: str, order_id: str | None) -> list[dict]:
-    """His words in each other thread in his DM of the order the post is on, as thread_words keeps them, since a post on an order answers his words in any of its threads, such as his order in its question card's thread answered under its PR card."""
-    if not (found := posted_order(drive, tool_input, order_id)):
+def order_words(drive: dict, tool_input: dict, order_id: str | None) -> list[dict]:
+    """His words on the order the post is on, as the drive keeps them with no Slack read: the message of his it was added from, or the quotes of his its text holds."""
+    if not (found := posted_order(drive, tool_input, order_id)) or not (said := limits.his_words(order := drive["orders"][found])):
         return []
-    threads = [ts for channel, ts in slack.order_threads(drive, found, drive["orders"][found]) if channel == dm and ts != talk.place(tool_input)[1]]
-    return [word for ts in threads for word in thread_words(slack.thread("--channel", dm, "--thread", ts, "--limit", str(slack.WHOLE_THREAD)), here=False)]
+    message = state.slack_message(order["from"]) if limits.from_his_message(order) else None
+    return [{"id": f"slack:{message[1]}" if message else f"order:{found}", "source": "slack" if message else "order", "quote": said, "detail": ORDER_WORDS}]
 
 
 def in_card_thread(drive: dict, tool_input: dict) -> bool:
@@ -661,22 +667,21 @@ def incident(tool_input: dict, drive: dict, report: dict, order_id: str | None) 
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive."""
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's prompt."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or incident(tool_input, drive, report, order_id):
         return None
-    held = ""
-    if seq := report.get("seq"):
-        talk.hold(drive["name"], seq, posted_order(drive, tool_input, order_id))
-        held = f" Report {seq} is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up."
     away = (
         "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
         " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the drive posts"
-        f" when he is back.{held}"
+        " when he is back."
     )
-    return agents.Ruled(away, AWAY_RULE, away)
+    if not (seq := report.get("seq")):
+        return agents.Ruled(away, AWAY_RULE, away)
+    talk.hold(drive["name"], seq, posted_order(drive, tool_input, order_id))
+    return agents.Unjudged(f"{away} Report {seq} is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
 
 
 def long_ack(payload: dict) -> str | None:
@@ -802,7 +807,7 @@ def denial(reason: str) -> dict:
 
 
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names, and for the record a claim names, each record its text cites and the report it carries, its newest call naming that record's seq, all with their whole results, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads a record again narrower hands Jev only that read; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, the calls of its own that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, all with their whole results, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads a record again narrower hands Jev only that read; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
         return []
@@ -810,17 +815,15 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
     named = [read for read in reads if not RECORD_READ.fullmatch(read)]
     cited = [found[2] for found in refs.REF.finditer(tool_input.get("text") or "") if found[1] == "record"]
     claimed = [read.removeprefix("record:") for read in reads if RECORD_READ.fullmatch(read)]
-    carried = tool_input.get("record")
-    seqs = [seq for seq in dict.fromkeys([*cited, *claimed]) if seq != carried]
-    calls = own_calls(payload) if named or seqs or carried else {}
+    seqs = list(dict.fromkeys([*cited, *claimed]))
+    calls = own_calls(payload) if named or seqs else {}
     given: dict[str, str] = {}
     return [
         *(
             called(f"read:{index}", read, NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False)), calls, given)
             for index, read in enumerate(named, 1)
         ),
-        *(called(f"record:{seq}", seq, CITED_SOURCE, calls, given, newest=True) for seq in seqs),
-        *([called(f"record:{carried}", carried, CARRIED_SOURCE, calls, given, newest=True)] if carried else []),
+        *(called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given, newest=True) for seq in seqs),
         *([] if claims else [UNCLAIMED]),
     ]
 

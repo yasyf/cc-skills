@@ -689,11 +689,11 @@ restating it.
   words as written beside it, so it needs no read, and so is one whose words after its `|` quote that title or question word for
   word, with … where they skip words, and a claim copying those words, such as a claim that the PR merged, claims only that
   PR's state; any other words after its `|` are the handler's own claim. The say hook hands Jev every call those
-  words name with its whole result, each call once, and each record the post cites or carries as the handler's newest call
-  naming its seq, never the record's whole body. Jev's prompt takes at most 10,000 characters, by his words "jev should be
-  getting like 10k chars at most for any call": his words said at a time, his messages and card answers in the post's thread
-  and the order's other threads and his prompts, go in newest first, each that fits beside the rules, the post and its reads,
-  so a long thread refuses no post; a post whose reads push it past that is refused before say runs, naming each
+  words name with its whole result, each call once, and each record the post cites or a claim names, the report it carries
+  among them, as the handler's newest call naming its seq, never the record's whole body. Jev's prompt takes at most 10,000
+  characters, by his words "jev should be getting like 10k chars at most for any call": of his words it gets only those the
+  post answers, so a long thread refuses no post, and his prompts go in newest first, each that fits beside the rules, the
+  post and its reads; a post whose reads push it past that is refused before say runs, naming each
   read's size, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and names those; a post whose
   rules, own words and the rulings of his the hook adds alone pass it is refused too, naming a `DEFECT` line. Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
@@ -851,10 +851,10 @@ GET 2 page ranges
   of them those titles are.
 - A finding refuses nothing on its own. Once `say` has posted the post, so `say` stays fast, the hook
   hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
-  stands for, in this skill's and cc-slack's words, and his words: his messages in the thread it went
-  to and each answer or Explain more tap of his a card there shows, and on a post on an order his
-  messages and card answers in each of that order's other threads in his DM, read from Slack, beside
-  the session's recent turns. A handler's brief, the record it reads in and every prompt of a handler's
+  stands for, in this skill's and cc-slack's words, and the words of his it answers: his messages in
+  the thread it went to since the bot's last post there, his answers on the card that thread is under,
+  each message of his its asked links, each older word of his there its asked or a quote in it holds,
+  and his words on the order it is on, read from the drive, beside the session's recent turns. A handler's brief, the record it reads in and every prompt of a handler's
   own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
   quote. Jev judges only the line each finding names, by its rule: the post stands when no finding's
   rule holds against its line, or his words lift it, and is held with Jev's reason when one does,
