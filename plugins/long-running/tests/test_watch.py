@@ -9762,14 +9762,14 @@ def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_i
     reopened = watch.run_pass(watching, T0 + timedelta(minutes=3))
     data = state.load(demo)
     assert (reopened, watch.wakes(reopened[0], data, NO_CARDS)) == ([f"PR {KEY}: open [o1 j1]"], False)
-    assert (redraws.asked, data["prs"][KEY]["state"], data["prs"][KEY]["stage"]["name"]) == ([url], "open", "uncarded")
+    assert (redraws.asked, data["prs"][KEY]["state"], stage.of(data, KEY, view.live_cards(demo)).name) == ([url], "open", "uncarded")
     assert calls == [[KEY]] * 4
     shown[:], shut[:] = [pr_card(KEY)], []
     watch.run_pass(watching, T0 + timedelta(minutes=4))
     assert state.load(demo)["prs"][KEY]["stage"]["name"] == "card"
 
 
-def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again_reads_uncarded_and_is_redrawn_in_place_never_drawn_anew(
+def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again_reads_uncarded_and_is_redrawn_in_place_each_read_until_it_offers_approve_never_drawn_anew(
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, redraws: Redraws
 ) -> None:
     url = state.pr_url(KEY)
@@ -9779,14 +9779,19 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
     monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    sent = posts(monkeypatch)
     watching = watcher(demo)
-    watch.run_pass(watching, T0)
+    for minute in range(3):
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
     data = state.load(demo)
-    assert (data["prs"][KEY]["stage"]["name"], redraws.asked, draws.keys) == ("uncarded", [url], [])
-    assert data["prs"][KEY]["stage"]["why"] == "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
+    now = stage.of(data, KEY, shown)
+    assert (now.name, now.why, redraws.asked, draws.keys) == ("uncarded", "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place", [url] * 3, [])
     assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands"
+    assert [entry for entry in posted(sent) if entry[1] == f"meta@{demo}"] == [
+        ("handoff", f"meta@{demo}", f"WATCH draw of his card on {KEY} failed 3 times in a row: it was redrawn in place, which offers him no Approve at the head of {KEY}")
+    ]
     shown.update(closed=[], pr_cards=[pr_card(KEY)])
-    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    watch.run_pass(watching, T0 + timedelta(minutes=3))
     data = state.load(demo)
     assert (data["prs"][KEY]["stage"]["name"], draws.keys) == ("card", [])
     assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands, which waits on your Approve on {view.link('its card', CARD)}"
