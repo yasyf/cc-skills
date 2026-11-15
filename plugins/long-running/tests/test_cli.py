@@ -1055,7 +1055,8 @@ def test_an_order_added_with_no_kind_is_a_build_whose_builder_waits_on_research_
     assert state.load(demo)["orders"]["o1"]["kind"] == "build"
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch"]) == 2
     assert "o1 is a build order, so its builder starts only once" in capsys.readouterr().err
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch", "--repo", "yasyf/cc-skills", "--branch", "the-watch")[1].splitlines()[0] == "j1"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch", "--repo", "yasyf/cc-skills", "--branch", "the-watch"]) == 0
+    assert (capsys.readouterr().out.splitlines()[0], state.load(demo)["jobs"]["j1"]["branch"]) == ("j1", "the-watch")
 
 def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_empty_goal_takes_it_out_and_it_refuses_with_no_part_or_on_an_order_limited_to_options(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]

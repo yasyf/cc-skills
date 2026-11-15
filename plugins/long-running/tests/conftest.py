@@ -85,6 +85,9 @@ It lands without a second look.
 - "land it" beside `land.py:1`
 """
 
+SEEDED_READER = "j0"
+WORK_JOBS = ("builder", "codex", "design", "designer")
+
 RESEARCH = """DONE researched the store copy
 Researched:
 rulings: none on the copy path
@@ -253,11 +256,38 @@ def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+def kept_research(name: str, order_id: str, parts: list[str]) -> None:
+    """Keep reader j0's research on these parts of the order, numbered below every job a test adds, as a build order's reader keeps it before its builder starts."""
+    with state.edit(name) as data:
+        order = data["orders"][order_id]
+        reader = data["jobs"].setdefault(SEEDED_READER, state.new_job(order_id, "reader", "research: the order", [], state.stamp()) | {"state": "done"})
+        held = reader["parts"] if reader["order"] == order_id else reader["carries"].setdefault(order_id, [])
+        held.extend(part for part in parts if part not in held)
+        if SEEDED_READER not in order["jobs"]:
+            order["jobs"].insert(0, SEEDED_READER)
+    if not state.returns(name, SEEDED_READER):
+        state.keep_report(name, SEEDED_READER, state.opening(RESEARCH), RESEARCH)
+
+
+def flag_values(argv: tuple[str, ...], flag: str) -> list[str]:
+    return [value for given, value in itertools.pairwise(argv) if given == flag]
+
+
 @pytest.fixture
 def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., tuple[int, str]]:
+    """Run a drive verb as its command line does, an order added with no --kind being a build whose reader j0 kept research on each part a builder, codex or design job is then added on, as its reader does before the coordinator adds any builder."""
+    unkinded: set[tuple[str, str]] = set()
+
     def invoke(*argv: str) -> tuple[int, str]:
+        if argv[:2] == ("job", "add") and set(argv[2:3]) & set(WORK_JOBS):
+            name = state.resolve(next(iter(flag_values(argv, "--drive")), None))
+            if (name, order_id := next(iter(flag_values(argv, "--order")), "")) in unkinded:
+                kept_research(name, order_id, flag_values(argv, "--part") or list(state.load(name)["orders"][order_id]["parts"]))
         code = cli.main(list(argv))
-        return code, capsys.readouterr().out.strip()
+        out = capsys.readouterr().out.strip()
+        if code == 0 and argv[:2] == ("order", "add") and "--kind" not in argv:
+            unkinded.add((state.resolve(next(iter(flag_values(argv, "--drive")), None)), json.loads(out)["id"] if "--json" in argv else out.splitlines()[0]))
+        return code, out
 
     return invoke
 
