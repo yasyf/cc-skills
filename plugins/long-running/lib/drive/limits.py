@@ -66,14 +66,31 @@ CODE_TERM = re.compile(r"\w+(?:(?:::|[-./])\w+)*")
 CODE_MARK = re.compile(r"[_.-]|::|[a-z][A-Z]")
 LETTER = re.compile(r"[A-Za-z]")
 PLAIN = "plain"
-PLAIN_NONE = 0.2
 PLAIN_QUESTION = (
-    'In this line of a question card, "{line}", which name leaves him asking what it is, since the line says nothing in plain words'
-    " about what that code is or does? Pick none when the line says what each name is or does, even in a few words, or each is a"
-    " word or product anyone reads."
+    "He knows the product but not each table, column, function, file, migration or flag in its code. Does this question card leave"
+    " him asking what {name} is for? Answer yes when nowhere on the card, in its question, summary, options, their descriptions or"
+    " its Show me, does a clause say what it is for: what a table records, what a column holds, what a function, file or route does,"
+    ' what a migration changes, what a flag turns on. A phrase that only repeats its name or kind, such as "two run_claims columns"'
+    ' or "the X migration", says nothing. Answer no when such a clause is there, even a short one, or when {name} is a word or'
+    " product anyone reads."
 )
-PLAIN_OPTION = "The line says what each name is or does, or each is a word or product anyone reads."
 EXPLAIN_RULING = 'his ruling e405d69, "Explain what this is what do you mean check"'
+GLOSS_RULING = 'his words on a card naming the run_claims table bare, "also what is run claims"'
+GLOSSED = (
+    "drive job ask: kept, but his card names {names} and never says in plain words what {each} is, as Jev reads it: keep each"
+    " proper term and add a clause saying what it is the first time the card names it, as \"the run_claims table, which records"
+    " the runner holding each run\" does ({explain}; {gloss}). {advisory}"
+)
+RAW_IDS = ("commit-sha", "ruling-id", "ulid")
+CHECKED = re.compile(r"^\d+:\d+ ([\w-]+) '([^'\n]*)'")
+RAW = (
+    "drive job ask: kept, but his card shows {found}, raw ids he cannot open: write a recorded answer of his as {{answer:<id>}},"
+    " which his card draws as his words, and name any other by what it is, linking it where it opens. {advisory}"
+)
+ADVISORY = (
+    "This finding refuses no card, by his pick 320b7a7 that drive job ask keeps every well-shaped card and prints Jev's finding"
+    " to the agent: when it holds, rewrite those words and ask the same question again, which redraws its card."
+)
 HAND_DRAWN = ("asks", "pictures")
 BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
 AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
@@ -550,10 +567,10 @@ def code_names(text: str) -> list[str]:
     return [name for name in dict.fromkeys(found.strip("`") for found in (*BACKTICKED.findall(plain), *CALLED.findall(plain), *CODE_NAME.findall(plain))) if len(name) > 3]
 
 
-def code_terms(line: str) -> list[str]:
-    """Each name a line writes as code, with a hyphen, underscore, dot, :: or inner capital, such as check-run-args, insertProjectRun or llm::x_chat, its drive references, links and Slack tokens aside: the names Jev picks among for one his line leaves unexplained."""
-    plain = URL.sub(" ", TOKEN.sub(" ", REF.sub(" ", line)))
-    return list(dict.fromkeys(found for found in CODE_TERM.findall(plain) if CODE_MARK.search(found) and LETTER.search(found)))
+def code_terms(text: str) -> list[str]:
+    """Each name a text writes as code, with a hyphen, underscore, dot, :: or inner capital, such as check-run-args, insertProjectRun or llm::x_chat, then each other `code_names` finds, such as a name in backticks or a call, its drive references, links, Slack tokens and pictures' paths aside: the names Jev reads for one his card leaves unexplained."""
+    plain = URL.sub(" ", TOKEN.sub(" ", PICTURE.sub(r" \1 ", REF.sub(" ", text))))
+    return list(dict.fromkeys([*(found for found in CODE_TERM.findall(plain) if CODE_MARK.search(found) and LETTER.search(found)), *code_names(plain)]))
 
 
 def block_text(node: object) -> str:
@@ -866,40 +883,44 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     return asked, problems
 
 
-def unread(asked: Question) -> list[str]:
-    """Why he cannot read a question as it goes to him, as Jev reads it in one call: its options differ in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, while an option has no picture line captioned with its number, `![N · …](path)`, by his ruling 0d2b7df, asked only while one has none; or its question or an option names code `code_terms` finds, such as check-run-args, and Jev reads none of those names as left unexplained at most PLAIN_NONE sure, by his ruling e405d69, asked whatever pictures it carries. When Jev gives no reading the question goes up, said on stderr."""
+def unread(asked: Question) -> str | None:
+    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same call Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each one Jev reads at least settled.DECIDES sure as never said in plain words on the card is printed on stderr, refusing nothing, by his pick 320b7a7. When Jev gives no reading the question goes up, said on stderr."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
     unshown = [index for index in range(1, len(asked.options) + 1) if index not in shot]
-    named = {f"{PLAIN}{index}": (where, line, terms) for index, (where, line) in enumerate([("the question", asked.title), *((f'option "{option}"', option) for option in asked.options)]) if (terms := code_terms(line))}
+    named = code_terms("\n".join([asked.title, *asked.summary, *asked.options, *asked.hints.values(), *captions(asked.show_me)]))
     questions = {LOOKS: {"label": {"instructions": LOOKS_QUESTION, "options": LOOK_OPTIONS}}} if unshown else {}
-    questions |= {key: {"label": {"instructions": PLAIN_QUESTION.format(line=line), "options": {settled.UNDECIDED: PLAIN_OPTION, **dict.fromkeys(terms)}}} for key, (_, line, terms) in named.items()}
+    questions |= {f"{PLAIN}{number}": {"binary": {"instructions": PLAIN_QUESTION.format(name=name)}} for number, name in enumerate(named, 1)}
     if not questions:
-        return []
-    seen = {"question": asked.title, "summary": "\n".join(asked.summary), "options": [{"option": option, "description": asked.hints.get(option, "")} for option in asked.options]}
+        return None
+    seen = {
+        "question": asked.title,
+        "summary": "\n".join(asked.summary),
+        "options": [{"option": option, "description": asked.hints.get(option, "")} for option in asked.options],
+        "show_me": "\n".join(asked.show_me),
+    }
     try:
         read = settled.jev({"state": seen, "questions": questions})
     except settled.Unheard as failure:
         print(f"drive job ask: Jev did not say whether this question needs a screenshot of each option or plain words beside the code it names, so it goes up unchecked: {failure}", file=sys.stderr)
-        return []
-    problems = []
-    if unshown and read[LOOKS]["probabilities"].get(LOOKS, 0) >= LOOKS_SURE:
-        which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
-        problems.append(
-            f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {which} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
-            " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
-            f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
-        )
-    for key, (where, line, terms) in named.items():
-        if (probabilities := read[key]["probabilities"]).get(settled.UNDECIDED, 0) > PLAIN_NONE:
-            continue
-        term = max(terms, key=lambda term: probabilities.get(term, 0))
-        problems.append(
-            f'{where}, "{line}", names {term} with no plain words saying what it is, as Jev reads it: say in that line what that code does,'
-            f' as "runtime-api type-checks a run\'s arguments before the api creates it" says what check-run-args does ({EXPLAIN_RULING})'
-        )
-    return problems
+        return None
+    if unglossed := [name for number, name in enumerate(named, 1) if read[f"{PLAIN}{number}"]["p_yes"] >= settled.DECIDES]:
+        each = "it" if len(unglossed) == 1 else "each"
+        print(GLOSSED.format(names=", ".join(unglossed), each=each, explain=EXPLAIN_RULING, gloss=GLOSS_RULING, advisory=ADVISORY), file=sys.stderr)
+    if not unshown or read[LOOKS]["probabilities"].get(LOOKS, 0) < LOOKS_SURE:
+        return None
+    which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
+    return (
+        f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {which} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
+        " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
+        f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
+    )
+
+
+def raw_ids(findings: list[str]) -> list[str]:
+    """Each token `cc-slack check-post` finds on a question card as a raw id he cannot open, a commit sha or cc-notes id, a ruling id or an object ULID, from its findings' lines, `<line>:<column> <kind> '<token>': <fix>`; its internal-id finding is left out, since its `run_` pattern also matches a table such as run_claims."""
+    return list(dict.fromkeys(found[2] for finding in findings if (found := CHECKED.match(finding)) and found[1] in RAW_IDS))
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:

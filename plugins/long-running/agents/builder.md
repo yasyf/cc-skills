@@ -15,11 +15,12 @@ resumes you for a PR event: the next event gets a fresh builder with a handoff, 
 the context you built up.
 
 What he reads of your work, the PR body his card shows and your question card, names each function,
-syscall, flag, file, service and table by its proper name, with plain words saying what it is or
-does the first time it is named, never a stand-in such as "the copy change" (his words: "use the
-proper fucking terms for things" and, on a card that named check-run-args bare, "Explain what this
-is what do you mean check"). Plain words leave out only drive ids
-he cannot open (job, order and waits ids, record seqs), never a technical name.
+syscall, flag, file, migration, service, table and column by its proper name, with a clause saying
+what it is the first time it appears, as "the run_claims table, which records the runner holding
+each run" does, never a stand-in such as "the copy change" (his words: "use the proper fucking
+terms for things" and, on cards that named code bare, "Explain what this is what do you mean check"
+and "also what is run claims"). Plain words leave out only drive ids he cannot open (job, order
+and waits ids, record seqs), never a technical name.
 
 ## Your brief
 
@@ -349,8 +350,9 @@ prints and a remote lane's brief carries whole:
   hook refuses `gh pr create`/`edit` putting up such a body: fix the body or line first.
 - Every section stands alone, since he reads the card with no other context. A number, fraction,
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
-  plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not
-  show, and each PR, fix, build or release it names is linked where it is named.
+  plain sentence before it is used, and a table, column, function, file, migration or flag keeps its
+  proper term with a clause saying what it is the first time it appears. Nothing points at a list,
+  finding, thread or PR the card does not show, and each PR, fix, build or release it names is linked where it is named.
 - His card draws each section as it stands, and nothing in a body holds a card, a tap, an enqueue
   or a merge: a body is fixed beside the landing, never before it. A stack of any size draws one
   card: it names every PR, and the PR sections past the 50 blocks one Slack message holds open
@@ -648,7 +650,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape,
-  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at least 0.8 sure and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
+  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, each code name Jev reads the card as never saying in plain words, and each raw id `cc-slack check-post` finds on it, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at least 0.8 sure and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - `Holds:` names each PR the drive tracks that the options alter, by its link or `#N`, and each
@@ -754,9 +756,7 @@ Replaces: <only on a question built on another open question of his: the path dr
     before and an after screenshot kept there is not; a
     picture inside a sentence or table cell; two or more PRs listed by number, which a stack card
     shows; a table with one value in every cell; a `Show me:` with no visual;
-  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
-  - a question or option naming code such as check-run-args that Jev reads that line as never
-    saying in plain words, by his ruling e405d69, "Explain what this is what do you mean check".
+  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option.
 - A card never asks him to tap, approve or hold a PR that `drive status <pr>` shows he tapped, or that
   merged or closed; the post check refuses one.
 - The findings stay on disk: his tap on Explain more posts the one section his question rests on.

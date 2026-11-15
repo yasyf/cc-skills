@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -1731,79 +1731,74 @@ def test_job_ask_refuses_a_look_choice_until_each_option_carries_its_screenshot(
     assert len(jev.looked) == 2
 
 
-CHECK_RUN_ARGS_ASK = """ASK What should queue-run answer when runtime-api's check-run-args refuses a run's arguments for being past its 32 MiB request body cap?
-For {order:o1|the run-arguments soak}: your pick decides what a workflow sees when it queues a child run whose arguments are too large to check.
-Show me:
-What queue-run answers under each option, measured on staging
-| Run arguments | Today | 1 · Refuse by name | 2 · Raise to 128 MiB | 3 · Check from the uploaded arguments |
-| --- | --- | --- | --- | --- |
-| a 104,857,600-byte text (measured) | 500, errorId only | 400 naming the size | queued | queued |
-- Refuse arguments past 32 MiB by name (recommended)
-  checkRunArgs.ts turns runtime-api's 413 into the same RunArgsRefusal a 422 gets, so queue-run answers 400 instead of 500.
-- Raise the check's cap to 128 MiB and refuse by name above it
-  maxRunArgsCheckBodyBytes in runtime-api's server.go goes from 32 << 20 to 128 << 20, plus the refusal branch in checkRunArgs.ts.
-- Check from the arguments the api already uploads
-  check-run-args reads the arguments from the api's upload by key instead of from its request body, so no body cap applies.
-Findings:
-Root cause: checkRunArgs.ts throws on every status but 422, so runtime-api's 413 reaches queue-run's caller as a 500.
-Holds: none: no job builds checkRunArgs.ts
-"""
-CHECK_RUN_ARGS_REDRAWN = """ASK Before the api creates a run, runtime-api type-checks its arguments; what should a run whose arguments exceed that check's 32 MiB get back?
-For {order:o1|the run-arguments fix}: your pick decides what a workflow sees when it queues a child run with a 100 MiB argument.
-All three keep the type check; I recommend a 400 that names the size.
-Show me:
-What a parent workflow gets back under each option
-| Argument passed to the child | Today | 1 · Refuse by name | 2 · Raise to 128 MiB | 3 · Check from the upload |
-| --- | --- | --- | --- | --- |
-| a 104,857,600-byte text (measured) | 500, an error id only | 400 naming the size | queued | queued |
-- Refuse arguments over 32 MiB with a message naming their size (recommended)
-  checkRunArgs.ts in the api turns runtime-api's 413 into the same refusal a type mismatch gets, so the caller gets 400 naming the size.
-- Raise the check's cap to 128 MiB and refuse by name above it
-  maxRunArgsCheckBodyBytes in runtime-api's server.go goes from 32 MiB to 128 MiB, so a 100 MiB child run is checked and queued.
-- Upload the arguments first and check them from the upload, with no cap
-  insertProjectRun uploads the arguments before the check, and runtime-api reads them from the team's bucket by key.
-Findings:
-Root cause: checkRunArgs.ts throws on every status but 422, so runtime-api's 413 reaches queue-run's caller as a 500.
-Holds: none: no job builds checkRunArgs.ts
-"""
-
-
-def test_code_terms_finds_each_name_written_as_code_its_drive_references_links_and_slack_tokens_aside() -> None:
-    assert limits.code_terms(CHECK_RUN_ARGS_ASK.partition("\n")[0]) == ["queue-run", "runtime-api", "check-run-args", "MiB"]
+def test_code_terms_finds_each_name_written_as_code_its_drive_references_links_slack_tokens_and_pictures_paths_aside() -> None:
+    assert limits.code_terms("What should queue-run answer when runtime-api's check-run-args refuses a run's arguments past its 32 MiB cap?") == [
+        "queue-run",
+        "runtime-api",
+        "check-run-args",
+        "MiB",
+    ]
     assert limits.code_terms("Should llm::x_chat call insertProjectRun from go/sandsql-follower/main.go for {order:o1|the run-args fix} <https://x.dev/a-b|a-b>?") == [
         "llm::x_chat",
         "insertProjectRun",
         "go/sandsql-follower/main.go",
     ]
+    assert limits.code_terms("Keep `sandsql` and redraw() as they are ![1 · Before, dev](/tmp/demo-shots/option-1.png)") == ["sandsql", "redraw"]
     assert limits.code_terms("Keep 1.0.1066 and/or 29.3 MB as they are") == []
 
 
-def test_unread_refuses_a_question_naming_code_its_line_leaves_unexplained_and_passes_its_redraw(jev: Jev) -> None:
-    jev.unexplained = {"check-run-args": 0.98}
-    faulted = limits.question(CHECK_RUN_ARGS_ASK, kept=True)
-    [refused] = limits.unread(faulted)
-    assert refused.startswith(
-        f'the question, "{faulted.title}", names check-run-args with no plain words saying what it is, as Jev reads it: say in that line what that code does'
+RUN_CLAIMS_ASK = explained("""ASK Should 0002_run_claims_chain_journal, adding two run_claims columns, mark itself readable by dev's sandsql so a staging restore works?
+Drive tooling: your pick decides whether a staging restore reads the two new run_claims columns.
+Show me:
+What `sandsql-restore` reads under each option
+```sql
+ALTER TABLE run_claims ADD COLUMN chain_journal text;
+```
+- Mark the migration readable by dev's sandsql (recommended)
+- Leave the migration unreadable by dev's sandsql
+Findings:
+Root cause: none: a pick between two migration settings
+Holds: none: no job builds the migration
+""")
+
+
+def test_unread_prints_each_code_name_his_card_never_says_in_plain_words_and_keeps_it(jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+    jev.unexplained = {"0002_run_claims_chain_journal": 0.9, "run_claims": 0.95, "sandsql-restore": 0.7}
+    assert limits.unread(limits.question(RUN_CLAIMS_ASK, kept=True)) is None
+    assert jev.named == ["0002_run_claims_chain_journal", "run_claims", "lib/drive/cli.py", "sandsql-restore"]
+    printed = capsys.readouterr().err
+    assert printed.startswith(
+        "drive job ask: kept, but his card names 0002_run_claims_chain_journal, run_claims and never says in plain words what each is, as Jev reads it"
     )
-    assert 'his ruling e405d69, "Explain what this is what do you mean check"' in refused
-    assert [list(asked["options"]) for asked in jev.named] == [["none", "queue-run", "runtime-api", "check-run-args", "MiB"], ["none", "MiB"], ["none", "MiB"]]
-    jev.named.clear()
-    assert limits.unread(limits.question(CHECK_RUN_ARGS_REDRAWN, kept=True)) == []
-    assert [list(asked["options"]) for asked in jev.named] == [["none", "runtime-api", "type-checks", "MiB"], ["none", "MiB"], ["none", "MiB"]]
+    assert 'his words on a card naming the run_claims table bare, "also what is run claims"' in printed
+    assert "This finding refuses no card, by his pick 320b7a7" in printed
 
 
-def test_job_ask_reads_the_code_a_question_names_even_when_every_option_carries_its_screenshot(
+def test_job_ask_keeps_a_card_naming_code_it_never_explains_and_prints_the_name_even_when_every_option_carries_its_screenshot(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     block = tmp_path / "ask.md"
-    shown = PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(pinned_chats_shots(tmp_path)) + "\n")
-    block.write_text(shown.replace("in the Iris sidebar?", "in the Iris sidebar's SessionList?"))
-    jev.unexplained = {"SessionList": 0.95}
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert "the question, \"Where should pinned chats draw in the Iris sidebar's SessionList?\", names SessionList with no plain words" in capsys.readouterr().err
-    assert (jev.looked, [list(asked["options"]) for asked in jev.named]) == ([], [["none", "SessionList"]])
-    jev.unexplained = {}
-    assert run("job", "ask", asking, str(block))[0] == 0
+    block.write_text(PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(pinned_chats_shots(tmp_path)) + "\n"))
+    jev.unexplained = {"lib/drive/cli.py": 0.95}
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert "drive job ask: kept, but his card names lib/drive/cli.py and never says in plain words what it is" in capsys.readouterr().err
+    assert (jev.looked, jev.named) == ([], ["lib/drive/cli.py"])
+
+
+def test_job_ask_keeps_a_card_showing_a_raw_id_and_prints_each_one_check_post_finds(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], checked: Checked
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    checked.findings = [
+        "1:52 commit-sha 'cf78807': link the commit as <https://github.com/<org>/<repo>/commit/<sha>|<7-char sha>>, or name the release or PR instead",
+        "2:1 drive-term 'the drive': say what happens to the reader's work instead",
+        "2:30 internal-id 'run_claims': link the run or browser page, or describe it in the reader's terms",
+        "3:9 ulid '01JBQZ8V7K3M5N2P4R6S8T0VWX': pod and object ULIDs mean nothing to the reader; link the dashboard or describe the object",
+    ]
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    [raw] = [line for line in capsys.readouterr().err.splitlines() if "raw ids he cannot open" in line]
+    assert raw.startswith("drive job ask: kept, but his card shows cf78807, 01JBQZ8V7K3M5N2P4R6S8T0VWX, raw ids he cannot open: write a recorded answer of his as {answer:<id>}")
 
 
 def test_job_ask_keeps_a_choice_he_reads_about_with_no_screenshot(run: Run, asking: str, tmp_path: Path, jev: Jev) -> None:

@@ -1722,7 +1722,7 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
 
 
 def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, list[dict]]:
-    """The question the job's ASK block puts to him, asked under the --unsettled `asked_unsettled` reads, the words of its `Holds:` line his card holds, and the recorded answers of his its job's brief binds or the block cites, once every check `drive job ask <j>` runs passes but Jev's read of it against his words: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, and of whether its question or an option names code it never says in plain words, by `limits.unread`. `drive job ask <j> --check` and `keep_ask` both check here, so a block one passes the other passes up to Jev's read of his words."""
+    """The question the job's ASK block puts to him, asked under the --unsettled `asked_unsettled` reads, the words of its `Holds:` line his card holds, and the recorded answers of his its job's brief binds or the block cites, once every check `drive job ask <j>` runs passes but Jev's read of it against his words: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, by `limits.unread`, which in the same call prints each code name the card never says in plain words; each raw id `cc-slack check-post` finds on the card as it draws is printed too, refusing nothing, by his pick 320b7a7. `drive job ask <j> --check` and `keep_ask` both check here, so a block one passes the other passes up to Jev's read of his words."""
     from drive import view
 
     data = state.load(name)
@@ -1744,12 +1744,15 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
             f" which already chose it, so no card asks him again: build that option with no ASK, a reader returning DONE with `rulings:` quoting"
             f" {chosen['answer']} and `build:` that option; a card asking him to lift those words names {chosen['answer']} in --unsettled"
         )
+    raw = []
     try:
         found = refs.resolved(name, "\n".join(asked.summary))
     except DriveError as error:
         problems.append(str(error))
     else:
-        if (drawn := limits.card_words(replace(already_answered(asked, tapped), summary=[refs.slack(line, found, None) for line in asked.summary]).card(name, ""))) > limits.QUESTION_WORDS:
+        shown = replace(already_answered(asked, tapped), summary=[refs.slack(line, found, None) for line in asked.summary]).card(name, "")
+        raw = limits.raw_ids(slack.check_post("\n".join([shown["title"], shown["body"], *shown["options"], *(shown.get("hints") or {}).values()]), []))
+        if (drawn := limits.card_words(shown)) > limits.QUESTION_WORDS:
             problems.append(
                 f"the ASK's question, summary and options are {drawn} words as his card draws them, each reference in the summary drawn as"
                 f" the words that name it, an {{order:<o>}} as the first {view.TITLE_CHARS} characters of his order, and at most"
@@ -1801,8 +1804,10 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     if problems:
         raise DriveError(limits.out_of_shape(problems))
     picture.drawn(pictures, asked.show_me)
-    if unread := limits.unread(asked):
-        raise DriveError("; ".join(unread))
+    if raw:
+        print(limits.RAW.format(found=", ".join(raw), advisory=limits.ADVISORY), file=sys.stderr)
+    if unshown := limits.unread(asked):
+        raise DriveError(unshown)
     return asked, holds, recorded
 
 
