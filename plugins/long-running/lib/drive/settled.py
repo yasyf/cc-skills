@@ -685,13 +685,13 @@ def asking(noul: Noul, **slots: object) -> Noul:
     return noul._replace(ask=noul.ask.format(**slots))
 
 
-def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]]) -> tuple[dict, dict[str, Noul], int]:
-    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, how many were left out."""
-    left = 0
+def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]]) -> tuple[dict, dict[str, Noul], list[tuple[dict, dict[str, Noul]]]]:
+    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
+    left: list[tuple[dict, dict[str, Noul]]] = []
     for part, asked in items:
         merged = state | {key: state[key] | value if isinstance(value, dict) and isinstance(state.get(key), dict) else value for key, value in part.items()}
         if size(merged, questions | asked) > REQUEST_CHARS:
-            left += 1
+            left.append((part, asked))
             continue
         state, questions = merged, questions | asked
     return state, questions, left
@@ -733,18 +733,19 @@ COVERS = 0.5
 
 
 def weighed(request: dict) -> dict:
-    """The verdict of the capt-hook pack's one Jev request on a call a drive check refused or a post it hands with his words, as `post_verdict` or `refusal_verdict` gives it, the pack reading only its verdict, hold, warn or pass, and its note."""
+    """The verdict of the capt-hook pack's one Jev request on a call a drive check refused or a post it hands with his words, as `post_verdict` or `refusal_verdict` gives it within the seconds the request leaves it, the pack reading only its verdict, hold, warn or pass, and its note."""
+    left = request.get("seconds")
     if "refusal" in request:
-        return refusal_verdict(request["refusal"]["rule"], request["refusal"]["call"])
-    return post_verdict(request["post"], request["sent"])
+        return refusal_verdict(request["refusal"]["rule"], request["refusal"]["call"], REFUSAL_SECONDS if left is None else min(REFUSAL_SECONDS, left))
+    return post_verdict(request["post"], request["sent"], DECIDE_SECONDS if left is None else min(DECIDE_SECONDS, left))
 
 
-def refusal_verdict(rule: str, call: dict) -> dict:
-    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within REFUSAL_SECONDS the call goes ahead with the refusal beside it as a warning."""
+def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> dict:
+    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with the refusal beside it as a warning."""
     fields = (({"call": {"input": {key: value}}}, {}) for key, value in call["input"].items())
     told, _, _ = fill({"rule": rule, "call": {"tool": call["tool"], "input": {}}}, {"protects": PROTECTS}, fields)
     try:
-        protects = reading(jev(told, {"protects": PROTECTS}, REFUSAL_SECONDS)["protects"])
+        protects = reading(jev(told, {"protects": PROTECTS}, seconds)["protects"])
     except Unheard as failure:
         return {"verdict": "warn", "note": f"Jev gave no verdict ({failure}) on whether this call is what the refusal's rule protects against, so the call goes ahead and the refusal only warns."}
     if protects is None:
@@ -752,7 +753,7 @@ def refusal_verdict(rule: str, call: dict) -> dict:
     return {"verdict": "hold" if protects else "pass", "note": ""}
 
 
-def post_verdict(output: dict, sent: str) -> dict:
+def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> dict:
     """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under NO or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". With sent naming the post Slack already has, by his pick 7bd6634, a held post stays in his DM and its note says to reword it in place."""
     post = output["post"]
     reason = (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
@@ -760,26 +761,18 @@ def post_verdict(output: dict, sent: str) -> dict:
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = post.get("claims") or []
     sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]
-    unread = [claim for claim in claims if reads.get(claim["read"], {}).get("quote", NO_READ).startswith(NO_READ)]
+    unread = [claim for claim in claims if unmatched(reads, claim)]
     uncovered = [index for index, sentence in enumerate(sentences) if reads and not any(covers(claim["claim"], sentence) for claim in claims)]
     words = output.get("his_words") or []
-    base = {"post": {"text": post.get("text") or "", "sentences": sentences} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
-
-    def backed(number: int, claim: dict) -> tuple[dict, dict[str, Noul]]:
-        item = reads[claim["read"]]
-        held = reads.get(item.get("given") or "", item)
-        call, _, result = held["quote"].partition("\n")
-        return {"claims": {f"c{number}": {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"c{number}.backed": asking(BACKED, read=held["id"], claim=f"c{number}")}
-
     asked = [
-        *(backed(number, claim) for number, claim in enumerate(claims, 1) if claim not in unread),
+        *(backed(reads, number, claim) for number, claim in enumerate(claims, 1) if claim not in unread),
         *(({"findings": {f"f{number}": finding}}, {f"f{number}.holds": asking(HOLDS, finding=f"f{number}"), **({f"f{number}.lifted": asking(LIFTED, finding=f"f{number}")} if words else {})}) for number, finding in enumerate(findings, 1)),
         *(({}, {f"s{index}.fact": asking(FACT, index=index)}) for index in uncovered),
         *(({"his_words": {word["id"]: word["quote"]}}, {}) for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]),
     ]
-    told, questions, _ = fill(base, {}, asked)
+    told, questions, _ = fill(post_base(post, sentences), {}, asked)
     try:
-        read = jev(told, questions) if questions else {}
+        read = jev(told, questions, seconds) if questions else {}
     except Unheard as failure:
         return unheard_post(output, reason, sent, str(failure))
     held = [f'claim "{claim["claim"]}" names the read {json.dumps(claim["read"], ensure_ascii=False)}, which matches none of your calls' for claim in unread]
@@ -814,6 +807,35 @@ def post_verdict(output: dict, sent: str) -> dict:
     if unsure:
         return {"verdict": "warn", "note": f"message_limits: Jev is unsure of {'; '.join(unsure)}, so the post {stands}: if one is wrong, reword the post in place.{shown}"}
     return {"verdict": "warn" if reason else "pass", "note": f"message_limits: Jev read no finding's rule as holding against this post, so it {stands}." if reason else ""}
+
+
+def post_base(post: dict, sentences: list[str]) -> dict:
+    """The state every request on a post opens with: the post as Slack gets it, its sentences by index, and each time say drew from the drive's stamps."""
+    return {"post": {"text": post.get("text") or "", "sentences": sentences} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
+
+
+def unmatched(reads: dict[str, dict], claim: dict) -> bool:
+    """Whether the read a claim names matched none of the handler's calls."""
+    return reads.get(claim["read"], {}).get("quote", NO_READ).startswith(NO_READ)
+
+
+def backed(reads: dict[str, dict], number: int, claim: dict) -> tuple[dict, dict[str, Noul]]:
+    """One claim's item: the claim beside the call its read names and that call's whole result, under the read the call was first given under when an earlier read named the same call, so one call goes to Jev once, and one Noul whether that read backs the claim."""
+    item = reads[claim["read"]]
+    held = reads.get(item.get("given") or "", item)
+    call, _, result = held["quote"].partition("\n")
+    return {"claims": {f"c{number}": {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"c{number}.backed": asking(BACKED, read=held["id"], claim=f"c{number}")}
+
+
+def unfit_reads(output: dict) -> list[tuple[str, int]]:
+    """Each read a handler's claims name that Jev's request on the post has no room for beside the post and the claims before it, by the read's id and words and the characters its own call and result add, largest first, each read once: a claim whose read was first given under another read counts that read, never its own, so each size is the size of the call it names."""
+    post = output["post"]
+    reads = {item["id"]: item for item in output.get("reads") or []}
+    sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]
+    claimed = [backed(reads, number, claim) for number, claim in enumerate(post.get("claims") or [], 1) if not unmatched(reads, claim)]
+    _, _, left = fill(post_base(post, sentences), {}, claimed)
+    sized = {f"{read} {json.dumps(reads[read]['read'], ensure_ascii=False)}": size({"reads": {read: held}}, {}) for part, _ in left for read, held in part["reads"].items()}
+    return sorted(sized.items(), key=lambda pair: -pair[1])
 
 
 def unheard_post(output: dict, reason: str, sent: str, failure: str) -> dict:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, install, limits, mcp, picture, refs, render, slack, state, talk, tools, view, watch
+from drive import agents, cli, install, limits, mcp, picture, refs, render, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -87,8 +87,9 @@ LINK_RULE = (
     " or an earlier decision, so he never has to look it up himself."
 )
 KNOWN_RULE = (
-    "A post naming a PR or an error one of his open question cards already asks about links that card, so he reads a failure he"
-    " was already told about as that card's, never as a new one."
+    "A post telling news on what one of his open question cards asks him to decide, the PR its question names or the error its root cause"
+    " quotes, links that card, so he reads a failure he was already told about as that card's, never as a new one; a file, path or name"
+    " both texts mention is no shared subject."
 )
 OWED_TAP_RULE = "Ask for a tap only when one is owed: when he tapped a PR already, or it merged or closed, say what happened to it instead."
 CARD_RULE = 'Anything that says it waits on him carries the card with its buttons, by his words "Anything that says waiting on me you always need to embed the card with the buttons".'
@@ -851,7 +852,7 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all, its rules and its counted findings numbered as its findings are so Jev judges each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
+    """One refusal holding each check's, so a single rewrite fixes them all, its counted findings numbered as its refusals are and each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
     found = [refusal for refusal in refusals if refusal]
     refused = [refusal for refusal in found if not isinstance(refusal, Warned)]
     if unjudged := next((refusal for refusal in refused if isinstance(refusal, agents.Unjudged)), None):
@@ -861,8 +862,8 @@ def every(refusals: list[str | None]) -> str | None:
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
     rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
     counted = "\n".join(f"{index}. {refusal.counted.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled) and refusal.counted)
-    facts = "\n".join(f"{index}. {getattr(refusal, 'found', '') or refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
-    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, counted, found=facts)
+    findings = [finding for refusal in refused for finding in (refusal.findings if isinstance(refusal, agents.Ruled) else [{"rule": refusal, "found": refusal.removeprefix("refused: ")}])]
+    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, counted, findings=findings)
 
 
 def untapped(payload: dict) -> str | None:
@@ -982,7 +983,7 @@ def own_calls(payload: dict) -> dict[str, str]:
 
 
 def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str]) -> dict:
-    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's prompt; that call whole under the first item holding it, and a later item naming that item's id in its place, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, that call opens."""
+    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's prompt; that call whole under the first item holding it, and a later item naming that item's id as given in its place, since one call under two reads doubled Jev's prompt; or none when no call does. Its source names each doc, such as a report or a brief, that call opens."""
     words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
     held = next((call for call in reversed(calls) if words and all(word in call.casefold() for word in words)), None)
     if held is None:
@@ -994,7 +995,16 @@ def called(item: str, read: str, source: str, calls: dict[str, str], given: dict
         "read": read,
         "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
         "quote": f"{held}\n{calls[held]}" if first == item else GIVEN.format(read=first),
-    }
+    } | ({} if first == item else {"given": first})
+
+
+def unroomed(unfit: list[tuple[str, int]]) -> agents.Unjudged:
+    """Why a handler's post waits for narrower reads: Jev weighs each claim against its read whole within settled.REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call", and these reads, each by its own call's size, largest first, leave no room for it; it refuses before say runs, as a post over its word count does, so no claim goes out unweighed."""
+    sizes = "; ".join(f"{read} is {chars:,} characters" for read, chars in unfit)
+    return agents.Unjudged(
+        f"refused: Jev weighs each claim against its read whole within {settled.REQUEST_CHARS:,} characters, and no room is left for {sizes}."
+        " Make a narrower read, a grep or a smaller `cci read` showing only what each claim needs, name it in claims, and call say again."
+    )
 
 
 def main() -> None:
@@ -1007,6 +1017,8 @@ def main() -> None:
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
         judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
+        if unfit := judged and settled.unfit_reads(judged):
+            reason, heard, judged = unroomed(unfit), {}, {}
     except Exception as error:
         if isinstance(error, state.NewerDrive) and install.rechecked(Path(__file__).name, payload):
             return

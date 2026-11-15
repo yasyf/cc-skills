@@ -2769,7 +2769,10 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     error = "cannot set upsert_condition without corresponding upsert writes"
     ask = state.drive_dir("demo") / "asks" / "j1-7.md"
     ask.parent.mkdir(parents=True, exist_ok=True)
-    ask.write_text(f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether https://github.com/acme/app/pull/55 lands.\nFindings:\nRoot cause: the writer sends `{error}`\n")
+    ask.write_text(
+        f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether https://github.com/acme/app/pull/55 lands.\nFindings:\nRoot cause: the writer sends `{error}`,"
+        " set nowhere in infra/rows/k8s/datadog-agent.ts\n"
+    )
     card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=card) | {"waits": "demo:j1-7"})
@@ -2780,7 +2783,8 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     assert say(transcript, text=f'The batch writer still prints "{error}", which {{card:demo:j1-7}} asks about.') is None
     assert say(transcript, text=f'The batch writer still prints "{error}".', about="demo:j1-7") is None
     assert say(transcript, text="The batch writer still prints nothing new.") is None
-    claim = f'Claiming staging to test the batch writer, which still prints "{error}". Does anyone object?'
+    assert say(transcript, text="The `security-agent` entry in `infra/rows/k8s/datadog-agent.ts` now ships.") is None
+    claim =f'Claiming staging to test the batch writer, which still prints "{error}". Does anyone object?'
     assert say(transcript, text=claim, channel_id="C0STAGING1").rule == message_limits.MEMBERS_RULE
     reads(lane_of(transcript), "1.2", channel="C0B75AL4XEW")
     assert message_limits.KNOWN_RULE in say(transcript, text=claim, channel_id="C0B75AL4XEW", thread_ts="1.2").rule

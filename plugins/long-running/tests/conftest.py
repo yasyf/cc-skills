@@ -1043,57 +1043,63 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
 @dataclass
 class Jev:
+    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise; answer None makes every request Unheard."""
+
     asked: list[dict] = field(default_factory=list)
-    answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
+    answer: float | None = 0.05
+    chosen: tuple[str, float] | None = None
     ruled: dict[str, tuple[str, float]] = field(default_factory=dict)
     changes: dict[str, float] = field(default_factory=dict)
     plain: set[str] = field(default_factory=set)
     illustrated: list[str] = field(default_factory=list)
-    looks: float = 0.0
+    looks: float = 0.05
     looked: list[dict] = field(default_factory=list)
     again: set[str] = field(default_factory=set)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
-        self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
+        """Every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
+        self.chosen = None if choice == "none" else (choice, probability)
 
-    def breaks(self, part: str, word_id: str, probability: float = 0.9) -> None:
-        self.ruled[part] = (word_id, probability)
+    def breaks(self, part: str, about: str, probability: float = 0.9) -> None:
+        """The Noul keyed part.about reads yes at probability."""
+        self.ruled[part] = (about, probability)
 
-    def judges(self, questions: dict) -> dict:
-        read = dict.fromkeys(questions, self.answer) | {part: label(word_id, {"none": round(1 - probability, 2), word_id: probability}) for part, (word_id, probability) in self.ruled.items()}
-        return read | {key: {"type": "binary", "p_yes": 0.95 if any(title in spec["binary"]["instructions"] for title in self.again) else 0.05, "confidence": 0.9} for key, spec in questions.items() if "binary" in spec}
+    def sure(self, key: str, state: dict) -> float:
+        question, _, about = key.partition(".")
+        if (ruled := self.ruled.get(question)) and ruled[0] == about:
+            return ruled[1]
+        if key == "illustrates":
+            return 0.05 if code_lines("\n".join(state["code"].values())) in {code_lines(code) for code in self.plain} else 0.95
+        if key == "looks":
+            return self.looks
+        if question.startswith("again") and not about:
+            return 0.95 if state["open"][f"a{question.removeprefix('again')}"] in self.again else 0.05
+        if question == "changes":
+            return self.changes.get(about, 0.05)
+        if self.chosen and self.chosen[0] in key.split("."):
+            return self.chosen[1]
+        return self.answer
 
 
-def label(choice: str, probabilities: dict[str, float]) -> dict:
-    return {"type": "label", "choice": choice, "probabilities": probabilities, "confidence": probabilities[choice]}
+def code_lines(code: str) -> str:
+    """A fence's code as picture.illustrative hands it Jev: its lines that hold words."""
+    return "\n".join(line for line in code.splitlines() if line.strip())
 
 
 @pytest.fixture(autouse=True)
 def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
 
-    def answered(request: dict) -> dict:
-        questions = request["questions"]
+    def answered(state: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float]:
         if "illustrates" in questions:
-            judged.illustrated.append(request["state"]["code"])
-        elif limits.LOOKS in questions:
-            judged.looked.append(request["state"])
+            judged.illustrated.append("\n".join(state["code"].values()))
+        elif "looks" in questions:
+            judged.looked.append(state)
         else:
-            judged.asked.append(request)
+            judged.asked.append({"state": state, "questions": questions})
         if judged.answer is None:
             raise settled.Unheard("no jev decision within 20s")
-        if "illustrates" in questions:
-            p_yes = 0.05 if request["state"]["code"] in judged.plain else 0.95
-            return {"illustrates": {"type": "binary", "p_yes": p_yes, "confidence": 0.9}}
-        if limits.LOOKS in questions:
-            return {limits.LOOKS: label(limits.LOOKS if judged.looks >= 0.5 else "none", {"none": round(1 - judged.looks, 2), limits.LOOKS: judged.looks})}
-        if "changes1" in questions:
-            pages = {key: {"none": 0.9} | {short: probability for short, probability in judged.changes.items() if short in spec["label"]["options"]} for key, spec in questions.items()}
-            return {key: label(max(read, key=read.__getitem__), read) for key, read in pages.items()}
-        if "card" in questions:
-            return judged.judges(questions)
-        ruled = {part: label(word_id, {"none": round(1 - probability, 2), word_id: probability}) for part, (word_id, probability) in judged.ruled.items() if part in questions}
-        return {key: judged.answer for key in questions} | ruled
+        return {key: judged.sure(key, state) for key in questions}
 
     monkeypatch.setattr(settled, "jev", answered)
     return judged
