@@ -6423,7 +6423,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     assert (job["state"], job["waits"]) == ("built", ["demo:j2-3"])
 
 
-def test_a_drive_tooling_orders_part_or_pr_is_refused_as_a_wait_of_his_product_pr_and_with_its_card_on_his_product_builders_waiting_or_built_line(
+def test_a_drive_tooling_orders_part_or_unlanded_pr_is_refused_as_a_wait_of_his_product_pr_and_with_its_card_on_his_product_builders_waiting_or_built_line_but_a_merged_ones_release_is_taken(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -6443,6 +6443,15 @@ def test_a_drive_tooling_orders_part_or_pr_is_refused_as_a_wait_of_his_product_p
         assert (code, f'its line names {named}, the work of a "Drive tooling:" order, which never holds j1\'s work on his product' in err) == (2, True)
     drive = state.load(demo)
     assert (drive["prs"]["Forge-AI/monorepo#7"]["waits"], drive["jobs"]["j1"]["waits"], drive["jobs"]["j1"]["branch"]) == ([], [], None)
+    release, tool = "release:tenant:Forge-AI/monorepo#55857@plat-usw2-prod", "Forge-AI/monorepo#55857"
+    with state.edit(demo) as data:
+        data["prs"][tool] = state.new_pr(state.pr_url(tool), "j9", "o9")
+    code, err = keep(monkeypatch, capsys, "j1", f"WAITING {release}\nCHECK: build 12\n")
+    assert (code, f'its line names {release}, the work of a "Drive tooling:" order' in err) == (2, True)
+    with state.edit(demo) as data:
+        data["prs"][tool]["state"] = "merged"
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {release}\nCHECK: build 12\n") == (0, "")
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [release]
 
 
 def test_a_report_takes_a_waiting_or_built_job_and_a_stopped_ones_is_kept_ahead_of_every_refusal_setting_nothing_until_a_fresh_worker_runs_it(
