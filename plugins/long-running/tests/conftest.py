@@ -710,9 +710,9 @@ def causes() -> dict[str, str]:
 
 @pytest.fixture(autouse=True)
 def kept_logs(monkeypatch: pytest.MonkeyPatch, causes: dict[str, str]) -> list[tuple[str, str]]:
-    """Each dead lane whose Sprite's logs a resume or an end copied to the drive's folder, by job and dispatch, each giving the cause line causes holds for it."""
+    """Each lane whose Sprite's logs a resume or an end copied to the drive's folder, by job and dispatch, each giving the cause line causes holds for it from a Sprite that never faulted."""
     kept: list[tuple[str, str]] = []
-    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)) or causes.get(dispatch))
+    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)) or (causes.get(dispatch), False))
     return kept
 
 

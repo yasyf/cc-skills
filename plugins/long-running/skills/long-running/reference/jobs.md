@@ -377,8 +377,8 @@ before it sends or starts.
   terminal makes. A finished worker is read before its liveness, which Orca cannot always tell
   once a worker is done; when Orca no longer finds
   that terminal or worktree, or shows that terminal no longer connected, the worker counts as
-  dead, and when its Sprite refuses the tools a worker needs, or was made from a cc-remote config
-  other than the one the default branch holds now, as the SHA-256 its launch recorded on the job
+  dead, and when its Sprite faulted, as below, refuses the tools a worker needs, or was made from a
+  cc-remote config other than the one the default branch holds now, as the SHA-256 its launch recorded on the job
   shows, that Sprite is passed over as a dead one's. A dead worker, or one whose
   Sprite's Orca environment is gone, as `drive job end` leaves it, or no longer paired with this
   Mac's Orca (`peer_changed`), is relaunched on a fresh Sprite
@@ -401,7 +401,8 @@ before it sends or starts.
   call so it holds the rulings and carried orders the drive holds now, branch, last line, report,
   PRs and the message, and the output says which ran.
 - A dead lane whose Sprite answers with the Claude session its worker ran there, found by the
-  dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead:
+  dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead,
+  unless that Sprite faulted, as below:
   `cc-remote orca prepare --existing --resume <session>` starts that session again in the
   checkout it left, with a short brief saying why it died, which dispatch it reports on now and
   the message, and nothing is saved, moved or destroyed. A resume that starts no worker falls back
@@ -423,7 +424,13 @@ before it sends or starts.
   that Sprite does not answer or the save fails, the relaunch runs on that Sprite instead, through
   `cc-remote orca prepare --existing`, in the checkout the dead lane left, and the handoff and the
   output name why the save failed. A Sprite that refused a worker's tools is never run on again: it
-  is kept, and the relaunch runs on a fresh Sprite.
+  is kept, and the relaunch runs on a fresh Sprite. Nor is a faulted one: before any reuse of a
+  lane's Sprite, its worker dead or finished, the resume copies that Sprite's logs and reads from
+  them whether its kernel logged a line at error level or worse after init, as an nbd0 I/O error
+  that remounts its root disk read-only does, or its home volume was full. On a fault no session
+  resumes there and no worker continues there, even for a lane Orca could not reach: the lane is
+  saved as above, relaunched on a fresh Sprite, and the faulted Sprite destroyed once saved, else
+  kept.
 - When Orca cannot reach the lane's Sprite, its worker-show refused as `remote_runtime_unavailable`,
   the resume, a launch and `drive pr wake` first wake that Sprite with `orca-reclaim.py --wake`,
   which runs `cc-remote orca reconnect`, then read the lane again. A worker that takes messages gets

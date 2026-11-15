@@ -905,8 +905,8 @@ def death_logs(drive: str, job_id: str, dispatch: str) -> Path:
     return state.drive_dir(drive) / "jobs" / f"{job_id}.{dispatch}.death.txt"
 
 
-def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> str:
-    """Copy to death_logs, once a death, what the Sprite of the job's lane that died on this dispatch holds on why its Orca runtime went down, before a relaunch or an end destroys that Sprite: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events, the kernel's last lines, the ages of its VM and its pid 1, its cgroup's memory.high and memory.peak, and every kernel line at error level or worse; a Sprite ssh cannot read leaves the file saying why. The cause line those copied logs give, by cause."""
+def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> tuple[str, bool]:
+    """Copy to death_logs, once a death, what the Sprite of the job's lane that died or finished on this dispatch holds on why its Orca runtime went down, before a relaunch reuses that Sprite or a relaunch or an end destroys it: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events, the kernel's last lines, the ages of its VM and its pid 1, its cgroup's memory.high and memory.peak, and every kernel line at error level or worse; a Sprite ssh cannot read leaves the file saying why. The cause line those copied logs give and whether that Sprite faulted, by cause."""
     kept = death_logs(drive, job_id, dispatch)
     if not kept.exists():
         try:
@@ -918,13 +918,13 @@ def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> str:
     return cause(kept.read_text())
 
 
-def cause(said: str) -> str:
-    """One line on why a lane's Sprite failed, from what keep_logs copied off it: each kernel line at error level or worse logged after the kernel started init, since a Sprite's boot logs one before init on every Sprite, counted with the first and the last quoted; memory.high, when its cgroup went over it, with memory.peak; the OOM killer's kills; a full home volume; and how long its VM and its pid 1 had run, which shows whether the VM rebooted or only its processes restarted. A Sprite whose read ended before the kernel's lines gives why that read ended."""
+def cause(said: str) -> tuple[str, bool]:
+    """One line on why a lane's Sprite failed, from what keep_logs copied off it, and whether that Sprite faulted, which a kernel line at error level or worse after init or a full home volume says, so no worker runs on it again: each kernel line at error level or worse logged after the kernel started init, since a Sprite's boot logs one before init on every Sprite, counted with the first and the last quoted; memory.high, when its cgroup went over it, with memory.peak; the OOM killer's kills; a full home volume; and how long its VM and its pid 1 had run, which shows whether the VM rebooted or only its processes restarted. A Sprite whose read ended before the kernel's lines gives why that read ended, and no fault."""
     parts = SECTION.split(said)
     read = dict(zip(parts[1::2], parts[2::2], strict=True))
     if KERNEL_ERRORS not in read:
         _, exited, rest = said.rpartition("ssh exited ")
-        return f"its Sprite did not answer: {exited + ' '.join(rest.split()) if exited else said.strip().splitlines()[-1]}"
+        return f"its Sprite did not answer: {exited + ' '.join(rest.split()) if exited else said.strip().splitlines()[-1]}", False
     lines = read[KERNEL_ERRORS].splitlines()
     booted = next((index + 1 for index, line in enumerate(lines) if line.endswith(STARTED_INIT)), 0)
     errors = [found[1] for line in lines[booted:] if (found := KERNEL_LINE.match(line))]
@@ -941,11 +941,11 @@ def cause(said: str) -> str:
         shown.append(f"its memory went over memory.high, {int(high) / GIB:.1f} GiB, {events['high']} times and peaked at {int(peak) / GIB:.1f} GiB")
     if events["oom_kill"] != "0":
         shown.append(f"the OOM killer killed {events['oom_kill']} of its processes")
-    if read[HOME_VOLUME].split()[-2] == "100%":
+    if full := read[HOME_VOLUME].split()[-2] == "100%":
         shown.append("its home volume was full")
     vm, _, pid1 = read[AGES].split()
     shown.append(f"when read, its VM had been up {int(float(vm) // 60)} minutes, its init process {int(pid1) // 60} minutes")
-    return f"its Sprite showed: {'; '.join(shown)}"
+    return f"its Sprite showed: {'; '.join(shown)}", bool(errors) or full
 
 
 def transcripts(drive: str, job_id: str, dispatch: str) -> Path:
