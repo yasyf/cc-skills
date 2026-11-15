@@ -25,7 +25,7 @@ ALT = re.compile(r"!\[([^\]]*)\]")
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 DIAGRAMS = ("arch", "mermaid", "chart", "compare", "dot")
 NATIVE = ("chart",)
-WORDS = ("", "text", "txt", "plain")
+WORDS = ("", "text", "txt", "plain", "markdown", "md")
 TITLE_CHARS = 150
 TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph", "code:": "Code", "image": "Picture"}
 RAW = {
@@ -39,7 +39,8 @@ RAW = {
 }
 INSTEAD = (
     "draw what it means instead, a ```mermaid flow for routing or ownership or a ```mermaid sequenceDiagram for calls"
-    " between services, a ```compare or a markdown table for options or before and after, a ```chart for numbers, or"
+    " between services, a ```compare or a markdown table for options or before and after, an ```arch per option for options"
+    " choosing between architectures, a ```chart for numbers, or"
     " show no picture at all"
 )
 PROMPT = re.compile(r"^[ \t]*(?:\$|%|❯|>>>)[ \t]+\S")

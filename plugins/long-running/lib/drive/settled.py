@@ -188,6 +188,10 @@ LOOKS = Noul(
     "Do `options` differ in how a screen someone sees looks, such as where rows draw in a sidebar, a page's layout, where a control sits or how it is styled, or an icon, so that he must see each option drawn to pick one?",
     no="They differ in something he reads about rather than sees, such as where data is stored, which code runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen.",
 )
+ARCHITECTURES = Noul(
+    "Do `options` choose between architectures, differing in which components, services, processes or stores run, where data lives or how they connect, so that he must compare a diagram of each option's components to pick one?",
+    no="They share one set of components wired the same way and differ only in a value, a rule, a schedule, a message's wording, a cost, a step's order inside one component or how a screen looks.",
+)
 UNEXPLAINED = Noul(
     "He knows the product but not each table, column, function, file, migration or flag in its code. Does the question card in `question`, `summary`, `options` and `show_me` leave him asking what `names.{name}` is for?",
     yes=(

@@ -891,10 +891,17 @@ def long_ack(payload: dict) -> str | None:
 
 
 def raw_visuals(tool_input: dict) -> str | None:
-    """Why say's code visual is raw data or tool output, of which a picture shows him nothing."""
+    """Why say's code visual is raw data or tool output, or its compare visual is no JSON it draws or draws a panel of words or raw data, by the one check `drive job ask` gives a Show me's ```compare, of which a picture shows him nothing."""
+    visuals = tool_input.get("visuals") or []
+    if compared := next((problem for visual in visuals if visual.get("kind") == "compare" and (problem := limits.json_problem("compare", visual["source"]))), None):
+        return agents.Ruled(
+            f"refused: the compare visual {compared}",
+            f"A picture shows him what words cannot, never words or raw data drawn as code, by {limits.WORDS_RULING} and {limits.RAW_RULING}.",
+            found=f"the compare visual {compared}",
+        )
     raw = [
         (visual["source"], what)
-        for visual in tool_input.get("visuals") or []
+        for visual in visuals
         if visual.get("kind") == "code" and (what := picture.raw(visual.get("language") or "", visual["source"]))
     ]
     if not raw:

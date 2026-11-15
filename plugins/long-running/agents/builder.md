@@ -658,7 +658,7 @@ ASK <the question, one line>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
-<each option worked out to what it will look like: its real calls, rows or flow, one compare panel per option, or the real code the choice changes before and after; the numbers>
+<each option worked out to what it will look like: its real calls, rows or flow, one compare panel per option, one arch fence per option, captioned `N · …`, for options choosing between architectures, or the real code the choice changes before and after; the numbers>
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
 - <option: what he gets and what it costs, at most 25 words> (recommended)
@@ -768,7 +768,11 @@ Replaces: <only on a question built on other open questions of his: each one's A
   chain runs past four nodes; a `compare` fence or a markdown table for the options side by side; a
   `chart` fence (a Vega-Lite spec) for numbers, which Slack draws as its own chart, its title at
   most 50 characters, each label at most 20, at most 12 series and 20 categories, 2 charts a card;
-  and an `arch` fence for components. Use a fence naming its language (`sand`, `sql`, `go`) for a
+  and an `arch` fence for components. Options that choose between architectures, which components
+  run, where data lives or how they connect, carry one `arch` fence per option, captioned `N · …`, which
+  his card draws side by side, by his ruling aac1ff4, "when ur comparing 2 architecture design things like this you always need to do an architecvutre diagram (the component, not an imagez) to compare and contrast".
+  A `compare` panel's `code` is real code under the language it is written in, never words under
+  `markdown`, `text` or no language, which go in its `points`. Use a fence naming its language (`sand`, `sql`, `go`) for a
   code or API shape, the real call itself, which draws as a picture only when it illustrates a shape,
   a one-line or trivial snippet such as a value flipped or an argument dropped showing as Slack's code
   block; a real screenshot on a line of its own for a UI, one per option, captioned with its number,
@@ -797,7 +801,9 @@ Replaces: <only on a question built on other open questions of his: each one's A
     URL or name, which its job reads where it is defined, or returns `BLOCKED` naming the read it
     needs;
   - a fence naming no language, or `text`, unless it holds a message or quote, shown as a quote; JSON, YAML, logs, a terminal session, an HTTP exchange, command output or a
-    stack trace in any fence; a chart, compare or arch whose JSON does not parse;
+    stack trace in any fence; a chart, compare or arch whose JSON does not parse; a compare panel
+    whose code names no language, or `markdown` or `text`, or holds raw data, as `say`'s compare
+    visuals are refused;
   - a chart past Slack's limits; a gallery caption with no option number; a left-to-right flow past
     four nodes;
   - a fence of one or two lines declaring a constant; a code fence per option, which belong in one
@@ -806,7 +812,9 @@ Replaces: <only on a question built on other open questions of his: each one's A
     before and an after screenshot kept there is not; a
     picture inside a sentence or table cell; two or more PRs listed by number, which a stack card
     shows; a table with one value in every cell; a `Show me:` with no visual;
-  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option.
+  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
+  - options Jev reads as choosing between architectures with no `arch` fence captioned `N · …` for
+    each option.
 - A card never asks him to tap, approve or hold a PR that `drive status <pr>` shows he tapped, or that
   merged or closed; the post check refuses one.
 - The findings stay on disk: his tap on Explain more posts the one section his question rests on.

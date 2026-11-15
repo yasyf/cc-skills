@@ -296,11 +296,11 @@ Its Show me:
 | The question turns on | Kind | Fence holds |
 |---|---|---|
 | the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language: ```sand, ```sql, ```go |
-| components, data layout or flow between them | arch | `{"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to", "label"}]}`: each id lowercase letters, digits and dashes; kind actor, app, service, worker, store, log, external, artifact or doc; a store or log node adds "medium", one of memory, disk, bucket, keys or pages; an edge may add "kind", one of sync, async, copy or control. `drive pr add` draws it and refuses one that does not draw |
+| components, data layout or flow between them | arch | `{"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to", "label"}]}`: each id lowercase letters, digits and dashes; kind actor, app, service, worker, store, log, external, artifact or doc; a store or log node adds "medium", one of memory, disk, bucket, keys or pages; an edge may add "kind", one of sync, async, copy or control. `drive pr add` draws it and refuses one that does not draw. Options that choose between architectures carry one `arch` per option, captioned `N · …`, so he compares each option's components side by side |
 | routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
 | a graph whose layout carries the point, such as clusters of what runs where | dot | Graphviz source |
 | numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie, which Slack draws as its own chart |
-| a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
+| a tradeoff between options' code | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side, each `code` real code under the language it is written in, never words under `markdown`, `text` or no language, which go in `points` |
 | words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |
 | a draft message or a quote | quote | its sentences, each line opening with `> `, which Slack shows as its own quote, links and all |
 | a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture; options that differ in how a screen looks carry one real screenshot each, captioned `N · …` |
@@ -329,6 +329,8 @@ Its Show me:
   - a fence naming no language or `text` that holds no message or quote, and one holding JSON, YAML, logs, a terminal session,
     an HTTP exchange, command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
   - a chart, compare or arch whose JSON does not parse;
+  - a compare panel whose `code` names no language, or `markdown`, `text` or another language of words, or holds raw
+    data or tool output, the check `say` gives its `compare` visuals too;
   - a chart past Slack's limits above, or more than 2, naming the limit and the value;
   - a markdown table of one column;
   - two or more pictures whose captions do not each open with an option's number;
@@ -342,7 +344,11 @@ Its Show me:
   - options Jev reads as differing in how a screen looks, such as where rows draw in a sidebar, with
     no `![N · …](path)` screenshot for each option, by his ruling 0d2b7df, "this should have
     included images; you include images when they are usless and dont add anyhtng, and then dont
-    when its things like this, its totlly backwards".
+    when its things like this, its totlly backwards";
+  - options Jev reads as choosing between architectures, which components run, where data lives
+    or how they connect, with no ```arch fence captioned `N · …` for each option, by his ruling
+    aac1ff4, "when ur comparing 2 architecture design things like this you always need to do an
+    architecvutre diagram (the component, not an imagez) to compare and contrast".
 - List every member of a set the card counts. `drive job ask` refuses a question, summary or option
   that counts two to twelve things, as "four strategies" or "5 oversized tables" does, unless the
   card lists that many, and so does the post hook on a card no drive kept. It lists them as options,
