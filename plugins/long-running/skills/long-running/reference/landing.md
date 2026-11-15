@@ -663,7 +663,8 @@ the patch.
   carries #55980". By his ruling 17f763e, "Again this is not meant to be codified as hard coded
   rules that fail, the tooling is jsut there to help the agent comply with the prose rules", nothing
   refuses on one. `drive job ask` and `drive job add --release`, `--check` and the job tool's
-  `dry_run` included, send Jev every such note in one request. Beside them goes each start a card's
+  `dry_run` included, send Jev every such note, in as many requests of at most 10,000 characters
+  as release notes fill, read at once, so none goes unread. Beside them goes each start a card's
   options, their descriptions and its Show me name in backticks, or the one start. Each note Jev
   does not read as silent on a start, an unsure read included, prints whole, with what git finds for
   the PRs and commits its title names at the commit that start cuts. Follow its words before you
