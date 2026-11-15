@@ -8514,7 +8514,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
     refusal = capsys.readouterr().err
-    assert "demo:j2-7: his answer a1 is his word on its own card, which needs no mark" in refusal
+    assert "demo:j2-7: on no list of a1 and asking him nothing" in refusal
     assert refusal.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
     code, out = run("answer", "a1", "--superseded", f"{designing}=stop")
     assert out.splitlines() == [
