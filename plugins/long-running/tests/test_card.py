@@ -907,6 +907,18 @@ def test_his_tap_is_recorded_in_cc_notes_once_under_its_cards_question_its_id_ke
     assert [record["attr"]["noted"] for [record] in posted] == [answer_id] * 2
 
 
+def test_his_undo_is_recorded_in_cc_notes_once_under_its_cards_question_as_never_given_and_his_next_tap_records_his_answer_again(
+    drive: str, monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
+) -> None:
+    two_questions_of_j3(drive, monkeypatch)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    ask({"answer": tap})
+    for _ in range(2):
+        ask({"answer": tap | {"undone": True, "action_ts": "1794200002.000100"}})
+    ask({"answer": tap | {"label": "Knock", "action_ts": "1794200003.000100"}})
+    assert noted == [(drive, "Ring or knock?", "Ring"), (drive, "Ring or knock?", card.UNDONE.format(label="Ring")), (drive, "Ring or knock?", "Knock")]
+
+
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
     answer = {
         "repo": "Forge-AI/monorepo",
