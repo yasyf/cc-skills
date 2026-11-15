@@ -6018,7 +6018,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
         data["orders"]["o2"] = order(jobs=["j4413"])
         data["jobs"]["j1"]["prs"].append(state.pr_url(pr))
         data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *(links if named else [])], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
-        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
+        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
     approve(demo, pr)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
     serve(monkeypatch, {pr: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -6079,7 +6079,7 @@ def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_rea
             waits=list(links),
             questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()],
         )
-        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j4413", "o2") | {"head": "aaaaaaa111", "checked": CHECKED, "lander": tried}
+        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j4413", "o2") | {"head": "aaaaaaa111", "base": "main", "checked": CHECKED, "lander": tried}
     approve(demo, pr)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
     serve(monkeypatch, {pr: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -8537,7 +8537,7 @@ def test_a_yasyf_pr_on_the_head_of_a_pr_the_drive_does_not_track_reads_behind_it
     reads = {KEY: read(), REPLAYED_5547: read(headRefOid=HEAD_5547, baseRefName=BASE_5547, headRefName="o43-card-waits", under=REPLAYED_5442, checks=GREEN)}
     serve(monkeypatch, reads)
     watching = watcher(demo)
-    said = [line for minutes in (0, 30, 61, 90) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if REPLAYED_5547 in line]
+    said = [line for minutes in (0, 30, 61, 90) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith((f"STAGE {REPLAYED_5547}", "STUCK"))]
     data = state.load(demo)
     behind = data["prs"][REPLAYED_5547]["stage"]
     assert (behind["name"], behind["owner"], behind["why"]) == (
