@@ -254,6 +254,49 @@ def test_a_launch_local_while_eight_builders_hold_this_macs_slots_starts_on_a_sp
     assert len(launched) == 1
 
 
+def test_a_resume_of_a_builder_none_started_waiting_its_turn_holds_its_text_for_the_first_worker_the_watch_starts(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove it on a Mac")
+    run("job", "add", "builder", "--order", "o1", "--goal", "prove it on a Mac")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    brief = tmp_path / "mac.md"
+    brief.write_text("Order (his words): prove it on a Mac\nServes: his order\nMac: prove it on a Mac box with ci mac-box prove\nResearched: j0\nDrive: demo, order o1, job j1\n")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    launched: list[str] = []
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, kept, *rest: launched.append(kept.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert cli.main(["job", "launch", "j1", "mac.md", "--local"]) == 2
+    assert capsys.readouterr().err.endswith("so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch's FREE line names it as a slot opens\n")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief"] = str(brief)
+    assert run("job", "resume", "j1", "rebase on main first") == (
+        0,
+        "j1: held for its first worker under From the coordinator since:, since none has started: it waits its turn for a builder slot on this Mac,"
+        " 1 of 1 in line, and the watch starts that worker as its turn comes, its brief carrying each text the job holds",
+    )
+    held = state.load(demo)
+    job = held["jobs"]["j1"]
+    assert (job["state"], job["waits"], [kept["words"] for kept in job["undelivered"]], watch.carrier("j1", job, held, None), launched) == (
+        "waiting",
+        [state.SLOT_WAIT],
+        ["rebase on main first"],
+        None,
+        [],
+    )
+    run("job", "set", "j2", "--state", "stopped")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(waits=[], slot=state.stamp())
+    freed = state.load(demo)
+    assert watch.carrier("j1", freed["jobs"]["j1"], freed, None) == ["job", "launch", "j1", "--local"]
+    assert run("job", "launch", "j1", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
+    [first] = launched
+    assert ("\nFrom the coordinator since:\n- rebase on main first\n" in first, state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, [])
+
+
 def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
