@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import REAL_DOWN_MAC_BOXES
+from conftest import REAL_DOWN_MAC_BOXES, carrying
 from drive import github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
@@ -593,33 +593,36 @@ def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_
     )
 
 
-def test_a_drive_saved_before_proofs_posted_keeps_work_delivered_only_where_drive_job_prove_proved_it(state_root: Path) -> None:
+def test_a_drive_saved_before_proofs_proven_keeps_work_delivered_only_where_drive_job_prove_proved_it_and_puts_back_a_superseded_job_its_proof_failed(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
-    del data["proofs_posted"]
-    proven, merged, ended, staging, answered = "the proven fix", "the merged fix", "the ended fix", "staging test of #7 before it lands", "why it broke"
+    del data["proofs_proven"]
+    data["proofs_posted"] = True
+    proven, merged, ended, staging, answered, moved = "the proven fix", "the merged fix", "the ended fix", "staging test of #7 before it lands", "why it broke", "Bulk-apply spike"
     link = "https://github.com/yasyf/cc-skills/pull/7"
     post = "https://acme.slack.com/archives/D123/p1794200040000500"
     build = "https://buildkite.com/forge/release/builds/16112"
-    parts = {proven: state.new_part(), merged: state.new_part() | {"posted": link}, ended: state.new_part(), staging: state.new_part() | {"posted": build}}
+    proof = f"{link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"
+    parts = {proven: state.new_part(), merged: state.new_part() | {"posted": link}, ended: state.new_part(), staging: state.new_part() | {"posted": build}, moved: state.new_part()}
     data["orders"] = {
-        "o1": state.new_order("fix it", "slack", None, parts, state.stamp()) | {"kind": "build", "jobs": ["j1", "j2", "j3"]},
+        "o1": state.new_order("fix it", "slack", None, parts, state.stamp()) | {"kind": "build", "jobs": ["j1", "j2", "j3", "j4", "j5"]},
         "o2": state.new_order(answered, "slack", None, {answered: state.new_part() | {"posted": post}}, state.stamp()) | {"kind": "answer", "jobs": []},
     }
+    first, later = "2026-11-15T04:19:00-08:00", "2026-11-15T05:19:00-08:00"
+    pinned = "DONE duckdb-spike-bulk-apply at d9bf4dd ran every case"
     data["jobs"] = {
-        "j1": state.new_job("o1", "builder", "prove it", [proven], state.stamp()) | {"state": "done", "said": f"DONE {link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"},
-        "j2": state.new_job("o1", "builder", "merge it", [merged, staging], state.stamp()) | {"state": "done", "said": f"DONE {link} merged: yasyf/cc-skills#7 at abc123"},
-        "j3": state.new_job("o1", "codex", "end it", [ended], state.stamp()) | {"state": "done", "said": "DONE checked by hand"},
+        "j1": state.new_job("o1", "builder", "prove it", [proven], first) | {"state": "done", "said": f"DONE {proof}", "prs": [link]},
+        "j2": state.new_job("o1", "builder", "merge it", [merged, staging], first) | {"state": "done", "said": f"DONE {link} merged: yasyf/cc-skills#7 at abc123"},
+        "j3": state.new_job("o1", "codex", "end it", [ended], first) | {"state": "done", "said": "DONE checked by hand"},
+        "j4": state.new_job("o1", "builder", "spike it", [moved], first) | {"state": "failed", "said": "BLOCKED j4: repro/j4.sh exits 1", "proof": {"pid": 1, "at": first, "said": pinned, "version": "1.0.1168"}},
+        "j5": state.new_job("o1", "builder", "move it on", [moved], later) | {"state": "failed", "said": "BLOCKED j5: repro/j5.sh exits 1", "proof": {"pid": 1, "at": later, "said": "DONE at f05ceac", "version": "1.0.1168"}},
     }
+    data["prs"] = {"yasyf/cc-skills#7": state.new_pr(link, "j1", "o1") | {"state": "merged", "merged_sha": "abc123", "head": "abc123", "checker": carrying("abc123", {})}}
     state.create(data)
     loaded = state.load("demo")
-    assert {part: loaded["orders"]["o1"]["parts"][part]["posted"] for part in parts} == {
-        proven: f"{link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3",
-        merged: None,
-        ended: None,
-        staging: build,
-    }
-    assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["proofs_posted"]) == (post, True)
+    assert {part: loaded["orders"]["o1"]["parts"][part]["posted"] for part in parts} == {proven: proof, merged: None, ended: None, staging: build, moved: None}
+    assert [(loaded["jobs"][job_id]["state"], loaded["jobs"][job_id]["said"]) for job_id in ("j4", "j5")] == [("done", pinned), ("failed", "BLOCKED j5: repro/j5.sh exits 1")]
+    assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["proofs_proven"], "proofs_posted" in loaded) == (post, True, False)
 
 
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:

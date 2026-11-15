@@ -3139,7 +3139,7 @@ def merged_carrying(job_id: str, order_id: str, carried: dict[str, list[str]]) -
     return state.new_pr(state.pr_url(OTHER), job_id, order_id) | {"state": "merged", "merged_sha": "c0ffee1234", "head": "bbbbbbb222", "checker": carrying("bbbbbbb222", carried)}
 
 
-def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of_that_builders_done_where_the_checked_diff_of_its_merged_pr_carries_it(
+def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of_that_builders_done_where_the_checked_diff_of_its_merged_pr_carries_it_and_its_own_part_by_the_proof_alone(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
@@ -3167,7 +3167,7 @@ def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of
     with state.edit(demo) as data:
         install.finish(demo, data, "j1", f"DONE j1 live: {proof_file(tmp_path)} exits 0 on no plugin of this Mac", [], "", "")
     data = state.load(demo)
-    assert [state.delivered(data, order_id, part) for order_id, part in (("o2", "stack 2"), ("o2", "stack 1"), ("o1", "ship the watch"))] == [True, False, False]
+    assert [state.delivered(data, order_id, part) for order_id, part in (("o2", "stack 2"), ("o2", "stack 1"), ("o1", "ship the watch"))] == [True, False, True]
 
 
 def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_never_one_it_carries_for_another_order(demo: str) -> None:
@@ -8162,32 +8162,38 @@ def test_a_merged_ready_job_whose_merged_diff_no_check_has_judged_starts_one_che
     assert (state.carried(data["prs"][OTHER]), state.delivered(data, "o1", "ship the watch"), "j2" in data["jobs"]) == ({}, False, False)
 
 
-def test_a_proven_done_on_a_merged_pr_no_check_judged_starts_its_check_whose_carried_parts_its_proof_delivers_and_a_diff_carrying_none_leaves_its_orphan(
+def test_a_proven_done_on_a_merged_pr_delivers_its_own_orders_part_by_its_proof_whatever_the_check_found_and_a_carried_part_of_another_order_only_once_the_check_names_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
 ) -> None:
     serve(monkeypatch, {})
     proof = f"{state.pr_url(YASYF)} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"
+    carried = "page kit"
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee", "head": "bbbbbbb222"}
-        data["jobs"]["j1"].update(state="done", said=f"DONE {proof}", prs=[state.pr_url(YASYF)], updated=state.stamp(T0 - timedelta(hours=1)))
+        data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()})
+        data["jobs"]["j1"].update(state="done", said=f"DONE {proof}", prs=[state.pr_url(YASYF)], carries={"o2": [carried]}, updated=state.stamp(T0 - timedelta(hours=1)))
+    with state.edit(demo) as data:
+        state.deliver_proven(data, "j1", proof)
     watching = watcher(demo)
 
     def orphans(moment: datetime) -> list[str]:
         return [line for line in watch.run_pass(watching, moment) if line.startswith("ORPHAN")]
 
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["parts"]["ship the watch"]["posted"], state.delivered(data, "o2", carried)) == (proof, False)
     assert (orphans(T0), checkers) == ([], [YASYF])
     judge.carried = []
     assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
     data = state.load(demo)
-    assert (state.carried(data["prs"][YASYF]), state.delivered(data, "o1", "ship the watch")) == ({}, False)
-    assert ([line.startswith('ORPHAN o1 "ship the watch": ') for line in orphans(T0 + timedelta(minutes=1))], checkers) == ([True], [YASYF])
+    assert (state.carried(data["prs"][YASYF]), data["orders"]["o1"]["parts"]["ship the watch"]["posted"], state.delivered(data, "o2", carried)) == ({}, proof, False)
+    assert ([line.startswith(f'ORPHAN o2 "{carried}": ') for line in orphans(T0 + timedelta(minutes=1))], checkers) == ([True], [YASYF])
     with state.edit(demo) as data:
         data["prs"][YASYF].update(checker=None, checked=None)
     judge.carried = None
     assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
     data = state.load(demo)
-    assert (state.carried(data["prs"][YASYF]), data["orders"]["o1"]["parts"]["ship the watch"]["posted"]) == ({"o1": ["ship the watch"]}, proof)
+    assert (state.carried(data["prs"][YASYF])["o2"], data["orders"]["o2"]["parts"][carried]["posted"]) == ([carried], proof)
     assert (orphans(T0 + timedelta(minutes=2)), checkers) == ([], [YASYF])
 
 
