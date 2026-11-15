@@ -299,6 +299,15 @@ def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_ba
     assert (hooks.read_text(), config.read_text()) == kept
 
 
+def test_codex_trusts_landing_guard_under_its_home_as_codex_resolves_it_through_a_symlink(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path.resolve() / "private" / "codex-home"
+    home.mkdir(parents=True)
+    (tmp_path / "linked-home").symlink_to(home)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "linked-home"))
+    codex.guarded()
+    assert list(tomllib.loads((home / "config.toml").read_text())["hooks"]["state"]) == [f"{home / 'hooks.json'}:pre_tool_use:0:0"]
+
+
 def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_whose_words_name_it(
     demo: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
 ) -> None:
