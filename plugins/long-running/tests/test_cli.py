@@ -3863,6 +3863,21 @@ def test_a_question_longer_than_a_cc_notes_title_is_recorded_under_it_cut_on_a_w
     assert f"on {DESIGN_CARD}: usage: title is empty" in str(error.value)
 
 
+def test_his_answer_supersedes_each_answer_of_the_drives_still_standing_under_the_same_question_and_no_other(monkeypatch: pytest.MonkeyPatch, recorded: Answers) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(argv) or json.dumps({"id": "knocker"}))
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
+    recorded.listed = [
+        {"id": "bell", "title": "Bell or knocker?", "body": "Bell", "tags": ["scope:durable", "drive:demo"], "created_at": "2026-11-12T08:00:00Z"},
+        {"id": "spaced", "title": "bell  or Knocker?", "body": "Bell", "tags": ["drive:demo"], "created_at": "2026-11-12T08:05:00Z"},
+        {"id": "ring", "title": "Ring or knock?", "body": "Ring", "tags": ["drive:demo"], "created_at": "2026-11-12T08:10:00Z"},
+        {"id": "elsewhere", "title": "Bell or knocker?", "body": "Bell", "tags": ["drive:other"], "created_at": "2026-11-12T08:15:00Z"},
+    ]
+    assert settled.recorded("demo", "Bell or knocker?", "Knocker", [], DESIGN_CARD, "/") == "knocker"
+    assert [argv[2:] for argv in calls[1:]] == [["supersede", "spaced", "--by", "knocker"], ["supersede", "bell", "--by", "knocker"]]
+    assert calls[0][2:4] == ["add", "--title=Bell or knocker?"]
+
+
 def test_job_ask_prints_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_refuses_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
 ) -> None:
