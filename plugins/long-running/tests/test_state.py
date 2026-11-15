@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import install, reads, served, settled, stage, state
+from drive import github, install, reads, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -1212,6 +1212,69 @@ def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_is_the_newes
         (True, newer, "j2"),
         (False, None, None),
     ]
+
+
+def git_head(clone: Path, *args: str) -> str:
+    subprocess.run(["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True)
+    return subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_that_deployed_a_commit_carrying_their_heads_to_staging_as_j4507s_soak_build_did_not(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone = tmp_path / "monorepo"
+    (clone / "infra" / "envs").mkdir(parents=True)
+    (clone / "infra" / "envs" / "plat-usw2-staging.yaml").write_text("name: plat-usw2-staging\nstage: staging\n")
+    (clone / "infra" / "envs" / "plat-usw2-prod.yaml").write_text("name: plat-usw2-prod\nstage: prod\n")
+    subprocess.run(["git", "init", "-q", "-b", "dev", str(clone)], check=True)
+    git_head(clone, "commit", "-q", "--allow-empty", "-m", "base")
+    git_head(clone, "switch", "-q", "-c", "parts")
+    heads = []
+    for path, subject in (("layout.rs", "a table layout is key ranges"), ("reach.rs", "routed by Layout::reach")):
+        (clone / path).write_text(f"{subject}\n")
+        git_head(clone, "add", path)
+        heads.append(git_head(clone, "commit", "-q", "-m", subject))
+    bottom, tip = heads
+    git_head(clone, "switch", "-q", "dev")
+    soak = git_head(clone, "commit", "-q", "--allow-empty", "-m", "soak scenarios")
+    git_head(clone, "switch", "-q", "-c", "half")
+    half = git_head(clone, "cherry-pick", bottom)
+    git_head(clone, "switch", "-q", "-c", "cut", "dev")
+    cut = git_head(clone, "cherry-pick", bottom, tip)
+    data = state.new_drive("demo", "coordinator", None, str(clone))
+    state.create(data)
+    data = state.load("demo")
+    created, part = "2026-11-14T10:00:00-08:00", "a table layout is key ranges over files"
+    data["orders"] = {"o1": state.new_order("ship table layouts", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {part: state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "ship table layouts", [part], created) | {"state": "waiting"},
+        "j2": state.new_job("o1", "builder", "the stack deployed to staging, frozen there and thoroughly tested", [part], created) | {"state": "running", "builds_nothing": True},
+    }
+    keys = [f"{MONOREPO}#4201", f"{MONOREPO}#4202"]
+    data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/{key.rsplit('#', 1)[1]}", "j1", "o1") | {"head": head, "waits": ["j2"]} for key, head in zip(keys, (bottom, tip))}
+    apply = {"state": "passed", "step_key": "apply-sandsql--plat-usw2-staging"}
+    builds = {
+        "16203": {"commit": soak, "jobs": [{"state": "passed", "step_key": "soak-staging"}]},
+        "16085": {"commit": half, "jobs": [apply]},
+        "16090": {"commit": cut, "jobs": [{"state": "passed", "step_key": "apply-sandsql--plat-usw2-prod"}, {"state": "failed", "step_key": "apply-sandsql--plat-usw2-staging"}]},
+        "16086": {"commit": cut, "jobs": [apply]},
+    }
+    monkeypatch.setattr(github, "build", lambda pipeline, number: builds[number])
+
+    def done(job_id: str, *numbers: str) -> str | None:
+        report = "DONE the stack ran its tests on staging\n" + "".join(f"CHECK: https://buildkite.com/forge/release/builds/{number}\n" for number in numbers)
+        return state.result_refusal(data, job_id, report.splitlines()[0], report)
+
+    soaked, halved, prod, none = done("j2", "16203"), done("j2", "16085"), done("j2", "16090"), done("j2")
+    assert "j2's DONE frees Forge-AI/monorepo#4201, Forge-AI/monorepo#4202 from waiting on its staging test" in soaked
+    assert "https://buildkite.com/forge/release/builds/16203 deployed nothing to staging" in soaked
+    assert halved.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting")
+    assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
+    assert "16090 deployed nothing to staging" in prod
+    assert none.endswith("they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit> while staging does not run it yet")
+    assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j1", "16203")] == [None, None, None]
+    data["jobs"]["j2"]["goal"] = "read the layout's key ranges"
+    assert done("j2", "16203") is None
 
 
 def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(state_root: Path) -> None:
