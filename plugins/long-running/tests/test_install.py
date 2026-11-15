@@ -13,7 +13,7 @@ from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
 
 import pytest
-from conftest import REAL_PLUGIN_COPIES_FIRST, commit_files, git_in, Jev
+from conftest import REAL_PLUGIN_COPIES_FIRST, carrying, commit_files, git_in, Jev
 from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, view, watch
 
 SHA = "abc123def4567890"
@@ -1398,7 +1398,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
         part = "Drive tooling: prove each install"
         data["orders"]["o1"] = state.new_order(part, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {"state": "waiting", "said": f"PUSHED {URL}", "prs": [URL], "repro": str(script)}
-        data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install"}
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install", "checker": carrying("", {"o1": [part]})}
     return script
 
 
@@ -1466,7 +1466,7 @@ def handing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -
     with state.edit("demo") as data:
         data["orders"]["o1"]["jobs"].insert(0, "j0")
         data["jobs"]["j0"] = state.new_job("o1", "builder", "fix", [], state.stamp()) | {"state": "done", "said": f"DONE {PRODUCT} merged", "prs": [PRODUCT]}
-        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(PRODUCT, "j0", "o1") | {"state": "merged", "merged_sha": "fedcba", "title": "Fix: the product change"}
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(PRODUCT, "j0", "o1") | {"state": "merged", "merged_sha": "fedcba", "title": "Fix: the product change", "checker": carrying("", {"o1": data["jobs"]["j1"]["parts"]})}
     return script
 
 
@@ -1764,7 +1764,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
         data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         flags = {"native": page, "interactions": "open a run's page", "done_when": "the PR is green on dev"}
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None, parts=[shipped], carries={"o2": [carried]}, brief_flags=flags, session="s-1")
-        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page", "checker": carrying("", {"o1": [shipped], "o2": [carried]})}
         reach = {"Forge-AI/monorepo#9": {"components": ["api", "sandsql", "web"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"]}, "Forge-AI/monorepo#10": {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}}
         install.merged_done("demo", data, "j1")
         builder_id = install.add_prover(data, "j1", reach, {"o1": [shipped], "o2": [carried]}, set())
@@ -2058,7 +2058,8 @@ def test_a_pr_merged_and_proved_before_the_watch_reads_it_names_its_close_report
         data["jobs"]["j1"]["prs"] = []
     cli.add_pr("demo", "yasyf/cc-skills#7", "j1", card.read("yasyf/cc-skills#7"))
     with state.edit("demo") as data:
-        data["prs"]["yasyf/cc-skills#7"].update(state="merged", merged_sha=SHA)
+        merged = data["prs"]["yasyf/cc-skills#7"]
+        merged.update(state="merged", merged_sha=SHA, checker=carrying(merged["head"], {"o1": data["jobs"]["j1"]["parts"]}))
     install.prove("demo", "j1", 900)
     report = state.load("demo")["orders"]["o1"]["close_report"]
     assert (report["text"], report["body"].splitlines()[0]) == (f"POST {title} is live in long-running@skills 1.0.3", f"Fixed: {title}, {URL}")

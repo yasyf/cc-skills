@@ -642,6 +642,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "replaced_ended": True,
         "change_builders_unwaited": True,
         CARDS_NOTED: True,
+        "delivered_by_prs": True,
     }
 
 
@@ -899,6 +900,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             pr["checker"].pop("objected", None)
             pr["checker"].setdefault("orders", None)
             pr["checker"].setdefault("answers", None)
+            pr["checker"].setdefault("carried", None)
         pr.setdefault("ejected", False)
         pr.setdefault("flaky", None)
         if pr["flaky"]:
@@ -916,6 +918,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             checked.setdefault("lines", {})
             checked.setdefault("read", checked["head"])
             checked.setdefault("beside", {})
+            checked.setdefault("carried", None)
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         pr.setdefault("lead", None)
@@ -1008,6 +1011,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         own_staging_proofs(name, data)
     if not data.get("change_builders_unwaited"):
         unwait_change_builders(data)
+    if not data.get("delivered_by_prs"):
+        posted_from_jobs(data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1077,6 +1082,20 @@ def unwait_change_builders(data: dict) -> None:
             if job["state"] == "waiting" and not job["waits"]:
                 job["state"] = "running"
     data["change_builders_unwaited"] = True
+
+
+def posted_from_jobs(data: dict) -> None:
+    """Keep the mark of each part of work he ordered that a done builder or codex job delivered while a job's DONE delivered every part it held, by the link of the first merged PR that job opened or proves, now that only a merged PR whose checked diff carries a part delivers it; a part whose job merged no PR keeps none, so it reads undelivered, but an act no PR carries, by acted; marked so this runs once."""
+    for order_id, order in data["orders"].items():
+        for part, held in order["parts"].items():
+            if held["standing"] or STAGING_PART.fullmatch(part) or held["posted"] and PR_URL.search(held["posted"]) or not work(data, order_id, part):
+                continue
+            done = [(job_id, job) for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] == "done" and not done_at_merge(job)]
+            if any(acted(data, job_id, order_id, part) for job_id, _ in done):
+                continue
+            if merged := [key for job_id, _ in done for key in opened_or_proven(data, job_id) if data["prs"][key]["merged_sha"]]:
+                held["posted"] = data["prs"][merged[0]]["url"]
+    data["delivered_by_prs"] = True
 
 
 def cite_returned_designs(name: str, data: dict) -> None:
@@ -1661,6 +1680,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     post_staging_proof(data, job_id, line, report)
+    if taken == "done" and job["kind"] in CHANGE_KINDS and not MERGED_LINE.match(line):
+        post_carried(data, job_id, f"{line}\n{report}")
     if held := unlanded_done(data, job_id):
         hold_done(job, held)
     if built := BUILT_LINE.match(line):
@@ -2190,16 +2211,58 @@ def staged(data: dict, order_id: str, part: str) -> bool:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; work he ordered once a builder or codex job on it returned DONE, which waits on each PR of its own not yet landed by hold_done, never the DONE the watch takes at a merge, which proves nothing live, or drive order posted recorded the merged PR that delivered it, whatever a post says, and words he reads once posted to him or built by a builder that returned DONE."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; work he ordered once its posted link names the merged PR that delivered it, the one whose merged diff the check found carries it, posted by the DONE of the job proving it, by post_carried, or the one drive order posted or drive pr set --part recorded, whatever a job's DONE or a post says, and an act no PR carries, by acted, once the builder or codex job doing it returned DONE, never the DONE the watch takes at a merge, which proves nothing live; and words he reads once posted to him or built by a builder that returned DONE."""
     if data["orders"][order_id]["parts"][part]["standing"]:
         return False
     if STAGING_PART.fullmatch(part):
         return staged(data, order_id, part)
-    done = {job["kind"] for _, job in part_jobs(data, order_id, part) if job["state"] == "done" and not done_at_merge(job)}
+    done = [(job_id, job) for job_id, job in part_jobs(data, order_id, part) if job["state"] == "done" and not done_at_merge(job)]
     posted = data["orders"][order_id]["parts"][part]["posted"]
     if work(data, order_id, part):
-        return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
-    return "builder" in done or bool(posted)
+        return bool(posted and PR_URL.search(posted)) or any(job["kind"] in CHANGE_KINDS and acted(data, job_id, order_id, part) for job_id, job in done)
+    return any(job["kind"] == "builder" for _, job in done) or bool(posted)
+
+
+def acted(data: dict, job_id: str, order_id: str, part: str) -> bool:
+    """Whether a job's work on a part is an act no PR carries, which its DONE delivers: an open or closed incident's part but its fix, such as its stop or rollback, which the incident's own proof follows, or the whole of a repair that opened no PR, by install.repair, once drive job prove ran its proof file, so a repair's own word delivers nothing either."""
+    from drive import install
+
+    return bool(data["orders"][order_id]["incident"]) and part != INCIDENT_FIX or install.repair(data, job_id) and bool(data["jobs"][job_id].get("proof"))
+
+
+def carried(pr: dict) -> dict[str, list[str]] | None:
+    """The parts of each order the check of the PR's change at its head found its diff carries, or None while no check at that head named them."""
+    checker = pr["checker"]
+    return checker["carried"] if checker and checker["head"] == pr["head"] else None
+
+
+def carried_by(data: dict, keys: list[str]) -> dict[str, list[str]]:
+    """The parts of each order the merged diffs of these PRs carry, as the check of each at its merged head named them."""
+    found: dict[str, list[str]] = {}
+    for key in keys:
+        if data["prs"][key]["merged_sha"]:
+            for order_id, parts in (carried(data["prs"][key]) or {}).items():
+                found[order_id] = list(dict.fromkeys([*found.get(order_id, []), *parts]))
+    return found
+
+
+def opened_or_proven(data: dict, job_id: str) -> list[str]:
+    """The drive PRs a job opened, and those a prover's goal names, as add_prover writes it."""
+    job = data["jobs"][job_id]
+    goal = PROVER_GOAL.fullmatch(job["goal"]) if job["kind"] == "builder" else None
+    keys = [*map(pr_key, job["prs"]), *(named_prs(data, job["order"], goal["keys"]) if goal else [])]
+    return [key for key in dict.fromkeys(keys) if key in data["prs"]]
+
+
+def post_carried(data: dict, job_id: str, words: str) -> None:
+    """Deliver each part of work he ordered a change job's DONE holds that a merged PR it opened, proves or names in words carries, as the check of that PR's merged diff names it, by that PR's link, the one mark delivered reads for such work; a part a merged PR already delivered keeps its link."""
+    job = data["jobs"][job_id]
+    for key in dict.fromkeys([*opened_or_proven(data, job_id), *named_prs(data, job["order"], words)]):
+        for order_id, parts in carried_by(data, [key]).items():
+            for part in parts:
+                held = data["orders"][order_id]["parts"].get(part)
+                if held and part in job_parts(job, order_id) and not (held["posted"] and PR_URL.search(held["posted"])):
+                    held["posted"] = data["prs"][key]["url"]
 
 
 def staging_tested(data: dict, key: str) -> bool:

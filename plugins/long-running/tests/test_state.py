@@ -471,7 +471,7 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     typed = state.new_close("answered", "Ring", "https://acme.slack.com/archives/D1/p1794600900000100", seq="699080", at=other)
     questions = [("Which raw_sql forms?", tap), ("Which forms take it?", tap | {"how": "superseded", "by": "demo:j1-1"}), ("Ring or knock?", typed)]
     data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], taken) | {"questions": [state.new_question(None, title, taken, closed=closed) for title, closed in questions]}}
-    checker = {"head": "abc", "pid": 1, "at": taken, "orders": None, "answers": None, "outcome": "NOT READY", "against": ""}
+    checker = {"head": "abc", "pid": 1, "at": taken, "orders": None, "answers": None, "outcome": "NOT READY", "against": "", "carried": None}
     read_tap = [f'demo:j1-1794600337558, {state.parse_time(taken).astimezone().isoformat(timespec="seconds")}, asked "Which raw_sql forms?": "Optional NONE"']
     read_typed = [f'demo:j1-1794600900000, {state.parse_time(other).astimezone().isoformat(timespec="seconds")}, asked "Ring or knock?": "Ring"']
     data["prs"] = {
@@ -503,7 +503,7 @@ def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_th
     cited = f'11f8cf2, {asked}, asked "Keep the handoff metric?": "Land both"'
     options = 'the options his card "Keep the handoff metric?" offered, numbered as it drew them: Option 1 (recommended): Land both'
     near = f'0df9263, {asked}{state.SUBJECT_LABEL}Keep the handoff metric?", asked "Which chart for the dashboard?": "bar charts only"'
-    passed = {"head": "abc", "pid": 1, "at": asked, "orders": ["o1"], "answers": [], "outcome": "CHECKED against the words of o1 at abc", "against": ""}
+    passed = {"head": "abc", "pid": 1, "at": asked, "orders": ["o1"], "answers": [], "outcome": "CHECKED against the words of o1 at abc", "against": "", "carried": None}
     objected = passed | {"outcome": f'NOT READY: yasyf/cc-skills#4 go against his words: 0df9263 "bar charts only": draws a line chart. His answers the check read, each whole: {near}', "against": '0df9263 "bar charts only": draws a line chart'}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], asked)}
     data["prs"] = {
@@ -529,7 +529,7 @@ def test_a_drive_saved_with_a_stack_refused_for_a_ruling_write_its_own_pr_makes_
     del data["stack_writes_read"]
     at = "2026-11-15T00:40:00-08:00"
     owes = f'c0de123 "Key the cache on the run id": Forge-AI/monorepo#1 changes go/sand/cache/key.go, under go/sand/cache, and no AGENTS.md at or above go/sand/cache holds these words of his at the tip of its base branch, at the head of another open PR or in its diff; add them verbatim with their date to the AGENTS.md nearest go/sand/cache, by his ruling {served.WRITES_RULING}, "{served.WRITES_WORDS}"'
-    refused = {"head": "abc", "pid": 1, "at": at, "orders": ["o1"], "answers": [], "outcome": f"NOT READY: Forge-AI/monorepo#1, Forge-AI/monorepo#2 go against his words: {owes}", "against": owes}
+    refused = {"head": "abc", "pid": 1, "at": at, "orders": ["o1"], "answers": [], "outcome": f"NOT READY: Forge-AI/monorepo#1, Forge-AI/monorepo#2 go against his words: {owes}", "against": owes, "carried": None}
     judged = refused | {"outcome": 'NOT READY: Forge-AI/monorepo#3 go against his words: o1 "one store": adds a second store', "against": 'o1 "one store": adds a second store'}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], at)}
     data["prs"] = {
@@ -1208,7 +1208,7 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
 ) -> None:
     make("demo")
     data = state.load("demo")
-    del data["open_dones_held"]
+    del data["open_dones_held"], data["delivered_by_prs"]
     created = "2026-11-14T10:00:00-08:00"
     change, staging, read_part = "ship the writer", "staging test of #42 before it lands", "the reader"
     proof, open_url, merged_url = "https://buildkite.com/forge/release/builds/16112", "https://github.com/Forge-AI/monorepo/pull/42", "https://github.com/Forge-AI/monorepo/pull/43"

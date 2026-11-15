@@ -129,7 +129,7 @@ his words "your messages need to be way shorter rewrite this for a human".
   post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
   work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part
   `drive order set <o> --kind answer --part "<part>"` sorted as an answer that no builder, codex or design job holds, since only a
-  builder or codex job returning `DONE`, or a merged PR, does, so `record_lines` refuses a report naming one
+  merged PR whose checked diff carries it does, or a `DONE` on an act no PR carries, so `record_lines` refuses a report naming one
   on an order it does not close. A progress
   line's report names neither, whatever job it names, and carries `progress=true`, since
   `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
