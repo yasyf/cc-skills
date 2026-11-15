@@ -110,6 +110,7 @@ RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d
 RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
 RELEASE_START_ENV = "RELEASE_START"
 CLUSTER_JOB_ENV = "CLUSTER_JOB"
+CLUSTER_JOB_FLAGS = {"--cluster": "cluster", "--cronjob": "cronJob", "--reason": "reason"}
 HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
@@ -515,37 +516,41 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
 
 
 def job_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not start a Job from a suspended CronJob now, by brief.away_job_refusal, which a Sprite lane asks the coordinator's Mac with `drive job held --cluster`, and a codex job's run reads in the drive its environment names."""
+    """Why a drive session, an agent it started or a Sprite lane may not start a Job from a suspended CronJob now, by brief.cluster_job_refusal, which a Sprite lane asks the coordinator's Mac with `drive job held --cluster`, and a codex job's run reads in the drive its environment names."""
     try:
-        cluster = job_cluster(words)
+        job = cluster_job(words)
     except github.GithubError as error:
         return JOB_UNREAD.format(command=" ".join(words), error=error)
-    if cluster is None:
+    if job is None:
         return None
     if os.environ.get(state.REMOTE_LANE_ENV):
         try:
-            return land.lane_held(f"--cluster={cluster}")["cluster"]
+            return land.lane_held(f"--cluster={job['cluster']}", f"--cronjob={job['cronJob']}", f"--reason={job['reason']}")["cluster"]
         except state.DriveError as error:
-            return JOB_UNASKED.format(cluster=cluster, error=error)
+            return JOB_UNASKED.format(cluster=job["cluster"], error=error)
     if not (drives := [os.environ[state.DRIVE_ENV]] if os.environ.get(state.OWN_JOB_ENV) else state.session_drives(shell.session)):
         return None
-    return brief.away_job_refusal(cluster, state.load(drives[0]), state.now())
+    try:
+        return brief.cluster_job_refusal(job, state.load(drives[0]), state.now())
+    except state.DriveError as error:
+        return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
 
-def job_cluster(words: list[str]) -> str | None:
-    """The release env a command starts a Job on from a suspended CronJob: the --cluster of a `ci cluster-job` start, never the `run` inside the build it starts, or the cluster a forge/release build's env names in CLUSTER_JOB when a `ci bk rerun` or `ci bk api` write names that build."""
+def cluster_job(words: list[str]) -> dict | None:
+    """The Job a command starts from a suspended CronJob, its cluster, CronJob and reason as a forge/release build's CLUSTER_JOB keeps them: the --cluster, --cronjob and --reason of a `ci cluster-job` start, never the `run` inside the build it starts, or the CLUSTER_JOB of the forge/release build a `ci bk rerun` or `ci bk api` write names; None when it names no --cluster, or the build no cluster."""
     if Path(words[0]).name not in brief.CI_BINARIES:
         return None
     if words[1:2] == ["cluster-job"]:
-        cluster, rest = None, iter(words[2:])
+        flags, rest = {}, iter(words[2:])
         for word in rest:
             flag, given, value = word.partition("=")
-            if flag == "--cluster":
-                cluster = value if given else next(rest, "")
-        return cluster
+            if flag in CLUSTER_JOB_FLAGS:
+                flags[CLUSTER_JOB_FLAGS[flag]] = value if given else next(rest, "")
+        return {"cronJob": "", "reason": ""} | flags if "cluster" in flags else None
     if not (write := release_write(words)) or write[0] == "cancel" or not (write[1] or "").isdigit():
         return None
-    return json.loads(github.build(RELEASE_BUILDKITE, write[1])["env"].get(CLUSTER_JOB_ENV) or "{}").get("cluster")
+    job = json.loads(github.build(RELEASE_BUILDKITE, write[1])["env"].get(CLUSTER_JOB_ENV) or "{}")
+    return job if job.get("cluster") else None
 
 
 def release_of(words: list[str], briefed: str) -> str:

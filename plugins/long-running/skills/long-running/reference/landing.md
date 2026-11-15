@@ -659,11 +659,17 @@ the patch.
   `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
   release resume`, `approve` and `rollback`, and a `tools/ci bk rerun release` or `tools/ci bk api`
   write to a release cut, a forge/release build whose env holds `RELEASE_START`, or creating one. A
-  cluster job's build, such as a team's memory move from `tools/ci cluster-job`, is no release, so
-  any drive session opens its gate on no exception, but only while he is present on a production
-  cluster: while he is away the hook refuses starting, unblocking or rerunning a Job on any cluster
-  but `plat-usw2-staging` or `plat-usw2-sandbox`, a Sprite lane asking with `drive job held --cluster`. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
-  nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
+  cluster job's build, such as a team's memory move or journal pass from `tools/ci cluster-job`, is
+  no release cut, yet the hold covers a Job it starts on any cluster but `plat-usw2-staging` or
+  `plat-usw2-sandbox`: the hook refuses starting it, unblocking its build's gate and rerunning that
+  build until an answer of his recorded after the hold orders that CronJob on that cluster at that
+  moment. Jev reads each answer of his the Job's `--reason` names by id and those
+  `ccn answer match` ranks nearest it, beside the hold and the time now in Pacific, so 34c9f21's
+  "the other three after your hold lifts" orders no production dry run while the hold stands. Name
+  his answer's id in `--reason`, which the build keeps in `CLUSTER_JOB` for its unblock and rerun
+  to read. While he is away, the hook refuses that start, unblock or rerun on a production cluster
+  whatever answer it names. A Sprite lane asks with `drive job held --cluster <env> --cronjob <name>
+  --reason <why>`. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
   with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
   `drive job launch` keeps in `~/.codex/hooks.json`.
 - A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
