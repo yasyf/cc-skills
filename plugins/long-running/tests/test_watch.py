@@ -10853,33 +10853,86 @@ def test_a_sessions_transcript_is_read_from_the_folder_it_first_ran_in_after_its
     assert watch.session_transcript(moved | {"session": "s-2"}) == tmp_path / "projects" / "-Users-me-worktrees-monorepo-drive-demo" / "s-2.jsonl"
 
 
-def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
-    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
-) -> None:
-    watching = stalling(demo)
-    said_at = T0 + timedelta(minutes=68)
+def untold_stall(demo: str, agent_at: int, out: str = "/s/stall.md") -> None:
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["stalls"][KEY] = {
             "print": STALLED_CARD,
             "since": state.stamp(T0),
-            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
+            "agent": {"pid": 1, "out": out, "at": state.stamp(T0 + timedelta(minutes=agent_at))},
             "found": {"WHY": READERS_FIRST},
-            "said": state.stamp(said_at),
+            "said": state.stamp(T0 + timedelta(minutes=68)),
             "told": None,
             "claim": None,
         }
+
+
+def stall_pass(watching: watch.Watcher, monkeypatch: pytest.MonkeyPatch, minutes: int, clock: int | None = None) -> list[str]:
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=minutes if clock is None else clock))
+    return watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+
+
+def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    watching = stalling(demo)
+    untold_stall(demo, agent_at=60)
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
     for minutes in (98, 140):
-        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+        assert stall_pass(watching, monkeypatch, minutes) == []
     assert (ready_records, watchdogs) == ([], [])
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=141)), "away": state.stamp(T0 + timedelta(minutes=201))}
-    watch.stall_lines(watching, T0 + timedelta(minutes=141))
+    stall_pass(watching, monkeypatch, 141)
     [(_, out)] = watchdogs
     watchdog_answered(out)
     for minutes in (142, 143):
-        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+        stall_pass(watching, monkeypatch, minutes)
     assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 142 minutes and the coordinator was told 74 minutes ago: post one line on it in its thread"]
+
+
+@pytest.mark.parametrize("agent_at", [60, 80])
+def test_replayed_720931_a_stall_whose_pass_began_while_he_was_here_starts_no_watchdog_and_writes_him_nothing_once_the_clock_reads_him_away_and_takes_that_step_the_first_pass_after_he_is_heard(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], tmp_path: Path, agent_at: int
+) -> None:
+    watching = stalling(demo)
+    out = tmp_path / "stall.md"
+    watchdog_answered(out)
+    untold_stall(demo, agent_at, str(out))
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=45)), "away": state.stamp(T0 + timedelta(minutes=105))}
+    assert stall_pass(watching, monkeypatch, 98, clock=107) == []
+    assert (ready_records, watchdogs, state.load(demo)["stalls"][KEY]["told"]) == ([], [], None)
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=140)), "away": state.stamp(T0 + timedelta(minutes=200))}
+    stall_pass(watching, monkeypatch, 141)
+    assert (len(watchdogs), [record["text"] for [record] in ready_records]) == (
+        (1, []) if agent_at < 68 else (0, [f"POST {KEY}, which holds j1, j2, has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"])
+    )
+
+
+def test_replayed_720949_a_stall_report_the_pass_claimed_while_he_was_here_gives_its_claim_back_unwritten_when_he_reads_away_by_the_time_it_is_written(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], tmp_path: Path
+) -> None:
+    watching = stalling(demo)
+    out = tmp_path / "stall.md"
+    watchdog_answered(out)
+    untold_stall(demo, 80, str(out))
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=45)), "away": state.stamp(T0 + timedelta(minutes=105))}
+    claiming = watch.owed
+    claims: list[dict[str, str]] = []
+
+    def claimed_then_late(watcher: watch.Watcher, data: dict, found: dict[str, dict], stalls: dict[str, dict], moment: datetime) -> dict[str, str]:
+        claims.append(steps := claiming(watcher, data, found, stalls, moment))
+        if len(claims) == 2:
+            monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=107))
+        return steps
+
+    monkeypatch.setattr(watch, "owed", claimed_then_late)
+    assert stall_pass(watching, monkeypatch, 98) == []
+    kept = state.load(demo)["stalls"][KEY]
+    assert (claims, ready_records, kept["told"], kept["claim"]) == ([{KEY: "told"}, {KEY: "told"}], [], None, None)
 
 
 @pytest.mark.parametrize(("kept", "thread"), [([["D123", "1794439546.145729", state.stamp(T0), "question"]], "1794439546.145729"), ([], None)])
