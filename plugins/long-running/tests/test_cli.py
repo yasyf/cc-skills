@@ -1381,6 +1381,18 @@ def test_the_set_verbs_with_dry_run_run_their_checks_refusing_as_they_would_and_
     assert state.load(demo) == kept
 
 
+def test_a_dry_run_report_prints_each_field_its_take_would_change_and_keeps_no_state_report_or_event(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    kept, events = state.load(demo), state.events_end(demo)
+    monkeypatch.setattr("sys.stdin", io.StringIO("BUILT j1-ship, waits on demo:j1-3\nCHECK: build 12\n"))
+    code, out = run("job", "report", "j1", "-", "--dry-run")
+    lines = out.splitlines()
+    assert (code, lines[-1]) == (0, "a dry run: nothing kept")
+    assert {'jobs j1 state: "waiting" -> "built"', 'jobs j1 branch: null -> "j1-ship"', 'jobs j1 waits: [] -> ["demo:j1-3"]'} <= set(lines)
+    assert (state.load(demo), state.events_end(demo), state.replies_path(demo, "j1").exists()) == (kept, events, False)
+
+
 def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "words")
     code, out = run("order", "set", "o1", "--state", "working", "--note", "on it", "--lined")
@@ -7128,7 +7140,7 @@ def test_a_drive_tooling_orders_part_or_unlanded_pr_is_refused_as_a_wait_of_his_
     for wait in (f"o9:{part}", tooled):
         assert cli.main(["pr", "set", url, "--waits", wait]) == 2
         assert f'--waits {wait}: refused, nothing set: the work of a "Drive tooling:" order never holds Forge-AI/monorepo#7' in capsys.readouterr().err
-    for line, named in ((f"WAITING on {state.pr_url(tooled)}", tooled), ("BUILT j1-ship, waits on demo:j9-7", "demo:j9-7")):
+    for line, named in ((f"WAITING on {state.pr_url(tooled)}", tooled), ("BUILT j1-ship, waits on demo:j9-7", "demo:j9-7"), ("WAITING on j9 to land the card", "j9"), ("BUILT j1-ship, waits on j9", "j9")):
         code, err = keep(monkeypatch, capsys, "j1", f"{line}\nCHECK: build 12\n")
         assert (code, f'its line names {named}, the work of a "Drive tooling:" order, which never holds j1\'s work on his product' in err) == (2, True)
     drive = state.load(demo)
