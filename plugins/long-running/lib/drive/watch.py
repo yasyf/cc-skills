@@ -641,9 +641,14 @@ def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, mo
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well."""
+    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one."""
     data = state.load(watcher.name)
-    owed = {order_id: order["close_report"] for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
+    closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
+    if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
+        with state.edit(watcher.name) as data:
+            for order_id in unasked:
+                data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp(moment))
+    owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked}
     if not owed:
         return []
     try:

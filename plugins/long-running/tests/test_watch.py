@@ -8557,6 +8557,24 @@ def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_i
     assert len(posts) == 4
 
 
+def test_a_close_report_an_older_install_kept_on_drive_tooling_a_session_opened_posts_nothing_and_closes_its_order_done_on_its_proof(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import tools
+
+    serve(monkeypatch, {})
+    his = CLOSE_REPORT | {"id": "install-proved-j2", "topic": "install-proved-o2", "attr": {"close": "o2"}}
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"text": "Drive tooling: the port census reads a settled port", "from": "cci:710171", "proof": "/tmp/proof.txt", "close_report": CLOSE_REPORT}
+        data["orders"]["o2"] = order(jobs=[], proof="/tmp/proof.txt", close_report=his)
+    posts: list[list[dict]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: posts.append(records) or ["9"])
+    assert staged(watch.close_report_lines, watcher(demo), T0) == []
+    orders = state.load(demo)["orders"]
+    assert (posts, [(orders[order_id]["state"], orders[order_id]["proof"], orders[order_id]["close_report"]) for order_id in ("o1", "o2")]) == (
+        [[his]],
+        [("done", "/tmp/proof.txt", None), ("working", "/tmp/proof.txt", None)],
+    )
+
+
 def test_the_watchs_close_report_is_its_orders_one_close_so_the_cci_post_hook_refuses_a_second_while_it_waits_and_once_it_is_posted(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
