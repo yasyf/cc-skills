@@ -5992,6 +5992,7 @@ def test_replayed_5076_a_pr_whose_design_line_cites_an_open_card_another_orders_
 ) -> None:
     url = state.pr_url(REPLAYED_5076)
     with state.edit(demo) as data:
+        data["orders"]["o1"]["text"] = "Drive tooling: a release wait ends once every env runs the merge"
         data["orders"]["o2"] = order(text=RELEASE_WAIT_PART, jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[RELEASE_WAIT_PART], carries={}, state="done")
         asked = state.new_question(None, "Which environments must run a commit holding a PR's merge before its release wait ends?", state.stamp(T0), card=CARD, holds=holds)
@@ -6003,6 +6004,24 @@ def test_replayed_5076_a_pr_whose_design_line_cites_an_open_card_another_orders_
     assert (state.part_cards(drive, "j1"), view.stored_waits(drive, land.pr_cards(drive, pr))) == ([], [RELEASE_WAIT_CARD] if held else [])
     assert (stage.held(drive, pr), stage.of(drive, REPLAYED_5076, NO_CARDS).name) == ((f"his cards {CARD} on its work are open", "held") if held else ("", "ready"))
     assert (land.start(demo, [REPLAYED_5076], NO_CARDS), landers) == (([], []) if held else ([(REPLAYED_5076,)], [(REPLAYED_5076,)]))
+
+
+@pytest.mark.parametrize(("text", "held"), [("ship the watch", False), ("Drive tooling: the lander lands a stack bottom first", True)])
+def test_replayed_56251_a_drive_tooling_card_a_design_line_cites_holds_only_a_drive_tooling_pr_so_his_product_pr_lands_on_its_tap(
+    demo: str, landers: list[tuple[str, ...]], text: str, held: bool
+) -> None:
+    part = "Drive tooling: every PR of a stack draws on one card"
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["text"] = text
+        data["orders"]["o2"] = order(text=part, jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[part], carries={}, state="done")
+        asked = state.new_question(None, "Should every PR of a stack draw on one card?", state.stamp(T0), card=CARD, holds=part)
+        data["jobs"]["j2"]["questions"] = [asked | {"waits": "demo:j2-7"}]
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "design": "DESIGN: demo:j2-7, his open card on drawing a stack on one card"}
+    drive = state.load(demo)
+    assert (land.pr_cards(drive, drive["prs"][KEY]), stage.of(drive, KEY, NO_CARDS).name) == (([CARD], "held") if held else ([], "ready"))
+    assert (land.start(demo, [KEY], NO_CARDS), landers) == (([], []) if held else ([(KEY,)], [(KEY,)]))
 
 
 def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work(demo: str, landers: list[tuple[str, ...]]) -> None:

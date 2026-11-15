@@ -695,7 +695,7 @@ def reporters_order(name: str, said: list[str], index: int, item: dict, attrs: d
     fields = {"words": item["text"], "title": attrs["title"], "project": order["project"], "workstream": order["workstream"], "owner": order["owner"], "kind": order["kind"], "reporter": link}
     added = first(ran(name, said, index, ("order", "add"), sourced(item) | fields, dry_run))
     job = data["jobs"].get(attrs.get("job") or "")
-    if added and job and job["state"] not in state.FINISHED_JOB_STATES and not cli.tooling(data["orders"][job["order"]]):
+    if added and job and job["state"] not in state.FINISHED_JOB_STATES and not state.tooling(data["orders"][job["order"]]):
         ran(name, said, index, ("job", "set"), {"id": attrs["job"], "carries": [added]}, dry_run)
     return added
 

@@ -219,7 +219,8 @@ summary of one feature is a line of at most 60 words.
   line; or `Holds: none: <why>`. His open card holds from landing each PR it names, a PR of a branch
   it names included, and, among the PRs of jobs working a change it names, only those its design's
   builder, a job briefed on its research or a job it names by id carries, by his pick "Each
-  question names the changes it holds, kept with it". `drive job ask` refuses a block without it.
+  question names the changes it holds, kept with it", but a `Drive tooling:` order's card holds no PR of
+  his product, by his ruling de88d49. `drive job ask` refuses a block without it.
 - Give two to four options, each one line of at most 25 words saying what he gets and what it
   costs; `drive job ask` refuses any other count or length. cc-slack adds Other, which takes his own
   words, and Explain more to every card that waits on him, and refuses an option that repeats either.

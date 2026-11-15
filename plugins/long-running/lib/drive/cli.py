@@ -1615,23 +1615,19 @@ def job_clock(job_id: str, due: str | None) -> str | None:
     return state.stamp(at)
 
 
-def tooling(order: dict) -> bool:
-    return order["text"].startswith(state.TOOLING)
-
-
 def refuse_a_crossed_order(name: str, data: dict, own: str, other: str, acting: str) -> None:
     """Refuse a job carrying, or a PR serving, an order across the line between drive tooling and his feature work: the coordinator acts on no "Drive tooling:" order, and a tooling order's job or PR never carries or serves his feature order, nor the reverse."""
     order = find(data["orders"], other, "order")
-    if tooling(order) and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "coordinator":
+    if state.tooling(order) and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "coordinator":
         raise DriveError(
             f'{acting} {other}: refused, {other} is a "{state.TOOLING}" order, which only the meta session acts on: send a'
             f" defect record to meta@{name} naming what it needs, and the meta session's builder takes it over"
         )
-    if tooling(order) == tooling(data["orders"][own]) or own == other:
+    if state.tooling(order) == state.tooling(data["orders"][own]) or own == other:
         return
     kinds = {True: "a drive tooling order", False: "an order of his feature work"}
     raise DriveError(
-        f"{acting} {other}: refused, {own} is {kinds[tooling(data['orders'][own])]} and {other} is {kinds[tooling(order)]}, and"
+        f"{acting} {other}: refused, {own} is {kinds[state.tooling(data['orders'][own])]} and {other} is {kinds[state.tooling(order)]}, and"
         f" one job or PR never carries both: start a job on {other} with drive job add <kind> --order {other}"
     )
 
@@ -2738,7 +2734,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     bound = [answer_id for other in state.orders_jobs(data, state.job_feature(data, job)).values() for answer_id in (other.get("brief_flags") or {}).get("ruling") or []]
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
     flags = {flag: earlier_flags.get(flag) if named.get(flag) is None else named[flag] or None for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
-    flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
+    flags["serves"] = flags["serves"] or ("drive tooling" if state.tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
@@ -3734,7 +3730,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     if exempt and exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, exempt, "added")
-    wants_tap = state.guarded(key) or not tooling(known["orders"][added["order"]])
+    wants_tap = state.guarded(key) or not state.tooling(known["orders"][added["order"]])
     flaky = flake_tap(key, wants_tap) if exempt == state.FLAKE_FIX else None
     with state.edit(name) as data:
         job = find(data["jobs"], job_id, "job")
@@ -3804,7 +3800,7 @@ def pr_set(args: argparse.Namespace) -> int:
             f" and at {before['head'][:7]} none of its checks fail and Trunk ejected no try of its lander"
         )
     if args.exempt == state.FLAKE_FIX and args.tap is None:
-        args.tap = flake_tap(key, state.guarded(key) or not tooling(known["orders"][before["order"]]))
+        args.tap = flake_tap(key, state.guarded(key) or not state.tooling(known["orders"][before["order"]]))
     after = dict(before)
     set_pr(after, args)
     if state.guarded(key) and (before["wants_tap"] or before.get("exempt")) and not (after["wants_tap"] or after.get("exempt")):
@@ -3833,6 +3829,11 @@ def pr_set(args: argparse.Namespace) -> int:
             f"--waits {', '.join(cards)}: refused, nothing set: a card of his holds a PR from landing only by its question's Holds: line,"
             f" which drive job ask keeps, by his pick \"Each question names the changes it holds, kept with it\", or by the PR's DESIGN: line citing it;"
             f" a card whose Holds: line names {key}'s change or its link, or that its DESIGN: line cites, already holds it, and drive job set --waits <card> wakes a job on his answer"
+        )
+    if tooled := state.tooling_waits(known, order, args.waits):
+        raise DriveError(
+            f'--waits {", ".join(tooled)}: refused, nothing set: the work of a "{state.TOOLING}" order never holds {key}, a PR of his product,'
+            f" by his ruling {state.TOOLING_RULING}: it lands on its tap while a tooling question waits on its own card"
         )
     found = check_waits(name, args.waits)
     for wait in args.waits:
