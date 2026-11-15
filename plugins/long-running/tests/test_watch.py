@@ -2702,6 +2702,16 @@ def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], ob
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
 
 
+def test_a_pass_ends_on_the_error_its_relay_ended_on_after_the_stage_it_ran_beside_keeping_that_stages_lines(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    watching = watcher(demo)
+    later: list[str] = []
+    monkeypatch.setattr(watch, "event_lines", lambda relayed: setattr(relayed, "relay_error", OSError("relay read failed")) or ["ANSWER j1 kept"])
+    monkeypatch.setattr(orca, "speak_as_drive", later.append)
+    with pytest.raises(OSError, match="^relay read failed$"):
+        list(watch.passed(watching, T0))
+    assert (later, watching.made) == ([], ["ANSWER j1 kept"])
+
+
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

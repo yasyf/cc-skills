@@ -1524,7 +1524,7 @@ def spawn_relay(watcher: Watcher, lines: int) -> subprocess.Popen:
 
 
 def relayed_lines(watcher: Watcher, relayer: subprocess.Popen, lines: int) -> None:
-    """Hand each line the relay writes to the watcher for the pass after it, until the relay ends; a relay that ends before the watch ends it is kept as the error the watch stops on before its next pass, so its launch agent starts both again."""
+    """Hand each line the relay writes to the watcher for the pass after it, until the relay ends; a relay that ends before the watch ends it is kept as the error the watch stops on at the next stage of its pass, or before its next pass, so its launch agent starts both again and no due line waits out the pass."""
     with os.fdopen(lines) as written:
         for line in written:
             watcher.relayed.append(line.rstrip("\n"))
@@ -4146,10 +4146,12 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash, leaves those not yet handed to the watch process after it."""
+    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on the error its relay ended on, which it ends on after the stage it ran beside, leaves those not yet handed to the watch process after it."""
     yield handed(watcher, [], moment)
     for lines in stages(watcher, moment):
         watcher.made += lines
+        if watcher.relay_error:
+            raise watcher.relay_error
         if watcher.made and (said := handed(watcher, watcher.made, moment)):
             yield said
 
@@ -4660,7 +4662,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, so its launch agent starts the watch on that install; a crash wakes the coordinator session it posts to first, and a relay process that ended before the watch ended it stops it before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, so its launch agent starts the watch on that install; a crash wakes the coordinator session it posts to first, and a relay process that ended before the watch ended it stops it at the next stage of its pass, or before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         with relaying(watcher):
