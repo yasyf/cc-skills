@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import install, reads, settled, stage, state
+from drive import install, reads, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -470,6 +470,27 @@ def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_th
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#1"]["answers"] = {"cited": [cited], "near": [near]}
     assert (state.load("demo")["prs"]["yasyf/cc-skills#1"]["answers"], state.load("demo")["near_answers_apart"]) == ({"cited": [cited], "near": [near]}, True)
+
+
+def test_a_drive_saved_with_a_stack_refused_for_a_ruling_write_its_own_pr_makes_drops_each_open_prs_refusal_once_so_the_stack_is_checked_again_with_no_push(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["stack_writes_read"]
+    at = "2026-11-15T00:40:00-08:00"
+    owes = f'c0de123 "Key the cache on the run id": Forge-AI/monorepo#1 changes go/sand/cache/key.go, under go/sand/cache, and no AGENTS.md at or above go/sand/cache holds these words of his at the tip of its base branch, at the head of another open PR or in its diff; add them verbatim with their date to the AGENTS.md nearest go/sand/cache, by his ruling {served.WRITES_RULING}, "{served.WRITES_WORDS}"'
+    refused = {"head": "abc", "pid": 1, "at": at, "orders": ["o1"], "answers": [], "outcome": f"NOT READY: Forge-AI/monorepo#1, Forge-AI/monorepo#2 go against his words: {owes}", "against": owes}
+    judged = refused | {"outcome": 'NOT READY: Forge-AI/monorepo#3 go against his words: o1 "one store": adds a second store', "against": 'o1 "one store": adds a second store'}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], at)}
+    data["prs"] = {
+        f"Forge-AI/monorepo#{number}": state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", "j1", "o1") | {"state": status, "checker": checker}
+        for number, status, checker in ((1, "open", refused), (2, "open", refused), (3, "open", judged), (4, "merged", refused))
+    }
+    state.create(data)
+    drive = state.load("demo")
+    assert ([pr["checker"] for pr in drive["prs"].values()], drive["stack_writes_read"]) == ([None, None, judged, refused], True)
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#1"]["checker"] = refused
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#1"]["checker"] == refused
 
 
 def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_each_untaken_one_its_parts_goal_on_its_brief_too(state_root: Path, tmp_path: Path) -> None:

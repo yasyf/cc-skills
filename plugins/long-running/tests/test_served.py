@@ -212,7 +212,7 @@ def test_a_ruling_held_at_the_base_branchs_tip_or_at_the_head_of_an_open_pr_whos
     )
     data = open_rows(demo, rows | {7: ("fix/elsewhere", "open", "go/other/AGENTS.md")})
     data["prs"]["yasyf/cc-skills#3"] = data["prs"][KEY] | {"branch": "fix/cache-other-repo", "checked": data["prs"]["Forge-AI/monorepo#7"]["checked"] | {"lines": {"AGENTS.md": "d"}}}
-    found = served.owed(data, KEY, ["c0de123"], {"base": "dev", "head": "head1", "diff": diff})
+    found = served.owed(data, KEY, ["c0de123"], {KEY: {"base": "dev", "head": "head1", "diff": diff}})
     assert [each["written"] for each in found] == owes
     read = {branch for _, branch, _ in asked[0]}
     assert (len(asked), read) == (1, {"dev", *(branch for branch, held, changes in rows.values() if held == "open" and changes == "AGENTS.md")})
@@ -231,7 +231,7 @@ def test_the_agents_md_read_is_one_query_of_one_repository_naming_the_same_files
     monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(text) or {"data": {"repository": {alias: None for alias, _, _ in GUIDE_AT.findall(text)}}})
     idle = {1000 + n: (f"fix/idle-{n}", "open", f"go/idle/{n}.go") for n in range(tracked - 1)}
     data = open_rows(demo, {40: ("fix/cache-a", "open", "go/sand/AGENTS.md")} | idle)
-    found = served.owed(data, KEY, ["c0de123"], {"base": "dev", "head": "head1", "diff": CACHE_CODE})
+    found = served.owed(data, KEY, ["c0de123"], {KEY: {"base": "dev", "head": "head1", "diff": CACHE_CODE}})
     assert ([each["written"] for each in found], len(asked)) == ([False], 1)
     assert (asked[0].count("repository("), len(GUIDE_AT.findall(asked[0])), {branch for _, branch, _ in GUIDE_AT.findall(asked[0])}) == (1, 8, {"dev", "fix/cache-a"})
 
@@ -246,7 +246,7 @@ def test_an_answer_cc_notes_prints_with_no_tags_key_reads_as_ruling_no_code_so_a
     monkeypatch.setattr(settled, "shown", SHOWN)
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(unlabelled))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
-    assert served.owed(state.load(demo), KEY, ["fd79b94"], {"base": "dev", "head": "head1", "diff": CACHE_CODE}) == []
+    assert served.owed(state.load(demo), KEY, ["fd79b94"], {KEY: {"base": "dev", "head": "head1", "diff": CACHE_CODE}}) == []
 
 
 CLOCKS = ("self::sleep(seconds) is a clock timer that fires one inbox row", "self::watch sets a watch and then suspends", "each alarm is its own clock timer")
@@ -297,6 +297,28 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     assert list(judge.asked[-1][1]) == list(joined)
     assert [state.against(data["prs"][key]) for key in joined] == ['o1 "each alarm is its own clock timer": no PR here builds the alarm rows'] * 4
     assert [event["number"] for event, _ in state.read_events(demo) if event["kind"] == "check" and event["change"].startswith(served.NOT_READY)] == [42]
+
+
+def test_a_stack_whose_middle_pr_writes_the_ruling_into_agents_md_passes_in_its_first_check_since_each_other_pr_counts_that_write_from_the_diff_the_check_just_read(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    keys = stacked(run, demo, [42, 43, 44, 45], "dev")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
+    recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN}
+    asked: list[list[tuple[str, str, str]]] = []
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(
+        github, "graphql", lambda text, what, max_age="0s": asked.append(GUIDE_AT.findall(text)) or {"data": {"repository": {alias: {"text": CACHE_GUIDE} if (branch, path) == ("b43", "go/sand/AGENTS.md") else None for alias, branch, path in asked[-1]}}}
+    )
+    diffs = {42: CACHE_CODE, 43: CACHE_WRITE, 44: added("go/sand/cache/evict.go", b"func evict() {}"), 45: added("go/sand/cache/size.go", b"func size() int { return 0 }")}
+    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "base": state.load(demo)["prs"][key]["base"], "head": f"head{github.split(key)[2]}", "diff": diffs[github.split(key)[2]]})
+    assert state.load(demo)["prs"][keys[1]]["checked"] is None
+    assert served.verdict(demo, keys[0]).startswith(f"{served.CHECKED} against the words of o1 at head42")
+    [(said, changes)] = judge.asked
+    assert list(changes) == keys and f'{OWED}, since it changes that code and no AGENTS.md there holds them at the tip of its base branch or at the head of an open PR numbered below it, so that write is his words: c0de123 on go/sand/cache, "Key the cache on the run id"' in said
 
 
 def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the_stack_owes_one_check_until_one_check_judged_it_together(

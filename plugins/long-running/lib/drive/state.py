@@ -624,6 +624,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "taps_dated": True,
         "holds_owed": True,
         "near_answers_apart": True,
+        "stack_writes_read": True,
         "builder_goals_named": True,
         "members_kept": True,
         "open_dones_held": True,
@@ -930,7 +931,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned")) and bool(data.get("lines_kept"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned")) and bool(data.get("lines_kept"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -979,6 +980,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         owe_holds(data)
     if not data.get("near_answers_apart"):
         part_near_answers(data)
+    if not data.get("stack_writes_read"):
+        read_stack_writes(data)
     if not data.get("lines_kept"):
         keep_lines(name, data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
@@ -1210,6 +1213,16 @@ def part_near_answers(data: dict) -> None:
         if pr["state"] == "open" and pr["checker"] and pr["checker"]["against"]:
             pr["checker"] = None
     data["near_answers_apart"] = True
+
+
+def read_stack_writes(data: dict) -> None:
+    """Drop each open PR's verdict that refused it for a ruling write its diff lacks, which served.unwritten words with his WRITES_WORDS, so its stack is checked again with the write each of its PRs makes read from the diff that check reads, since an older install counted another PR's write only once that PR's own check had passed, which a stack whose own PR makes the write never reaches; marked so this runs once."""
+    from drive import served
+
+    for pr in data["prs"].values():
+        if pr["state"] == "open" and pr["checker"] and served.WRITES_WORDS in pr["checker"]["against"]:
+            pr["checker"] = None
+    data["stack_writes_read"] = True
 
 
 def keep_lines(name: str, data: dict) -> None:
