@@ -100,6 +100,7 @@ UNKEPT = "unkept.txt"
 TRANSCRIPTS = ".transcripts"
 RELAY_BYTES = 64 * 1024
 LAUNCH_REASON_CHARS = 2000
+LAUNCH_LOG = "launch.log"
 ANSWER_MESSAGE_ID = "msg_" + "0" * 12
 KEPT_ANSWER = "drive answer kept on this Sprite: "
 DRIVE_STATUS = re.compile(r"drive exited \d+\n")
@@ -544,7 +545,7 @@ def sprite_config(checkout: Path) -> str:
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server."""
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
@@ -558,6 +559,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers)}
     else:
         env["WORKER_TOOLS"] = SPRITE_TOOLS
+    attempt = brief.with_suffix(".worker")
     try:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
@@ -568,29 +570,39 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
             timeout=LAUNCH_SECONDS,
             check=False,
         )
-    except subprocess.TimeoutExpired:
-        attempt = brief.with_suffix(".worker")
-        raise OrcaError(f"{LAUNCHER} ran past {LAUNCH_SECONDS} s; its attempt is in {attempt}") from None
+    except subprocess.TimeoutExpired as expired:
+        kept = launch_log(attempt, f"ran past {LAUNCH_SECONDS} s", *((said or b"").decode(errors="replace") for said in (expired.stdout, expired.stderr)))
+        raise OrcaError(f"{LAUNCHER} ran past {LAUNCH_SECONDS} s; its attempt is in {attempt}{kept}") from None
+    kept = launch_log(attempt, f"exited {done.returncode}", done.stdout, done.stderr)
     lines = done.stdout.strip().splitlines()
     if done.returncode or not lines:
         said = "; ".join(line.strip() for line in done.stderr.strip().splitlines()) or "no output"
         reason = said if len(said) <= LAUNCH_REASON_CHARS else "…" + said[-LAUNCH_REASON_CHARS:]
-        attempt = brief.with_suffix(".worker")
         if done.returncode == UNFIT:
-            raise Unfit(reason)
+            raise Unfit(reason + kept)
         if unsent(brief):
-            raise Unstarted(reason)
+            raise Unstarted(reason + kept)
         if (attempt / "worker-start.status").exists():
             raise OrcaError(
                 f"{LAUNCHER} exited {done.returncode} after worker-start ran, so the lane may be live: {reason}; "
-                f"read {attempt}/worker-start.json before starting it anywhere else"
+                f"read {attempt}/worker-start.json before starting it anywhere else{kept}"
             )
-        raise Unstarted(f"{LAUNCHER} exited {done.returncode} before a worker started: {reason}; attempt in {attempt}")
+        raise Unstarted(f"{LAUNCHER} exited {done.returncode} before a worker started: {reason}{kept}")
     receipt = json.loads(lines[-1])
     if local:
         return {**receipt, "lane": lane, "workspace": None, "environment": None}
     prepared = json.loads((brief.with_suffix(".worker") / "prepared.json").read_text())
     return {**receipt, "environment": prepared["environment"]}
+
+
+def launch_log(attempt: Path, outcome: str, out: str, err: str) -> str:
+    """Append one launcher run's whole stdout and stderr to its attempt's launch.log, under a line stamping when it ended and how: the clause a refusal ends with naming that file, or none when the launcher refused before it made the attempt folder, whose one line the refusal then quotes whole, since a folder holding only that log would read as an earlier attempt to the next launch."""
+    if not attempt.is_dir():
+        return ""
+    log = attempt / LAUNCH_LOG
+    with log.open("a") as kept:
+        kept.write(f"== {state.stamp()} {LAUNCHER} {outcome}\n-- stdout\n{out}-- stderr\n{err}")
+    return f"; the launcher's whole output is in {log}"
 
 
 def unsent(brief: Path) -> bool:

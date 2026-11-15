@@ -80,7 +80,7 @@ PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
 START_KEPT = ["worker-start.err", "worker-start.json", "worker-start.status"]
 TOOLS_KEPT = sorted([*PREPARE_KEPT, "tools.err", "tools.out"])
 SPRITE_KEPT = sorted([*TOOLS_KEPT, *START_KEPT])
-LOCAL_KEPT = sorted(["request.json", "worktree", *START_KEPT])
+LOCAL_KEPT = sorted(["request.json", "terminal", "worktree", *START_KEPT])
 UNREADY = "orca orchestration worker-start exited 0 without a ready receipt for Run {run}; kept terminal {terminal}, worktree {worktree}, and the receipt in {attempt}"
 REQUEST = "3c349608-67b7-49a0-8c8d-1b16b27d0e13"
 UNREACHED = {
@@ -95,6 +95,8 @@ UNREACHED = {
     },
 }
 REQUEST_SHOW = ["orca", "orchestration", "request-show", "--request", REQUEST, "--json"]
+BUSY = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_busy", "message": f"long-poll capacity reached; retry with backoff Orchestration mutation request ID: {REQUEST}.", "data": {"orchestrationRequestId": REQUEST}}}}
+LOCAL_READY = {"out": {"ok": True, "result": {"runId": RUN, "state": "ready", "taskId": "task_l", "dispatchId": "ctx_l"}}}
 ENV_SHOW = ["orca", "environment", "show", "--environment", PREPARED["environmentId"], "--json"]
 UNKNOWN_ENVIRONMENT = {"rc": 1, "out": {"id": "local", "ok": False, "error": {"code": "invalid_argument", "message": f"Unknown environment: {PREPARED['environmentId']}"}}}
 
@@ -231,7 +233,7 @@ class Launch:
         self.reply("orca terminal send", {"out": {"ok": True}})
         self.reply("orca terminal show", {"out": {"ok": True, "result": {"terminal": {"agentIdentity": "claude"}}}})
         self.reply("orca terminal wait", wait or {"out": {"ok": True}})
-        self.reply("orca orchestration worker-start", started or {"out": {"ok": True, "result": {"runId": RUN, "state": "ready", "taskId": "task_l", "dispatchId": "ctx_l"}}})
+        self.reply("orca orchestration worker-start", started or LOCAL_READY)
 
     def records(self) -> list[dict]:
         path = self.fake / "calls"
@@ -855,6 +857,18 @@ class SpriteTest(LaunchTest):
         self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start(), REQUEST_SHOW, self.launch.start(retry=REQUEST)])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
+    def test_a_worker_start_orca_answers_busy_runs_again_under_its_request_id_until_the_launch_s_time_runs_out(self):
+        self.launch.sprite()
+        self.launch.reply("orca orchestration worker-start", BUSY, {"out": RECEIPT})
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start(), self.launch.start(retry=REQUEST)])
+        launch = self.fresh()
+        launch.sprite(started=BUSY)
+        line = f"no worker started in {ROOT} on Sprite {WORKSPACE}: Orca answered each orca orchestration worker-start with runtime_busy: long-poll capacity reached; retry with backoff until this launch's 1200 s ran out; its terminal {TERMINAL} waits idle, and launching this brief again retries worker-start in it"
+        self.assert_failed(launch, launch.run(SECONDS="1200"), line, [VERSION, CURRENT, launch.prepare(), *launch.tools(), launch.start()])
+        self.assertEqual(launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
+
     def test_a_worker_start_orca_recorded_or_could_not_look_up_is_never_run_again(self):
         message = UNREACHED["out"]["error"]["message"]
         for shown in (request_state("completed"), request_state("pending"), {"rc": 1}):
@@ -1213,7 +1227,7 @@ class LocalTest(LaunchTest):
         self.assertEqual((result.returncode, result.stdout), (1, ""))
         self.assertEqual(result.stderr, f"{SPARSE}\norca terminal wait failed: timed out\nclaude in {LOCAL_TERMINAL} never went idle; kept it and worktree {LOCAL_WORKTREE}\n")
         self.assertEqual(self.launch.calls(), self.launch.local_calls()[:-1])
-        self.assertEqual(self.launch.kept(), ["request.json", "worktree"])
+        self.assertEqual(self.launch.kept(), ["request.json", "terminal", "worktree"])
 
     def test_a_local_terminal_call_orca_refuses_says_its_error_code_and_message_on_one_line(self):
         exhausted = "Your system cannot allocate any more pty devices. Close some terminals you are not using, in Orca or another program, then try again."
@@ -1223,7 +1237,44 @@ class LocalTest(LaunchTest):
         result = self.launch.run(model="fable", WORKER_LOCAL="1")
         said = f"orca terminal send failed: terminal_unavailable: {exhausted} node-pty: posix_openpt failed: Resource temporarily unavailable (errno 35)"
         self.assert_failed(self.launch, result, f"{SPARSE}\n{said}", self.launch.local_calls()[:-3])
-        self.assertEqual(self.launch.kept(), ["request.json", "worktree"])
+        self.assertEqual(self.launch.kept(), ["request.json", "terminal", "worktree"])
+
+    def test_a_local_worker_start_orca_answers_busy_runs_again_under_its_request_id(self):
+        self.launch.local()
+        self.launch.reply("orca orchestration worker-start", BUSY, LOCAL_READY)
+        result = self.launch.run(model="fable", WORKER_LOCAL="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.launch.local_calls()
+        self.assertEqual(self.launch.calls(), [*calls, [*calls[-1][:-4], "--retry-request", REQUEST, *calls[-1][-4:]]])
+        self.assertEqual(self.launch.kept(), LOCAL_KEPT)
+
+    def test_a_local_worker_start_orca_keeps_answering_busy_marks_the_attempt_unsent_and_its_relaunch_retries_in_the_kept_terminal(self):
+        self.launch.local(started=BUSY)
+        line = f"no worker started in {LOCAL_WORKTREE}: Orca answered each orca orchestration worker-start with runtime_busy: long-poll capacity reached; retry with backoff until this launch's 1200 s ran out; its terminal {LOCAL_TERMINAL} waits idle, and launching this brief again retries worker-start in it"
+        first = self.launch.local_calls()
+        self.assert_failed(self.launch, self.launch.run(model="fable", WORKER_LOCAL="1", SECONDS="1200"), f"{SPARSE}\n{line}", first)
+        self.assertEqual(self.launch.kept(), sorted([*LOCAL_KEPT, "worker-start.unsent"]))
+        self.assertEqual(self.launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
+        self.launch.local()
+        self.launch.reply("orca worktree list", {"out": {"ok": True, "result": {"worktrees": [{"displayName": LOCAL_NAME, "path": LOCAL_WORKTREE}]}}})
+        relaunched = self.launch.run(model="fable", WORKER_LOCAL="1")
+        self.assertEqual((relaunched.returncode, relaunched.stderr), (0, ""))
+        self.assertEqual(json.loads(relaunched.stdout), {"state": "ready", "task": "task_l", "dispatch": "ctx_l", "terminal": LOCAL_TERMINAL, "worktree": LOCAL_WORKTREE})
+        resumed = self.launch.local_calls(cone=())[-1]
+        self.assertEqual(self.launch.calls(), [*first, CURRENT, LIST, [*resumed[:-4], "--retry-request", REQUEST, *resumed[-4:]]])
+        self.assertEqual(self.launch.kept(), LOCAL_KEPT)
+
+    def test_a_local_terminal_send_orca_answers_busy_runs_again_until_the_launch_s_time_runs_out(self):
+        busy = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_busy", "message": "long-poll capacity reached; retry with backoff"}}}
+        for seconds, sends, code, said in ((None, 2, 0, ""), ("1200", 1, 1, "orca terminal send failed: runtime_busy: long-poll capacity reached; retry with backoff on each try until this launch's 1200 s ran out\n")):
+            with self.subTest(seconds=seconds):
+                launch = self.fresh()
+                launch.local()
+                launch.reply("orca terminal send", busy, {"out": {"ok": True}})
+                result = launch.run(model="fable", WORKER_LOCAL="1", **({"SECONDS": seconds} if seconds else {}))
+                self.assertEqual((result.returncode, result.stderr), (code, f"{SPARSE}\n{said}"))
+                calls = launch.local_calls()
+                self.assertEqual(launch.calls(), [*calls[:5], *[calls[5]] * sends, *(calls[6:] if sends == 2 else [])])
 
     def test_a_new_local_worktree_is_sparse_with_the_requested_cone(self):
         self.launch.local()
@@ -1274,7 +1325,7 @@ class LocalTest(LaunchTest):
         started = [[word.replace(LOCAL_WORKTREE, held) for word in call] for call in self.launch.local_calls(cone=())[-4:]]
         self.assertEqual(self.launch.calls(), [CURRENT, ["orca", "terminal", "create", "--worktree", f"path:{held}", "--title", LANE, "--json"], *started])
         self.assertEqual(json.loads(result.stdout)["worktree"], held)
-        self.assertEqual(self.launch.kept(), sorted(["request.json", *START_KEPT]))
+        self.assertEqual(self.launch.kept(), sorted(["request.json", "terminal", *START_KEPT]))
 
     def test_the_local_worktree_takes_a_name_scoped_to_the_run(self):
         self.launch.local()

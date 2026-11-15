@@ -131,6 +131,17 @@ launcher writes the ID to `worker-start.unsent`, says in one line that no
 worker started and its prepared terminal waits idle, and the next launch of
 the same brief reuses that Sprite and retries under the same ID.
 
+Orca answers `runtime_busy` once its long-poll calls are full, before it
+dispatches anything, so on either route the launcher runs `worker-start` again
+under the refused request's ID, and each terminal call again, sleeping 1 s
+doubling to 15 s as Orca's own CLI does for `runtime_unavailable`. It stops
+1,200 s into the launch, what drive's 30-minute wait leaves past
+`worker-start`'s own 10 minutes. A `worker-start` still busy then has its ID
+written to `worker-start.unsent`, and the launcher says in one line that no
+worker started and its terminal waits idle; the next launch of the brief, on
+the local route too, reuses the attempt's worktree and the terminal its
+`terminal` file names and retries under that ID.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`
@@ -301,7 +312,7 @@ authentication caches to a worker.
 Each brief claims `<brief-stem>.worker` beside the brief. For
 `/briefs/lane-a.md`, that is `/briefs/lane-a.worker`. An existing directory,
 link, failed attempt, or legacy `<brief-stem>.dispatch.json` refuses replay.
-The exceptions are a fenced or unrecorded `worker-start`, described above, and
+The exceptions are a fenced, unrecorded or busy `worker-start`, described above, and
 a Sprite attempt that never ran `worker-start`, either because its prepare exited
 nonzero, never finished, or exited 0 with no allocation the check below
 extracts into `prepared.json`, or because this launch takes the local route.
@@ -328,7 +339,8 @@ prepared for this lane, the same in its task, has that Sprite destroyed with
 `cc-remote destroy`; any other is left as it is. It then runs `worker-start` with `--on` the prepared
 environment, `--worktree id:<worktreeId>`, and `--terminal` the prepared
 terminal. Both routes retain `worker-start.json`, `worker-start.err`, and
-`worker-start.status`. Keep these files on every outcome.
+`worker-start.status`, and the local route `worktree` and `terminal`. Keep
+these files on every outcome.
 
 Success requires `worker-start` exit zero and a receipt reading `ok`, state
 `ready`, the owned Run, and printable Task and Dispatch IDs. IDs in a failed
