@@ -38,6 +38,10 @@ REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
+REFERS = (
+    "`answer.notes`, the drive's notes kept with his answer, and `answer.thread`, his earlier answers in the thread he gave it in, oldest first,"
+    ' say what his words name, such as which releases "these" or "all 3" are; only his own words order.'
+)
 
 
 class Noul(NamedTuple):
@@ -159,10 +163,10 @@ REPEATS = Noul(
     no="It asks for work that order is not about, even in the same code.",
 )
 ORDERS = Noul(
-    "Do `answer.said`, read with `card`, have the release in `action` run?",
+    "Do `answer.said`, read with `card`, `answer.notes` and `answer.thread`, have the release in `action` run?",
     yes=(
         "His order to ship or release that work, or his pick on a card about it reaching production whose option has that release run; a condition such as once tests pass orders it once it holds."
-        " His words to get work built or tested on places that are not production, such as a sandbox or staging, order each release of it that runs on those places alone."
+        " His words to get work built or tested on places that are not production, such as a sandbox or staging, order each release of it that runs on those places alone. " + REFERS
     ),
     no=(
         "His Approve or tap on a pull request, a pick to land, merge or enqueue one, or a pick of a design, a repair or whether a check holds releases nothing."
@@ -170,10 +174,10 @@ ORDERS = Noul(
     ),
 )
 SHIPS_MORE = Noul(
-    "Does the release in `action` ship more than `answer.said` orders: another change, more components or other places?",
+    "Does the release in `action` ship more than `answer.said`, read with `answer.notes` and `answer.thread`, orders: another change, more components or other places?",
     no=(
         "His words past a bare option number order only what they name, such as a team brought to where the picked option put the others."
-        " His words to get work built or tested on places order a release of that work there, on those places alone, whatever flags it starts with."
+        " His words to get work built or tested on places order a release of that work there, on those places alone, whatever flags it starts with. " + REFERS
     ),
 )
 JOB_ORDERS = Noul(
@@ -831,7 +835,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
 
 
 def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
-    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card, what referred() says they name and the places the release runs on with their stages and the components its `--only` alone ships, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -849,11 +853,28 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
         if named(flags, words, rest, cwd):
             return None
     card = {"card": card_text(asked)} if asked else {}
-    read = jev({"action": f"start this release on {runs_on(shipped(brief.started(release)[0]), cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
+    ran = shipped(brief.started(release)[0])
+    only = f", shipping only {', '.join(ran['only'])}," if ran.get("only") else ""
+    read = jev(
+        {"action": f"start this release{only} on {runs_on(ran, cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said} | referred(answer, data)} | card,
+        {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE},
+    )
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:
         return None
     return UNORDERED if orders is False or more else f"{UNORDERED}: Jev is unsure"
+
+
+def referred(answer: dict, data: dict) -> dict:
+    """What says what his words in a recorded answer name, as Jev reads it beside them: the drive's notes kept with the answer below its Notes: line, and his earlier answers the drive recorded in the thread he gave it in, by given_at(), oldest first, each with when he gave it in Pacific, so "All 3 of these are approved" names the three releases his earlier answer there planned; each left out when there is none."""
+    notes = answer["body"].partition(NOTES)[2].strip()[:BODY_CHARS]
+    thread = view.card_thread(link) if (link := given_at(data, answer)) else None
+    earlier = sorted(
+        (state.parse_time(kept["at"]), kept["words"])
+        for whole, kept in data["answers"].items()
+        if thread and whole[:7] != answer["id"][:7] and kept["link"] and view.card_thread(kept["link"]) == thread and state.parse_time(kept["at"]) < state.parse_time(answer["created_at"])
+    )
+    return ({"notes": notes} if notes else {}) | ({"thread": [{"said": words[:BODY_CHARS], "at": pacific(at)} for at, words in earlier]} if earlier else {})
 
 
 def card_text(asked: limits.Question) -> str:

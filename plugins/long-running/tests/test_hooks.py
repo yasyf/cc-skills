@@ -1949,6 +1949,46 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
     ]
 
 
+RELEASE_THREAD = "https://acme.slack.com/archives/D1/p{}?thread_ts=1794781948.643349"
+THREE_RELEASES = {
+    "id": "42a0764" + "0" * 33,
+    "title": "Owner 2:32 PM Nov 15 (ruling, his release card's thread): how should the whole-platform release go out without hurting production?",
+    "body": "we need to get this out without fucking yo production so ideally we do 1) hotfx release with his fix only, 2) release with everything other than ssql, 3) ssql once we figure out how to not pause production",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T22:33:40Z",
+}
+ALL_THREE = {
+    "id": "304ffb2b593048538e23fb0d8f341165a3db923c",
+    "title": "Nov 15 3:00 PM, his release card's thread: are the hotfix, the second release and the third release approved, and does anything in them wait on him?",
+    "body": "All 3 of these are approved given my constraints and top priority don't block on me for anything in them just get it done\nNotes: the hotfix ships #56539's run-secrets fix alone, on api.",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T23:00:30Z",
+}
+
+
+def test_his_answer_approving_all_3_of_these_is_read_beside_the_releases_his_earlier_answer_in_its_thread_planned_its_notes_and_the_components_the_release_ships(
+    demo: str, recorded: Answers, jev: Jev
+) -> None:
+    with state.edit("demo") as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": RELEASE_HOLD["created_at"], "said": RELEASE_HOLD["created_at"], "cards": {}, "jobs": {}}
+        for answer, ts in ((THREE_RELEASES, "1794784420000100"), (ALL_THREE, "1794786030000300")):
+            data["answers"][answer["id"]] = {"words": settled.his(answer["body"]), "link": RELEASE_THREAD.format(ts), "at": answer["created_at"], "said": answer["created_at"], "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, THREE_RELEASES, ALL_THREE]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    hotfix = f"tools/ci release hotfix 56539 --only api --without plat-usw2-staging,plat-gbl-staging --order {ALL_THREE['id']}"
+    jev.picks("304ffb2")
+    assert brief.approval_refusal(hotfix, state.load("demo")) is None
+    assert jev.asked[-1]["state"] == {
+        "action": f"start this release, shipping only api, on {settled.PRODUCTION}, leaving out plat-usw2-staging, plat-gbl-staging: `{hotfix}`",
+        "answer": {
+            "asked": ALL_THREE["title"],
+            "said": "All 3 of these are approved given my constraints and top priority don't block on me for anything in them just get it done",
+            "notes": "the hotfix ships #56539's run-secrets fix alone, on api.",
+            "thread": [{"said": THREE_RELEASES["body"], "at": "Sunday Nov 15 2026, 2:33 PM Pacific"}],
+        },
+    }
+
+
 HANDOVER_PICK = {
     "id": "7fe7efc" + "0" * 33,
     "title": "Should your normal clock release hand SandSQL's primaries over, since a footer pulls sandsql into it?",
