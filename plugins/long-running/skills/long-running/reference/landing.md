@@ -220,7 +220,9 @@ no failing test, such as a lint step, is the PR's own.
    running on it; a stacked PR reads `behind` until the PR below it merges; one on the head branch of
    an open PR the drive does not track, such as another drive's, reads `behind` that PR, owed by someone
    outside the drive, ahead of its lander's tries and its red, with no deadline and no wake, and no stall
-   reaches past it; a red one whose own row waits on an open drive PR, while its builder's `WAITING` or
+   reaches past it; one waiting on a teammate's GitHub review, a `review:<login>` wait, reads
+   `reviewing`, owed by someone outside the drive with no deadline and no wake, until the watch's read
+   finds that review at its head; a red one whose own row waits on an open drive PR, while its builder's `WAITING` or
    `ASK` answered that red and each wait it named still holds, reads `behind` that PR, owed by whoever
    owes that PR's stage, with no deadline and no wake, until that PR lands or the red changes, as a push
    of its head does; one on the branch of a job whose work is still to come and that has opened no PR

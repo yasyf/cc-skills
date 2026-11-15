@@ -17,7 +17,7 @@ from pathlib import Path
 NUMBER = "<number>"
 REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
-    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
+    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } reviews(last: 50) { nodes { state author { login } commit { oid } } } "
     "mergeable mergeCommit { oid } mergedAt labels(first: 50) { nodes { name } } timelineItems(itemTypes: [LABELED_EVENT], last: 20) { nodes { ... on LabeledEvent { createdAt label { name } } } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
@@ -34,6 +34,7 @@ OWNER = "number state isCrossRepository createdAt closedAt mergedAt baseRefName 
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
+SUBMITTED = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
 BUILDKITE_ORG = "forge"
 HOLD_LABEL = "hold"
@@ -167,7 +168,7 @@ def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
 
 
 def flatten(node: dict) -> dict:
-    """One PR's GraphQL node as the drive reads it, with ejected_at and cancelled_at, when Trunk last put the trunk-failed or trunk-cancelled label it carries on it, or None when it carries none."""
+    """One PR's GraphQL node as the drive reads it, with ejected_at and cancelled_at, when Trunk last put the trunk-failed or trunk-cancelled label it carries on it, or None when it carries none, and reviews, each reviewer's newest submitted review among its last 50 by casefolded login, with the commit it reviewed and its state, a review that only comments counting too, which GitHub's latestReviews leaves out."""
     commits = node["commits"]["nodes"]
     rollup = commits[0]["commit"]["statusCheckRollup"] if commits else None
     labels = [label["name"] for label in node["labels"]["nodes"]]
@@ -182,6 +183,7 @@ def flatten(node: dict) -> dict:
         "checks": [context(check) for check in rollup["contexts"]["nodes"]] if rollup else [],
         "reviewDecision": node["reviewDecision"],
         "approvals": [(review["commit"] or {}).get("oid") for review in node["latestOpinionatedReviews"]["nodes"] if review["state"] == "APPROVED"],
+        "reviews": {review["author"]["login"].casefold(): {"login": review["author"]["login"], "head": review["commit"]["oid"], "state": review["state"]} for review in node["reviews"]["nodes"] if review["author"] and review["commit"] and review["state"] in SUBMITTED},
         "mergeable": node["mergeable"],
         "title": node["title"],
         "lastEditedAt": node["lastEditedAt"],
