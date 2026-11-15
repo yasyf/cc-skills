@@ -14,6 +14,7 @@ UNTYPED = {"help", "drive", "json", "dry_run"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
 ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
+UNHEARD = "Jev did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
 UNSENT = (
     "no record went out, so while cci is down reach the session it was for with ListAgents, then SendMessage to"
     " `{drive}-coordinator`, `{drive}-communicator` or `{drive}-meta` carrying it, and post it once cci is back; a"
@@ -579,7 +580,11 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         ruling = (made.get("attr") or {}).get("ruling")
         if (questions or ruling) and (unsaid := unheard(data, found, made, ruled.pop(ruling, []))):
             raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
-        if unanswered := asks_only(found, made, questions):
+        try:
+            unanswered = asks_only(found, made, questions)
+        except settled.Unheard as failure:
+            unanswered = UNHEARD.format(failure=failure)
+        if unanswered:
             raise DriveError(f"{index}: refused, nothing posted: {unanswered}")
     ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) for made in posts]
     if unordered := [index for index, (item, alone) in enumerate(zip(records, ordering, strict=True), start=1) if "order" in item and not alone]:
@@ -751,16 +756,13 @@ def unheard(data: dict, found: dict, made: dict, ruled: list[dict]) -> str | Non
 
 
 def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str | None:
-    """Why an answer or owner record of his words that would end a card's question answers nothing: Jev reads them, beside the card's question and options, as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; refused too when Jev gives no reading, since a question ended on such words costs a redrawn card. None for words that pick an option or order the work, and for any record ending no question."""
+    """Why an answer or owner record of his words that would end a card's question answers nothing, the record tool's or the card command's for his words in its Other box: Jev reads them, beside the card's question and options, as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; settled.Unheard when Jev gives no reading, which each caller refuses, since a question ended on such words costs a redrawn card. None for words that pick an option or order the work, and for any record ending no question."""
     if made["kind"] not in ("answer", "owner") or not made.get("url") or not questions:
         return None
     _, question = questions[0]
     card = view.asked_card(found, named) if (named := question["waits"] or question["card"]) else None
-    try:
-        if not settled.only_asks(question["title"] or "", card["options"] if card else [], made["text"]):
-            return None
-    except settled.Unheard as failure:
-        return f"Jev did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
+    if not settled.only_asks(question["title"] or "", card["options"] if card else [], made["text"]):
+        return None
     return (
         "Jev reads his words as only asking the card questions, one proposing a way included, or remarking on it, so they answer"
         " nothing: answer them in the card's thread and send no record of them, and the card keeps asking him, its waits kept,"

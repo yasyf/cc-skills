@@ -898,6 +898,32 @@ def test_his_tap_ends_its_question_before_cci_takes_its_answer_record_so_a_refus
     assert [event["kind"] for event in events(drive)] == ["answered"]
 
 
+def test_his_words_in_a_cards_other_box_that_only_ask_about_it_end_nothing_and_record_nothing_until_words_of_his_pick(
+    drive: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    with state.edit(drive) as data:
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
+        data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    cci = Cci()
+    monkeypatch.setattr(subprocess, "run", cci.run)
+    asked, picked = "Expand on 1 and 2, what would each cost?", "Ring, unless it is late"
+    jev.asks.add(asked)
+    tap = {"waits": f"{drive}:j3-661440", "label": asked, "url": NEWER_CARD, "other": True, "action_ts": "1794200001.000100", "source": "slack"}
+    reply = ask({"answer": tap})
+    assert (reply["ok"], reply["asks"], "2a27048" in reply["why"]) == (False, True, True)
+    heard, jev.answer = jev.answer, None
+    with pytest.raises(state.DriveError, match=r"Jev did not read whether his words pick or direct \(no jev decision within 20s\)"):
+        card.question_answered(tap | {"label": picked, "action_ts": "1794200002.000100"})
+    [question] = state.load(drive)["jobs"]["j3"]["questions"]
+    assert (question["closed"], cci.posted, events(drive)) == (None, [], [])
+    jev.answer = heard
+    assert ask({"answer": tap | {"label": picked, "action_ts": "1794200003.000100"}}) == {"ok": True, "seq": "51"}
+    [question] = state.load(drive)["jobs"]["j3"]["questions"]
+    assert (closes(question), jev.weighed) == (("answered", picked, NEWER_CARD, "51", None), [asked, picked, picked])
+
+
 def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, str, str, bool]], list[list[dict]]]:
     """j3's older question on one card and its newer one on another, as cc-slack lists his cards; each card the drive closes in place, and each record batch posted."""
     with state.edit(drive) as data:
