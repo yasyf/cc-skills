@@ -339,7 +339,7 @@ def test_a_handler_whose_session_still_runs_a_background_task_or_wakeup_may_not_
     assert state.load("demo")["handlers"] == {}
 
 
-def test_a_handlers_done_record_carries_each_post_once_as_say_returned_it_whatever_the_handler_retyped(
+def test_a_handlers_done_record_carries_its_facts_then_each_post_once_as_say_returned_it_whatever_the_handler_retyped(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     handler = start(run, tmp_path)
@@ -355,7 +355,7 @@ def test_a_handlers_done_record_carries_each_post_once_as_say_returned_it_whatev
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     assert stop(monkeypatch, capsys, "h-session", transcript, "POSTED https://acme.slack.com/archives/D123/p1794479609881679; waits id demo:j1-7") == ""
-    assert started[-1][-1] == f"POSTED {reply}; waits id demo:j1-7"
+    assert started[-1][-1] == f"waits id demo:j1-7; POSTED {reply}"
 
 
 def test_a_handlers_done_line_names_each_permalink_once_where_it_first_appears() -> None:
@@ -445,7 +445,7 @@ def test_a_handlers_done_record_leads_with_the_ts_of_each_message_of_his_it_took
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     assert stop(monkeypatch, capsys, "h-session", transcript, "POSTED https://acme.slack.com/archives/D123/p1794447012004417; his Status? too", HIS_MESSAGE.format(scratch=tmp_path / "h1")) == ""
-    assert started[-1][-1] == f"TOOK 1794446901.330512; POSTED {reply}; his Status? too"
+    assert started[-1][-1] == f"TOOK 1794446901.330512; his Status? too; POSTED {reply}"
 
 
 def test_the_watchs_brief_names_its_record_by_the_bare_seq_the_communicators_brief_names_so_both_hold_the_same_record(

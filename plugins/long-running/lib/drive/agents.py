@@ -727,7 +727,7 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
 def post_done(name: str, payload: dict, ended_handler: dict) -> None:
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
-        line = "; ".join(filter(None, [*named_once(posted), SAY_RESULT.sub("", line).strip(" ;")]))
+        line = "; ".join(filter(None, [SAY_RESULT.sub("", line).strip(" ;"), *named_once(posted)]))
     if took := [f"{found[2]}.{found[3]}" for brief in ended_handler["took"] if HIS_WORDS in brief and (linked := LINK.search(brief)) and (found := state.CARD_LINK.search(linked[1]))]:
         line = f"TOOK {' '.join(took)}; {line}"
     reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], Path(payload["cwd"]), reads.posting())
