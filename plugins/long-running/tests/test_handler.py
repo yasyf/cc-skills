@@ -416,6 +416,29 @@ def test_a_handlers_done_record_carries_its_facts_then_each_post_once_as_say_ret
     assert started[-1][-1] == f"waits id demo:j1-7; POSTED {reply}"
 
 
+def test_720868_a_handlers_say_before_its_launch_saves_its_session_posts_since_its_launch_env_binds_it(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reply = "https://acme.slack.com/archives/D123/p1794479609881679?thread_ts=1794478810.620779&cid=D123"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": "1794478810.620779"})
+    first_steps: list[tuple] = []
+
+    def says_first(out: str) -> str:
+        data = state.load("demo")
+        handler = next(iter(data["handlers"]))
+        with monkeypatch.context() as handlers_process:
+            handlers_process.setenv(state.HANDLER_ENV, f"demo/{handler}")
+            handlers_process.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+            said = talk.say("demo", {"text": "Checks are still pending on both fixes.", "thread_ts": "1794478810.620779"})
+            first_steps.append((data["handlers"][handler]["session"], state.handler_id(data, "h-session"), state.handler_id(data, "another-session"), state.session_drives("h-session"), said))
+        return "h-session"
+
+    monkeypatch.setattr(agents, "launched", says_first)
+    handler = start(run, tmp_path)
+    assert first_steps == [(None, handler, None, ["demo"], f"POSTED {reply}")]
+    assert state.load("demo")["handlers"][handler]["session"] == "h-session"
+
+
 def test_a_handlers_done_line_names_each_permalink_once_where_it_first_appears() -> None:
     post = "https://acme.slack.com/archives/D123/p1794479609881679?thread_ts=1794478810.620779&cid=D123"
     card, other = "https://acme.slack.com/archives/D123/p1794479700000100", "https://acme.slack.com/archives/D123/p1794479800000100"

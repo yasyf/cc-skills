@@ -3842,7 +3842,10 @@ def held_since(held: list[dict]) -> str:
 
 
 def handler_id(data: dict, session: str | None) -> str | None:
-    """The handler a `claude --bg` session runs for the communicator, by the session its launch named."""
+    """The handler a `claude --bg` session runs for the communicator: for this process's own session the one its LONG_RUNNING_HANDLER names, which its launch sets before the session exists, so a handler is bound from its first step though its launch saves its session only once `claude --bg` returns and the drive's lock frees; else the one whose entry keeps the session."""
+    own = os.environ.get(HANDLER_ENV, "").partition("/")[2]
+    if session and session == os.environ.get("CLAUDE_CODE_SESSION_ID") and own in data["handlers"]:
+        return own
     return next((handler for handler, held in data["handlers"].items() if session and held["session"] == session), None)
 
 
@@ -4321,11 +4324,12 @@ def last_started(data: dict) -> str:
 
 
 def session_drives(session: str) -> list[str]:
-    """The drives that bind the session, a handler's included, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
+    """The drives that bind the session, a handler's included, by handler_id, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
     bound = []
     for name in names():
         data = saved(name)
-        bound += [(held["started"], name) for held in [*bound_sessions(data).values(), *data["handlers"].values()] if held["session"] == session]
+        bound += [(held["started"], name) for held in bound_sessions(data).values() if held["session"] == session]
+        bound += [(data["handlers"][handler]["started"], name)] if (handler := handler_id(data, session)) else []
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
