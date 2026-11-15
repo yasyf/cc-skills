@@ -2729,6 +2729,27 @@ def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_st
     assert (job["launching"], job.get("dispatch")) == (None, None)
 
 
+def test_a_launch_whose_launcher_said_several_lines_quotes_each_in_its_refusal(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Researched: j0\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    monkeypatch.setattr(orca, "tool", lambda name: name)
+    attempt = state.drive_dir(demo) / "jobs" / "j1.worker"
+    lines = [
+        f"{attempt}.1 keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again",
+        f"cc-remote orca prepare exited 1; {attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh",
+    ]
+    ran = subprocess.run
+    said = subprocess.CompletedProcess([orca.LAUNCHER], 1, stdout="", stderr="\n".join(lines) + "\n")
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: said if argv[0] == orca.LAUNCHER else ran(argv, **kwargs))
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}; attempt in {attempt}\n"
+
+
 def test_a_first_launch_whose_fresh_sprite_prepare_failed_launches_once_more_and_records_the_worker_that_started(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
