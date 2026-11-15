@@ -83,7 +83,7 @@ RECORD_ID = re.compile(
 HIS = re.compile(r"\bhis\b")
 HIM = re.compile(r"\bhim\b")
 Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]
-REDRAWN = ("head", "review", "blocks", "lands", "staging")
+REDRAWN = ("head", "staging")
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
 
@@ -250,7 +250,7 @@ def tap_refused(pr: dict, entry: dict) -> str | None:
 
 
 def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    """What his card says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it; under his Hold or the hold label, which stop only its landing, that hold first, whatever its stage, then what its builder does while it is not green."""
+    """What the dashboard says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it; under his Hold or the hold label, which stop only its landing, that hold first, whatever its stage, then what its builder does while it is not green."""
     by = "Held by you" if tap_label(entry) == "Hold" else "Held by the hold label on GitHub" if entry["hold_label"] else ""
     if not by or pr["state"] != "OPEN":
         return doing(pr, entry, held)
@@ -291,7 +291,7 @@ def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...], picked: tuple[tuple[str, str], ...] = ()) -> str:
-    """What his card says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
+    """What the dashboard says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
     lands = in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
     above = entry["reworked_above"]
     alone = f", alone while {in_turn(list(above))} above it {'is' if len(above) == 1 else 'are'} reworked to your words" if above else ""
@@ -337,7 +337,6 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "head": pr["headRefOid"],
         "staging": entry["staging"],
         "changed": entry.get("fundamental") or "",
-        "review": f"Commit {entry['head'][:7]} goes against your words: {named}. {'Your Approve still lands it' if tap_label(entry) == 'Approve' else 'Its agent is told; your Approve still lands it'}" if pr["state"] == "OPEN" and entry["head"] == pr["headRefOid"] and (named := state.against(entry)) else "",
         "summary": section_words(found, "summary"),
         "impact": section_words(found, *IMPACT_HEADINGS),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
