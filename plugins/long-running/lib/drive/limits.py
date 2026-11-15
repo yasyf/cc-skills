@@ -13,7 +13,7 @@ from typing import Self
 
 from drive import picture
 from drive.render import clock, cut, when
-from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, pr_key, pr_url, reworked_under, root, same_question
+from drive.state import DAY, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, kept_hash, named_prs, nearest, now, pr_key, pr_url, reworked_under, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -661,13 +661,13 @@ def coded(text: str) -> str:
     return "\n".join(lines)
 
 
-def rebuilt(card: dict, asks: Path) -> str:
-    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, then each picture `attached` finds, and the Findings `kept_findings` finds in asks, their Root cause the line the card drew when none are kept."""
+def rebuilt(card: dict, asks: Path, jobs: dict) -> str:
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, then each picture `attached` finds, and the Findings `kept_findings` finds among the drive's jobs, their Root cause the line the card drew when none are kept."""
     lines = card["body"].split("\n")
     shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
     show_me = [*unpictured(lines[shown + 1 :]), *attached(card, asks.with_name("pictures"))]
     hints = card.get("hints") or {}
-    findings = kept_findings(asks, card)
+    findings = kept_findings(asks, card, jobs)
     if findings == REBUILT and (drawn := next((line.removeprefix(CAUSE_LINE) for line in lines[:shown] if line.startswith(CAUSE_LINE)), None)):
         findings = ROOT_CAUSE.sub(lambda _: f"Root cause: {drawn}", findings, count=1)
     return "\n".join(
@@ -718,13 +718,12 @@ def attached(card: dict, pictures: Path) -> list[str]:
     return found
 
 
-def kept_findings(asks: Path, card: dict) -> str:
-    """The Findings under the newest block `drive job ask` kept for the card's job asking the card's question, its words unchanged since, else the line saying the block was rebuilt from the card."""
+def kept_findings(asks: Path, card: dict, jobs: dict) -> str:
+    """The Findings under the newest block `drive job ask` kept for the card's job asking the card's question, its words still the ones `kept_hash` reads for its file, else the line saying the block was rebuilt from the card."""
     job_id = card["waits"].partition(":")[2].partition("-")[0]
     for path in sorted(asks.glob(f"{job_id}-*.md"), key=lambda path: path.stat().st_mtime, reverse=True):
         text = path.read_text()
-        named = KEPT_ASK.fullmatch(path.stem)
-        if named and named["hash"] == ask_hash(text) and same_question(text.partition("\n")[0].removeprefix("ASK "), card["title"]):
+        if kept_hash(path, jobs) == ask_hash(text) and same_question(text.partition("\n")[0].removeprefix("ASK "), card["title"]):
             return FINDINGS.split(text, maxsplit=1)[1].strip("\n")
     return REBUILT
 

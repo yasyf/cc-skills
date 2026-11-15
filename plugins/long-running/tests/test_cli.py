@@ -2715,10 +2715,13 @@ def test_j2806_a_question_asked_again_in_new_words_redraws_its_card_under_its_on
     assert cli.main(["job", "ask", asking, "--drop", kept]) == 2
     assert f"is on his card {slack_card(1)}, which only his answer closes" in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
-    again = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(block.read_text())}.md"
-    assert run("job", "ask", asking, str(block)) == (0, f"{again}\nhis card {slack_card(2)} asks it under demo:j1-7")
+    assert run("job", "ask", asking, str(block)) == (0, f"{kept}\nhis card {slack_card(2)} asks it under demo:j1-7")
+    assert Path(kept).read_text() == block.read_text()
     job = state.load("demo")["jobs"]["j1"]
-    assert ([(question["file"], question["waits"], question["card"]) for question in job["questions"]], job["waits"]) == ([(str(again), "demo:j1-7", slack_card(2))], ["demo:j1-7"])
+    assert ([(question["file"], question["waits"], question["card"], question["hash"]) for question in job["questions"]], job["waits"]) == (
+        [(kept, "demo:j1-7", slack_card(2), state.ask_hash(block.read_text()))],
+        ["demo:j1-7"],
+    )
     assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7"]
 
 
@@ -2727,14 +2730,13 @@ def test_j3997_a_question_asked_again_in_new_words_whose_redraw_fails_stays_on_i
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    run("job", "ask", asking, str(block))
+    again = Path(run("job", "ask", asking, str(block))[1].splitlines()[0])
 
     def answered(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         raise slack.SlackError(f'waiting card "{card["waits"]}" was answered with "Yes" at 12:31pm')
 
     monkeypatch.setattr(cli, "post_ask", answered)
     block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
-    again = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(block.read_text())}.md"
     assert run("job", "ask", asking, str(block)) == (
         0,
         f"{again}\nj1's card {slack_card(1)} under demo:j1-7 did not redraw, so it shows the words it last drew and his answer there answers this question:"
@@ -3237,7 +3239,7 @@ def test_job_card_redraws_a_kept_ask_edited_by_hand_from_his_card_as_stored_and_
     assert run("cards", "redraw") == (0, json.dumps(json.loads(printed) | {"replaces": "https://acme.slack.com/archives/D123/p1794300000000100"}))
     monkeypatch.setattr("sys.stdin", io.StringIO(trimmed))
     rekept = run("job", "ask", asking, "-")[1].splitlines()[0]
-    assert Path(rekept).name == f"j1-{state.ask_hash(trimmed)}.md"
+    assert (rekept, state.load("demo")["jobs"]["j1"]["questions"][-1]["hash"]) == (str(kept), state.ask_hash(trimmed))
     code, redrawn = run("job", "card", asking, "--waits", "demo:j1-7")
     assert code == 0 and redrawn != printed
 
@@ -3426,7 +3428,7 @@ def test_a_question_asked_again_in_the_same_words_redraws_its_one_card_under_the
     ]
 
 
-def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_on_one_card(
+def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_on_one_card_from_the_one_file_its_first_ask_printed(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
@@ -3438,10 +3440,8 @@ def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_
     second = json.loads(run("job", "card", kept[1], "--waits", "demo:j1-8")[1])
     assert (first["waits"], second["waits"]) == ("demo:j1-7", "demo:j1-7")
     assert first == second and "opens in 3 calls" in first["body"]
-    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(kept[1], "demo:j1-7")]
-    code, out = run("job", "ask", asking, "--drop", kept[0])
-    assert (code, out.endswith("a later ask of it replaced its question, so only the file is deleted, so nothing counts it open")) == (0, True)
-    assert not Path(kept[0]).exists() and Path(kept[1]).exists()
+    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(kept[0], "demo:j1-7")]
+    assert (kept[1], sorted(path.name for path in (state.drive_dir("demo") / "asks").glob("j1-*.md"))) == (kept[0], [Path(kept[0]).name])
 
 
 def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_the_same_words_and_goes_on_a_card_of_its_own_in_other_words(

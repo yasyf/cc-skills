@@ -409,6 +409,16 @@ def test_a_drive_saved_before_say_kept_lines_keeps_on_each_carded_question_the_n
         assert (drive["jobs"]["j1"]["questions"][0]["told"], drive["lines_kept"]) == ({"1794200000.000100": {"link": said[2][0], "words": said[2][1]}}, True)
 
 
+def test_a_question_kept_before_its_record_held_the_hash_of_its_words_reads_the_hash_its_file_is_named_for(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    files = (state.drive_dir("demo") / "asks" / "j1-0badf00d.md", state.rebuilt_ask("demo", "demo:j1-2"))
+    unhashed = [{field: value for field, value in state.new_question(str(file), "Which forms?", "2026-11-13T11:30:00-08:00").items() if field != "hash"} for file in files]
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], "2026-11-13T10:00:00-08:00") | {"questions": unhashed}}
+    state.create(data)
+    assert [question["hash"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == ["0badf00d", None]
+
+
 def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_answered_on_his_card_and_drops_its_refusal(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
