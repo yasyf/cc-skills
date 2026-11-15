@@ -773,10 +773,29 @@ def test_a_process_the_drive_starts_runs_the_newest_plugin_copy_of_each_homebrew
     assert shutil.which("ccx", path=path) == str(newer / "bin" / "ccx")
 
 
-def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
+def test_long_running_runs_only_its_new_installs_drive_migrate_after_the_update(fake: Callable[..., FakeGit]) -> None:
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.other_calls() == []
+    assert git.other_calls() == [["/cache/long-running/1.0.3/bin/drive", "migrate"]]
+
+
+def test_a_failed_drive_migrate_fails_the_install_before_any_session_reloads_onto_the_new_code(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["unused"], set())
+
+    def migrate_fails(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        if cmd[1:] == ["migrate"]:
+            return subprocess.CompletedProcess(cmd, 2, "", "drive: could not read his recorded answers: ccn timed out")
+        return git.run(cmd, **options)
+
+    monkeypatch.setattr(install.subprocess, "run", migrate_fails)
+    assert install.main("long-running@skills", None, None, 900, None) == 1
+    assert capsys.readouterr().err.strip() == (
+        "drive install: /cache/long-running/1.0.3/bin/drive migrate exited 2: drive: could not read his recorded answers: ccn timed out"
+    )
+    assert git.orca_calls == []
 
 
 def test_installs_run_at_once_take_turns_on_the_plugin_updates(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch) -> None:

@@ -205,7 +205,8 @@ no failing test, such as a lint step, is the PR's own.
    (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
      `long-running@skills`), which the lander runs itself, waits for the release that holds the merge, updates the plugin, and
-     prints the installed version. Before it updates anything it reads the `dependencies` floors of that release's
+     prints the installed version. For long-running it also runs the new install's `drive migrate` before any session reloads
+     onto it, which makes each one-time change the new code owes a drive's files, once; no other drive verb makes one. Before it updates anything it reads the `dependencies` floors of that release's
      `plugin.json` and installs each sibling below its floor first, waiting until its release is out: a plugin that
      reads a sibling's new field, such as long-running reading cc-slack's `closed`, crashes on the old sibling. A
      captain-hook floor, or captain-hook's own release, also needs Captain Hook.app, whose hook worker runs every

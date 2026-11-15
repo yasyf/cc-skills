@@ -22,7 +22,7 @@ GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
 UNREACHED = re.compile(r"unable to access '|RPC failed|early EOF|remote end hung up")
-AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
+AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve"), "long-running": ("bin/drive", "migrate")}
 HOMEBREW = {"cc-context": "ccx", "cc-inbox": "cci", "cc-notes": "cc-notes", "cc-orchestrate": "cco", "cc-present": "cc-present", "cc-review": "cc-review", "cc-slack": "cc-slack", "codex": "codex-ask"}
 CASKS = {"cco": "cc-orchestrate"}
 TAP = "yasyf/tap"
@@ -1397,7 +1397,7 @@ def reload_main(drive: str | None, seat: str | None, force: bool) -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload each drive session on this Mac that has not reloaded onto the newest plugin install, as reload_session hands it on. A sha no release will hold prints why and installs nothing."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin, run its step after an update from the new install, such as long-running's `drive migrate`, and its Homebrew twin until the bare binary holds sha, print the installed version, then reload each drive session on this Mac that has not reloaded onto the newest plugin install, as reload_session hands it on. A sha no release will hold prints why and installs nothing."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
