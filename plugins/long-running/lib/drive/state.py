@@ -3440,9 +3440,11 @@ def ships_untapped(data: dict, key: str) -> bool:
     """Whether a yasyf/* PR lands with no tap: the builder it is registered on waits on a taken READY or PUSHED naming it or a PR that land.chain puts it under, so that builder means to ship its head and the stack under it, bottom first, as when it registers a PR below the one its READY named after that READY was taken."""
     from drive import land
 
+    if not merges_untapped(key):
+        return False
     job = data["jobs"][data["prs"][key]["job"]]
     said = job["said"] or ""
-    if not (merges_untapped(key) and job["kind"] == "builder" and job["state"] == "waiting" and REPORTED_LINE.match(said)):
+    if not (job["kind"] == "builder" and job["state"] == "waiting" and REPORTED_LINE.match(said)):
         return False
     named = named_prs(data, job["order"], said)
     if key in named:

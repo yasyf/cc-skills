@@ -359,7 +359,7 @@ def test_a_pushed_waits_while_the_check_its_rules_require_has_not_posted_on_its_
     assert said == [[], [], [f"JOB j1 o1 READY {state.pr_url(KEY)}; {KEY} is at aaaaaaa on GitHub, grading, owed by Buildkite and forge-pr-reviewer: its checks run at aaaaaaa"]]
 
 
-def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_its_own_red_check(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_a_red_check_its_lander_judges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = state.pr_url(YASYF)
     with state.edit(demo) as data:
         data["prs"][YASYF] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
@@ -367,7 +367,8 @@ def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_fi
     serve(monkeypatch, {YASYF: read(checks=RED, required_checks=[])})
     said = watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
     assert f"PR {YASYF}: checks failed [o1 j1]" in said
-    assert [line for line in said if line.startswith(f"JOB j1 o1 READY {url}; {YASYF} is at aaaaaaa on GitHub, red, owed by its builder: its checks fail")]
+    started = state.load(demo)["prs"][YASYF]["lander"]["at"]
+    assert f"JOB j1 o1 READY {url}; {YASYF} is at aaaaaaa on GitHub, landing, owed by the lander: lander pid {os.getpid()} lands aaaaaaa, started {started}" in said
     assert state.load(demo)["jobs"]["j1"]["said"] == f"READY {url}"
 
 
@@ -7641,12 +7642,12 @@ def test_a_reported_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_nex
 ) -> None:
     tried(demo, f"not landed: gh pr merge --squash --admin refused it: {DIRTY}")
     pushed(demo, YASYF)
-    reads = {KEY: read(), YASYF: read()}
+    reads = {KEY: read(), YASYF: read(checks=GREEN)}
     serve(monkeypatch, reads)
     watching = watcher(demo)
     started = []
     for minute, (head, mergeable) in enumerate([("aaaaaaa111", "MERGEABLE"), ("bbbbbbb222", "CONFLICTING"), ("bbbbbbb222", "MERGEABLE"), ("bbbbbbb222", "MERGEABLE")]):
-        reads[YASYF] = read(headRefOid=head, mergeable=mergeable)
+        reads[YASYF] = read(headRefOid=head, mergeable=mergeable, checks=GREEN)
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
         started.append(len(landers))
     assert started == [0, 0, 1, 1]
@@ -7657,53 +7658,84 @@ def test_a_reported_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_nex
 
 REPLAYED_4745_4756 = {"yasyf/cc-skills#4745": ("aa8d008", "FAILURE"), "yasyf/cc-skills#4756": ("ed25f62", "FAILURE"), "yasyf/cc-skills#4755": ("1120acd", None)}
 SOCKET = {"name": "Socket Security: Pull Request Alerts", "conclusion": "SUCCESS"}
+CC_SKILLS_RUNS = "https://github.com/yasyf/cc-skills/actions/runs"
+TESTED_4755 = "3021b51a8b9f346321a534e0e2405c88707cb510"
+MERGED_4755 = "merged at 390c80f416be; it changes no plugin installed on this Mac"
+MERGE_4755 = ["gh", "pr", "merge", "4755", "-R", "yasyf/cc-skills", "--squash", "--admin", "--match-head-commit", "1120acd"]
+OWN_RED_4755 = "not landed: its own change fails {} at 1120acd, which the default branch does not fail where the PR's run of it merged its head"
 
 
-def replayed(demo: str, monkeypatch: pytest.MonkeyPatch, conclusions: dict[str, str | None]) -> None:
+def long_running_test(conclusion: str | None) -> dict:
+    return {"name": "test", "workflowName": "long-running CI", "conclusion": conclusion, "detailsUrl": f"{CC_SKILLS_RUNS}/43376582330/job/1"}
+
+
+def branch_history(commits: list[tuple[str, str | None]]) -> str:
+    nodes = [
+        {"checkSuites": {"nodes": [{"workflowRun": {"workflow": {"name": "long-running CI"}}, "checkRuns": {"nodes": [{"name": "test", "conclusion": conclusion}]}}] if ran == "ran" else []}}
+        for ran, conclusion in commits
+    ]
+    return json.dumps({"data": {"repository": {"object": {"history": {"nodes": nodes}}}}})
+
+
+def replayed(demo: str, monkeypatch: pytest.MonkeyPatch, checks: dict[str, list[dict]]) -> dict[str, dict]:
     with state.edit(demo) as data:
         for key in REPLAYED_4745_4756:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": False}
     pushed(demo, *REPLAYED_4745_4756)
-    serve(
-        monkeypatch,
-        {
-            key: read(headRefOid=head, checks=[{"name": "test", "conclusion": conclusions.get(key, conclusion)}, SOCKET], required_checks=[], required_reviews=0)
-            for key, (head, conclusion) in REPLAYED_4745_4756.items()
-        },
-    )
+    reads = {key: read(headRefOid=head, checks=checks.get(key, [long_running_test(conclusion), SOCKET]), required_checks=[], required_reviews=0) for key, (head, conclusion) in REPLAYED_4745_4756.items()}
+    serve(monkeypatch, reads)
+    return reads
 
 
-def test_reported_yasyf_prs_failing_their_own_checks_never_merge_as_4745_and_4756_did_while_4755_merges_as_its_checks_run(
+def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_one_once_every_check_finished_failing_or_not_for_it_to_judge(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    replayed(demo, monkeypatch, {})
+    reads = replayed(demo, monkeypatch, {})
     watching = watcher(demo)
     for minute in (0, 1, 9):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
-    data = state.load(demo)
-    assert [(now := stage.of(data, key, NO_CARDS)).name + ": " + now.why for key in REPLAYED_4745_4756] == [
-        "red: its checks fail at aa8d008: test",
-        "red: its checks fail at ed25f62: test",
-        "landing: lander pid " + str(os.getpid()) + " lands 1120acd, started " + data["prs"]["yasyf/cc-skills#4755"]["lander"]["at"],
-    ]
-    assert landers == [("yasyf/cc-skills#4755",)]
+    assert sorted(landers) == [("yasyf/cc-skills#4745",), ("yasyf/cc-skills#4756",)]
+    assert stage.of(state.load(demo), "yasyf/cc-skills#4755", NO_CARDS) == stage.Stage("grading", stage.GRADERS, "its checks run at 1120acd")
+    reads["yasyf/cc-skills#4755"]["checks"] = [long_running_test("SUCCESS"), SOCKET]
+    watch.run_pass(watching, T0 + timedelta(minutes=10))
+    assert landers[2:] == [("yasyf/cc-skills#4755",)]
 
 
-@pytest.mark.parametrize(("conclusion", "merges"), [(None, True), ("FAILURE", False)])
-def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_only_while_none_fails(
-    demo: str, monkeypatch: pytest.MonkeyPatch, conclusion: str | None, merges: bool
+@pytest.mark.parametrize(
+    ("checks", "history", "outcome", "waits"),
+    [
+        pytest.param([long_running_test(None), SOCKET], [], "not landed: its checks still run at 1120acd", 0, id="its-test-still-runs"),
+        pytest.param([long_running_test("SUCCESS"), SOCKET], [], MERGED_4755, 0, id="every-check-passed"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], [[("ran", "SUCCESS")]], OWN_RED_4755.format("test"), 0, id="the-default-branch-passed-its-test"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], [[("ran", "FAILURE")]], MERGED_4755, 0, id="the-default-branch-fails-its-test-too"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], [[("ran", None)], [("ran", "SUCCESS")]], OWN_RED_4755.format("test"), 1, id="it-waits-on-the-default-branchs-test-which-passes"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], [[("ran", None)], [("ran", "FAILURE")]], MERGED_4755, 1, id="it-waits-on-the-default-branchs-test-which-fails"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], [[("skip ci", None), ("ran", "FAILURE")]], MERGED_4755, 0, id="tested-on-a-skip-ci-commit-whose-parent-fails-its-test"),
+        pytest.param([long_running_test("SUCCESS"), SOCKET | {"conclusion": "FAILURE"}], [], OWN_RED_4755.format(SOCKET["name"]), 0, id="a-check-no-workflow-ran-fails"),
+    ],
+)
+def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_once_every_one_finished_and_none_fails_where_the_default_branch_passed_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checks: list[dict], history: list[list[tuple[str, str | None]]], outcome: str, waits: int
 ) -> None:
-    replayed(demo, monkeypatch, {"yasyf/cc-skills#4755": conclusion})
+    histories = iter(history)
+
+    def gh(cmd: list[str], **_: object) -> str:
+        if cmd[2] == "graphql":
+            assert f'object(oid: "{TESTED_4755}")' in cmd[-1]
+            return branch_history(next(histories))
+        if cmd[2] == "repos/yasyf/cc-skills/actions/runs/43376582330":
+            assert cmd[-1] == ".pull_requests[] | select(.number == 4755) | .base.sha"
+            return f"{TESTED_4755}\n"
+        return "390c80f416be\n" if cmd[2] == "view" else "plugins/long-running/hooks/message_limits.py\n"
+
+    replayed(demo, monkeypatch, {"yasyf/cc-skills#4755": checks})
     runs: list[list[str]] = []
+    slept: list[float] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
-    monkeypatch.setattr(github, "run", lambda cmd, **_: "390c80f416be\n" if cmd[2] == "view" else "plugins/long-running/hooks/message_limits.py\n")
+    monkeypatch.setattr(land.time, "sleep", slept.append)
+    monkeypatch.setattr(github, "run", gh)
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
-    outcome = land.run(demo, ["yasyf/cc-skills#4755"])
-    assert (outcome, runs) == (
-        ("merged at 390c80f416be; it changes no plugin installed on this Mac", [["gh", "pr", "merge", "4755", "-R", "yasyf/cc-skills", "--squash", "--admin", "--match-head-commit", "1120acd"]])
-        if merges
-        else ("not landed: its checks fail at 1120acd: test", [])
-    )
+    assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs, len(slept)) == (outcome, [MERGE_4755] if outcome == MERGED_4755 else [], waits)
 
 
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
