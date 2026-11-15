@@ -3670,7 +3670,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = None) -> list[str]:
-    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head, Where it stands, Waits on and staging line never stay stale; the same lines are asked again only served.RETRY on, since cc-slack redraws in the background and draws none for a PR changed since he answered."""
+    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head, Where it stands, Waits on and staging line never stay stale; a redraw cc-slack refuses is asked again on the next pass, and one it answered for is asked again on the same lines only served.RETRY on, since cc-slack draws none for a PR changed since he answered."""
     from drive import card
 
     if watcher.cards is None:

@@ -150,7 +150,7 @@ def withdraw_pr_card(url: str, reason: str, via: str = "") -> list[str]:
 
 
 def redraw_pr_cards(url: str) -> int:
-    """Redraw in place, from `drive card`, every open card carrying the PR, keeping its buttons; how many cc-slack queued, with no new post."""
+    """Redraw in place, from `drive card`, every open card carrying the PR, keeping its buttons; how many cc-slack redrew, with no new post. cc-slack answers once each is redrawn, and fails naming each card that stays as drawn."""
     return cc_slack("redraw-pr-cards", "--pr", url)["redrawing"]
 
 
