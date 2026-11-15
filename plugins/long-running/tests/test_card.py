@@ -934,10 +934,28 @@ def test_his_undo_is_recorded_in_cc_notes_once_under_its_cards_question_as_never
     two_questions_of_j3(drive, monkeypatch)
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
     ask({"answer": tap})
-    for _ in range(2):
-        ask({"answer": tap | {"undone": True, "action_ts": "1794200002.000100"}})
+    undo = tap | {"undone": True, "action_ts": "1794200002.000100"}
+    ask({"answer": undo})
+    with pytest.raises(state.DriveError, match="reopens nothing"):
+        ask({"answer": undo})
     ask({"answer": tap | {"label": "Knock", "action_ts": "1794200003.000100"}})
     assert noted == [(drive, "Ring or knock?", "Ring"), (drive, "Ring or knock?", card.UNDONE.format(label="Ring")), (drive, "Ring or knock?", "Knock")]
+
+
+def test_his_undo_reopens_the_question_his_words_under_the_card_answered_and_each_copy_answered_on_their_record_and_refuses_one_reopening_none(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    two_questions_of_j3(drive, monkeypatch)
+    words = state.new_close("answered", "why not just ring twice?", f"{NEWER_CARD[:-6]}900100?thread_ts=1794200000.000100", seq="661450")
+    with state.edit(drive) as data:
+        data["jobs"]["j3"]["questions"][1]["closed"] = words
+        data["jobs"]["j4"] = state.new_job("o1", "builder", "the bell", [], "2026-11-08T20:00:00-08:00")
+        data["jobs"]["j4"]["questions"] = [state.new_question("asks/j4-ring.md", "Ring or knock?", "2026-11-08T20:30:00-08:00") | {"closed": words | {"at": state.stamp()}}]
+    undo = {"waits": f"{drive}:j3-661440", "label": words["words"], "url": NEWER_CARD, "undone": True, "action_ts": "1794200010.000100", "source": "slack"}
+    assert ask({"answer": undo}) == {"ok": True, "seq": "661500"}
+    assert [question["closed"] for job_id in ("j3", "j4") for question in state.load(drive)["jobs"][job_id]["questions"]] == [None, None, None]
+    with pytest.raises(state.DriveError, match=f"his Undo on {NEWER_CARD} reopens nothing"):
+        ask({"answer": undo | {"action_ts": "1794200011.000100"}})
 
 
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:

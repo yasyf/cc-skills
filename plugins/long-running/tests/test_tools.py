@@ -523,17 +523,19 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
     posted: list[tuple[list[str], list[dict]]] = []
     ok = subprocess.CompletedProcess([], 0, '{"seq": 41}\n{"seq": 42}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
-    records = [{"kind": "answer", "text": "Ring", "waits": f"{drive}j2-7", "undone": True}, {"kind": "defect", "text": "cc-slack delete hides --url"}]
+    records = [{"kind": "answer", "text": "Ring", "waits": f"{drive}j2-7"}, {"kind": "defect", "text": "cc-slack delete hides --url"}]
     assert tools.run("record", demo, {"records": records}) == "1 answer 41\n2 defect 42"
     assert posted == [
         (
             ["cci", "post", "--drive", "demo", "--lane", "root", "--batch", "-"],
             [
-                {"kind": "answer", "to": ["communicator@demo"], "text": "undone: Ring", "topic": "demo:j2-7", "attr": {"job": "j2", "waits": "demo:j2-7", "undone": "Ring"}, "json": True},
+                {"kind": "answer", "to": ["communicator@demo"], "text": "Ring", "topic": "demo:j2-7", "attr": {"job": "j2", "waits": "demo:j2-7"}, "json": True},
                 {"kind": "defect", "to": ["meta@demo"], "text": "cc-slack delete hides --url", "json": True},
             ],
         )
     ]
+    with pytest.raises(DriveError, match="1: refused, nothing posted: no record undoes his answer; run cc-slack card-reopen"):
+        tools.run("record", demo, {"records": [records[0] | {"undone": True}]})
     with pytest.raises(DriveError, match="a report goes through the cci `post` tool"):
         tools.run("record", demo, {"records": [{"kind": "report", "text": "Land #4"}]})
     with pytest.raises(DriveError, match="a card of drive other, not demo: only his owner or answer words under it go to that drive"):
@@ -1182,10 +1184,9 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
 def test_his_answer_is_held_verbatim_on_the_job_it_answers_naming_the_option_his_card_recommended(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n{"seq": 62}\n', ""))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
     open_cards(monkeypatch, "demo:j1-7")
-    answers = [{"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}, {"kind": "answer", "text": "Ring", "waits": "demo:j1-8", "undone": True}]
-    tools.run("record", demo, {"records": answers})
+    tools.run("record", demo, {"records": [{"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}]})
     [kept] = state.load(demo)["jobs"]["j1"]["undelivered"]
     assert (kept["seq"], kept["words"], kept["said"], bool(kept["request"])) == (
         "61",
@@ -1225,7 +1226,7 @@ def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_cal
     assert len(posted) == 2
 
 
-def test_his_question_under_a_card_asking_only_for_facts_posts_nothing_and_leaves_the_card_asking_while_why_not_just_x_answers_it(
+def test_his_question_under_a_card_one_proposing_a_way_included_posts_nothing_and_leaves_the_card_asking_while_his_pick_answers_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
@@ -1236,16 +1237,16 @@ def test_his_question_under_a_card_asking_only_for_facts_posts_nothing_and_leave
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 51}\n', ""))
     answered = open_cards(monkeypatch, "demo:j1-7")
-    asked = "Expand on 1 and 2 and how does the replica fit in?"
-    jev.asks.add(asked)
+    asked, proposing = "Expand on 1 and 2 and how does the replica fit in?", "why not just keep one replica?"
+    jev.asks |= {asked, proposing}
     facts = {"kind": "answer", "text": asked, "url": UNDER_CARD, "waits": "demo:j1-7", "attrs": {"maps": "none"}}
-    for record in (facts, {"kind": "owner", "text": asked, "url": UNDER_CARD, "thread_card": "demo:j1-7", "about": "his work"}):
-        with pytest.raises(DriveError, match="1: refused, nothing posted: Jev reads his words as only asking the card for facts"):
+    for record in (facts, facts | {"text": proposing}, {"kind": "owner", "text": proposing, "url": UNDER_CARD, "thread_card": "demo:j1-7", "about": "his work"}):
+        with pytest.raises(DriveError, match="1: refused, nothing posted: Jev reads his words as only asking the card questions, one proposing a way included.*2a27048"):
             tools.run("record", demo, {"records": [record]})
     data = state.load(demo)
     assert (answered, posted, len(view.open_questions(data["jobs"]["j1"])), data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == ([], [], 1, ["demo:j1-7"], [])
-    assert jev.weighed == [asked, asked]
-    proposed = facts | {"text": "why not just keep one replica?"}
+    assert jev.weighed == [asked, proposing, proposing]
+    proposed = facts | {"text": "Ring, keeping one replica"}
     heard, jev.answer = jev.answer, None
     with pytest.raises(DriveError, match=r"1: refused, nothing posted: Jev did not read whether his words pick or direct \(no jev decision within 20s\)"):
         tools.run("record", demo, {"records": [proposed]})
