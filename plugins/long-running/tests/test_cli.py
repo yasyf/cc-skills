@@ -6440,7 +6440,7 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     run("job", "add", "builder", "--order", "o2", "--goal", "guard")
     assert run("pr", "add", PR, "--job", "j2", *LEAD)[0] == 0
     assert run("pr", "set", url, "--waits", waited)[0] == 0
-    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("waiting", stage.WAITED, f"it waits on {waited}, and the watch frees it once each ends")
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("waiting", "j2", f"it waits on {waited}, and the watch frees it once each ends")
     with state.edit("demo") as data:
         data["prs"][waited]["state"] = "merged"
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready

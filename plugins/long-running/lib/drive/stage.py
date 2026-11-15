@@ -11,7 +11,6 @@ ORDER = "the session holding its order"
 HIM = "him"
 BUILDER = "its builder"
 GRADERS = "Buildkite and forge-pr-reviewer"
-WAITED = "what it waits on"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
 WAKES_LOG = "wakes.log"
@@ -19,14 +18,18 @@ NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 ASKS_HIM = ("held", "card")
 OWN_STEP = ("uncarded", "landing", "unlanded", "held", "rework", "merged", github.FOLDED, "closed")
 EVERY = {
+    "uncarded": timedelta(minutes=30),
     "landing": timedelta(minutes=90),
     "unlanded": timedelta(minutes=30),
+    "blocked": timedelta(minutes=60),
     "held": timedelta(minutes=30),
     "rework": timedelta(minutes=30),
     "red": timedelta(minutes=30),
+    "waiting": timedelta(minutes=60),
     "grading": timedelta(minutes=60),
     "card": timedelta(minutes=30),
     "ready": timedelta(minutes=30),
+    "author": timedelta(minutes=30),
 }
 
 
@@ -82,7 +85,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if step := owed(data, key):
         if waits := answered(data, key, step):
             return blocked(data, key, step, waits, cards)
-        return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, pr, step) or Stage("red", BUILDER, step)
+        return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, key, step, cards) or Stage("red", BUILDER, step)
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if pending := grading(pr):
@@ -92,7 +95,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if (flaky := land.flaked(pr)) and not flaky["failed_checks"] and data["prs"][flaky["fix"]]["state"] == "open":
         return Stage(
             "waiting",
-            WAITED,
+            mover(data, key, [flaky["fix"]], cards),
             f"Trunk ejected it from the merge queue at {pr['head'][:7]} on its flaky test {flaky['test']}; the lander requeues that commit once {flaky['fix']}, that test's fix, merges",
         )
     if state.cleared(pr):
@@ -106,12 +109,12 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 
 def waiting(data: dict, key: str, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting on what it waits on; None once nothing it waits on holds."""
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting, owed by the session mover() names; None once nothing it waits on holds."""
     if not (standing := view.holding(data, pr_waits(data, data["prs"][key]), cards)):
         return None
     if mine := asked(data, key, standing, cards):
         return Stage("blocked", HIM, f"it waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*standing, *mine]))}")
-    return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
+    return Stage("waiting", mover(data, key, standing, cards), f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
 
 
 def pr_waits(data: dict, pr: dict) -> list[str]:
@@ -125,25 +128,38 @@ def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[st
 
 
 def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> list[str]:
-    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job and each PR not waiting on his Approve to what holds it by onward(), to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere."""
+    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job, each part of an order and each PR not waiting on his Approve to what holds it by onward(), to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere."""
     found = []
     for wait in view.holding(data, waits, cards):
         release = state.RELEASE_WAIT.fullmatch(wait)
         if wait in seen or release and release["pr"] in seen:
             continue
         seen.add(wait)
-        held = onward(data, wait, cards) if wait in data["jobs"] or wait in data["prs"] and not his(data, wait, cards) else []
+        held = onward(data, wait, cards) if wait in data["jobs"] or state.part_wait(data, wait) or wait in data["prs"] and not his(data, wait, cards) else []
         found += ends(data, held, cards, seen) if held else [wait]
     return found
 
 
 def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
-    """What a job or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits and the cards of its own questions open on him, by view.open_cards, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
+    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
     if job := data["jobs"].get(subject):
         waits = [*job["waits"], *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
+    elif part := state.part_wait(data, subject):
+        waits = [job_id for job_id, _ in state.part_jobs(data, *part)]
     else:
         waits = [*pr_waits(data, data["prs"][subject]), *land.pr_cards(data, data["prs"][subject])]
     return view.holding(data, view.stored_waits(data, waits, cards), cards)
+
+
+def mover(data: dict, key: str, waits: list[str], cards: dict | None) -> str:
+    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); else, at the first, the job at work there, a PR standing for the job answering for it, by owner_job(), so the stage's deadline wakes that job's lane; the watch for a builder slot on this Mac, which it gives; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a part no job carries or waits that only come back to the PR."""
+    found = ends(data, waits, cards, {key})
+    if any(his(data, end, cards) for end in found):
+        return HIM
+    end = owner_job(data, found[0]) if found and found[0] in data["prs"] else next(iter(found), None)
+    if end in data["jobs"]:
+        return end
+    return WATCH if end == state.SLOT_WAIT else ORDER
 
 
 def his(data: dict, wait: str, cards: dict | None) -> bool:
@@ -198,14 +214,15 @@ def ejection(data: dict, pr: dict) -> str | None:
     return None
 
 
-def flake_red(data: dict, pr: dict, failing: str) -> Stage | None:
-    """A PR red at its own head by the drive pr set --flaky record kept there while its checks failed: waiting on that test's fix, owed by what it waits on and waking nobody, while the fix is open and every check failing at that head is one the record kept; red once the fix merged, so entering it wakes its builder once to restack onto the fix, since a rerun grades the merge its first run tested, or closed unmerged; None with no such record, or once a check the record lacks fails there."""
+def flake_red(data: dict, key: str, failing: str, cards: dict | None) -> Stage | None:
+    """A PR red at its own head by the drive pr set --flaky record kept there while its checks failed: waiting on that test's fix, owed by the session moving that fix, by mover(), never its own builder, while the fix is open and every check failing at that head is one the record kept; red once the fix merged, so entering it wakes its builder once to restack onto the fix, since a rerun grades the merge its first run tested, or closed unmerged; None with no such record, or once a check the record lacks fails there."""
+    pr = data["prs"][key]
     flaky = land.flaked(pr)
     if not flaky or pr["checks"] != "fail" or not set(pr["failed_checks"]) <= set(flaky["failed_checks"]):
         return None
     fix = data["prs"][flaky["fix"]]["state"]
     if fix == "open":
-        return Stage("waiting", WAITED, f"{failing}, on its flaky test {flaky['test']} outside its diff; its builder restacks it onto {flaky['fix']}, that test's fix, once it merges")
+        return Stage("waiting", mover(data, key, [flaky["fix"]], cards), f"{failing}, on its flaky test {flaky['test']} outside its diff; its builder restacks it onto {flaky['fix']}, that test's fix, once it merges")
     then = "merged, so restack it onto that fix" if fix == "merged" else "closed unmerged, so fix that test at its cause"
     return Stage("red", BUILDER, f"{failing}; {flaky['fix']}, the fix of its flaky test {flaky['test']}, {then}")
 
@@ -287,9 +304,9 @@ def answered(data: dict, key: str, step: str) -> list[str]:
 
 
 def blocked(data: dict, key: str, step: str, waits: list[str], cards: dict | None) -> Stage:
-    """A PR owing its builder a step, a rework to his words or a red, whose builder waits on the PRs, releases and question cards of his that let it take that step: each PR and card named by its link, owed by him while an end of them is his to move by asked(), which it names and links too, else by what it waits on, whose own stage wakes its owner."""
+    """A PR owing its builder a step, a rework to his words or a red, whose builder waits on the PRs, releases and question cards of his that let it take that step: each PR and card named by its link, owed by him while an end of them is his to move by asked(), which it names and links too, else by the session mover() names."""
     mine = asked(data, key, waits, cards)
-    return Stage("blocked", HIM if mine else WAITED, f"{step}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*waits, *mine]))}")
+    return Stage("blocked", HIM if mine else mover(data, key, waits, cards), f"{step}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*waits, *mine]))}")
 
 
 def fix_words(data: dict, wait: str, cards: dict | None) -> str:
@@ -341,9 +358,9 @@ def entered(kept: dict | None, now: Stage) -> bool:
 
 
 def overdue(data: dict, pr: dict, now: Stage, moment: datetime) -> bool:
-    """Whether the stage's deadline passed since it began or its owner was last woken: one asking him only while the PR fixes a live bug."""
+    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, and one he owes only while it asks him on his card, held or card, and the PR fixes a live bug."""
     every = EVERY.get(now.name)
-    if every is None or now.name in ASKS_HIM and not live(data, pr):
+    if every is None or now.owner == HIM and (now.name not in ASKS_HIM or not live(data, pr)):
         return False
     kept = pr["stage"]
     return moment - state.parse_time(kept["woke"] or kept["since"]) >= every
@@ -384,6 +401,6 @@ def line(key: str, pr: dict, now: Stage) -> str:
     return f"{key} {now.name}{since}, owed by {now.owner}: {now.why}"
 
 
-def wake(name: str, key: str, text: str) -> None:
-    """Run drive pr wake on the PR as its own process, outliving the watch pass that started it, so an Orca send or a builder's relaunch never holds the watch; its output appended to the drive's wake log."""
-    state.detach(name, ["pr", "wake", state.pr_url(key), "--text", text], WAKES_LOG)
+def wake(name: str, key: str, text: str, job_id: str | None = None) -> None:
+    """Run drive pr wake on the PR as its own process, outliving the watch pass that started it, so an Orca send or a builder's relaunch never holds the watch, to the job its stage names, else its builder; its output appended to the drive's wake log."""
+    state.detach(name, ["pr", "wake", state.pr_url(key), "--text", text, *(["--job", job_id] if job_id else [])], WAKES_LOG)

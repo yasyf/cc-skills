@@ -625,6 +625,23 @@ dl.keyed dd ul { margin: 2px 0 0; }
 .now-side .queue-list { position: static; max-height: none; opacity: 1; }
 .now-side .qrow-main { padding: 9px 11px; text-align: left; }
 .scope-work { margin-bottom: 22px; }
+.pr-status { min-width: 0; margin-bottom: 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+.pr-status-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 14px; }
+.pr-status-head .eyebrow { margin: 0; }
+.pr-status-head > span, .pr-status th, .pr-status small { color: var(--muted); font-size: 11px; }
+.pr-status-scroll { overflow-x: auto; }
+.pr-status table { width: 100%; min-width: 760px; border-collapse: collapse; table-layout: fixed; color: var(--ink-2); font-size: 12px; line-height: 1.45; }
+.pr-status th, .pr-status td { padding: 12px 14px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.pr-status th { font-weight: 500; }
+.pr-status th:first-child { width: 28%; }
+.pr-status th:nth-child(2) { width: 12%; }
+.pr-status th:nth-child(3) { width: 30%; }
+.pr-status th:nth-child(4) { width: 18%; }
+.pr-status a, .pr-status .linkish, .pr-status .pr-owner-you { color: var(--accent); font-weight: 550; }
+.pr-status small { display: block; margin-top: 4px; }
+.pr-status .linkish { padding: 0; font: inherit; }
+.pr-status .state-pill { padding: 2px 9px; border-radius: 99px; background: var(--soft); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.pr-status time { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .scope-work .eyebrow { margin-bottom: 10px; }
 .task-sheet .story { margin-top: 28px; }
 .now-grid { display: grid; grid-template-columns: minmax(0, 1fr) 285px; gap: 25px; align-items: start; }

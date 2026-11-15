@@ -613,6 +613,17 @@ def compact_instructions(drive: dict, role: str) -> str:
     )
 
 
+def his_prs(rows: list[dict]) -> str:
+    """drive status --prs: view.his_prs's rows as a markdown table, which say draws as Slack's data table."""
+    if not rows:
+        return "No open PR carries his Approve or waits on him."
+    lines = ["| PR | Stage | What holds it | Owner | Since |", "|---|---|---|---|---|"]
+    for row in rows:
+        cells = [f"[{row['key']}]({row['url']}) {row['title']}", row["stage"], row["holds"], row["owner"], when(row["since"]) if row["since"] else "now"]
+        lines.append("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    return "\n".join(lines)
+
+
 def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Callable[[dict], bool] | None = None) -> dict:
     data = {
         "name": drive["name"],

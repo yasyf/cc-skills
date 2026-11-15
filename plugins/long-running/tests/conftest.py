@@ -725,7 +725,7 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
 @pytest.fixture(autouse=True)
 def woken(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     sent: list[tuple[str, str]] = []
-    monkeypatch.setattr(stage, "wake", lambda name, key, text: sent.append((key, text)))
+    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None: sent.append((key, text)))
     return sent
 
 

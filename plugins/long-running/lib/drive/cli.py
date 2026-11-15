@@ -3671,17 +3671,18 @@ def releaded(pr: dict) -> str:
 
 
 def pr_wake(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, as its stage owes: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     data = state.load(name)
-    held_job(data, data["prs"][key]["job"])
+    target = args.job or data["prs"][key]["job"]
+    held_job(data, target)
     if args.text is None and (cards := view.live_cards(name)) is None:
         raise DriveError(f"{key}: his cards could not be read, so its stage is unknown; pass --text")
     text = args.text or stage.line(key, data["prs"][key], stage.of(data, key, cards))
-    job_id = stage.owner_job(data, key)
+    job_id = None if data["jobs"][target]["state"] == "stopped" else target
     if job_id and data["jobs"][job_id].get("dispatch"):
         with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
             data = state.load(name)
@@ -3694,16 +3695,16 @@ def pr_wake(args: argparse.Namespace) -> int:
                 return emit(args, f"{key}: {job_id} {how}", {"key": key, "job": job_id, "how": how})
         job_id = None
     pr = data["prs"][key]
-    job = data["jobs"][job_id or pr["job"]]
+    job = data["jobs"][target]
     if job_id:
         lane, step = superseded.delivery(data, job_id, job, text, "this line")
-        said = f"STAGE {text}; for its builder {job_id}, with this line alone: {step}"
+        said = f"STAGE {text}; for {job_id}, with this line alone: {step}"
     else:
         lane = state.holding_job_lane(data, job)
-        said = f"STAGE {text}; no live job answers for it and its job {pr['job']} is {job['state']}, so no wake starts it: close it, or move it to a live job with drive pr add {pr['url']} --job <j>"
+        said = f"STAGE {text}; no live job answers for it and {target} is {job['state']}, so no wake starts it: close it, or move it to a live job with drive pr add {pr['url']} --job <j>"
     topic = f"wake-{key}-{pr['head'][:10]}"
     tools.sent(name, "watch", [{"kind": "handoff", "to": [f"{lane}@{name}"], "topic": topic, "text": said}])
-    return emit(args, f"{key}: sent to {lane}@{name} for {job_id or pr['job']}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
+    return emit(args, f"{key}: sent to {lane}@{name} for {target}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> dict:
@@ -4621,6 +4622,9 @@ def status(args: argparse.Namespace) -> int:
     data = state.load(name)
     shown = only(data, args.ids) if args.ids else None
     with_cards(name, data, shown)
+    if args.prs:
+        rows = view.his_prs(shown or data)
+        return emit(args, render.his_prs(rows), {"prs": rows})
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
     amended = agents.amendments(name, data["held"])
@@ -5222,7 +5226,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=order_told)
     verb = order.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
-    verb.set_defaults(run=status)
+    verb.set_defaults(run=status, prs=False)
 
     incident = verbs.add_parser("incident", help="his incidents").add_subparsers(dest="action", required=True)
     verb = incident.add_parser(
@@ -5712,7 +5716,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_prove)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
-    verb.set_defaults(run=status)
+    verb.set_defaults(run=status, prs=False)
 
     pr = verbs.add_parser("pr", help="the drive's pull requests").add_subparsers(dest="action", required=True)
     verb = pr.add_parser("add", parents=both)
@@ -5819,6 +5823,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument("--text", help="the line to send, the PR's stage line when left out")
+    verb.add_argument("--job", help="the job to wake in place of its builder, the one its waiting or blocked stage names as owing it")
     verb.set_defaults(run=pr_wake)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
@@ -5995,6 +6000,7 @@ def parser() -> argparse.ArgumentParser:
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
     verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: every open order a line each, a coordinator's only its own")
+    verb.add_argument("--prs", action="store_true", help="only a table of each open PR he approved or that waits on him: its stage, what holds it, who owes its next step and since when")
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")

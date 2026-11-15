@@ -8,7 +8,6 @@ TOLD_AFTER = timedelta(minutes=30)
 SEARCH_FOR = timedelta(minutes=10)
 AT_ONCE = 2
 STARTS_AN_HOUR = 6
-FOLLOWED = (stage.BUILDER, stage.WAITED)
 ANSWER = re.compile(r"^(WHY|WHO|NEXT|UNREAD):.*$", re.MULTILINE)
 
 
@@ -48,10 +47,10 @@ def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) 
 
 
 def link(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
-    """A job, PR or wait in words and what it waits on that holds, by stage.onward: a PR by its stage, followed to the job answering for it while its builder or what it waits on owes its step, a job by its state and the waits that hold it, and any other wait as his card says it."""
+    """A job, PR or wait in words and what it waits on that holds, by stage.onward: a PR by its stage, followed to the job answering for it while its builder owes its step or it waits, a job by its state and the waits that hold it, and any other wait as his card says it."""
     if pr := data["prs"].get(subject):
         kept = pr["stage"]
-        owner = stage.owner_job(data, subject) if kept and kept["owner"] in FOLLOWED else None
+        owner = stage.owner_job(data, subject) if kept and (kept["owner"] == stage.BUILDER or kept["name"] in ("waiting", "blocked")) else None
         nexts = [*stage.onward(data, subject, cards), *([owner] if owner else [])]
         return (f"{subject} {kept['name']}, owed by {kept['owner']}: {kept['why']}" if kept else f"{subject} {pr['state']}"), nexts
     if subject in data["jobs"]:
