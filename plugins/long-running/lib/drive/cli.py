@@ -3334,7 +3334,7 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], n
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, kept among the texts its workers were given, which the handoff of a worker taking over before the job's next return carries, dropped from the job's held texts, and when Orca queued it in a Dispatch mailbox rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; messaged runs it through install.finished, since a newer install may save the drive while Orca takes the text, so the text is never sent twice."""
+    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, kept among the texts its workers were given, which the handoff of a worker taking over before the job's next return carries, dropped from the job's held texts, and when Orca queued it in the mailbox of the Dispatch the job still runs on rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; messaged runs it through install.finished, since a newer install may save the drive while Orca takes the text, so the text is never sent twice."""
     given_text = state.drive_dir(name) / "jobs" / f"{job_id}.sent-{sent['request']}.md"
     given_text.write_text(sent["words"])
     held = state.parse_time(sent["at"]).timestamp()
@@ -3347,7 +3347,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
             updated=state.stamp(),
             undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
         )
-        if sent.get("queued") and all(queued["words"] != sent["words"] for queued in fresh["queued"]):
+        if sent.get("queued") and sent["queued"] == fresh["dispatch"] and all(queued["words"] != sent["words"] for queued in fresh["queued"]):
             fresh["queued"].append({"words": sent["words"], "sender": sent["sender"], "at": fresh["updated"]})
         fresh["given"].append({"words": sent["words"], "at": state.stamp()})
         if "tools_on" in sent:
@@ -3471,7 +3471,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
 
 
 def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:
-    """Record a started worker's receipt on its job, the job on that worker's Orca lane in place of any agent a takeover started it from, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
+    """Record a started worker's receipt on its job, the job on that worker's Orca lane in place of any agent a takeover started it from, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held or queued in its last worker's mailbox, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         if started is None:
@@ -3481,7 +3481,7 @@ def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | Non
         elif job.get("dispatch") != started["dispatch"]:
             fresh = state.handed_texts(job, text)
             given = [*state.unreturned(job, "\n\n".join(fresh)), *({"words": words, "at": state.stamp()} for words in fresh)]
-            job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), given=given, undelivered=[], report=None, tools_on=started["workspace"], turn_open=True)
+            job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=True)
             state.start(job)
             superseded.hear_start(data, job_id)
     return job

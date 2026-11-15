@@ -533,8 +533,9 @@ before it sends or starts.
   watch carries again ten minutes on; `drive job resume <j>` delivers it once Orca reads the lane.
 - A text sent to a live worker stays in the mailbox of the Orca keeping its Dispatch, this Mac's
   for a lane here and the lane's Sprite's for a lane there, and on the job as queued, until a
-  mailbox read at the end of a worker's turn finds it read: the watch reads the worker's mailbox
-  at each turn it ends while its job keeps a text queued. Once the watch's lane pass reads a
+  mailbox read finds it read: the watch's lane pass reads a live worker's mailbox each pass while
+  its job keeps a text queued, and a relaunch onto a new Dispatch drops the list, since its
+  handoff carries every text given since the job's last return. Once the watch's lane pass reads a
   lane's worker finished or exited while its job runs or waits, it reads that dispatch's mailbox
   once from that Orca, `orca orchestration inbox --environment <the job's environment>` for a
   Sprite lane, takes each text it shows read off the queued list, holds each it shows unread on

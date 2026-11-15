@@ -696,6 +696,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "finished_texts_dropped": True,
         "messages_kept_once": True,
         "reader_prs_handed": True,
+        "stale_queued_dropped": True,
     }
 
 
@@ -1018,7 +1019,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1092,6 +1093,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         keep_messages_once(data)
     if not data.get("reader_prs_handed"):
         hand_reader_prs(data)
+    if not data.get("stale_queued_dropped"):
+        drop_stale_queued(data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1178,6 +1181,13 @@ def mark_proof_results(data: dict) -> None:
             proof["result"] = job["said"]
     data["own_done_proofs_since"] = stamp(POST_PROOFS_MERGED)
     data["proof_results_marked"] = True
+
+
+def drop_stale_queued(data: dict) -> None:
+    """Drop every text an older install kept queued on a job, which named no Dispatch and was taken off only by a read at a turn's end, so a text read mid-turn or queued for a worker since relaunched stayed listed unread; marked so this runs once."""
+    for job in data["jobs"].values():
+        job["queued"] = []
+    data["stale_queued_dropped"] = True
 
 
 def post_proofs(data: dict) -> None:
@@ -1647,7 +1657,7 @@ def hand_held(data: dict, job_id: str, into: str) -> None:
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
-    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox a worker's turn ended on, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts hold_text kept."""
+    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox read, the live worker's at each lane pass or an ended one's, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts hold_text kept."""
     senders = {sent_by(sender): sender for sender in [HIM, *SENDER_NAMES]}
     unread = {unheld(message["body"]): senders.get(message["subject"]) for message in box if hold and not message["read"]}
     settled = {unheld(message["body"]) for message in box if hold or message["read"]}
