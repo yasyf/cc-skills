@@ -5507,6 +5507,44 @@ def test_a_builders_own_change_and_change_lines_make_no_part_and_an_unbuilt_line
     assert (list(data["orders"]["o1"]["parts"]), sorted(data["jobs"])) == (parts, ["j1", "j2", "j3", "j4", "j5", "j6"])
 
 
+def test_an_unbuilt_line_restating_in_new_words_a_piece_the_same_builders_earlier_return_left_unbuilt_is_refused_naming_its_part_builder_and_pr(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    done = "DONE the copy runs\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    assert keep(monkeypatch, capsys, "j2", f"{done}UNBUILT: retry each stalled copy\n")[0] == 0
+    url = "https://github.com/yasyf/cc-skills/pull/77"
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#77"] = state.new_pr(url, "j3", "o1") | {"title": "Fix: a stalled copy retries until it lands"}
+        data["jobs"]["j3"]["prs"].append(url)
+    jev.picks("restates")
+    code, err = keep(monkeypatch, capsys, "j2", f"{done}UNBUILT: run a stalled copy again until it finishes\n")
+    assert (code, err.strip().splitlines()[-1]) == (
+        2,
+        'drive: j2: refused, nothing kept: its UNBUILT: line "UNBUILT: run a stalled copy again until it finishes" names work the drive already holds, as the'
+        ' part "retry each stalled copy" an earlier return of j2 left unbuilt, which j3 builds in yasyf/cc-skills#77, so a part of its own would build it a'
+        " second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which CHANGE: says, nor another"
+        " job's, so drop that line",
+    )
+    [restated] = [asked for asked in jev.asked if "restates.l1.e1" in asked["questions"]]
+    assert (restated["state"], list(restated["questions"])) == (
+        {
+            "lines": {"l1": "UNBUILT: run a stalled copy again until it finishes"},
+            "earlier": {"e1": {"line": "UNBUILT: retry each stalled copy", "builds": {"goals": ["build j2's change: retry each stalled copy"], "prs": ["Fix: a stalled copy retries until it lands"]}}},
+        },
+        ["restates.l1.e1"],
+    )
+    jev.picks("none")
+    asked = len(jev.asked)
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}UNBUILT: retry each stalled copy\nUNBUILT: copy the blobs in batches\n"))
+    assert cli.main(["job", "report", "j2", "-"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == 'j4 builder on "copy the blobs in batches": start its agent now'
+    assert not [key for request in jev.asked[asked:] for key in request["questions"] if key.startswith("restates.")]
+    assert sorted(state.load("demo")["jobs"]) == ["j1", "j2", "j3", "j4"]
+
+
 def test_a_designs_change_waits_on_the_builder_of_the_earlier_change_its_line_names_once_that_builders_pr_closed_unmerged(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
