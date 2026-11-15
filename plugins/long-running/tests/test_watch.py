@@ -2813,6 +2813,22 @@ def launches(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     return detached
 
 
+def test_a_standing_pass_that_failed_on_its_proof_hands_the_next_pass_the_last_lines_that_proof_printed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    launches(monkeypatch)
+    blocked, missing = "BLOCKED j2: /drive/repro/j2.py exits 1: it printed no FAIL line", "FileNotFoundError: [Errno 2] No such file or directory: '/drive/repro/manifest.json'"
+    with state.edit(demo) as data:
+        standing_order(data, ["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"])
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(state="failed", said=blocked)
+    state.keep_report(demo, "j2", blocked, f"{blocked}\nCHECK: {state.proof_path(demo, 'j2')}\n")
+    state.proof_path(demo, "j2").parent.mkdir(exist_ok=True)
+    state.proof_path(demo, "j2").write_text(f"Traceback (most recent call last):\n{missing}\n")
+    staged(watch.standing_lines, watcher(demo), T0 + timedelta(hours=1))
+    brief_text = Path(state.load(demo)["jobs"]["j3"]["brief"]).read_text()
+    assert f"> {blocked}\n> CHECK: {state.proof_path(demo, 'j2')}\n>\n> Its proof failed, the last lines it printed:\n> Traceback (most recent call last):\n> {missing}\n" in brief_text
+
+
 def test_a_standing_part_its_running_pass_holds_starts_none_and_once_that_pass_ends_the_watch_adds_and_launches_the_next_on_its_goal_quoting_its_return(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -8776,9 +8792,10 @@ def test_a_merged_product_job_whose_own_order_is_done_takes_done_at_its_merge_an
     [
         {"said": f"DONE {state.pr_url(OTHER)} merged: {OTHER} at ccc333ddd444"},
         {"said": "DONE live on release jubilant-heaney", "brief_flags": {"handoff": f"{OTHER} at ccc333ddd444 merged: install it and prove it live"}},
+        {"said": f"DONE 1,216 PRs checked at 27c34883bf69: 0 gaps; no readers added. #41015 held by its o2 part and j1/#{OTHER.rpartition('#')[2]}"},
     ],
 )
-def test_a_merge_done_or_a_merge_handoff_naming_a_merged_pr_proves_nothing_so_its_merged_ready_job_takes_done_at_its_merge_with_a_prover(
+def test_a_merge_done_a_merge_handoff_or_a_done_only_citing_a_merged_pr_proves_nothing_so_its_merged_ready_job_takes_done_at_its_merge_with_a_prover(
     demo: str, monkeypatch: pytest.MonkeyPatch, named: dict
 ) -> None:
     serve(monkeypatch, {})
@@ -8973,7 +8990,7 @@ def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_liv
     with state.edit(demo) as data:
         if proved:
             data["orders"]["o1"]["jobs"].append("j9")
-            data["jobs"]["j9"] = state.new_job("o1", "builder", "prove it", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "done", "said": f"DONE {OTHER} live on release jubilant-heaney"}
+            data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {OTHER} live", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "done", "said": f"DONE {OTHER} live on release jubilant-heaney"}
         else:
             data["orders"]["o1"]["state"] = "done"
     lines = watch.run_pass(watcher(demo), T0)
