@@ -46,6 +46,13 @@ class Noul(NamedTuple):
     no: str | None = None
 
 
+class Pick(NamedTuple):
+    """One question Jev answers by picking one of its options, as spawnllm's Label asks it: what it asks of the request's state by backticked path, then each option's value beside what it means, or None, the fail-safe option first, since Jev leans toward it."""
+
+    ask: str
+    options: dict[str, str | None]
+
+
 UNSAID_HERE = 'A bare option number answers only the card it was typed on, and a question of his rules nothing out unless it proposes a way, as "why not just X?" orders X.'
 BREAKS = Noul("Do `words.{slot}.said` rule out `card.options[{index}]`, so building it goes against what he said?", no=UNSAID_HERE)
 WORKED = Noul("Does `card.show_me` leave `card.options[{index}]` unworked, showing none of its real calls, the rows it writes, its flow or what a caller gets?")
@@ -62,14 +69,15 @@ BREAKS_CARD = Noul(
 LINE = Noul("Does `lines.{line}` go against `answers.{answer}`, as `against` says?")
 AGAINST = (
     "A line goes against his answer when it says no ruling of his covers an item, puts an item up for change, removal or his pick, or asks him what `said`, his answer to `asked`, given"
-    " before the line, already orders or keeps as it is. It does not when it keeps what his answer orders or keeps, cites it as standing, or speaks of an item his answer neither orders nor keeps. " + UNSAID_HERE
+    " before the line, already orders or keeps as it is. It does not when it keeps what his answer orders or keeps, cites it as standing, or speaks of an item his answer neither orders nor keeps."
+    " His answer orders or keeps items only in the area it rules on, by `area`, its card, tooling and path tags, and by `asked`: a line about another area, such as other code sharing a word with it, speaks of nothing it orders or keeps. " + UNSAID_HERE
 )
 LINE_KEY = "line"
 LINE_CANDIDATES = 4
 LINE_WORDS = 5
 LIST_LINE = re.compile(r"^\s*(?:[-*•]\s+|\d+[.)]\s+|\|)(.*\w.*)$")
 TABLE_RULE = re.compile(r"^[\s|:-]*$")
-OVERRULED = 'the line "{line}" says no ruling of his covers, puts up for change or asks him again what his answer {id}, "{asked}"{link}, orders or keeps: "{said}"'
+OVERRULED = 'the line "{line}" says no ruling of his covers, puts up for change or asks him again what his answer {id}, "{asked}"{link}{area}, orders or keeps: "{said}"'
 UNREAD_LINES = "Jev gave no reading of its lines against his recorded answers, so it goes on unread: {failure}"
 OVERRULED_RULE = (
     "No line says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps:"
@@ -198,12 +206,16 @@ NARROWS = Noul(
     no="It builds all they name, or a question in `forks` asks him about what it leaves out.",
 )
 CONTRADICTS = Noul(
-    "Does a line of `design` keep, reuse or build on what `words.{slot}.said` set aside, or otherwise go against them, such as reusing the code that exists where his words order it built from scratch?",
-    no="Each line does what his words say or what they leave open, and naming code that exists as evidence of what must keep working goes against nothing.",
+    "Does `design` keep, reuse or build on what `words.{slot}.said` set aside, or otherwise go against them, such as reusing the code that exists where his words order it built from scratch?",
+    no="It does what his words say or what they leave open; a sentence quoting or citing his words as what binds the design, or naming code that exists as evidence of what must keep working, goes against nothing, nor does `rulings`, the designer's account of which of his words bind the design, which quotes them and builds nothing.",
 )
-CONTRADICTING = Noul(
-    "Does `design.{line}` keep, reuse or build on what `words.said` set aside, or otherwise go against them?",
-    no="The line does what his words say or what they leave open, or names code that exists only as evidence of what must keep working.",
+CONTRADICTED_AT = Pick(
+    "Which sentence of `design`, by its key, most keeps, reuses or builds on what `words.said` set aside, or otherwise goes against them where `newer`, his words given after them, leaves them standing?",
+    {"none": "No sentence does: each does what they say or leave open, follows `newer` where it narrows or replaces them, since his newer words win where two collide, or only quotes or cites them as what binds the design or names code that exists as evidence of what must keep working."},
+)
+NARROWED_AT = Pick(
+    "Which sentence of `design`, by its key, most builds less than `words.said` name, or builds part of it later, with no question in `forks` asking him about it and nothing in `newer`, his words given after them, narrowing them?",
+    {"none": "Every sentence builds all `words.said` name, a question in `forks` asks him about what it leaves out, or `newer` narrows what it leaves out, since his newer words win where two collide."},
 )
 STRATEGIES = Noul("Do `words` or `design` name several strategies for one job, such as the partition strategies a table picks by its usage?")
 ABSTRACTION_FIRST = Noul(
@@ -567,7 +579,7 @@ def list_lines(text: str) -> list[str]:
 
 
 def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozenset()) -> list[tuple[str, list[dict]]]:
-    """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it, never one besides names, a tap approving a PR nor a provisional pick."""
+    """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it and the tags naming the area it rules on, never one besides names, a tap approving a PR nor a provisional pick."""
     cwd = data["roles"]["coordinator"]["cwd"]
     failure = "could not check its lines against his recorded answers"
     lined = []
@@ -578,7 +590,7 @@ def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozens
         matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
         found: dict[str, dict] = {}
         for answer in (answer for pair in zip_longest(matched, searched) for answer in pair if answer):
-            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer)})
+            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer), "area": [tag for tag in answer["tags"] if not tag.startswith(("scope:", "kind:", "drive:"))]})
         lined.append((line, list(found.values())))
     return lined
 
@@ -587,7 +599,7 @@ def line_items(lined: Sequence[tuple[str, list[dict]]]) -> Iterator[tuple[dict, 
     """Each line beside each recorded answer of his found for it as an item of `fill`, every line's nearest answer before any line's next, the line and the answer whole with one LINE Noul keyed by the line's number and the answer's id, beside AGAINST, which the request holds once, so a request with no room for every answer still reads each line against its nearest."""
     pairs = sorted(((rank, number, line, answer) for number, (line, found) in enumerate(lined, 1) for rank, answer in enumerate(found)), key=lambda pair: pair[:2])
     for _, number, line, answer in pairs:
-        yield {"against": AGAINST, "lines": {f"l{number}": line}, "answers": {answer["id"]: {"asked": answer["asked"], "said": answer["said"]}}}, {f"{LINE_KEY}{number}.{answer['id']}": asking(LINE, line=f"l{number}", answer=answer["id"])}
+        yield {"against": AGAINST, "lines": {f"l{number}": line}, "answers": {answer["id"]: {"asked": answer["asked"], "said": answer["said"], "area": answer["area"]}}}, {f"{LINE_KEY}{number}.{answer['id']}": asking(LINE, line=f"l{number}", answer=answer["id"])}
 
 
 def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, float]]:
@@ -610,9 +622,9 @@ def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
 
 
 def overruling(picks: list[tuple[str, dict]]) -> str:
-    """Each overruled line beside his answer it goes against, by its id and his words."""
+    """Each overruled line beside his answer it goes against, by its id, the area it rules on and his words."""
     return "; ".join(
-        OVERRULED.format(line=cut(line, 200), id=answer["id"], asked=cut(answer["asked"], 200), link=f" ({answer['link']})" if answer["link"] else "", said=cut(answer["said"], QUOTED_CHARS))
+        OVERRULED.format(line=cut(line, 200), id=answer["id"], asked=cut(answer["asked"], 200), link=f" ({answer['link']})" if answer["link"] else "", area=f", ruling on {', '.join(answer['area'])}," if answer["area"] else "", said=cut(answer["said"], QUOTED_CHARS))
         for line, answer in picks
     )
 
@@ -914,20 +926,20 @@ def jev_key() -> str:
     return api_key(Provider("jev", MODEL), timeout=DECIDE_SECONDS)
 
 
-def jev(state: dict, questions: dict[str, Noul], seconds: float = DECIDE_SECONDS) -> dict[str, float]:
-    """Jev's probability of yes for each Noul about the state, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
+def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_SECONDS) -> dict[str, float | str]:
+    """Jev's probability of yes for each Noul about the state, and the option it picks for each Pick, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
     import httpx
-    from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Provider, decide_sync
+    from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Label, LabelAnswer, Provider, decide_sync
 
     deadline = time.monotonic() + seconds
     try:
         token = jev_key()
-        decision = decide_sync(state, {key: Binary(*noul) for key, noul in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
+        decision = decide_sync(state, {key: Label(*question) if isinstance(question, Pick) else Binary(*question) for key, question in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError) as error:
         raise Unheard(str(error)) from None
-    if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer)]:
+    if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer | LabelAnswer)]:
         raise Unheard(f"Jev declined {', '.join(declined)}")
-    return {key: answer.p_yes for key, answer in decision.answers.items()}
+    return {key: answer.choice if isinstance(answer, LabelAnswer) else answer.p_yes for key, answer in decision.answers.items()}
 
 
 def reading(sure: float | None) -> bool | None:
@@ -940,7 +952,7 @@ def asking(noul: Noul, **slots: object) -> Noul:
     return noul._replace(ask=noul.ask.format(**slots))
 
 
-def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> tuple[dict, dict[str, Noul], list[tuple[dict, dict[str, Noul]]]]:
+def fill(state: dict, questions: dict[str, Noul | Pick], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> tuple[dict, dict[str, Noul | Pick], list[tuple[dict, dict[str, Noul]]]]:
     """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within the characters given, REQUEST_CHARS unless less, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
     left: list[tuple[dict, dict[str, Noul]]] = []
     for part, asked in items:
@@ -1257,9 +1269,9 @@ def answered(data: dict, title: str) -> dict | None:
 
 
 def order_words(data: dict, order_id: str) -> list[dict]:
-    """His words on the order, each without the lines he quoted with ">", which are another's: the words of his the drive quotes in an order not added from his own Slack message, as limits.his_words reads them, then each of his messages about it in its thread, the one that started it included, as state.message_order reads each, never one about another order sharing that thread, each by its message's ts, since an order's stored text can lose the line break between his words and the lines he quoted; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
+    """His words on the order, each without the lines he quoted with ">", which are another's: the words of his the drive quotes in an order not added from his own Slack message, as limits.his_words reads them, then each of his messages about it in its thread, the one that started it included, as state.message_order reads each, never one about another order sharing that thread, each by its message's ts and each with when he gave it, since an order's stored text can lose the line break between his words and the lines he quoted; a thread that cannot be read fails as a Slack error, never as a refusal of the question."""
     order = data["orders"][order_id]
-    own = [] if limits.from_his_message(order) or not (said := limits.his_words(order)) else [{"id": order_id, "asked": "his words the order quotes", "said": said[:BODY_CHARS]}]
+    own = [] if limits.from_his_message(order) or not (said := limits.his_words(order)) else [{"id": order_id, "asked": "his words the order quotes", "said": said[:BODY_CHARS], "at": order["created"]}]
     if not (where := order["thread"]):
         return own
     try:
@@ -1267,7 +1279,7 @@ def order_words(data: dict, order_id: str) -> list[dict]:
     except slack.SlackError as error:
         raise slack.SlackError(f"could not read the order's thread {where[1]} for his words this question is judged against, so nothing is kept; run it again: {error}") from None
     return own + [
-        {"id": f"p{message['ts'].replace('.', '')}", "asked": "his message in the order's thread", "said": said[:BODY_CHARS]}
+        {"id": f"p{message['ts'].replace('.', '')}", "asked": "his message in the order's thread", "said": said[:BODY_CHARS], "at": state.stamp(slack.sent_at(message))}
         for message in messages
         for said in [unquoted(html.unescape(message["text"]))]
         if message.get("from_user") and said and state.message_order(data, *where, message["ts"]) == order_id

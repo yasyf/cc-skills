@@ -4190,7 +4190,7 @@ def test_each_line_reaches_jev_beside_his_answers_ccn_ranks_nearest_to_it_and_fi
     tap = {"id": "a1" * 20, "title": "Tap Approve on Forge-AI/monorepo#7?", "body": "Approve", "tags": ["scope:durable", "kind:approval"]}
     provisional = {"id": f"9a1b2c3{'0' * 33}", "title": "Which cap?", "body": f"{settled.PROVISIONAL}: the lane's recommendation", "tags": ["scope:durable"]}
     cited = {"id": f"c17ed00{'0' * 33}", "title": "Cited already?", "body": "Yes", "tags": ["scope:durable"]}
-    ruling = {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": f"{WAIT_RULING['said']}\nNotes: kept from his DM", "tags": ["scope:durable"]}
+    ruling = {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": f"{WAIT_RULING['said']}\nNotes: kept from his DM", "tags": ["scope:durable", "card:card-js-func-cap", "drive-tooling"]}
     numbered = [{"id": f"{number:07d}{'0' * 33}", "title": f"Question {number}?", "body": "Yes", "tags": ["scope:durable"]} for number in range(10)]
     ranked = {"match": [tap, provisional, cited, ruling, *numbered], "search": [cited, *reversed(numbered)]}
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text, cwd)) or json.dumps(ranked[argv[2]]))
@@ -4200,7 +4200,7 @@ def test_each_line_reaches_jev_beside_his_answers_ccn_ranks_nearest_to_it_and_fi
         (["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], settled.read(line), "/work"),
         (["ccn", "answer", "search", "Wait on the four queue", "--label", "scope:durable", "--limit", "0", "--json"], "", "/work"),
     ]
-    assert (kept, found[0], [answer["id"] for answer in found[1:]]) == (line, WAIT_RULING | {"link": None}, ["0000009", "0000000", "0000008", "0000001", "0000007", "0000002", "0000006"])
+    assert (kept, found[0], [answer["id"] for answer in found[1:]]) == (line, WAIT_RULING | {"link": None, "area": ["card:card-js-func-cap", "drive-tooling"]}, ["0000009", "0000000", "0000008", "0000001", "0000007", "0000002", "0000006"])
 
 
 def test_list_lines_are_each_bullet_numbered_item_and_table_row_but_its_rule_without_its_marker_once_each() -> None:
@@ -4224,17 +4224,18 @@ def test_job_report_refuses_a_readers_line_jev_reads_as_putting_up_for_change_wh
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the cloud tree")
-    recorded.lined = [CAP_RULING]
+    capping = CAP_RULING | {"area": ["card:card-cloud-tree-cap", "drive-tooling"]}
+    recorded.lined = [capping]
     undoing = "open: the cloud tree's own cap is up for removal"
     returned = RESEARCH.replace("open: none", undoing)
     jev.breaks(f"{settled.LINE_KEY}2", CAP_RULING["id"])
     code, err = keep(monkeypatch, capsys, "j1", returned)
     assert (code, err.startswith(f'drive: j1: refused, nothing kept: as Jev reads it, the line "{undoing}" says no ruling of his covers')) == (2, True)
-    assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", orders or keeps: "{CAP_RULING["said"]}"' in err
+    assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", ruling on card:card-cloud-tree-cap, drive-tooling, orders or keeps: "{CAP_RULING["said"]}"' in err
     assert state.returns("demo", "j1") == []
     [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
     lines = ["rulings: none on the copy path", undoing, "build: one store_copy_at call per stalled store"]
-    assert asked["state"] == {"against": settled.AGAINST, "lines": {f"l{number}": line for number, line in enumerate(lines, 1)}, "answers": {CAP_RULING["id"]: {key: CAP_RULING[key] for key in ("asked", "said")}}}
+    assert asked["state"] == {"against": settled.AGAINST, "lines": {f"l{number}": line for number, line in enumerate(lines, 1)}, "answers": {CAP_RULING["id"]: {key: capping[key] for key in ("asked", "said", "area")}}}
     assert asked["questions"] == {f"{settled.LINE_KEY}{number}.{CAP_RULING['id']}": settled.asking(settled.LINE, line=f"l{number}", answer=CAP_RULING["id"]) for number in range(1, len(lines) + 1)}
     jev.answer = None
     code, err = keep(monkeypatch, capsys, "j1", returned)
@@ -5842,44 +5843,82 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
 
 
 @pytest.mark.parametrize(
-    ("pick", "refusal"),
+    ("pick", "sentence", "code", "said"),
     [
-        ("o1", 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
-        ("strategies", f"Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first, walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later Change: line waiting on it, by his words {brief.ABSTRACTION_RULING}"),
-        ("none", None),
+        ("o1", "s2", 2, 'Jev reads this design\'s sentence "Design: one copy per store, in the order the stores list" as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
+        ("o1", "none", 0, 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'),
+        ("strategies", "none", 2, f"Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first, walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later Change: line waiting on it, by his words {brief.ABSTRACTION_RULING}"),
+        ("none", "none", 0, ""),
     ],
 )
-def test_a_design_building_less_or_later_than_his_words_or_a_strategy_before_their_shared_abstraction_is_refused(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, refusal: str | None
+def test_a_design_building_less_or_later_than_his_words_at_the_sentence_jev_picks_or_a_strategy_before_their_shared_abstraction_is_refused(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, sentence: str, code: int, said: str
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: partition each table by "time, hash by key and spill"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the partitions")
     jev.picks(pick)
-    code, err = keep(monkeypatch, capsys, "j1", DESIGNED)
-    assert code == (2 if refusal else 0)
-    assert (refusal in err) if refusal else err == ""
+    jev.picked["sentence"] = sentence
+    kept, err = keep(monkeypatch, capsys, "j1", DESIGNED)
+    assert kept == code
+    assert (said in err) if said else err == ""
     [read] = [asked for asked in jev.asked if "narrows.o1" in asked["questions"]]
-    assert (read["state"]["words"], [key for key in read["questions"] if key.startswith("narrows.")]) == (
+    assert (read["state"]["words"], read["state"]["design"]["s2"]) == (
         {"w1": {"asked": "his words the order quotes", "said": '"time, hash by key and spill"'}},
-        ["narrows.o1"],
+        "Design: one copy per store, in the order the stores list",
     )
 
 
-def test_a_design_line_jev_reads_going_against_his_words_is_refused_naming_that_line_and_his_words(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(("sentence", "code"), [("s3", 2), ("none", 0)])
+def test_a_design_jev_reads_going_against_his_words_is_refused_quoting_the_sentence_it_picks_and_the_fix_and_never_reads_its_rulings_line(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, code: int
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    reusing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store through sandsql-ha's claim code")
-    line = next(number for number, text in enumerate(reusing.splitlines(), 1) if text.startswith("Design:"))
-    jev.breaks("against0", "o1")
-    jev.breaks("line", str(line))
-    code, err = keep(monkeypatch, capsys, "j1", reusing)
-    assert code == 2
+    reusing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store, in list order. It goes through sandsql-ha's claim code.")
+    jev.breaks("against", "o1")
+    jev.picked["sentence"] = sentence
+    kept, err = keep(monkeypatch, capsys, "j1", reusing)
+    assert kept == code
     assert (
-        f'Jev reads this design\'s line {line}, "Design: one copy per store through sandsql-ha\'s claim code", as going against his words'
-        ' "from scratch, reusing none of the HA code" (his words the order quotes): his words outrank every default of the designer'
+        'Jev reads this design\'s sentence "It goes through sandsql-ha\'s claim code." as going against his words "from scratch, reusing none of the HA code" (his words the order quotes):'
+        " his words outrank every default of the designer, keeping or reusing the code that exists included. Rewrite that sentence to do what they say, or keep the choice as a fork with drive job ask"
+        if code
+        else 'Jev reads this design as going against his words "from scratch, reusing none of the HA code" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'
     ) in err
+    assert not [said for asked in jev.asked for said in asked["state"]["design"].values() if said.startswith("rulings:")]
+
+
+@pytest.mark.parametrize(("sentence", "code"), [("s3", 2), ("none", 0)])
+def test_a_design_jev_reads_going_against_his_older_words_is_judged_beside_his_newer_words_which_win_where_the_two_collide(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, code: int
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    lease = "Reuse its claim code for the lease alone"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [
+            state.new_question("asks/j1-lease.md", "Reuse sandsql-ha's claim code for the lease?", state.stamp(), closed=state.new_close("answered", lease, None, at=state.stamp(state.now() + timedelta(minutes=5))))
+        ]
+    leasing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store, in list order. It takes its lease through sandsql-ha's claim code.")
+    jev.breaks("against", "o1")
+    jev.picked["sentence"] = sentence
+    kept, err = keep(monkeypatch, capsys, "j1", leasing)
+    assert kept == code
+    [weighed] = [asked["state"] for asked in jev.asked if "against.o1" in asked["questions"]]
+    [picking] = [asked["state"] for asked in jev.asked if "sentence" in asked["questions"]]
+    assert (weighed["words"]["w1"]["said"], picking["words"]["said"], picking["newer"]) == (lease, '"from scratch, reusing none of the HA code"', {"n1": {"asked": "Reuse sandsql-ha's claim code for the lease?", "said": lease}})
+    assert ('Jev reads this design\'s sentence "It takes its lease through sandsql-ha\'s claim code." as going against' if code else "but picks none of its sentences as doing so, so it is kept") in err
+
+
+def test_a_design_past_one_jev_request_is_kept_unread_with_a_warning(run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    jev.picks("o1")
+    jev.picked["sentence"] = "s2"
+    long = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: " + " ".join(f"Store {number} copies once, in list order." for number in range(1, 200)))
+    kept, err = keep(monkeypatch, capsys, "j1", long)
+    assert (kept, [asked for asked in jev.asked if "against.o1" in asked["questions"]]) == (0, [])
+    assert re.search(r"Jev read none of this design, since its \d+ sentences run past one Jev request of 5,000 characters, so it is kept unchecked", err)
 
 
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_builder_waiting_on_the_builder_of_each_earlier_change_its_line_names(
