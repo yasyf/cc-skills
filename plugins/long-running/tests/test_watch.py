@@ -117,10 +117,19 @@ def order(**overrides: object) -> dict:
         "state": "working",
         "due": None,
         "due_said": None,
+        "next_due": None,
+        "kept": None,
+        "withdrawn": None,
         "jobs": ["j1"],
+        "incident": False,
+        "recovered": None,
+        "reporters": [],
         "owner": None,
         "project": None,
+        "title": None,
         "proof": None,
+        "close_report": None,
+        "closed_on": None,
         "note": None,
         "created": state.stamp(T0),
         "updated": state.stamp(T0),
@@ -9702,7 +9711,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
     assert ready_records[1:] == []
     reads[OTHER] = read(headRefOid="bbbbbbb222", checks=GREEN)
-    watch.run_pass(watching, T0 + watch.QUIET_THREAD)
+    watch.run_pass(watching, T0 + state.QUIET_THREAD)
     assert ([argv[1:3] if argv[0] != "pup" else ["pup"] for argv in calls], [records[0]["attr"] for records in ready_records[1:]]) == (
         [["release", "live"], ["pup"]],
         [{"order": "o3", "progress": "true", "quiet": "true", "thread": "1794200000.000100"}],

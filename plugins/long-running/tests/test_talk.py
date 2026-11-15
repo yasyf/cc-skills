@@ -1292,17 +1292,7 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
     view.refresh_cards(demo)
     thread = "1794200000.000100"
     with state.edit(demo) as data:
-        data["orders"]["o1"] = {
-            "text": "lock it",
-            "from": "terminal",
-            "thread": thread,
-            "state": "working",
-            "due": None,
-            "jobs": ["j1"],
-            "created": ASKED,
-            "updated": ASKED,
-            "parts": {"lock it": state.new_part()},
-        }
+        data["orders"]["o1"] = state.new_order("lock it", "terminal", ("D123", thread), {"lock it": state.new_part()}, ASKED) | {"state": "working", "jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], ASKED) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
     talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
     talk.say(demo, {"text": "Catch-up"})

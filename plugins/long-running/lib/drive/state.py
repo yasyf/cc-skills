@@ -206,6 +206,7 @@ DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PRESENT_WITHIN = timedelta(minutes=15)
+QUIET_THREAD = timedelta(minutes=5)
 PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
 TAKEN_BY_PASS = "its staging test passed after your Approve"
 STANDING_EVERY = timedelta(minutes=30)
@@ -260,6 +261,7 @@ MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
 COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
+CLOCKS = "clocks"
 BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
 TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -3609,7 +3611,7 @@ def edit(name: str) -> Iterator[dict]:
         data = load(name)
         before = holding_lanes(data)
         yield data
-        save(name, data)
+        save(name, data | {CLOCKS: clocks(data)})
         tell_moved(name, data, before)
 
 
@@ -3631,7 +3633,7 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
             yield after
             if not dry:
                 saved = marshal.loads(BATCHED[name])
-                save(name, saved)
+                save(name, saved | {CLOCKS: clocks(saved)})
                 tell_moved(name, saved, before)
             effects = [] if dry else AFTER_SAVE[name]
         finally:
@@ -3661,7 +3663,7 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
         data = load(name) if exists(name) else fresh
         before = holding_lanes(data)
         yield data
-        save(name, data)
+        save(name, data | {CLOCKS: clocks(data)})
         tell_moved(name, data, before)
 
 
@@ -4328,6 +4330,52 @@ def timed(data: dict, job: dict, moment: datetime) -> bool:
 
 def open_orders(data: dict) -> dict[str, dict]:
     return {key: order for key, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES}
+
+
+def clocks(data: dict) -> list[dict]:
+    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs, by his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
+    from drive import view
+
+    waited = {
+        order_id: order
+        for order_id, order in open_orders(data).items()
+        if (order["incident"] or order["thread"]) and not (order["recovered"] or order["close_report"] or order["closed_on"] or order["proof"])
+    }
+    keyed = {order_id: own_thread(order) or order_id for order_id, order in waited.items()}
+    heard: dict[tuple[str, str] | str, datetime] = {}
+    for order_id, order in waited.items():
+        lined = parse_time(order["last_line"] or order["created"])
+        heard[keyed[order_id]] = max(heard.get(keyed[order_id], lined), lined)
+    handled: dict[str, list[str]] = {}
+    for handler in data["handlers"].values():
+        if thread := (handler["holds"] or {}).get("thread"):
+            handled.setdefault(thread, []).append(handler["session"])
+    entries = []
+    for order_id, order in waited.items():
+        since = heard[keyed[order_id]]
+        running = [job for job in orders_jobs(data, [order_id]).values() if job["state"] == "running"]
+        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if running else [])]):
+            continue
+        where = own_thread(order)
+        sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
+        entries.append(
+            {
+                "order": order_id,
+                "title": view.order_title(order),
+                "since": stamp(since),
+                "due": stamp(min(dues)),
+                "incident": order["incident"],
+                "sessions": list(dict.fromkeys(session for session in sessions if session)),
+                "agents": [job["agent"] for job in running if job.get("agent")],
+            }
+        )
+    return entries
+
+
+def held_clocks(name: str, session: str, agent: str | None) -> dict:
+    """The owner row and the clocks row's orders a session or a job's agent holds, an agent's alone when the call is a subagent's, both read in one transaction with no lock; none from a drive no install writing the row saved since."""
+    saved = stored(name, (CLOCKS, "owner"))
+    return saved | {CLOCKS: [entry for entry in saved.get(CLOCKS, []) if (agent in entry["agents"] if agent else session in entry["sessions"])]}
 
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:

@@ -3,10 +3,10 @@ import json
 import shlex
 import sys
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -237,6 +237,8 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
+OVERDUE_HEADING = "Orders he waits on a line from, most overdue first; due is the time promised him, else five quiet minutes after the thread's last line while a job of the order runs:"
+OVERDUE_TITLE_CHARS = 60
 FILED = "The projects and workstreams in use, which a new order reuses where it fits, one home a subject, since drive order add and set refuse a name other orders file only as the other of the two: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
 REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
@@ -322,6 +324,23 @@ def unread(words: list[str], failed: str | None = None) -> str:
 
 def clock(moment: datetime, seconds: bool = False) -> str:
     return moment.strftime("%-I:%M:%S %p" if seconds else "%-I:%M %p")
+
+
+def overdue(drive: dict, moment: datetime) -> list[str]:
+    """A line for each order of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it": the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too; one he is away from now says his catch-up carries it."""
+    if not (held := drive[CLOCKS]):
+        return []
+    away = owner_away(drive, moment)
+    late = {entry["order"]: max(timedelta(), moment - parse_time(entry["due"]) if entry["incident"] else present(drive, parse_time(entry["due"]), moment)) for entry in held}
+    lines = [OVERDUE_HEADING]
+    for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"]))):
+        quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
+        if away and not entry["incident"]:
+            standing = "; he is away, so his catch-up post on his return carries it"
+        else:
+            standing = f", {int(late[entry['order']].total_seconds() // 60)} min past due" if late[entry["order"]] else ", not past due"
+        lines.append(f"- {entry['order']} {cut(entry['title'], OVERDUE_TITLE_CHARS)}: {quiet} min since its thread's last line to him, due {when(entry['due'])}{standing}")
+    return lines
 
 
 def when(iso: str, seconds: bool = False) -> str:

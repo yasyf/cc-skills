@@ -610,7 +610,7 @@ def communicator_calls(evt: BaseHookEvent) -> HookResult | None:
 
 @on(Event.PreToolUse, advisory_on_deny=True, tests={Input(tool="WebFetch", tool_input={"url": "https://example.com"}, session_id=NO_DRIVE): Allow()})
 def role_rules(evt: BaseHookEvent) -> HookResult | None:
-    """The rules an install changed since the session's block drew them, beside its next call, kept beside a deny another check gives that call, since the check keeps them as held once it hands them."""
+    """Beside each call of a drive session or job, a line for each order he waits on a line from that it holds, how long since its thread's last line to him and how far past due, and the rules an install changed since the session's block drew them, kept beside a deny another check gives that call, since the check keeps them as held once it hands them."""
     return checked(evt, "role_rules.py")
 
 
