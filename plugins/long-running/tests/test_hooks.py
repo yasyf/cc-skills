@@ -466,7 +466,7 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, "Drive: demo, orders o1 and o2, jobs j1 j2")))
     hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, brief, "someone-else")))
     hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}))
-    assert [job["agent"] for job in state.load("demo")["jobs"].values()] == [None, None]
+    assert [state.load("demo")["jobs"][job_id]["agent"] for job_id in ("j1", "j2")] == [None, None]
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, brief))) == ""
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["where"], job["session"], job["state"]) == ("a-9", "local", os.environ["CLAUDE_CODE_SESSION_ID"], "running")
@@ -588,7 +588,7 @@ def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
         hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | named))
         hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"{job_id} looks stuck", **named)))
     jobs = state.load("demo")["jobs"]
-    assert [(job["agent"], job["where"], job["state"]) for job in jobs.values()] == [(None, "local", "running"), ("a-1", "local", "done")]
+    assert [(jobs[job_id]["agent"], jobs[job_id]["where"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [(None, "local", "running"), ("a-1", "local", "done")]
 
 
 def test_a_step_never_replaces_a_remote_jobs_dispatch(
@@ -628,7 +628,7 @@ def test_a_step_leaves_a_job_another_agent_runs_and_a_stopped_job_the_agent_its_
     stopped_own = stepped(tmp_path, "Drive: demo, order o1, job j2", agent_type="long-running:reader", agent_id="a-2", agent_transcript_path=lane)
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stopped_own))
     jobs = state.load("demo")["jobs"]
-    assert [(job["agent"], job["state"]) for job in jobs.values()] == [("a-1", "running"), ("a-2", "stopped")]
+    assert [(jobs[job_id]["agent"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [("a-1", "running"), ("a-2", "stopped")]
 
 
 def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_slot_wait_and_its_return_is_kept(
@@ -908,7 +908,7 @@ def test_an_incident_lanes_brief_carries_the_rule_its_kind_follows_on_a_choice_a
 def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and_a_drive_tooling_brief_naming_one_does(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Search", "test hybrid search on a pass box")
     run("job", "add", "builder", "--order", "o1", "--goal", "run the test")
-    brief = "Order (his words): test hybrid search on a pass box\nGoal: {}\nDrive: demo, order o1, job j1"
+    brief = "Order (his words): test hybrid search on a pass box\nGoal: {}\nResearched: j0\nDrive: demo, order o1, job j1"
     planned = drive_agent("long-running:builder", brief.format("start the pass box and read its key; he taps Touch ID once for cc-sudo"))
     assert scratch_folder.deny_reason(planned).startswith(
         "refused, no agent started: j1's brief plans a sign-in of his: its Goal line asks him to sign in with \"he taps Touch ID\":"
@@ -922,7 +922,7 @@ def test_a_brief_planning_his_touch_id_tap_for_an_aws_action_starts_no_agent_and
 def test_a_brief_whose_runs_as_line_writes_a_teams_data_under_break_glass_starts_no_agent_and_one_ruling_it_out_does(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Search", "re-send the stuck runs")
     run("job", "add", "builder", "--order", "o1", "--goal", "hand repair the stuck runs")
-    planned = "Order (his words): re-send the stuck runs\nGoal: hand repair the 128 stuck runs\nRuns as: {}\nDrive: demo, order o1, job j1"
+    planned = "Order (his words): re-send the stuck runs\nGoal: hand repair the 128 stuck runs\nRuns as: {}\nResearched: j0\nDrive: demo, order o1, job j1"
     refused = {
         "this Mac's machine-profile break-glass, by the incidents page: it re-sends each stuck run": "machine-profile",
         "drive break-glass j1 --stack plat/prod with no SSO sign-in": "break-glass",
@@ -947,7 +947,7 @@ def test_a_tooling_builders_brief_whose_goal_names_a_step_after_the_install_star
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: redraw the stale card")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix the redraw")
     goal = "build the redraw fix; once installed, redraw j961's card through drive tool say"
-    planned = f"Order (his words): Drive tooling: redraw the stale card\nServes: drive tooling\nGoal: {goal}\n{{}}Drive: demo, order o1, job j1"
+    planned = f"Order (his words): Drive tooling: redraw the stale card\nServes: drive tooling\nGoal: {goal}\nResearched: j0\n{{}}Drive: demo, order o1, job j1"
     jev.picks("after")
     assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("")).startswith(
         f'j1\'s Goal "{goal}" names a step to take once its change is installed, as Jev reads it, and no Mac: line declares it: a yasyf/* merge reaches no lane'
@@ -1011,7 +1011,7 @@ def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(
 def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str, run: Run, tmp_path: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    brief = f"Serves: his order\nDrive: demo, order o1, job j1\nScratch: {tmp_path / 'j1'}"
+    brief = f"Serves: his order\nResearched: j0\nDrive: demo, order o1, job j1\nScratch: {tmp_path / 'j1'}"
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) is None
     with state.edit("demo") as data:
         data["orders"]["o1"]["owner"] = "communicator"

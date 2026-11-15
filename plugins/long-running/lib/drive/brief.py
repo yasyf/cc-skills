@@ -495,7 +495,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs a Mac: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix, builds nothing as a --builds-nothing builder such as a staging test of a built PR, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs a Mac: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix, builds nothing as a --builds-nothing builder such as a staging test of a built PR, builds on the branch an open PR already pushed, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     tooling = SERVES_TOOLING.search(brief)
     runs = None if tooling else RUNS_AS.search(brief)
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
@@ -524,7 +524,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
                 " transcripts, records and his answers itself, so its brief carries no Researched: line"
             )
         return None
-    if job["kind"] not in RESEARCHED_KINDS or job.get("builds_nothing"):
+    if job["kind"] not in RESEARCHED_KINDS or job.get("builds_nothing") or job["kind"] == "builder" and job["branch"]:
         return None
     named = RESEARCHED_BY.search(brief)
     if named is None:

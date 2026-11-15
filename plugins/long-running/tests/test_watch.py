@@ -3223,8 +3223,8 @@ def test_a_relaunched_codex_job_is_judged_by_its_new_run_never_by_the_agent_an_e
         data["jobs"]["j2"] = job(kind="reader", goal="research: the watch", parts=data["jobs"]["j1"]["parts"], state="done")
         data["orders"]["o1"]["jobs"].append("j2")
     assert cli.main(["job", "launch", "j1", str(brief), "--drive", demo]) == 0
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["state"], job["agent"], job["session"]) == ("running", None, "session-under-test")
+    relaunched = state.load(demo)["jobs"]["j1"]
+    assert (relaunched["state"], relaunched["agent"], relaunched["session"]) == ("running", None, "session-under-test")
     assert watch.run_pass(watcher(demo), state.now() + watch.HANDOFF) == []
 
 

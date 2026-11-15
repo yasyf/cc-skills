@@ -86,12 +86,13 @@ It lands without a second look.
 """
 
 SEEDED_READER = "j0"
+SEEDED_AT = "2026-01-01T00:00:00+00:00"
 WORK_JOBS = ("builder", "codex", "design", "designer")
 
 SEEDED_RESEARCH = """DONE researched the order
 Researched:
 rulings: none on the area
-exists: none: nothing in the drive does part of it
+exists: none
 open: none
 """
 
@@ -185,7 +186,7 @@ def kept_brief(text: str, name: str = "demo") -> str:
     """The `Read your brief first:` line of the text kept as a brief in the drive's jobs folder, where the drive writes every brief, its Drive line naming a job the drive holds none of when the text names none."""
     path = state.drive_dir(name) / "jobs" / f"typed-{next(KEPT_BRIEFS)}.brief.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text if brief.BRIEF_JOB.search(text) else f"{text}\nDrive: {name}, order o0, job j0\n")
+    path.write_text(text if brief.BRIEF_JOB.search(text) else f"{text}\nDrive: {name}, order o0, job j99999\n")
     return f"Read your brief first: {path}"
 
 
@@ -264,10 +265,10 @@ def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def kept_research(name: str, order_id: str, parts: list[str]) -> None:
-    """Keep reader j0's research on these parts of the order, numbered below every job a test adds, as a build order's reader keeps it before its builder starts."""
+    """Keep reader j0's research on these parts of the order, numbered below and stamped before every job a test adds, as a build order's reader keeps it before its builder starts."""
     with state.edit(name) as data:
         order = data["orders"][order_id]
-        reader = data["jobs"].setdefault(SEEDED_READER, state.new_job(order_id, "reader", "research: the order", [], state.stamp()) | {"state": "done"})
+        reader = data["jobs"].setdefault(SEEDED_READER, state.new_job(order_id, "reader", "research: the order", [], SEEDED_AT) | {"state": "done"})
         held = reader["parts"] if reader["order"] == order_id else reader["carries"].setdefault(order_id, [])
         held.extend(part for part in parts if part not in held)
         if SEEDED_READER not in order["jobs"]:
@@ -282,14 +283,18 @@ def flag_values(argv: tuple[str, ...], flag: str) -> list[str]:
 
 @pytest.fixture
 def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., tuple[int, str]]:
-    """Run a drive verb as its command line does, an order added with no --kind being a build whose reader j0 kept research on each part a builder, codex or design job is then added on, as its reader does before the coordinator adds any builder."""
+    """Run a drive verb as its command line does, an order added with no --kind being a build whose reader j0 kept research on each part a builder, codex or design job that waits on research is then added on, as its reader does before the coordinator adds any builder."""
     unkinded: set[tuple[str, str]] = set()
 
     def invoke(*argv: str) -> tuple[int, str]:
         if argv[:2] == ("job", "add") and set(argv[2:3]) & set(WORK_JOBS):
             name = state.resolve(next(iter(flag_values(argv, "--drive")), None))
             if (name, order_id := next(iter(flag_values(argv, "--order")), "")) in unkinded:
-                kept_research(name, order_id, flag_values(argv, "--part") or list(state.load(name)["orders"][order_id]["parts"]))
+                order = state.load(name)["orders"][order_id]
+                parts = flag_values(argv, "--part") or list(order["parts"])
+                at_once = bool({"--lands", "--release", "--builds-nothing"} & set(argv)) or argv[2] == "builder" and "--branch" in argv
+                if brief.waits_on_research(order, argv[2], parts, at_once):
+                    kept_research(name, order_id, parts)
         code = cli.main(list(argv))
         out = capsys.readouterr().out.strip()
         if code == 0 and argv[:2] == ("order", "add") and "--kind" not in argv:
