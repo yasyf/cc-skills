@@ -1421,7 +1421,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, end the designs the job carries and brief it on that build; a start naming none keeps no job and refuses with what it said."""
+    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, print that build before any save, so a call that dies after the start still names it, and keep and brief the job on it by release_briefed; a start naming none keeps no job and refuses with what it said."""
     said: list[str] = []
     answer: dict = {}
     with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
@@ -1435,13 +1435,21 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
         with state.edit(name) as data:
             data["orders"][data["jobs"].pop(job_id)["order"]]["jobs"].remove(job_id)
         raise DriveError(f"no job added: its release did not start: {why}")
+    print(f"drive job add: {job_id} started `{command}` as {build}; a call that ends before briefing {job_id} leaves it running, and drive job brief {job_id} --release-build {build} keeps it and writes the brief", file=sys.stderr, flush=True)
+    replaced, line, _ = release_briefed(name, job_id, build, {})
+    return [*replaced, f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
+
+
+def release_briefed(name: str, job_id: str, build: str, named: dict) -> tuple[list[str], str, dict]:
+    """Keep the build a --release job's release started as its release_build in a save holding nothing else, so a later step that fails leaves it kept, then end the designs the job carries and each failed job it replaces, and write its brief with the lines named; the lines for each job it replaced, then write_brief's line and payload."""
+    with state.edit(name) as data:
+        data["jobs"][job_id]["release_build"] = build
     with state.edit(name) as data:
         job = data["jobs"][job_id]
-        job["release_build"] = build
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"]], job["created"])
-    line, _ = write_brief(name, job_id, {})
-    return [*replaced, f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
+    line, payload = write_brief(name, job_id, named)
+    return replaced, line, payload
 
 
 def release_answer(said: list[str]) -> dict:
@@ -2821,9 +2829,19 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 def job_brief(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    held_job(state.load(name), args.id)
-    line, payload = write_brief(name, args.id, {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS})
-    return emit(args, line, payload)
+    job = held_job(state.load(name), args.id)
+    named = {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS}
+    if not args.release_build:
+        line, payload = write_brief(name, args.id, named)
+        return emit(args, line, payload)
+    if not github.BUILD.fullmatch(args.release_build):
+        raise DriveError(f"--release-build {args.release_build} is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>")
+    if not state.starts_cut(job):
+        raise DriveError(f"{args.id}: --release-build keeps the build of the release a drive job add --release started, and {args.id} was added with no --release")
+    if job["release_build"] not in (None, args.release_build):
+        raise DriveError(f"{args.id}: its add kept its release's build, {job['release_build']}: drive job brief {args.id} briefs it on that one")
+    replaced, line, payload = release_briefed(name, args.id, args.release_build, named)
+    return emit(args, "\n".join([*replaced, line]), payload)
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
@@ -2853,7 +2871,10 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     if state.starts_cut(job) and not job["release_build"]:
-        raise DriveError(f"{job_id}: its brief names the release it started, so `drive job add --release` writes it once that release starts")
+        raise DriveError(
+            f"{job_id}: its brief names the release it started, so `drive job add --release` writes it once that release starts;"
+            f" a release that add started and kept no build for is briefed with drive job brief {job_id} --release-build <its build link>"
+        )
     if not (written := rewrite_brief(name, job_id, flags, job.get("brief_flags"))):
         return write_brief(name, job_id, named)
     line, payload = written
@@ -5806,6 +5827,11 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id", help="the job")
+    verb.add_argument(
+        "--release-build",
+        metavar="LINK",
+        help="the Buildkite build link a drive job add --release printed for a release it started and kept no build for: kept as the job's Release build: line, ending the designs it carries and each failed job it replaces as that add does, then the brief written",
+    )
     verb.set_defaults(run=job_brief)
     verb = job.add_parser(
         "launch",
@@ -5823,7 +5849,7 @@ def parser() -> argparse.ArgumentParser:
             " --dispatch on its brief and --schema holding its final message to a state, line and report, which the watch takes as its"
             " return once the run ends. A finished pass of a standing part is refused, writing and starting nothing, naming the"
             " part's live pass or when the watch starts its next, since the watch alone starts each pass of one. It takes every"
-            " drive job brief flag and writes the brief from them as that verb does before it starts anything, so a flag argparse"
+            " drive job brief flag but --release-build and writes the brief from them as that verb does before it starts anything, so a flag argparse"
             " or the brief's checks refuse starts no worker; with none it starts on the brief the job holds."
         ),
     )
