@@ -90,12 +90,11 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   rows a schema holds; the bytes a file format lays down; the steps a process takes. His words:
   "flash this out wayu more and od that for everyhtrfing in the future".
 - Write every line to stand alone for a reader with no other context, naming each thing by its
-  proper technical term (the function, syscall, flag, file, service, table or code path), with
-  plain words saying what it is or does the first time it is named, as "check-run-args, the
-  runtime-api route that type-checks a run's arguments" does, never a vague stand-in such as "the
-  copy change". Plain words means no drive job, order, waits or record
-  ids, which he cannot open; technical names stay. Link each thing he could open, such as a PR,
-  where it is named, at the exact view the card describes: a screen a route, tab, anchor or query
+  proper technical term (the table, column, function, file, migration, flag, syscall, service or
+  code path), with a clause saying what it is the first time it appears, as "the run_claims table,
+  which records the runner holding each run" does, never a vague stand-in such as "the copy change".
+  Plain words means no drive job, order, waits or record ids, which he cannot open; technical names
+  stay. Link each thing he could open, such as a PR, where it is named, at the exact view the card describes: a screen a route, tab, anchor or query
   string reaches is linked at that address, never the page's root, and a view not built yet is
   called unbuilt, by his words on a prototype link that opened its queue: "I dont see tthe slack tab on that link what are you talking abit?".
 - Before you keep a block or return, read the design as he meets it on his card. Add what he would
@@ -160,7 +159,7 @@ Replaces: <only on a question built on another open question of his: the path dr
   defect behind it, a pick between designs that are his or his approval of an action his rules hold for
   him such as a benchmark run, reads `Root cause: none: <why>`. When the card quotes words of his as
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever", and his words "so why was that not the suggested optin to me, or even any of the options?" `drive job ask` refuses a block whose lines are out of this shape,
-  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at least 0.8 sure and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one.
+  and keeps every block in shape whatever Jev finds, printing to you each option or part Jev reads as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, each code name Jev reads the card as never saying in plain words, and each raw id `cc-slack check-post` finds on it, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at least 0.8 sure and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one.
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
   working a change it names, only those its design's builder, a job briefed on its research or a job
@@ -238,8 +237,6 @@ Replaces: <only on a question built on another open question of his: the path dr
   - a `Show me:` with no visual;
   - a table with one value in every cell;
   - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
-  - a question or option naming code such as check-run-args that Jev reads that line as never
-    saying in plain words, by his ruling e405d69, "Explain what this is what do you mean check";
   - a question or option that names polling, a push, a subscription, a notification, a listener or
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;

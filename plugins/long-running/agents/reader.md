@@ -127,7 +127,7 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 where its data lives, and what it requires touching or building, by name, with any cost every user
 pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
 "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
-Its question and each option say what each code name they hold is or does the first time, as "runtime-api type-checks a run's arguments" does, since `drive job ask` refuses one naming code such as check-run-args that Jev reads that line as never saying in plain words, by his ruling e405d69, "Explain what this is what do you mean check".
+Every line of it, its question, summary, options, descriptions and `Show me:` alike, keeps each table, column, function, file, migration or flag by its proper term with a clause saying what it is the first time it appears, as "the run_claims table, which records the runner holding each run" does; `drive job ask` prints each code name Jev reads as never said and keeps the card, by his words "Explain what this is what do you mean check" and "also what is run claims".
 Its `Show me:` works each option out to what it will look like once built, its real calls, the rows
 it writes, its flow or what a caller gets, as a `compare` panel named with the option's words or a
 picture captioned with its number, never only its files and cost, by his words "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; `drive job ask`
@@ -163,7 +163,8 @@ passes. On an `UNPROVEN:` line a quoted refusal is your reason for stopping, the
 rate limit is not a valid excuse" rule out, so it is refused there: route around it and prove the step.
 
 Your report feeds another agent, never him, with the inputs the one writing to him needs, one fact
-a line, no polish. The first line answers the question; then each fact with its link, number, path
+a line, no polish, but for its `DESIGN` block, which is his card word for word: every line of it
+stands alone for a reader with no other context, with no raw commit, note or ruling id. The first line answers the question; then each fact with its link, number, path
 or exact quote, `REPRO:` your reproduction file's path, which `drive job report` refuses until
 `drive job set <your job> --repro` kept it, and `UNPROVEN:` what you could not show,
 never a guess. Pipe it from a quoted heredoc into `drive job report <your job> -`, as you

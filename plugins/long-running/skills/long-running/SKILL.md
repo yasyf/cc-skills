@@ -50,7 +50,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 - Read, never recall: a state told him cites a read that turn, else says unverified (`messages`). Done is proven where he sees it: a recording of the click, the live post, the installed command's output, not fetched data.
 - Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`).
-- Cards and posts name each thing by its proper technical term, never a stand-in (`messages`). Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
+- Cards and posts name each thing by its proper term, glossed once, never a stand-in (`messages`). Plain words drop only drive ids he can't open: job, order and waits ids, record seqs.
 - Events and job results reach him in the watch's line on news, never a post each (`messages`).
 
 ## Pages
