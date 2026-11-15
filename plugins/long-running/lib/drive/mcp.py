@@ -16,9 +16,8 @@ from typing import TextIO
 
 import drive
 from drive import cli, install, reads, state, tools
-from drive.install import config_dir, installed
+from drive.install import upgraded
 
-PLUGIN = "long-running@skills"
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CALL_SECONDS = 180
 OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
@@ -508,7 +507,4 @@ def forked(request: dict, woken: int, wake: int) -> None:
 
 
 def newest_drive() -> str:
-    root = PLUGIN_ROOT
-    if root.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
-        root = Path(installed(PLUGIN)["installPath"])
-    return str(root / "bin" / "drive")
+    return str(upgraded() or OWN_DRIVE)
