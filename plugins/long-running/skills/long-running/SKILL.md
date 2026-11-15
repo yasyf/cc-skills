@@ -36,7 +36,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 - His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer winning where two collide. What they leave open stays as it is, and every other rule or brief line is a default there: where one meets them, as reusing code meets his from-scratch design, his words win and the return names it.
 - A brief, record or handoff carries his words verbatim, your reading marked as yours.
-- His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling) as a self-retro on its general lesson, unasked. One on how code must work is written, his words verbatim, into the AGENTS.md nearest that code.
+- His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling) as a self-retro on its general lesson, unasked. One on how code must work goes, his words verbatim, in that code's AGENTS.md, never the root.
 - His reminder of dropped work, or feedback on a post or card, is a tool defect: fix the drive tool, card library or `check-post` that let it through.
 
 ### Fixes and landing
