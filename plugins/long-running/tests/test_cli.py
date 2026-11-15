@@ -7033,7 +7033,7 @@ def test_a_prover_waiting_on_nothing_is_refused_a_waiting_on_a_watcher_of_its_ow
     told = "run drive job prove j1, which runs its proof file now and, on its WAIT line, keeps j1 waiting and runs it again once he is next heard"
     try:
         code, err = keep(monkeypatch, capsys, "j1", waiting)
-        assert (code, "j1 proves Forge-AI/monorepo#9 live and waits on nothing" in err, f"keep an executable proof file with drive job set j1 --repro <file>, then {told}" in err) == (2, True, True)
+        assert (code, "j1 proves Forge-AI/monorepo#9 live and nothing it waits on holds its proof" in err, f"keep an executable proof file with drive job set j1 --repro <file>, then {told}" in err) == (2, True, True)
         kept_proof(tmp_path, "j1")
         code, err = keep(monkeypatch, capsys, "j1", waiting)
         assert (code, f"stop the one its WAITING names, {told}" in err) == (2, True)

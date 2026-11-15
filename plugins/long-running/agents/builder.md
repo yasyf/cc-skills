@@ -318,7 +318,7 @@ and waits ids, record seqs), never a technical name.
      `drive job prove` waits for one and runs it again. `drive job report` refuses the `READY` or
      `PUSHED` without one. A job that opens no PR, such as a repair of the drive's records or a builder proving another
      job's merge, keeps the same file and ends with `drive job prove <your job>` in place of `DONE`: it
-     runs the file, installs only what a `yasyf/*` merge your `Handoff:` names changes, takes `DONE` or `BLOCKED` on your job, or on a `WAIT` sets it waiting until
+     runs the file, installs only what a `yasyf/*` merge your `Handoff:`, else the goal of a `--builds-nothing` builder, names changes, takes `DONE` or `BLOCKED` on your job, or on a `WAIT` sets it waiting until
      he is next heard, and you end the turn on the first line `drive job report <your job>` prints. A
      proof waiting for the change to show itself, such as the next post of the surface it reads, ends
      on that `WAIT`, never on a watcher process of your own, and `drive job report` refuses a prover's

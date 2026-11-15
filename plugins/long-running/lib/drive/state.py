@@ -1740,7 +1740,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
         why = unrunnable(repro) if repro else None
         keep = f"keep an executable proof file with drive job set {job_id} --repro <file>{f', as {why}' if why else ''}, then " if not repro or why else ""
         return (
-            f"{job_id} proves {', '.join(proving)} live and waits on nothing, so no process of its own waits for the change to show itself:"
+            f"{job_id} proves {', '.join(proving)} live and nothing it waits on holds its proof, so no process of its own waits for the change to show itself:"
             f" stop the one its WAITING names, {keep}run drive job prove {job_id}, which runs its proof file now and, on its WAIT line, keeps {job_id} waiting"
             f" and runs it again once he is next heard, then end the turn on the first line drive job report {job_id} prints"
         )
