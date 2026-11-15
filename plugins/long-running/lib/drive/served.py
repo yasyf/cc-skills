@@ -223,15 +223,15 @@ def digests(diff: bytes) -> dict[str, str]:
 
 
 def change(key: str) -> dict:
-    """A PR's title, body, base, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
+    """A PR's title, body, base branch, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base commit and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
     repo, number = key.split("#")
     try:
-        read = json.loads(github.read(f"{key}'s title, body, base and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,body,baseRefOid,headRefOid"]))
+        read = json.loads(github.read(f"{key}'s title, body, base and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,body,baseRefName,baseRefOid,headRefOid"]))
         compare = f"repos/{repo}/compare/{read['baseRefOid']}...{read['headRefOid']}"
         diff = github.read(f"{key}'s diff", ["gh", "api", compare, "-H", "Accept: application/vnd.github.diff", "--allow-escape-sequences"], text=False)
     except github.GithubError as error:
         raise DriveError(f"{key}: {error}; run this again") from None
-    return {"title": read["title"], "body": read["body"], "base": read["baseRefOid"], "head": read["headRefOid"], "diff": diff}
+    return {"title": read["title"], "body": read["body"], "base": read["baseRefName"], "head": read["headRefOid"], "diff": diff}
 
 
 def files(diff: bytes) -> list[tuple[str, str]]:
@@ -264,14 +264,14 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
     if owes:
         lines.append(
             f"by his answer {WRITES_RULING}, this change owes each of these rulings of his written, his words verbatim, into an AGENTS.md at or above the code it rules on,"
-            " since it changes that code and no AGENTS.md there holds them at its base, so that write is his words: "
+            " since it changes that code and no AGENTS.md there holds them at the tip of its base branch or at the head of an open PR numbered below it, so that write is his words: "
             + "; ".join(f'{each["id"]} on {each["dir"]}, "{each["words"]}"' for each in owes)
         )
     return "\n".join(lines)
 
 
 def owed(data: dict, key: str, bound: list[str], read: dict) -> list[dict]:
-    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, that the PR owes written, his words verbatim, into an AGENTS.md at or above <dir>, by his ruling WRITES_RULING, so every later change to that code reads it: <dir> is a directory of the repository whose checkout keeps his answers, so only a PR of that repository whose diff changes a file under <dir> owes it, and only while no AGENTS.md at or above <dir> holds his words at the PR's base, all of them read in one GitHub read; each ruling once for each directory however many ids name it, with the file it changes there and whether the diff's added lines in such an AGENTS.md write them. A ruling already written where its code is is owed by no later change, since his words ask the rule written once beside the code, never again in each change to it."""
+    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, that the PR owes written, his words verbatim, into an AGENTS.md at or above <dir>, by his ruling WRITES_RULING, so every later change to that code reads it: <dir> is a directory of the repository whose checkout keeps his answers, so only a PR of that repository whose diff changes a file under <dir> owes it, and only while no AGENTS.md at or above <dir> holds his words at the tip of the PR's base branch nor at the head of another open PR of the drive's in that repository that outranks it, one numbered below it or, when its own diff does not write them, any; all of them read in one GitHub read; each ruling once for each directory however many ids name it, with the file it changes there and whether the diff's added lines in such an AGENTS.md write them. A ruling already written where its code is, or on its way there in the lowest-numbered open PR whose head holds it, is owed by no other change, since his words ask the rule written once beside the code, never again in each change to it."""
     cwd = data["roles"]["coordinator"]["cwd"]
     ruled = dict.fromkeys(
         (answer["id"][:7], said(answer), tag.removeprefix(CODE_LABEL).strip("/") or ".")
@@ -286,12 +286,16 @@ def owed(data: dict, key: str, bound: list[str], read: dict) -> list[dict]:
     touched = [(answer_id, ruling, directory, path) for answer_id, ruling, directory in ruled if (path := next((path for path, _ in changed if Path(path).is_relative_to(directory)), None))]
     if not touched:
         return []
-    based = guides(key, read["base"], {guide for _, _, directory, _ in touched for guide in above(directory)})
-    return [
-        {"id": answer_id, "words": ruling, "dir": directory, "file": path, "written": held(ruling, [line[1:] for guide, text in changed if guide in above(directory) for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")])}
-        for answer_id, ruling, directory, path in touched
-        if not any(held(ruling, based[guide].splitlines()) for guide in above(directory))
-    ]
+    number = github.split(key)[2]
+    opened = [(github.split(other)[2], pr["branch"]) for other, pr in data["prs"].items() if other != key and pr["state"] == "open" and pr["branch"] and github.repo_of(other) == github.repo_of(key)]
+    tip, *heads = guides(key, [read["base"], *(branch for _, branch in opened)], {guide for _, _, directory, _ in touched for guide in above(directory)})
+    owes = []
+    for answer_id, ruling, directory, path in touched:
+        written = held(ruling, [line[1:] for guide, text in changed if guide in above(directory) for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")])
+        outranked = any(holds(at, ruling, directory) and (other < number or not written) for (other, _), at in zip(opened, heads, strict=True))
+        if not outranked and not holds(tip, ruling, directory):
+            owes.append({"id": answer_id, "words": ruling, "dir": directory, "file": path, "written": written})
+    return owes
 
 
 def said(answer: dict) -> str:
@@ -305,28 +309,33 @@ def above(directory: str) -> list[str]:
     return [str(Path(parent, GUIDE)) for parent in [Path(directory), *Path(directory).parents]]
 
 
+def holds(texts: dict[str, str], ruling: str, directory: str) -> bool:
+    """Whether an AGENTS.md at or above a directory, among these texts by path, holds his words."""
+    return any(held(ruling, texts[guide].splitlines()) for guide in above(directory))
+
+
 def held(ruling: str, lines: list[str]) -> bool:
     """Whether these lines of an AGENTS.md hold his words, case, spacing, line breaks and a quote's > marks aside."""
     return " ".join(ruling.split()).casefold() in " ".join(" ".join(line.strip().lstrip(">").strip() for line in lines).split()).casefold()
 
 
-def guides(key: str, base: str, paths: set[str]) -> dict[str, str]:
-    """The text of each AGENTS.md path at the PR's base commit, empty where it has none, read in one GraphQL query."""
+def guides(key: str, branches: list[str], paths: set[str]) -> list[dict[str, str]]:
+    """The text of each AGENTS.md path at the tip of each branch of the PR's repository, in the order named, empty where the branch or the file is gone, read in one GraphQL query."""
     owner, name, _ = github.split(key)
     named = sorted(paths)
-    fields = " ".join(f"g{n}: object(expression: {json.dumps(f'{base}:{path}')}) {{ ... on Blob {{ text }} }}" for n, path in enumerate(named))
+    fields = " ".join(f"g{b}_{n}: object(expression: {json.dumps(f'refs/heads/{branch}:{path}')}) {{ ... on Blob {{ text }} }}" for b, branch in enumerate(branches) for n, path in enumerate(named))
     try:
-        found = github.graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {fields} }} }}", f"the AGENTS.md files at {key}'s base")["data"]["repository"]
+        found = github.graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {fields} }} }}", f"the AGENTS.md files at {key}'s base branch and the open PRs' heads")["data"]["repository"]
     except github.GithubError as error:
         raise DriveError(f"{key}: {error}; run this again") from None
-    return {path: found[f"g{n}"]["text"] if found[f"g{n}"] else "" for n, path in enumerate(named)}
+    return [{path: found[f"g{b}_{n}"]["text"] if found[f"g{b}_{n}"] else "" for n, path in enumerate(named)} for b in range(len(branches))]
 
 
 def unwritten(key: str, owes: list[dict]) -> str:
     """Each ruling write the PR owes and its diff lacks, as its builder makes it, as one line; empty when its diff makes every write it owes."""
     return "; ".join(
         f'{each["id"]} "{cut(each["words"], 200)}": {key} changes {each["file"]}, under {each["dir"]}, and no AGENTS.md at or above {each["dir"]} holds these words of his'
-        f' at its base or in its diff; add them verbatim with their date to the AGENTS.md nearest {each["dir"]}, by his ruling {WRITES_RULING}, "{WRITES_WORDS}"'
+        f' at the tip of its base branch, at the head of another open PR or in its diff; add them verbatim with their date to the AGENTS.md nearest {each["dir"]}, by his ruling {WRITES_RULING}, "{WRITES_WORDS}"'
         for each in owes
         if not each["written"]
     )

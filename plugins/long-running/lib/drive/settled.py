@@ -383,8 +383,8 @@ def plain(text: str) -> str:
 
 
 def shown(answer_id: str, cwd: str) -> dict:
-    """One recorded answer of his, its title, body and labels."""
-    return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
+    """One recorded answer of his, its title, body and labels, none when cc-notes prints no tags key, as it does for an answer with no labels."""
+    return {"tags": [], **json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))}
 
 
 def listed(label: str, cwd: str) -> list[dict]:

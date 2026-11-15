@@ -13,6 +13,7 @@ from drive.state import DriveError
 KEY = "Forge-AI/monorepo#42"
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 READ_CHANGE = served.change
+SHOWN = settled.shown
 JUDGE = served.judged
 SOURCE = ["app/fixtures.go", "app/fixtures_load.go", "cmd/fixtures.go", "tools/move_fixtures.py"]
 SMALL = b"diff --git a/api/run.ts b/api/run.ts\nindex 1111111111aa..2222222222bb 100644\n--- a/api/run.ts\n+++ b/api/run.ts\n@@ -10,3 +10,3 @@ export function run() {\n   const flag = staff();\n-  return flag;\n+  return !flag;\n }\n"
@@ -35,12 +36,12 @@ def test_a_pr_past_githubs_300_file_diff_reads_whole_as_bytes_from_the_compare_o
 
     def gh(cmd: list[str], text: bool = False, **_: object) -> subprocess.CompletedProcess:
         calls.append(cmd)
-        out = json.dumps({"title": "Cleanup: move the fixtures", "body": "", "baseRefOid": "base1", "headRefOid": "head1"}).encode() if "view" in cmd else MOVE
+        out = json.dumps({"title": "Cleanup: move the fixtures", "body": "", "baseRefName": "dev", "baseRefOid": "base1", "headRefOid": "head1"}).encode() if "view" in cmd else MOVE
         return subprocess.CompletedProcess(cmd, 0, out.decode() if text else out, "" if text else b"")
 
     monkeypatch.setattr(github.subprocess, "run", gh)
     read = READ_CHANGE(KEY)
-    assert (read["head"], read["diff"], len(served.files(read["diff"]))) == ("head1", MOVE, 1_571)
+    assert (read["base"], read["head"], read["diff"], len(served.files(read["diff"]))) == ("dev", "head1", MOVE, 1_571)
     assert "repos/Forge-AI/monorepo/compare/base1...head1" in calls[1]
 
 
@@ -117,7 +118,7 @@ WHERE_WRITTEN = {
     "tags": ["scope:durable"],
     "created_at": "2026-11-11T19:18:20Z",
 }
-BASE_GUIDE = re.compile(r'(g\d+): object\(expression: "base1:([^"]+)"\)')
+GUIDE_AT = re.compile(r'(g\d+_\d+): object\(expression: "refs/heads/([^:"]+):([^"]+)"\)')
 OWED = f'by his answer {served.WRITES_RULING}, this change owes each of these rulings of his written, his words verbatim, into an AGENTS.md at or above the code it rules on'
 
 
@@ -132,26 +133,30 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN}
     home, based, asked = ["Forge-AI/monorepo"], {}, []
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: home[0])
-    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(BASE_GUIDE.findall(text)) or {"data": {"repository": {alias: {"text": based[path]} if path in based else None for alias, path in asked[-1]}}})
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(GUIDE_AT.findall(text)) or {"data": {"repository": {alias: {"text": based[path]} if path in based else None for alias, _, path in asked[-1]}}})
     code = added("go/sand/cache/key.go", b"func key() string { return run.ID }")
     write = added("go/sand/AGENTS.md", b"- Ruled Nov 11: Key the cache on the run id")
 
     def judged_at(n: int, diff: bytes) -> str:
         with state.edit(demo) as data:
             data["prs"][KEY]["head"] = f"head{n}"
-        monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: key the cache", "body": "", "base": "base1", "head": f"head{n}", "diff": diff})
+        monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: key the cache", "body": "", "base": "dev", "head": f"head{n}", "diff": diff})
         return served.verdict(demo, KEY)
 
     refused = judged_at(1, code)
     assert refused.startswith(
         f'{served.NOT_READY}: {KEY} go against his words, judged from each PR\'s title and diff: c0de123 "Key the cache on the run id": {KEY} changes go/sand/cache/key.go,'
-        " under go/sand/cache, and no AGENTS.md at or above go/sand/cache holds these words of his at its base or in its diff; add them verbatim with their date to the"
+        " under go/sand/cache, and no AGENTS.md at or above go/sand/cache holds these words of his at the tip of its base branch, at the head of another open PR or in its diff; add them verbatim with their date to the"
         f' AGENTS.md nearest go/sand/cache, by his ruling {served.WRITES_RULING}, "{served.WRITES_WORDS}". His answers the check read, each whole:'
     ), refused
-    assert (WHERE_WRITTEN["title"] in refused, judge.asked, {path for _, path in asked[-1]}) == (True, [], {"go/sand/cache/AGENTS.md", "go/sand/AGENTS.md", "go/AGENTS.md", "AGENTS.md"})
+    assert (WHERE_WRITTEN["title"] in refused, judge.asked, {(branch, path) for _, branch, path in asked[-1]}) == (
+        True,
+        [],
+        {("dev", "go/sand/cache/AGENTS.md"), ("dev", "go/sand/AGENTS.md"), ("dev", "go/AGENTS.md"), ("dev", "AGENTS.md")},
+    )
     assert judged_at(2, code + write).startswith(served.CHECKED)
     said = judge.asked[-1][0]
-    assert f'{OWED}, since it changes that code and no AGENTS.md there holds them at its base, so that write is his words: c0de123 on go/sand/cache, "Key the cache on the run id"' in said
+    assert f'{OWED}, since it changes that code and no AGENTS.md there holds them at the tip of its base branch or at the head of an open PR numbered below it, so that write is his words: c0de123 on go/sand/cache, "Key the cache on the run id"' in said
     assert served.WRITES_WORDS in said
     based["AGENTS.md"] = "# Agents\n\n> Ruled Nov 11: key the cache on\n> the run id.\n"
     assert judged_at(3, code).startswith(served.CHECKED) and OWED not in judge.asked[-1][0]
@@ -161,6 +166,61 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     del based["AGENTS.md"]
     assert judged_at(5, code).startswith(served.CHECKED) and OWED not in judge.asked[-1][0]
     assert len(asked) == reads
+
+
+CACHE_CODE = added("go/sand/cache/key.go", b"func key() string { return run.ID }")
+CACHE_WRITE = added("go/sand/AGENTS.md", b"- Ruled Nov 11: Key the cache on the run id")
+CACHE_GUIDE = "# Agents\n\n- Ruled Nov 11: Key the cache on the run id\n"
+
+
+def open_rows(demo: str, rows: dict[int, tuple[str, str]]) -> dict:
+    with state.edit(demo) as data:
+        for number, (branch, held) in rows.items():
+            data["prs"][f"Forge-AI/monorepo#{number}"] = data["prs"][KEY] | {"url": f"https://github.com/Forge-AI/monorepo/pull/{number}", "branch": branch, "state": held}
+    return state.load(demo)
+
+
+@pytest.mark.parametrize(
+    ("rows", "holding", "diff", "owes"),
+    [
+        pytest.param({45: ("fix/cache-b", "open")}, {"fix/cache-b"}, CACHE_CODE + CACHE_WRITE, [True], id="a higher-numbered head holding it leaves the write with the lowest PR writing it"),
+        pytest.param({40: ("fix/cache-a", "open")}, {"fix/cache-a"}, CACHE_CODE + CACHE_WRITE, [], id="a lower-numbered head holding it owes this copy to nobody"),
+        pytest.param({45: ("fix/cache-b", "open")}, {"fix/cache-b"}, CACHE_CODE, [], id="any open head holding it owes nothing to a PR not writing it"),
+        pytest.param({40: ("fix/cache-a", "closed"), 41: ("fix/cache-c", "merged")}, {"fix/cache-a", "fix/cache-c"}, CACHE_CODE, [False], id="no head but an open one counts"),
+        pytest.param({40: ("fix/cache-a", "open")}, {"dev"}, CACHE_CODE, [], id="the base branch's tip holding it owes it to nobody"),
+    ],
+)
+def test_a_ruling_held_at_the_base_branchs_tip_or_an_open_pr_head_is_owed_only_by_the_lowest_numbered_pr_whose_head_holds_it_read_in_one_query(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, rows: dict, holding: set[str], diff: bytes, owes: list[bool]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    recorded.shown |= {"c0de123": CACHE_RULING}
+    asked: list[list[tuple[str, str, str]]] = []
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(
+        github, "graphql", lambda text, what, max_age="0s": asked.append(GUIDE_AT.findall(text)) or {"data": {"repository": {alias: {"text": CACHE_GUIDE} if branch in holding and path == "AGENTS.md" else None for alias, branch, path in asked[-1]}}}
+    )
+    data = open_rows(demo, rows | {7: ("fix/elsewhere", "open")})
+    data["prs"]["yasyf/cc-skills#3"] = data["prs"][KEY] | {"branch": "fix/cache-other-repo"}
+    found = served.owed(data, KEY, ["c0de123"], {"base": "dev", "head": "head1", "diff": diff})
+    assert [each["written"] for each in found] == owes
+    read = {branch for _, branch, _ in asked[0]}
+    assert (len(asked), read) == (1, {"dev", "fix/elsewhere", *(branch for branch, held in rows.values() if held == "open")})
+
+
+def test_an_answer_cc_notes_prints_with_no_tags_key_reads_as_ruling_no_code_so_a_pr_binding_it_owes_no_write(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    unlabelled = {"id": "fd79b94" + "0" * 33, "title": "Merge it?", "body": '"Merge it"', "created_at": "2026-11-14T19:10:00Z"}
+    monkeypatch.setattr(settled, "shown", SHOWN)
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(unlabelled))
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    assert served.owed(state.load(demo), KEY, ["fd79b94"], {"base": "dev", "head": "head1", "diff": CACHE_CODE}) == []
 
 
 STORED_TAPS = {
