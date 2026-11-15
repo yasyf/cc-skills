@@ -1309,8 +1309,8 @@ def test_the_relay_starts_the_handler_on_a_promised_line_within_two_seconds_of_i
 
 def shown_pr(demo: str, key: str) -> str:
     """The PR's line as drive status shows it: its stored row, with his card and its stage on it."""
-    prs = cli.with_cards(demo, state.load(demo))["prs"]
-    return f"- {render.pr_line(key, prs[key], prs[key]['card_state'])}"
+    data = cli.with_cards(demo, state.load(demo))
+    return f"- {render.pr_line(data, key, data['prs'][key]['card_state'])}"
 
 
 def quiet_incident(demo: str) -> None:
@@ -1434,8 +1434,8 @@ def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refre
     assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=7)) == []
     [(_, body), _] = calls
     lines = body.splitlines()
-    prs = state.load(demo)["prs"]
-    assert lines[1:4] == ["PRs, as the watch last read them from GitHub: 2", *(f"- {render.pr_line(key, prs[key], None)}" for key in (fix, writer))]
+    now = state.load(demo)
+    assert lines[1:4] == ["PRs, as the watch last read them from GitHub: 2", *(f"- {render.pr_line(now, key, None)}" for key in (fix, writer))]
     assert " merged, checks pass, review approved" in lines[2]
     assert [line for line in lines if "waiting on his tap" in line or "green and approved" in line] == []
 
@@ -5145,7 +5145,7 @@ def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     assert line not in watch.run_pass(watching, T0 + timedelta(minutes=29))
     assert line in watch.run_pass(watching, T0 + timedelta(minutes=30))
-    assert "checks pass, review approved, no tap needed, exempt: incident fix; unlanded since " in render.pr_line(KEY, state.load(demo)["prs"][KEY], None)
+    assert "checks pass, review approved, no tap needed, exempt: incident fix; unlanded since " in render.pr_line(state.load(demo), KEY, None)
     assert landers == []
 
 

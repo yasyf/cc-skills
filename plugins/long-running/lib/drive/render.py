@@ -388,7 +388,10 @@ def incident_line(order_id: str, order: dict) -> str:
     return f"{order_id} {order['state']} incident: {order['text'][:80]}; {order['note'] or 'no record'}"
 
 
-def pr_line(key: str, pr: dict, card: str | None) -> str:
+def pr_line(drive: dict, key: str, card: str | None) -> str:
+    from drive import view
+
+    pr = drive["prs"][key]
     owed = None if exempted(pr) else REWORKING if pr["rework"] else "wants tap" if pr["wants_tap"] else None
     tap = pr["tap"]["label"] if pr.get("tap") else owed or "no tap needed"
     tap += f", {card or 'his card never drawn'}" if card or not pr.get("tap") and owed == "wants tap" else ""
@@ -397,7 +400,7 @@ def pr_line(key: str, pr: dict, card: str | None) -> str:
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
     held = ", held by its hold label" if pr["hold_label"] else ""
     title = f' "{cut(pr["title"], 80)}"' if pr["title"] else ""
-    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{design_words(pr)}{stage_words(pr)}"
+    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{design_words(pr)}{stage_words(pr)}; {view.staging(drive, key)}"
 
 
 def design_words(pr: dict) -> str:
@@ -455,7 +458,7 @@ def job_pr_keys(job: dict, registered: Iterable[str]) -> list[str]:
 
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
-    return [pr_line(key, drive["prs"][key], drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in job_pr_keys(job, job_prs(drive, job_id))]
+    return [pr_line(drive, key, drive["prs"][key]["card_state"]) if key in drive["prs"] else pr_url(key) for key in job_pr_keys(job, job_prs(drive, job_id))]
 
 
 FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"
