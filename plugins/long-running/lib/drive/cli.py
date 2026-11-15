@@ -3712,7 +3712,7 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and a PR his card asks his tap on is refused, nothing written, until its lead tells him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -3721,11 +3721,9 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     author = read["author"]["login"]
     if why := state.foreign(key, author, state.his_words_on(known, [known["orders"][added["order"]]])) or state.pr_held_elsewhere(known, key, job_id):
         raise DriveError(f"{key}: refused, nothing added: {why}")
-    refuse_an_unkinded_title(key, read, port_of)
     jobs = list(dict.fromkeys([job_id, *(state.pr_jobs(known, known["prs"][key]) if key in known["prs"] else [])]))
     if workspace := added.get("workspace"):
         take_sprite_pictures(name, key, job_id, jobs, workspace, read)
-    refuse_an_undrawn_show_me(name, key, read, jobs)
     if key not in known["prs"] and (seen := brief.surface(added)) and brief.stories(added["brief_flags"].get("interactions")) and not added.get("repro"):
         raise DriveError(
             f"{key}: refused, nothing added: {job_id} builds something he sees ({seen}), so each user story's strict acceptance criteria"
@@ -3741,12 +3739,9 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_an_unexempt(key, exempt, "added")
     wants_tap = state.guarded(key) or not state.tooling(known["orders"][added["order"]])
     flaky = flake_tap(key, wants_tap) if exempt == state.FLAKE_FIX else None
-    with state.edit(name) as data:
-        job = find(data["jobs"], job_id, "job")
-        if data["orders"][job["order"]]["once"]:
-            raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
-        pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
-        pr.update(order=job["order"], author=author, title=read["title"], branch=read["headRefName"] or pr["branch"])
+
+    def registered(pr: dict, order: str) -> dict:
+        pr.update(order=order, author=author, title=read["title"], branch=read["headRefName"] or pr["branch"])
         if port_of:
             pr.update(port_of=port_of, exempt="pure port", wants_tap=False)
         if exempt:
@@ -3757,9 +3752,22 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             pr["wants_tap"] = False
         if lead:
             pr["lead"] = (pr["lead"] or {}) | lead
-        if lead is not None and stage.carded(pr) and (problems := limits.lead_problems(pr["lead"] or {})):
-            flags = " ".join(f'{flag} "<{line}>"' for line, flag in limits.LEAD_LINES)
-            raise DriveError(f"{key}: refused, nothing added: his card opens with its lead, and {'; '.join(problems)}. Add it with drive pr add {url} --job {job_id} {flags}")
+        return pr
+
+    pending = registered(dict(known["prs"].get(key) or state.new_pr(url, job_id, added["order"]) | {"wants_tap": wants_tap}), added["order"])
+    problems = [why for why in [unkinded_title(key, read, port_of)] if why] + undrawn_show_me(name, read, jobs)
+    if lead is not None and stage.carded(pending) and (unled := limits.lead_problems(pending["lead"] or {})):
+        flags = " ".join(f'{flag} "<{line}>"' for line, flag in limits.LEAD_LINES)
+        problems.append(f"his card opens with its lead, and {'; '.join(unled)}. Add it with drive pr add {url} --job {job_id} {flags}")
+    if len(problems) == 1:
+        raise DriveError(f"{key}: refused, nothing added: {problems[0]}")
+    if problems:
+        raise DriveError("\n".join([f"{key}: refused, nothing added, for each of these {len(problems)}:", *(f"{number}. {why}" for number, why in enumerate(problems, 1))]))
+    with state.edit(name) as data:
+        job = find(data["jobs"], job_id, "job")
+        if data["orders"][job["order"]]["once"]:
+            raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
+        pr = registered(data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap}), job["order"])
         state.take_pr(data, job_id, key)
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
@@ -3850,8 +3858,8 @@ def pr_set(args: argparse.Namespace) -> int:
             raise DriveError(f"--waits {wait}: refused, nothing set: {why}")
     if args.port_of or args.tap or args.exempt == INCIDENT_EXEMPTION:
         read = github_pr(key)
-        if args.port_of or args.tap:
-            refuse_an_unkinded_title(key, read, args.port_of)
+        if (args.port_of or args.tap) and (why := unkinded_title(key, read, args.port_of)):
+            raise DriveError(f"{key}: refused, {why}, then run this again")
         if args.port_of:
             refuse_a_port_storing_data(key, args.port_of)
             refuse_an_untracked_original(known, key, args.port_of)
@@ -4101,28 +4109,29 @@ def take_sprite_pictures(name: str, key: str, job_id: str, jobs: list[str], work
         raise DriveError(f"{key}: refused, nothing added: its Show me pictures did not copy off {workspace}: {error}") from None
 
 
-def refuse_an_undrawn_show_me(name: str, key: str, read: dict, jobs: list[str]) -> None:
-    """Each picture of a PR's Show me, a fence or an image link, draws as his card will draw it, through the same cache and naming a Sprite's picture by its copy here, since a card whose picture does not draw shows him a Show me with nothing in it."""
+def undrawn_show_me(name: str, read: dict, jobs: list[str]) -> list[str]:
+    """Why each picture of a PR's Show me, a fence or an image link, does not draw as his card will draw it, through the same cache and naming a Sprite's picture by its copy here, since a card whose picture does not draw shows him a Show me with nothing in it."""
     from drive import card
 
+    undrawn = []
     for kind, source, _ in picture.sources(reads.shown_off_sprite(name, jobs, card.sections(card.body_of(read)).get("show me", ""))):
-        picture.shot(state.drive_dir(name) / "pictures", "show-me", kind, source, f"{key}: refused, nothing added: its Show me {kind}")
+        try:
+            picture.shot(state.drive_dir(name) / "pictures", "show-me", kind, source, f"its Show me {kind}")
+        except DriveError as error:
+            undrawn.append(str(error))
+    return undrawn
 
 
-def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
-    """A PR's title opens with the kind his card names it by, Fix:, New:, Cleanup: or Port:, or a prefix his card reads as one, and a port's title opens Port:."""
+def unkinded_title(key: str, read: dict, port_of: int | None) -> str | None:
+    """Why a PR's title fails to open with the kind his card names it by, Fix:, New:, Cleanup: or Port:, or a prefix his card reads as one, or a port's title fails to open Port:, with the retitle that fixes it; None when it opens so."""
     from drive import card
 
     kind, plain = card.kind_and_title(read["title"])
     if kind != "Change" and (kind == "Port" or not port_of):
-        return
+        return None
     repo, number = key.split("#")
     opening, retitled = (f"Port:, since it is a port of #{port_of}", f"Port: {plain}") if port_of else ("Fix:, New:, Cleanup: or Port:", f"<Fix|New|Cleanup|Port>: {plain}")
-    title = read["title"]
-    raise DriveError(
-        f'{key}: refused, its title "{title}" does not open {opening}, the kind of change his card names it by:'
-        f' retitle it with gh pr edit {number} -R {repo} --title "{retitled}", then run this again'
-    )
+    return f'its title "{read["title"]}" does not open {opening}, the kind of change his card names it by: retitle it with gh pr edit {number} -R {repo} --title "{retitled}"'
 
 
 def note_third_person(key: str, read: dict) -> None:
