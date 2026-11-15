@@ -109,6 +109,7 @@ ABOUT_HIS_WORK = "his work"
 ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)
 GUARDED_OWNER = "forge-ai"
 HIS_LOGIN = "yasyf"
+UPSTREAM_PERMISSIONS = ("READ", "TRIAGE")
 NO_TAP_OWNER = HIS_LOGIN
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 TOOLING_RULING = 'de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"'
@@ -902,6 +903,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("trunk", None)
         pr.setdefault("reviews_required", 1)
         pr.setdefault("merge_method", "squash")
+        pr.setdefault("permission", None)
         pr.setdefault("base", None)
         pr.setdefault("default", None)
         pr.setdefault("into", None)
@@ -4246,9 +4248,11 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Hold nor his Approve on it, whatever the check against his words says. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card."""
+    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, and neither his Hold nor his Approve on it, whatever the check against his words says. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
+    if upstream(pr):
+        return f"{upstream_owner(pr)}'s maintainers merge it, outside the drive"
     if exempted(pr):
         return f'its exempt class "{pr["exempt"]}" lands it with no tap'
     if not pr["wants_tap"]:
@@ -4259,6 +4263,15 @@ def tap_refused(pr: dict) -> str | None:
         case "Hold":
             return "he held it"
     return None
+
+
+def upstream(pr: dict) -> bool:
+    """Whether the PR is open on a repository that lets this account read or triage it and no more, as GitHub's viewerPermission last read it, such as an upstream project's, so only that repository's maintainers merge it, outside the drive, and neither its author nor a builder can."""
+    return pr["state"] == "open" and pr["permission"] in UPSTREAM_PERMISSIONS
+
+
+def upstream_owner(pr: dict) -> str:
+    return pr_key(pr["url"]).split("/")[0]
 
 
 def asks_tap(pr: dict) -> bool:
@@ -4311,6 +4324,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "trunk": None,
         "reviews_required": 1,
         "merge_method": "squash",
+        "permission": None,
         "base": None,
         "default": None,
         "into": None,

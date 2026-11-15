@@ -28,7 +28,7 @@ RULED = {
     "name": "main",
 }
 UNRULED = {"name": "main", "rules": {"nodes": []}}
-ALLOWED = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True}
+ALLOWED = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN"}
 
 
 def node(**overrides: object) -> dict:
@@ -59,7 +59,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
 
 
 def test_query_names_one_repository_aliased_r0_with_one_pull_per_number_and_refuses_the_prs_of_two() -> None:
@@ -168,6 +168,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
             "merge_method": "squash",
+            "permission": "ADMIN",
             "default": "main",
             "base_pr": None,
         },
@@ -194,6 +195,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
             "merge_method": "squash",
+            "permission": "ADMIN",
             "default": "main",
             "base_pr": None,
         },
@@ -368,6 +370,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "trunk": "main",
         "reviews_required": 0,
         "merge_method": "squash",
+        "permission": "ADMIN",
         "conflict": True,
         "required": {"checks": "none", "failed": {}},
     }

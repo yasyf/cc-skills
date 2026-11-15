@@ -163,6 +163,7 @@ def read(**overrides: object) -> dict:
         "required_checks": ["buildkite/test"],
         "required_reviews": 1,
         "merge_method": "squash",
+        "permission": "ADMIN",
         "default": "main",
         "base_pr": None,
     }
@@ -570,7 +571,7 @@ def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_sa
 
 PULLED = re.compile(r"p(\d+): pullRequest\(number: \d+\)")
 NAMED_REPOSITORY = re.compile(r'repository\(owner: "([^"]+)", name: "([^"]+)"\)')
-MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
+MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN", "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
 
 
 def pull_node(head: str) -> dict:
@@ -666,7 +667,7 @@ def test_the_watch_hooks_each_repository_of_a_pr_it_hears_and_reads_its_prs_sinc
     receiving.unhooked.add("Forge-AI/monorepo")
     watch.run_pass(watching, T0 + timedelta(seconds=60))
     watch.run_pass(watching, T0 + timedelta(seconds=120))
-    assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY]])
+    assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY], [KEY]])
 
 
 def test_a_repository_this_account_does_not_administer_is_asked_once_and_a_hook_that_fails_is_said_without_holding_back_the_next_while_each_open_pr_no_hook_delivers_is_read_each_minute(
@@ -688,7 +689,7 @@ def test_a_repository_this_account_does_not_administer_is_asked_once_and_a_hook_
         [f"WATCH upkeep of the receiver failed 3 times in a row: {refusal}"],
         ["Forge-AI/litestream", "Forge-AI/monorepo", "stablyai/orca", "Forge-AI/litestream", "Forge-AI/litestream"],
         ["Forge-AI/monorepo"],
-        [[KEY, broken, upstream, shut], [KEY, broken, upstream], [broken, upstream], [broken, upstream]],
+        [[KEY, broken, upstream, shut], [KEY], [broken, upstream], [broken, upstream]],
     )
 
 
@@ -4099,6 +4100,7 @@ def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_sh
         (lambda reads, data: data["jobs"]["j1"].update(state="done"), "red", [1, 2]),
         (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), "held", [1, 1]),
         (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED")}), "author", [1, 2]),
+        (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED", permission="READ")}), "upstream", [1, 1]),
     ],
 )
 def test_a_red_prs_builder_is_woken_again_only_while_its_stage_stays_red(

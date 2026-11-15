@@ -28,12 +28,12 @@ def chains(data: dict, cards: dict, on_hold: bool, moment: datetime) -> dict[str
 
 
 def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) -> list[tuple[str, str, bool]] | None:
-    """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it; None once it reaches a running job or a step of his: a PR whose stage he owes or that his Hold or the hold label stops, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
+    """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it; None once it reaches a running job, a PR only its repository's maintainers merge, by state.upstream, as one merged outside the drive, or a step of his: a PR whose stage he owes or that his Hold or the hold label stops, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
     if subject in seen:
         return []
     seen.add(subject)
     pr, job = data["prs"].get(subject), data["jobs"].get(subject)
-    if pr and (pr["stage"] and pr["stage"]["owner"] == stage.HIM or stage.stopped(pr)) or job and job["state"] == "running":
+    if pr and (pr["stage"] and pr["stage"]["owner"] == stage.HIM or stage.stopped(pr) or state.upstream(pr)) or job and job["state"] == "running":
         return None
     if not pr and not job and (state.card_wait(data, subject) or on_hold and state.RELEASE_WAIT.fullmatch(subject)):
         return None
