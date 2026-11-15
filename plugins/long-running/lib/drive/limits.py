@@ -1725,7 +1725,7 @@ def bare_mechanisms(line: str) -> list[str]:
 
 
 def tap_owed_not(prs: dict[str, dict], key: str) -> str:
-    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged, folded into another open PR's branch or closed, it lands with no tap, or it or a PR below it in its native GitHub stack is being reworked to his words, by reworked_under."""
+    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged, folded into another open PR's branch or closed, it lands with no tap, or it or a PR below it in its stack, native or chained by base branch, is being reworked to his words, by reworked_under."""
     pr = prs[key]
     tap = pr.get("tap")
     reworked = reworked_under(prs, key)

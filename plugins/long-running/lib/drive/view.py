@@ -49,7 +49,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
-from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
+from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, stack_of, without_records
 from drive.render import cut, when
 
 STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
@@ -502,11 +502,11 @@ def head_card(pr: dict, pr_cards: list[dict]) -> dict | None:
 
 
 def apart(data: dict, key: str, pr_cards: list[dict]) -> list[str]:
-    """The PRs of the PR's native GitHub stack that drive card draws on one card with it, open and asking his tap, but that his newest open card on it leaves off, such as one registered after that card went up; none at or above the lowest one reworked to his words, by state.reworked_under, which with every PR above it drive card leaves off the card."""
+    """The PRs of the PR's stack, its native GitHub stack or else its chain by base branch by card.stack_of, that drive card draws on one card with it, open and asking his tap, but that his newest open card on it leaves off, such as one registered after that card went up; none at or above the lowest one reworked to his words, by state.reworked_under, which with every PR above it drive card leaves off the card."""
     pr = data["prs"][key]
     if not (card := card_for(pr_cards, pr["url"])):
         return []
-    drawn = [mate for mate in pr["native"] if mate in data["prs"] and data["prs"][mate]["state"] == "open" and not state.reworked_under(data["prs"], mate)]
+    drawn = [mate for mate in stack_of(data["prs"], key) if mate in data["prs"] and data["prs"][mate]["state"] == "open" and not state.reworked_under(data["prs"], mate)]
     return [mate for mate in drawn if state.asks_tap(data["prs"][mate]) and data["prs"][mate]["url"] not in card["prs"]] if key in drawn else []
 
 

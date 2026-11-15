@@ -279,7 +279,7 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...], picked: tuple[tuple[str, str], ...] = ()) -> str:
-    """What his card says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its native stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
+    """What his card says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
     lands = in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
     above = entry["reworked_above"]
     alone = f", alone while {in_turn(list(above))} above it {'is' if len(above) == 1 else 'are'} reworked to your words" if above else ""
@@ -476,7 +476,7 @@ def pictured(name: str, pr: dict, jobs: list[str], taken: set[str]) -> tuple[tup
 
 
 def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict], redraw: bool = False) -> list[list[str]]:
-    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the fresh card the watch draws for a stack split across cards replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch among them, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the fresh card the watch draws for a stack split across cards replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch, by chained(), every open PR of its drive on that chain with it, so a PR added to the chain later joins its chain's card, a redraw keeping the PRs asked, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
     native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
     stacked = {member for stack in native.values() for member, _ in stack}
     units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)
@@ -486,28 +486,50 @@ def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str,
             drawn_on = tuple(mate for mate in known[member][1].get("stack") or [] if mate in unit) if redraw else ()
             by_card.setdefault((unit, drawn_on), []).append(member)
     loose = [key for key in reads if key not in stacked]
+    if not redraw:
+        loose = list(dict.fromkeys(mate for key in loose for mate in chained(known, key, reads) if mate not in stacked))
+    branches = ends(known, loose, reads)
     stored = list({tuple(stack): stack for key in loose if (stack := [mate for mate in known[key][1].get("stack") or [] if mate in known and mate not in stacked and known[mate][1]["state"] != "closed"])}.values())
-    grown = [group for group in loose_cards(known, loose, reads) if grows(group, stored)]
+    grown = [group for group in loose_cards(known, loose, branches) if grows(group, stored)]
     kept = [stack for stack in stored if not any(set(stack) <= set(group) for group in grown)]
     covered = {key for group in grown + kept for key in group}
-    fresh = loose_cards(known, [key for key in loose if key not in covered], reads)
+    fresh = loose_cards(known, [key for key in loose if key not in covered], branches)
     return [group for group in by_card.values() if not set(group).isdisjoint(keys)] + kept + grown + fresh
 
 
-def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
+def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], branches: dict[str, tuple[str, str]]) -> list[list[str]]:
     """The cards PRs in no native GitHub stack draw on, by state.card_unit: each chain of them by base branch on its own card, bottom first, and the rest one card per repository and order they serve, however many PRs each holds."""
     units: dict[tuple[str, tuple[tuple[str, ...], str, str]], list[str]] = {}
-    for chain in chains(keys, reads):
+    for chain in chains(keys, branches):
         stack = tuple(chain) if len(chain) > 1 else ()
         for key in chain:
             units.setdefault((known[key][0], state.card_unit(key, stack, known[key][1])), []).append(key)
     return list(units.values())
 
 
-def chains(keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
-    """The asked PRs grouped into stacks, bottom first: a PR sits on another when its base branch is the other's head."""
-    by_head = {(state.pr_key(reads[key]["url"]).split("#")[0], reads[key]["headRefName"]): key for key in keys}
-    below = {key: by_head.get((key.split("#")[0], reads[key]["baseRefName"])) for key in keys}
+def chained(known: dict[str, tuple[str, dict]], key: str, reads: dict[str, dict]) -> list[str]:
+    """The PRs a PR in no native GitHub stack draws on one card with, bottom first, which stack_of() reads too: its chain by base branch, by chains(), among the open PRs of its drive in no native GitHub stack."""
+    pool = [mate for mate, (name, entry) in known.items() if mate == key or name == known[key][0] and entry["state"] == "open" and not entry["native"]]
+    return next(chain for chain in chains(pool, ends(known, pool, reads)) if key in chain)
+
+
+def stack_of(prs: dict[str, dict], key: str) -> list[str]:
+    """The PRs of a drive's PR's stack as the watch last read them, bottom first, the one rule view.apart, state.reworked_under and member() read: its native GitHub stack, else its chain by base branch by chained()."""
+    return prs[key]["native"] or chained({mate: ("", row) for mate, row in prs.items()}, key, {})
+
+
+def ends(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> dict[str, tuple[str, str]]:
+    """Each PR's head and base branches: as GitHub read them for a PR read now, else as the watch last read them."""
+    return {
+        key: (read["headRefName"], read["baseRefName"]) if (read := reads.get(key)) and read["headRefName"] else (known[key][1]["branch"] or "", known[key][1]["base"] or "")
+        for key in keys
+    }
+
+
+def chains(keys: list[str], branches: dict[str, tuple[str, str]]) -> list[list[str]]:
+    """The PRs grouped into stacks, bottom first: a PR sits on another of its repository when its base branch is the other's head branch, each as branches holds them."""
+    by_head = {(key.split("#")[0], branches[key][0]): key for key in keys if branches[key][0]}
+    below = {key: by_head.get((key.split("#")[0], branches[key][1])) for key in keys}
     above = {under: key for key, under in below.items() if under}
     found: list[list[str]] = []
     for key in keys:
@@ -562,7 +584,7 @@ def drawn_card(shown: list[Member], siblings: bool) -> dict:
 
 def siblings(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> bool:
     """Whether a card's PRs are sibling PRs of one request rather than a stack: none in a native GitHub stack and none on another's head branch, so each lands alone though his one Approve taps them all."""
-    return not any(known[key][1]["native"] for key in members) and len(chains(members, reads)) == len(members)
+    return not any(known[key][1]["native"] for key in members) and len(chains(members, ends(known, members, reads))) == len(members)
 
 
 def holding(name: str, entry: dict) -> dict[str, str]:
@@ -598,13 +620,13 @@ def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members
 
 
 def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
-    """The PR as his card draws it: GitHub's read of it, the drive's entry with its stage and staging line now and a link to each open PR above it in its native stack being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
+    """The PR as his card draws it: GitHub's read of it, the drive's entry with its stage and staging line now and a link to each open PR above it in its stack, by stack_of(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
     from drive import stage, view
 
     key = state.pr_key(entry["url"])
     held = holding(name, entry)
-    native = [mate for mate in entry["native"] if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
-    above = native[native.index(key) + 1 :] if key in native else []
+    stack = [mate for mate in stack_of(data["prs"], key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
+    above = stack[stack.index(key) + 1 :] if key in stack else []
     return (
         pr,
         entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"])},

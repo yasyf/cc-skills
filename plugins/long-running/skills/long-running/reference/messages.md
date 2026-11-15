@@ -498,11 +498,10 @@ When it is answered, replaced or redone:
   on, and the option his Approve picks on each card of his holding it, which the lander's start answers and
   closes before it lands, but never while one is being reworked to his words. A card of his that
   holds an approved PR his Approve did not pick leaves its card reading Approved by you and naming
-  that card, which his answer on it frees. A PR added later to its native GitHub stack
-  joins one new card for the whole stack, posted alone or with the rest of it, and cc-slack marks each
-  older card of those PRs replaced, with a link to the new one; the watch draws that card for any
-  native stack it finds split across cards. A PR chained only by its base branch gets its own card
-  when posted alone and joins one new card for them all when posted with the rest of its stack.
+  that card, which his answer on it frees. A PR added later to its stack, its native GitHub stack
+  or the PRs chained to it by base branch, joins one new card for the whole stack, posted alone or
+  with the rest of it, and cc-slack marks each older card of those PRs replaced, with a link to the
+  new one; the watch draws that card for any stack it finds split across cards.
 - The card opens with each PR's lead, the four lines its builder gave `drive pr add`, before any
   code: its headline as the card's title, then why the change is made, what it does and what it
   changes downstream, on the dashboard's card above the stack's rows too, since his words on a card

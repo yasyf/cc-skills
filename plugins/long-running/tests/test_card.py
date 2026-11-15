@@ -1370,12 +1370,21 @@ def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
     assert drawn["card"]["status"] == "done"
 
 
-def test_a_pr_added_to_the_stack_later_gets_its_own_card(stacked: list[list[str]]) -> None:
+def test_a_pr_added_to_its_base_branch_chain_later_joins_one_fresh_card_whose_approve_taps_each_while_a_redraw_keeps_each_card_as_drawn(stacked: list[list[str]]) -> None:
+    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44)]
     ask(asks(41, 42, 43))
+    with state.edit("demo") as data:
+        for number, (_, base, branch) in STACK.items():
+            data["prs"][f"Forge-AI/monorepo#{number}"].update(base=base, branch=branch)
+    [kept] = ask(asks(42) | {"redraw": True})["cards"]
+    assert kept["card"]["waits"] == asked_waits(41, 42, 43)
     [drawn] = ask(asks(44))["cards"]
-    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(44)]
-    assert drawn["card"]["waits"] == asked_waits(44)
-    assert state.load("demo")["prs"]["Forge-AI/monorepo#44"]["stack"] == ["Forge-AI/monorepo#44"]
+    assert ([row["url"] for row in drawn["card"]["prs"]], drawn["card"]["waits"]) == ([stack_url(n) for n in (41, 42, 43, 44)], asked_waits(41, 42, 43, 44))
+    assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
+    [again] = ask(asks(42) | {"redraw": True})["cards"]
+    assert again["card"]["waits"] == asked_waits(41, 42, 43, 44)
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
+    assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 4
 
 
 def test_a_pr_added_on_top_joins_the_stack_card_when_asked_with_it(stacked: list[list[str]]) -> None:

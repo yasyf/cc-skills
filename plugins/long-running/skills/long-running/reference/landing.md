@@ -397,8 +397,8 @@ landing as `PR … not landed: <its last lines>` on the first gap that needs a f
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 60 seconds of reading the PR there, which it does as GitHub delivers the change. It
 lands what his card drew whole, bottom first, by his rule "Approve lands exactly those, bottom first",
-a PR added to a native GitHub stack later joining one fresh card for the whole stack that replaces the
-older cards: the PRs of his card that share a stack, a native GitHub stack
+a PR added to a stack later, native or chained by base branch, joining one fresh card for the whole
+stack that replaces the older cards: the PRs of his card that share a stack, a native GitHub stack
 or PRs each on the one below's head branch, with every PR under them and the PRs of that PR's card,
 once each of them is ready. A PR stacked above them on a card of its own, such as one red, held, in
 conflict or still waiting on his Approve, holds none of them, and his Approve on one card never passes
