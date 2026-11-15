@@ -4064,7 +4064,7 @@ def refuse_a_port_storing_data(key: str, port_of: int) -> None:
 
 def refuse_an_unexempt(key: str, exempt: str, done: str) -> None:
     """Refuse an exempt class the PR is not in, by land.outside, the class check the lander runs before it lands an exempt PR, on the PR as GitHub has it now, before anything is kept, so no class the lander would refuse takes Approve off his card, by his ruling to keep a lane's exempt word and check the class; a flake fix outside test and fixture code keeps his tap instead, by flake_tap."""
-    if why := land.outside(exempt, served.change(key)):
+    if why := land.outside(exempt, key, served.change(key)):
         raise DriveError(f'{key}: refused, nothing {done}: it is no "{exempt}": {why}, by the class check the lander runs before it lands an exempt PR')
 
 
@@ -5561,7 +5561,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--exempt",
-        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix"; the bash_guard hook on a Sprite lane passes it',
+        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix" or a "main fix"; the bash_guard hook on a Sprite lane passes it',
     )
     verb.add_argument(
         "--release",

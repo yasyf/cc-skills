@@ -56,9 +56,9 @@ BRANCH_SECONDS = 20
 
 
 def open_cards(data: dict, job_id: str, pr: dict | None, exempt: str | None = None) -> list[str]:
-    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card of an open question holding its work by state.part_cards, the one rule by which a card holds work, so a card a job or PR waits on otherwise only wakes it; none for an immediate fix, which lands while he picks the proper fix, or a flake fix, the PR's exempt class or else `exempt`, which fixes a flaking test the day it flakes by his ruling 532cd3d, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask` marks when Jev reads any option it offers as breaking a recorded answer or ruling of his, its recommended option first, or --unsettled names one, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
+    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card of an open question holding its work by state.part_cards, the one rule by which a card holds work, so a card a job or PR waits on otherwise only wakes it; none for an immediate fix, which lands while he picks the proper fix, or a flake fix or main fix, the PR's exempt class or else `exempt`, which fixes a flaking test the day it flakes by his ruling 532cd3d or the default branch's failing CI, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask` marks when Jev reads any option it offers as breaking a recorded answer or ruling of his, its recommended option first, or --unsettled names one, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
     job = data["jobs"][job_id]
-    if state.IMMEDIATE_FIX in job["parts"] or (pr.get("exempt") if pr is not None else exempt) == state.FLAKE_FIX:
+    if state.IMMEDIATE_FIX in job["parts"] or (pr.get("exempt") if pr is not None else exempt) in state.UNCARDED_CLASSES:
         return []
     found = list(dict.fromkeys(state.part_cards(data, job_id, pr)))
     if state.open_incidents(data, [job["order"], *job["carries"]]):
@@ -67,8 +67,8 @@ def open_cards(data: dict, job_id: str, pr: dict | None, exempt: str | None = No
 
 
 def pr_cards(data: dict, pr: dict) -> list[str]:
-    """His open cards holding a PR from landing: those holding the work of any job carrying it, its own and each that holds its landing, by open_cards()."""
-    return list(dict.fromkeys(card for job_id in state.pr_jobs(data, pr) for card in open_cards(data, job_id, pr)))
+    """His open cards holding a PR from landing: those holding the work of the job its row names, by open_cards(), never a card of a job it moved off or that lists it beside work of its own."""
+    return open_cards(data, pr["job"], pr)
 
 
 def ship_held(data: dict, job_id: str, exempt: str | None = None) -> list[str]:
@@ -101,10 +101,13 @@ def stored(paths: list[str]) -> list[str]:
     return [path for path in paths if STORED_DATA.search(path)]
 
 
-def outside(exempt: str, read: dict) -> str:
-    """Why a PR, by its changed files, title and body as served.change read them, is not in the exempt class, the one check of an exempt class: the lander's before it lands, `drive pr add`'s and `drive pr set`'s before they keep the class, and a flake fix's tap; "" when it is."""
+def outside(exempt: str, key: str, read: dict) -> str:
+    """Why a PR, by its changed files, title and body as served.change read them, or for a main fix by its repository's default branch's CI, is not in the exempt class, the one check of an exempt class: the lander's before it lands, `drive pr add`'s and `drive pr set`'s before they keep the class, and a flake fix's tap; "" when it is."""
     paths = [path for path, _ in served.files(read["diff"])]
     match exempt:
+        case state.MAIN_FIX:
+            repo = github.repo_of(key)
+            return "" if install.red_on_default(repo) else f"no workflow's newest run on {repo}'s {github.default_branch(repo)} failed, so it fixes no red default branch"
         case "pure port":
             found = stored(paths)
             return f"it changes {', '.join(found)}, how its data is stored, which a port models anew for the target tree on his card" if found else ""
@@ -123,7 +126,7 @@ def unexempt(data: dict, key: str) -> str | None:
     pr = data["prs"][key]
     if approved(pr):
         return None
-    if not (why := outside(pr["exempt"], served.change(key))):
+    if not (why := outside(pr["exempt"], key, served.change(key))):
         return None
     if pr["exempt"] == state.FLAKE_FIX:
         return f'{key} is a "{pr["exempt"]}", which lands with no tap only in test or fixture code, and {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --tap puts it on his card'
