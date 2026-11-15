@@ -112,7 +112,7 @@ SAY = {
         " recordings included, and"
         " show it on the drive's dashboard, in one call; with channel_id, post a line, or a card's line linking the card it draws in"
         " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with no thread_ts a new post through cc-slack send, at the root of that channel, such as a staging claim to its members, or with a person's user id in the group DM of that person, him and the bot; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. A post at a channel's root speaks to its members, never him, and so does a reply in that post's thread, a reporter's thread or a teammate's thread the drive watches, so none of the checks of a line to him, such as its length, his time away or the card it links, holds it, while Jev still checks each claim of a handler's post against the read it names; the post at that root and each line in its thread get a reader's checks instead: cc-slack check-post passes its exact words, each is at most 60 words naming no file or function unless his message it answers, passed as asked, asks for code, the root the one line a person would type, with no line break or bold, such as 'testing X on staging for 30, lmk if anyone objects', citing the repository's rule for the claim with no PR list or formatting, and a report's until attr names the end of what it claims, from which the watch owes its thread a closing line. A post in a reporter's or teammate's thread passes cc-slack check-post on its exact words too. Every post stands alone and says no sorry: it names nothing its reader never saw, such as another draft of it, so it never opens on 'here's the longer version'. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
-        " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
+        " URL>} and {order:<id>} link under the card's question, the PR's title or the order's title, or the words after a |, as"
         " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>|<what that read measured>} links what that"
         " record measured, its url, under the words after its |, and a bare {record:<seq>}, which would draw the record's own words, is refused. {answer:<id>}"
         " draws his recorded answer as when he said it and its first words, linked to the ack of them in his DM. {started:<job>}"
@@ -124,8 +124,8 @@ SAY = {
         " link's words, on the line linking it, and is refused with either stamp in a clause naming no job or record. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and the line recording the post on the one order say decides, which no caller names:"
-        " a post carrying a record goes on the order that record is about, a handler's close on the order of the message"
-        " of his or the record it holds, and an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread"
+        " a post carrying a record goes on the order that record is about, a handler's close on the order the record it holds"
+        " names or the order his message it holds started, never another order of that thread, and an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread"
         " and any other post with no record on none; a post on an order from a session that may not record it there, any but the communicator's and a handler's the"
         " drive binds to it, posts nothing and says why, naming a handler's session the drive binds to nothing unbound; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and a clock time"
         " its words promise his next line by, such as \"Next line by 9:45\" or \"Next line by 10:00 AM tomorrow\", becomes the order's due, from which the watch starts a handler on the line it owes until one is posted, but on an incident, whose"
@@ -198,8 +198,10 @@ SAY = {
             "close": {
                 "type": "boolean",
                 "description": (
-                    "With no record: this post is the answer that finishes the order of the message of his or the record your handler"
-                    " holds, so say writes its report from the"
+                    "With no record: this post is the answer that finishes the order the record your handler holds names, by its order,"
+                    " close or job attr, or else the order his message it holds started, such as the answer order drive handler --answer"
+                    " adds, and posts nothing when neither names one, since another order of that thread is not that message's to close;"
+                    " say writes its report from the"
                     " communicator's lane with the post's words, closes the order done on it, and keeps POSTED <permalink> as the return"
                     " of the reader job your handler holds on it, the line you end on; one call in place of a report, a say and drive"
                     " order set"
