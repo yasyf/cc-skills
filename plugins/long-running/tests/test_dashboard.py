@@ -380,6 +380,17 @@ def test_a_tap_on_a_pr_is_kept_at_once_through_the_one_tap_recorder_unless_its_h
     assert list(state.read_events("demo")) == []
 
 
+def test_a_pr_asking_his_approve_opens_on_the_dashboard_with_the_lands_line_his_card_draws(state_root: Path, on_github: dict) -> None:
+    below, above = "Forge-AI/monorepo#42", "Forge-AI/monorepo#43"
+    stack = {"native": [below, above], "head": on_github["headRefOid"], "wants_tap": True}
+    _, entry = pr(42, "o1", url=on_github["url"], **stack)
+    _, reworked = pr(43, "o1", url="https://github.com/Forge-AI/monorepo/pull/43", rework={"by": "a1", "words": "copy rows in batches", "link": "", "at": None}, **stack)
+    state.create(drive_of({"o1": order("land it", ["j1"])}, {"j1": job("o1", "running")}, [(below, entry), (above, reworked)]))
+    lands = dashboard.pr_read("demo", below)["row"]["lands"]
+    assert lands == dashboard.card.drawn_lines("demo", state.load("demo"), below)["lands"]
+    assert lands.endswith(f", alone while {view.pr_link(reworked)} above it is reworked to your words")
+
+
 def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
     card = "https://acme.slack.com/archives/D1/p100"
 
