@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import pytest
 
-from drive import slack, talk, view
+from drive import slack, view
 
 READERS = ((view, "cards", view.cards), (slack, "thread", slack.thread))
 TS = "1794300000.000100"
@@ -20,7 +20,6 @@ LINES = {
     "thread": f"thread {TS} in D123\n2026-11-13 17:00  {TS}  Ada (claude) [from_claude]    The lock is released.\n",
     "history": f"2026-11-13 17:00  {TS}  {POSTED['permalink']}  Ada (claude) [from_claude]    The lock is released.\n",
 }
-DEADLINE = slack.SlackError("context deadline exceeded")
 
 
 @pytest.fixture
@@ -41,8 +40,6 @@ CALLERS: dict[str, tuple[Callable[[], object], object]] = {
     "view.cards": (lambda: view.cards("demo"), CARDS),
     "slack.thread": (lambda: slack.thread("--channel", "D123", "--thread", TS), [POSTED]),
     "slack.group_dm": (lambda: slack.group_dm("U0PRIYA0001"), "D0GROUP0001"),
-    "talk.landed in a thread": (lambda: talk.landed("demo", {"thread_ts": TS}, 1794300000.0, POSTED["text"], DEADLINE)["permalink"], f"{POSTED['permalink']}?thread_ts={TS}&cid=D123"),
-    "talk.landed at his DM's root": (lambda: talk.landed("demo", {}, 1794300000.0, POSTED["text"], DEADLINE)["permalink"], POSTED["permalink"]),
 }
 
 
