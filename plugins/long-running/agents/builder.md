@@ -154,6 +154,12 @@ and waits ids, record seqs), never a technical name.
      nobody checked for: "its a terieble duplicatgion and was clerarly not throught through".
    - A result that stays wrong until someone runs another step, such as a flag nothing clears, is not
      done: ship that step here or return `ASK`.
+   - A rule of his you write into an AGENTS.md, ordered or owed, goes, his words verbatim with
+     their date, into the AGENTS.md of the deepest directory holding all the code it governs,
+     creating it with a CLAUDE.md beside it that imports it with `@AGENTS.md` when it is missing,
+     and into the root one only for a rule on the whole repository, by his words "Also things like
+     this don't go in root agents.md it goes as deep as makes sense"; `drive pr check` reads those
+     words beside every AGENTS.md your diff writes.
    - An AWS action, such as starting a pass box and reading its key, break-glass or a devbox, runs
      on this Mac's own credentials first, its AWS calls under a profile
      `~/.aws/config` chains to the machine certificate, such as
