@@ -410,6 +410,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "complex": args.complex,
             "options_only": args.options_only,
             "once": args.once,
+            "every": args.every,
             "owner": owner,
             "project": project,
             "workstream": workstream,
@@ -883,6 +884,7 @@ def order_set(args: argparse.Namespace) -> int:
         "withdrawn": withdrawn,
         "options_only": args.options_only,
         "once": args.once,
+        "every": args.every,
         "watch": watched,
     }
     moment = state.now()
@@ -2276,10 +2278,10 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 
 
 def card_places(data: dict, job: dict) -> tuple[list[str], tuple[str, str] | None, bool]:
-    """The open incidents a job's card blocks, the channel and thread the job's lines go in, the open incident's or else its order's, and whether that thread takes the card's line: an incident's thread wherever it is and a thread outside his DM do, so his card draws at his DM root alone and the line is its one message in that thread, while a thread of his DM on no incident takes the card itself."""
+    """The open incidents a job's card blocks, the channel and thread the job's lines go in, the open incident's or else its order's, and whether that thread takes the card's line: a thread outside his DM does, such as an alert's, so his card draws at his DM root alone and the line is its one message in that thread, while a thread of his DM takes the card itself, an incident's included, by his words "in the future let's not create split threads like this"."""
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
     where = state.promise_thread(data["orders"][incidents[0] if incidents else job["order"]])
-    return incidents, where, bool(where and (incidents or where[0] != slack.dm()))
+    return incidents, where, bool(where and where[0] != slack.dm())
 
 
 def building(data: dict, job_id: str, *cards: str) -> list[str]:
@@ -5827,6 +5829,7 @@ def parser() -> argparse.ArgumentParser:
         "--options-only", action="store_true", help="he asked for options only: no builder or codex job starts on the proper fix until he picks, only a reader or designer, while its immediate fix part's starts at once"
     )
     verb.add_argument("--once", action="store_true", help="a repair he asked to run once: its job runs it and puts up no PR")
+    verb.add_argument("--every", type=int, default=0, metavar="MINUTES", help="he asked for a line every this many minutes: its thread owes one that long after its last line until the order is done")
     verb.add_argument(
         "--owner",
         choices=state.ROLES,
@@ -5928,9 +5931,10 @@ def parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         help=(
             "mark it first in line while it is open, or unmark it: each builder of its starts on this Mac at once, past the builder cap, the jobs waiting their"
-            " turn for a slot and the load gate, and one already waiting its turn takes it on the watch's next pass; other orders' builders wait behind it"
+            " turn for a slot and the load gate, and one already waiting its turn takes it on the watch's next pass; other orders' builders wait behind it; and it owes him a line every five quiet minutes whether or not a job of it is at work"
         ),
     )
+    verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done; 0 takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
     verb.add_argument(
@@ -6031,7 +6035,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by and its evidence record is titled by")
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None, watch=None)
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None)
     verb = incident.add_parser(
         "stop",
         parents=both,

@@ -123,6 +123,17 @@ def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_a
     assert ["C777", "1794300000.000950"] in [where[:2] for where in data["orders"][order_id]["threads"]]
 
 
+def test_replaying_o2068_a_post_in_an_orders_thread_recorded_on_no_order_is_still_its_last_line(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    reply = "https://acme.slack.com/archives/D123/p1794300000000900?thread_ts=1794200000.000100"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: posts.append(argv) or {"permalink": reply, "thread_ts": "1794200000.000100"})
+    with state.edit(demo) as data:
+        data["orders"]["o1"] = state.new_order("ship the run page", "D123", ("D123", "1794200000.000100"), {}, state.stamp())
+        data["orders"]["o2"] = state.new_order("fix the lock", "D123", ("D123", "1794200000.000200"), {}, state.stamp())
+    talk.say(demo, {"text": "On it.", "thread_ts": "1794200000.000100"})
+    orders = state.load(demo)["orders"]
+    assert (orders["o1"]["last_line"], orders["o2"]["last_line"]) == (state.stamp(slack.sent_at(slack.posted(reply, ""))), None)
+
+
 def test_a_post_answering_his_words_names_the_message_its_handler_holds_and_an_edit_names_none(demo: str, posts: list[tuple[str, ...]]) -> None:
     with state.edit(demo) as data:
         data["handlers"]["h1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {"message": "1794200000.000400"}, "handed": [], "posted": []}
@@ -797,7 +808,7 @@ def handling(name: str, order_id: str, message: str | None = None) -> None:
         }
 
 
-def test_a_handlers_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_delivering_no_part_and_one_with_no_record_on_none(
+def test_a_handlers_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_delivering_no_part_and_one_with_no_record_on_none_each_the_last_line_of_every_order_in_its_thread(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str]
 ) -> None:
     thread, his = "1794200000.000100", "1794201723.677000"
@@ -817,10 +828,11 @@ def test_a_handlers_reply_goes_on_the_order_of_the_record_of_his_words_it_carrie
     assert talk.say(demo, post | {"record": "698123", "dry_run": True}).endswith("; o1 progress line, no part delivered")
     assert talk.say(demo, post | {"record": "698123"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
     data = state.load(demo)
-    assert (data["orders"]["o1"]["last_line"] is not None, data["orders"]["o2"]["last_line"], data["orders"]["o1"]["parts"]["leave it frozen"]["posted"]) == (True, None, None)
+    lined = state.stamp(slack.sent_at(slack.posted(answer, "")))
+    assert (data["orders"]["o1"]["last_line"] is not None, data["orders"]["o2"]["last_line"], data["orders"]["o1"]["parts"]["leave it frozen"]["posted"]) == (True, lined, None)
     assert said(demo)[-1]["order"] == "o1"
     assert talk.say(demo, post) == f"POSTED {answer}"
-    assert (said(demo)[-1]["order"], state.load(demo)["orders"]["o2"]["last_line"], unrecorded) == (None, None, [])
+    assert (said(demo)[-1]["order"], state.load(demo)["orders"]["o2"]["last_line"], unrecorded) == (None, lined, [])
 
 
 def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_only_a_job_delivers_none(

@@ -259,7 +259,7 @@ def test_a_call_shows_the_five_orders_its_session_waits_longest_on_from_one_read
     assert [line.rsplit(", ", 1)[-1] for line in overdue_at_call(monkeypatch, capsys, coordinator)[1:]] == [*["30 min past due"] * 5, "- and 995 more"]
 
 
-def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_and_a_thread_lined_within_its_due_shows_nothing_past_due(
+def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined_within_its_due_shows_nothing_past_due_and_a_job_whose_worker_the_watch_found_gone_runs_for_none(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -280,6 +280,9 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_and_a_thread_l
     later = state.now() + timedelta(minutes=4)
     monkeypatch.setattr(state, "now", lambda: later)
     assert overdue_at_call(monkeypatch, capsys, builder)[1].endswith(", 1 min past due")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["lost_since"] = state.stamp(later)
+    assert [line.split(":")[0] for line in overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1:]] == ["- o3 Fix 3", "- o2 Fix 2"]
     with state.edit("demo") as data:
         data["owner"]["away"] = state.stamp(later - timedelta(minutes=1))
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so his catch-up post on his return carries it")
