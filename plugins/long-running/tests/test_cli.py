@@ -5720,6 +5720,80 @@ def test_a_designs_refile_renaming_a_change_a_live_builder_carries_is_refused_an
     assert state.part_builders(data, "o1", "copy one store") == ["j2"]
 
 
+def test_a_designs_refile_renaming_a_change_whose_builder_was_stopped_drops_the_old_change_unless_an_open_pr_carries_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = data["jobs"]["j4"]["state"] = "stopped"
+        data["prs"]["acme/app#42"] = state.new_pr(state.pr_url("acme/app#42"), "j4", "o1")
+    renamed = DESIGNED_IN_CHANGES.replace("Change: the moved-table interface", "Change: the table interface").replace("Change: the writes through it", "Change: the writes by it")
+    assert keep(monkeypatch, capsys, "j1", renamed) == (0, "")
+    data = state.load("demo")
+    assert {"the moved-table interface", "the writes through it", "the table interface", "the writes by it"} & set(data["orders"]["o1"]["parts"]) == {
+        "the writes through it",
+        "the table interface",
+        "the writes by it",
+    }
+    assert [data["jobs"][job_id]["parts"] for job_id in ("j2", "j4")] == [[], ["the writes through it"]]
+    assert sorted(part for job in data["jobs"].values() if job["kind"] == "builder" and job["state"] != "stopped" for part in job["parts"]) == [
+        "the reads through it",
+        "the table interface",
+        "the writes by it",
+    ]
+
+
+def test_a_designs_refile_renaming_a_change_drops_it_and_stops_its_builder_in_one_save_until_an_agent_takes_that_builder(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["parts"]["the follow-up"] = state.new_part() | {"design": "j1"}
+        data["jobs"]["j5"] = state.new_job("o1", "builder", "build the follow-up", ["the follow-up"], state.stamp()) | {"agent": "a5"}
+        data["orders"]["o1"]["jobs"].append("j5")
+        data["jobs"]["j4"]["agent"] = "a4"
+    renamed = DESIGNED_IN_CHANGES.replace("Change: the writes through it", "Change: the writes by it")
+    code, err = keep(monkeypatch, capsys, "j1", renamed)
+    assert code == 2
+    assert 'its Change: lines name "the writes by it", which no builder or codex job carries, and leave out "the writes through it", carried by j4, so' in err
+    with state.edit("demo") as data:
+        data["jobs"]["j4"]["agent"] = None
+    assert keep(monkeypatch, capsys, "j1", renamed) == (0, "")
+    data = state.load("demo")
+    assert ("the writes through it" in data["orders"]["o1"]["parts"], "the follow-up" in data["orders"]["o1"]["parts"]) == (False, True)
+    assert (data["jobs"]["j4"]["state"], data["jobs"]["j4"]["parts"], data["jobs"]["j4"]["said"]) == ("stopped", [], "its design j1 no longer lists it")
+    assert [state.part_builders(data, "o1", part) for part in ("the writes by it", "the follow-up")] == [["j6"], ["j5"]]
+
+
+def test_order_set_drops_a_change_its_designs_newest_list_left_out_off_every_job_and_pr_and_refuses_one_still_listed(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = "stopped"
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("Change: the moved-table interface", "Change: the table interface")) == (0, "")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["parts"]["the moved-table interface"] = state.new_part() | {"design": "j1"}
+        data["jobs"]["j2"]["parts"] = ["the moved-table interface"]
+        data["prs"]["acme/app#42"] = state.new_pr(state.pr_url("acme/app#42"), "j2", "o1") | {"state": "closed", "parts": ["the moved-table interface"]}
+    assert cli.main(["order", "set", "o1", "--drop-part", "the reads through it"]) == 2
+    assert '--drop-part takes off "the reads through it" of j1\'s design, which no builder delivered' in capsys.readouterr().err
+    run("order", "set", "o1", "--drop-part", "the moved-table interface")
+    data = state.load("demo")
+    assert ("the moved-table interface" in data["orders"]["o1"]["parts"], data["jobs"]["j2"]["parts"], data["prs"]["acme/app#42"]["parts"]) == (False, [], [])
+    run("order", "set", "o1", "--add-part", "the follow-up")
+    run("job", "add", "builder", "--order", "o1", "--part", "the follow-up", "--goal", "build the follow-up")
+    code, out = run("order", "set", "o1", "--drop-part", "the follow-up")
+    assert (code, out.splitlines()[-1]) == (0, "j6 stopped, left with no part: end its agent, or its lane with drive job end j6")
+    assert (state.load("demo")["jobs"]["j6"]["state"], state.load("demo")["jobs"]["j6"]["parts"]) == ("stopped", [])
+
+
 def test_order_add_and_set_refuse_a_part_named_in_words_a_designs_change_line_could_not_hold(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     long = "copy each store in list order, then check every copy against its sources before it lands"
     refusal = f'--parts "{long}": refused, a part is named in at most 80 characters with no backtick, double quote, $ or backslash'

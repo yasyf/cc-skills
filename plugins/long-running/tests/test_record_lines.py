@@ -180,10 +180,10 @@ def coordinator(turn: Path, **tool_input: object) -> dict:
     return post(**tool_input) | {"transcript_path": str(turn), "tool_use_id": "now"}
 
 
-def called(path: Path, call: str, tool: str, tool_input: dict, failed: bool = False, age: timedelta = timedelta()) -> None:
+def called(path: Path, call: str, tool: str, tool_input: dict, failed: bool = False, age: timedelta = timedelta(), stored: str = "ok") -> None:
     at = (datetime.now(UTC) - age).isoformat()
     use = {"type": "tool_use", "id": call, "name": tool, "input": tool_input}
-    result = {"type": "tool_result", "tool_use_id": call, "content": "ok"} | ({"is_error": True} if failed else {})
+    result = {"type": "tool_result", "tool_use_id": call, "content": stored} | ({"is_error": True} if failed else {})
     with path.open("a") as transcript:
         transcript.write(json.dumps({"type": "assistant", "timestamp": at, "message": {"role": "assistant", "content": [use]}}) + "\n")
         transcript.write(json.dumps({"type": "user", "timestamp": at, "message": {"role": "user", "content": [result]}}) + "\n")
@@ -452,6 +452,19 @@ def test_the_coordinator_sends_one_report_per_thread_per_turn(demo: str, turn: P
     assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, records=[earlier, earlier])))
     called(turn, "woken", tool, earlier)
     assert "the next wake" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j3 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
+
+
+def test_a_report_withdrawn_this_turn_leaves_its_threads_report_to_the_one_correcting_it(demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    withdrawn: dict[str, list[str]] = {}
+    monkeypatch.setattr(agents, "amendments", lambda name, seqs: {"correction": {}, "withdraw": {seq: withdrawn[seq] for seq in seqs if seq in withdrawn}})
+    first = {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD, **PROGRESS}}
+    called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"records": [{"kind": "note", "text": "j1 is green", "to": TO}, first]}, stored="712995 712996")
+    correcting = coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})
+    assert "one report per thread per turn" in refusal(record_lines.decision(correcting))
+    withdrawn["712995"] = ["712997"]
+    assert "one report per thread per turn" in refusal(record_lines.decision(correcting))
+    withdrawn["712996"] = ["712998"]
+    assert record_lines.decision(correcting) is None
 
 
 def test_a_report_on_an_open_incident_goes_however_many_its_thread_already_had_this_turn(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
