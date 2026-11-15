@@ -163,7 +163,7 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, stack-enqueue ending with no answer on the PR or a gh write GitHub gave no answer to, by land.unanswered(), or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
     pr = data["prs"][key]
     lander = pr["lander"]
     if not lander or lander["head"] != pr["head"] or ends(data, pr["waits"], cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
@@ -173,7 +173,8 @@ def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
     if lander["outcome"] == land.QUEUED:
         return ejection(data, pr) if pr["ejected"] else None
     outcome = lander["outcome"] or UNLANDED_SILENT
-    if outcome.startswith(land.RETRIED):
+    # TODO: delete once no PR's lander outcome predates land.unanswered(), such as yasyf/cc-slack#433's at 0317c21: those tries recorded a gh pr merge GitHub never answered as its refusal.
+    if outcome.startswith(land.RETRIED) or outcome.startswith(f"not landed: {' '.join(land.MERGE)}") and github.UNANSWERED.search(outcome):
         return None
     if lander.get("below") and all(key in data["prs"] and (state.cleared(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"]):
         return None

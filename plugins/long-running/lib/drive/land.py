@@ -385,7 +385,7 @@ def admin_merged(name: str, key: str) -> str:
     """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, every check there finished and none failing on its own change, by own_reds(), and pinned to that head so a push since the read merges nothing; what came of it."""
     reads, refused = github.fetch([key])
     if refused:
-        return f"not landed: {cut(str(refused), SAID_CHARS)}"
+        return f"{UNREAD}: {cut(str(refused), SAID_CHARS)}"
     read = reads[key]
     head = read["headRefOid"]
     if why := unmergeable(key, read):
@@ -502,7 +502,8 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
         if outcome == QUEUED and requeues(data, pr):
             pr["flaky"]["requeued"] = state.stamp()
         pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
-        if pr["lander"].get("was") == outcome:
+        was = pr["lander"].get("was")
+        if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0]:
             continue
         repo, number = key.split("#")
         state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
@@ -535,10 +536,10 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
             try:
                 checked = subprocess.run([script, "--check", *flags, *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
             except OSError as error:
-                return f"not landed: {script} did not start: {error}"
+                return f"{OWN_FAILURE} start {script} on {', '.join(keys)}: {error}"
             print(checked.stdout + checked.stderr, flush=True)
-            if checked.returncode == ENQUEUE_FAILED:
-                return unfinished(name, "--check", keys, checked)
+            if failed := unfinished(name, "--check", keys, checked):
+                return failed
             blocked = list(BLOCKED_LINE.finditer(checked.stdout))
             if dry_run:
                 read = f"; --watch waits out or stops on what --check read: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}" if blocked else ""
@@ -561,14 +562,15 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
-    if done.returncode == ENQUEUE_FAILED:
-        return unfinished(name, "--watch", keys, done)
-    return f"not landed: stack-enqueue --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
+    return unfinished(name, "--watch", keys, done) or f"not landed: stack-enqueue --watch exited {done.returncode}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
 
 
-def unfinished(name: str, mode: str, keys: list[str], done: subprocess.CompletedProcess) -> str:
-    """The lander's own failure when stack-enqueue exits ENQUEUE_FAILED, its FAILED, which says nothing of the PRs, such as a GitHub read that timed out, so the watch's next pass tries the same head again."""
-    return f"{NO_ENQUEUE} {mode} on {', '.join(keys)}, which exited {ENQUEUE_FAILED} on a failure of its own: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
+def unfinished(name: str, mode: str, keys: list[str], done: subprocess.CompletedProcess) -> str | None:
+    """The lander's own failure when stack-enqueue ended with no answer on the PRs, so the watch's next pass tries the same head again: its FAILED exit, ENQUEUE_FAILED, on a failure of its own such as a GitHub read that timed out, or a failing exit before it printed the line every answer of its own prints, as when mise, which runs the uv of its shebang, refuses the landing worktree's config; None when it answered."""
+    if done.returncode != ENQUEUE_FAILED and (not done.returncode or done.stdout.strip()):
+        return None
+    how = "on a failure of its own" if done.returncode == ENQUEUE_FAILED else "before it printed an answer"
+    return f"{NO_ENQUEUE} {mode} on {', '.join(keys)}, which exited {done.returncode} {how}: {said(done.stdout + done.stderr)}; its whole output is in {state.drive_dir(name) / LOG}"
 
 
 @contextmanager
@@ -597,13 +599,15 @@ def ask_review(repo: str, number: str, head: str) -> str | None:
     """Post the comment ai-review names for a head it will not review on its own on the PR, whose caller records that head as its review_asked so none is asked twice; why not, when GitHub refused it."""
     done = subprocess.run(["gh", "pr", "comment", number, "-R", repo, "--body", REVIEW_ASK], capture_output=True, text=True)
     if done.returncode:
-        return f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {REVIEW_ASK!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+        return unanswered(f"{repo}#{number}", f"gh pr comment {REVIEW_ASK!r}", done.stderr) or (
+            f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {REVIEW_ASK!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+        )
     print(f"#{number} asked forge-pr-reviewer to review head {head}: {done.stdout.strip()}", flush=True)
     return None
 
 
 def merged(name: str, key: str, method: str, flags: list[str]) -> str:
-    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes."""
+    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to, the lander's own failure by unanswered()."""
     repo, number = key.split("#")
     if (refusal := merged_sync(key, method, flags)) and STACKED in refusal:
         print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
@@ -611,7 +615,7 @@ def merged(name: str, key: str, method: str, flags: list[str]) -> str:
     if refusal and method == "squash" and state.merges_untapped(key) and any(conflict in refusal for conflict in CONFLICTS):
         return rebased(name, key, refusal)
     if refusal:
-        return f"not landed: {refusal}"
+        return refusal if refusal.startswith(OWN_FAILURE) else f"not landed: {refusal}"
     try:
         sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
         files = github.files(key)
@@ -631,23 +635,34 @@ def merged(name: str, key: str, method: str, flags: list[str]) -> str:
 
 
 def merged_sync(key: str, method: str, flags: list[str]) -> str | None:
-    """Merge a PR by method with gh pr merge and the flags given; what gh said refusing it, or None once merged. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base."""
+    """Merge a PR by method with gh pr merge and the flags given; what gh said refusing it, the lander's own failure by unanswered() when GitHub gave no answer, or None once merged. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base."""
     repo, number = key.split("#")
     command = ["gh", "pr", "merge", number, "-R", repo, f"--{method}", *flags]
     while (done := subprocess.run(command, capture_output=True, text=True)).returncode and BASE_MOVED in done.stderr:
         print(f"{key}: {' '.join(done.stderr.split())}; merging it again on its new base", flush=True)
-    return f"{' '.join([*MERGE, f'--{method}', *flags])} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}" if done.returncode else None
+    if not done.returncode:
+        return None
+    named = " ".join([*MERGE, f"--{method}", *flags])
+    return unanswered(key, named, done.stderr) or f"{named} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+
+
+def unanswered(key: str, command: str, said: str) -> str | None:
+    """The lander's own failure when a gh write it ran on the PR failed with no word of GitHub's on it, so the watch's next pass tries the PR again and the meta session hears it once, as the lander's defect, rather than the session holding its order: GitHub never answered, by github.UNANSWERED, such as a TLS handshake that timed out or an HTTP 5xx, or ccx refused it before GitHub heard it, which ccx says on its last line while it stays silent when gh itself fails; None when GitHub answered, whose refusal is the PR's."""
+    lines = said.strip().splitlines()
+    if not (github.UNANSWERED.search(said) or lines and lines[-1].startswith("ccx: ")):
+        return None
+    return f"{OWN_FAILURE} get GitHub's answer on {key} to {command}: {cut(' '.join(said.split()), SAID_CHARS)}; the next watch pass tries it again"
 
 
 def merged_async(key: str, method: str, flags: list[str]) -> str | None:
-    """Merge a PR of a native GitHub stack by method through GitHub's merge-async endpoint, the one GitHub merges a stacked PR through, past the rules its actor may bypass for --admin, which GitHub grants only the stack's bottom PR, the one a lander outside Forge-AI/monorepo lands, or at the head --match-head-commit names, then read its result every ASYNC_SECONDS until GitHub ends it; why GitHub refused it, or None once merged."""
+    """Merge a PR of a native GitHub stack by method through GitHub's merge-async endpoint, the one GitHub merges a stacked PR through, past the rules its actor may bypass for --admin, which GitHub grants only the stack's bottom PR, the one a lander outside Forge-AI/monorepo lands, or at the head --match-head-commit names, then read its result every ASYNC_SECONDS until GitHub ends it; why GitHub refused it, the lander's own failure by unanswered() when GitHub gave no answer to the merge, or None once merged."""
     repo, number = key.split("#")
     endpoint = f"repos/{repo}/pulls/{number}/{MERGE_ASYNC}"
     pinned = ["-f", f"sha={flags[flags.index('--match-head-commit') + 1]}"] if "--match-head-commit" in flags else []
     fields = ["-f", f"merge_method={method}", "-f", "merge_action=direct_merge", "-F", f"bypass_rules={str('--admin' in flags).lower()}", *pinned]
     done = subprocess.run(["gh", "api", "-X", "PUT", endpoint, *fields], capture_output=True, text=True)
     if done.returncode:
-        return f"GitHub's {MERGE_ASYNC} refused it: {cut(' '.join((done.stdout + done.stderr).split()), SAID_CHARS)}"
+        return unanswered(key, f"GitHub's {MERGE_ASYNC}", done.stdout + done.stderr) or f"GitHub's {MERGE_ASYNC} refused it: {cut(' '.join((done.stdout + done.stderr).split()), SAID_CHARS)}"
     result = json.loads(done.stdout)
     while result["status"] == "pending":
         time.sleep(ASYNC_SECONDS)

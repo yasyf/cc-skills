@@ -394,7 +394,9 @@ line goes to the builder answering for the PR through `drive pr wake`, once a he
 PR he approved it wakes nobody, so no builder changes what he approved. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
 the PR: one whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a GitHub read that
-timed out. The watch says it once to the meta session
+timed out, or failed before it printed an answer, as when mise refuses the landing worktree's config, and a
+`gh pr merge`, merge-async or `gh pr comment` GitHub never answered, such as a TLS handshake timeout or an HTTP 5xx,
+or that ccx refused before GitHub heard it. The watch says it once a head to the meta session
 as the lander's own `LANDER the lander could not …` defect, never as the PR's not landed line, and the lander tries
 again at the watch's next pass with no new tap. So does a try that ended on a failed GitHub read before it
 queued or merged anything, such as a TLS handshake timeout on its diff read or on the landing clone's fetch of the

@@ -62,6 +62,8 @@ def test_his_requests_are_served_once_per_attempt_and_only_his_own_comments(assi
         ("gh: API rate limit exceeded for user", "GitHub's API rate limit for your account is used up, so cc-review could not read the PR until it resets within the hour (cc-review said: gh: API rate limit exceeded for user)"),
         ("Get https://api.github.com: net/http: TLS handshake timeout", "GitHub did not answer cc-review in time (cc-review said: Get https://api.github.com: net/http: TLS handshake timeout)"),
         ("fetch pr: context deadline exceeded", "GitHub did not answer cc-review in time (cc-review said: fetch pr: context deadline exceeded)"),
+        ("HTTP 503: Service Unavailable (https://api.github.com/graphql)", "GitHub did not answer cc-review in time (cc-review said: HTTP 503: Service Unavailable (https://api.github.com/graphql))"),
+        ("HTTP 404: Not Found (https://api.github.com/graphql)", "cc-review said: HTTP 404: Not Found (https://api.github.com/graphql)"),
         ("no such PR", "cc-review said: no such PR"),
     ],
 )

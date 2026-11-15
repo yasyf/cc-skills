@@ -6304,6 +6304,32 @@ def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_met
     assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
 
 
+@pytest.mark.parametrize("mode", ["--check", "--watch"])
+def test_replayed_56720_a_landing_whose_stack_enqueue_exited_before_it_printed_an_answer_is_the_landers_own_failure_said_once_a_head_to_the_meta_session_and_tried_again_until_it_queues(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], mode: str
+) -> None:
+    waiting_job(demo)
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+    untrusted = "mise ERROR Config files in ~/.local/state/long-running/demo/landing/$$/mise.toml are not trusted."
+    on_main(tmp_path, demo, f'#!/bin/sh\n[ "$1" = {mode} ] || exit 0\necho "{untrusted}" >&2\nexit 1\n')
+    watching = watcher(demo)
+    failed = land.run(demo, [KEY])
+    assert failed.startswith(f"{land.NO_ENQUEUE} {mode} on {KEY}, which exited 1 before it printed an answer: mise ERROR Config files in ")
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    again = land.run(demo, [KEY])
+    assert again != failed
+    enqueue_exiting(tmp_path, demo, 0)
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == land.QUEUED
+    lines = watch.event_lines(watching)
+    assert lines == [f"{watch.LANDER}{failed}", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    sent = posts(monkeypatch)
+    assert watch.handed(watching, lines, T0) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+    assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
+
+
 def test_replayed_55635_a_landing_whose_diff_read_timed_out_reads_ready_naming_that_try_and_the_next_pass_lands_it_with_no_new_tap_or_defect(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
@@ -7561,14 +7587,71 @@ def test_a_yasyf_merge_gh_refuses_for_a_conflict_in_code_reads_red_and_wakes_its
     assert landers == []
 
 
-def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_unlanded_for_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", POLICY + "\n"))
+@pytest.mark.parametrize("said", [POLICY, f"ccx: GitHub secondary rate limit: holding every request on the app token until 12:05 PM\n{POLICY}"])
+def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_unlanded_for_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch, said: str) -> None:
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", said + "\n"))
     outcome = land.merged(demo, YASYF, "squash", ["--admin"])
-    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {POLICY}"
+    assert outcome == f"not landed: gh pr merge --squash --admin refused it: {' '.join(said.split())}"
     waiting_job(demo)
     tried(demo, outcome)
     assert not watch.wakes(f"PR {YASYF}: {outcome} [o1 j1]", state.load(demo), NO_CARDS)
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "unlanded"
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        'Post "https://api.github.com/graphql": net/http: TLS handshake timeout',
+        "HTTP 502: 502 Bad Gateway (https://api.github.com/graphql)",
+        "ccx: vcs gh: merge with gh pr merge; the merge hooks gate that form: gh pr merge 7 -R yasyf/cc-skills --squash --admin",
+    ],
+)
+def test_a_yasyf_merge_github_never_answered_or_ccx_refused_is_the_landers_own_failure_said_once_to_the_meta_session_and_merged_again_at_the_next_pass(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], said: str
+) -> None:
+    with monkeypatch.context() as merging:
+        merging.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", said + "\n"))
+        outcome = land.merged(demo, YASYF, "squash", ["--admin", "--match-head-commit", "aaaaaaa111"])
+    assert outcome == f"{land.OWN_FAILURE} get GitHub's answer on {YASYF} to gh pr merge --squash --admin --match-head-commit aaaaaaa111: {said}; the next watch pass tries it again"
+    waiting_job(demo)
+    tried(demo, "")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
+        data["prs"][YASYF]["checks"] = "pass"
+    watching = watcher(demo)
+    land.record(demo, [YASYF], outcome, [], {})
+    now = stage.of(state.load(demo), YASYF, NO_CARDS)
+    assert (now.name, now.owner) == ("ready", stage.LANDER)
+    assert land.start(demo, [YASYF], NO_CARDS) == [(YASYF,)]
+    land.record(demo, [YASYF], outcome, [], {})
+    lines = watch.event_lines(watching)
+    assert lines == [f"{watch.LANDER}{outcome}"]
+    sent = posts(monkeypatch)
+    assert watch.handed(watching, lines, T0) == []
+    assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{outcome}")]
+
+
+def test_a_yasyf_landing_whose_fresh_read_github_never_answered_reads_ready_and_the_next_pass_lands_it_again(demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
+    timeout = 'could not read 1 PRs of yasyf/cc-skills from GitHub: Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
+    monkeypatch.setattr(github, "fetch", lambda keys: ({}, github.GithubError(timeout)))
+    assert land.admin_merged(demo, YASYF) == f"{land.UNREAD}: {timeout}"
+    waiting_job(demo)
+    tried(demo, f"{land.UNREAD}: {timeout}")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
+        data["prs"][YASYF]["checks"] = "pass"
+    assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "ready"
+    assert land.start(demo, [YASYF], NO_CARDS) == [(YASYF,)]
+
+
+def test_replayed_433_a_yasyf_try_recorded_before_the_lander_said_github_never_answered_its_merge_reads_ready_and_the_next_pass_lands_it_again(demo: str, landers: list[tuple[str, ...]]) -> None:
+    waiting_job(demo)
+    tried(demo, 'not landed: gh pr merge --squash --admin --match-head-commit aaaaaaa111 refused it: Post "https://api.github.com/graphql": net/http: TLS handshake timeout')
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
+        data["prs"][YASYF]["checks"] = "pass"
+    assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "ready"
+    assert land.start(demo, [YASYF], NO_CARDS) == [(YASYF,)]
 
 
 def conflicting(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ours: dict[str, str], theirs: dict[str, str]) -> tuple[Path, str]:

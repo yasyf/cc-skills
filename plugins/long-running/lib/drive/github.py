@@ -44,6 +44,7 @@ DELETED_AUTHOR = "ghost"
 PICK = re.compile(r" \(#(\d+)\)$")
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 FLOOR = re.compile(r"ccx: GitHub rate limit floor: [^(]*\((?P<reset>[^)]+)\)")
+UNANSWERED = re.compile(r'\b(?:Get|Head|Post|Put|Patch|Delete) "https?://[^"]+": |\bHTTP 5\d\d\b|TLS handshake timeout|context deadline exceeded|i/o timeout|connection reset', re.IGNORECASE)
 
 
 class GithubError(Exception):
