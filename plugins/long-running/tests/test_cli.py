@@ -4336,6 +4336,16 @@ def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch
     assert run("job", "ask", "j3", str(block))[0] == 0
     data = state.load("demo")
     assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#4127"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
+    pooled = "https://github.com/Forge-AI/monorepo/pull/4128"
+    run("order", "add", "--title", "Pool title", "--project", "The drive", "--workstream", "Drive tooling", "ship the second store copy")
+    run("job", "add", "builder", "--order", "o4", "--goal", "ship the second copy")
+    assert run("pr", "add", pooled, "--job", "j4", *LEAD)[0] == 0
+    assert run("pr", "set", pooled, "--waits", "j3")[0] == 0
+    block.write_text(SHORT_ASK.replace("opens without guessing?", "opens on its second read?").replace("Holds: none: no option changes code any job builds", "Holds: #4128, the second store copy this staging test gates"))
+    assert run("job", "ask", "j3", str(block))[0] == 0
+    data = state.load("demo")
+    assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#4128"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
+    assert state.unlooped(data, "j3", ["Forge-AI/monorepo#4128"]) == []
 
 
 def test_a_build_orders_design_job_waits_on_its_readers_research(
