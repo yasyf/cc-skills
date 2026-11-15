@@ -79,6 +79,7 @@ HELPER_CARD = install.HELPER_ASKED.format(release="12.121.70")
 RESTART = ["capt-hook", "helper", "install"]
 BUILD = "b1u1d0f1x"
 URL = "https://github.com/yasyf/cc-skills/pull/7"
+PRODUCT = "https://github.com/Forge-AI/monorepo/pull/9"
 HOOKS_URL = "https://github.com/yasyf/captain-hook/pull/709"
 
 
@@ -1441,6 +1442,46 @@ def test_a_repair_its_own_agent_proves_installs_nothing_takes_done_naming_no_pr_
     assert proof_events() == [("j1", proven)]
 
 
+def handing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -> Path:
+    script = repairing(config, tmp_path, git, exits, {"goal": "prove Forge-AI/monorepo#9 live", "brief_flags": {"handoff": "Forge-AI/monorepo#9 at fedcba merged: prove it live"}} | job)
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["jobs"].insert(0, "j0")
+        data["jobs"]["j0"] = state.new_job("o1", "builder", "fix", [], state.stamp()) | {"state": "done", "said": f"DONE {PRODUCT} merged", "prs": [PRODUCT]}
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(PRODUCT, "j0", "o1") | {"state": "merged", "merged_sha": "fedcba", "title": "Fix: the product change"}
+    return script
+
+
+def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing_takes_done_naming_the_pr_and_keeps_the_orders_proof(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = handing(config, tmp_path, git, 0, {"state": "running", "said": None})
+    kept = state.proof_path("demo", "j1")
+    versions = f"long-running {state.VERSION}"
+    checked = f"{install.PROVEN} on {versions}: {script} exits 0, its output {kept}"
+    proven = f"{checked}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+    assert install.prove("demo", "j1", 900) == f"j1: {proven}"
+    assert not [call for call in git.calls if call[:3] == ["claude", "plugin", "update"]]
+    data = state.load("demo")
+    line = f"DONE {PRODUCT} live: {script} exits 0 on {versions}"
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", line)
+    assert kept.read_text().startswith("ran on ")
+    assert data["orders"]["o1"]["proof"] == str(kept)
+    report = data["orders"]["o1"]["close_report"]
+    assert (report["text"], report["body"]) == ("POST Fix: the product change is live", f"Fixed: Fix: the product change, {PRODUCT}\nProof: {checked}\n")
+    assert proof_events() == [("Forge-AI/monorepo#9", proven)]
+
+
+def test_a_provers_proof_waiting_on_his_next_word_sets_it_waiting_and_the_watch_proves_it_again(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    script = handing(config, tmp_path, fake([BUILD], {BUILD}), 1, {"state": "running", "said": None})
+    script.write_text("#!/bin/sh\necho checked the release\necho WAIT he opens the run page\nexit 1\n")
+    install.prove("demo", "j1", 900)
+    data = state.load("demo")
+    said = f"WAITING {install.PROOF_WAITS}: WAIT he opens the run page"
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["proof"]["said"]) == ("waiting", said, said)
+    assert install.watch_proves(data, "j1")
+
+
 @pytest.mark.parametrize("job", [{"state": "running", "said": None}, {"state": "stopped", "said": "HANDOFF its proof waits on his next message"}])
 def test_a_repairs_proof_waiting_on_his_next_word_sets_it_waiting_on_a_kept_waiting_line_its_proof_marked(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], job: dict
@@ -1702,7 +1743,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     with state.edit("demo") as data:
         data["orders"]["o1"] |= {"kind": "build", "parts": {shipped: state.new_part(), "writers call ssql-blobstore": state.new_part()}}
         data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
-        flags = {"native": page, "interactions": "open a run's page"}
+        flags = {"native": page, "interactions": "open a run's page", "done_when": "the PR is green on dev"}
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None, parts=[shipped], carries={"o2": [carried]}, brief_flags=flags, session="s-1")
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         reach = {"Forge-AI/monorepo#9": {"components": ["api", "sandsql", "web"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"]}, "Forge-AI/monorepo#10": {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}}
@@ -1715,6 +1756,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert (builder["parts"], builder["carries"], builder["builds_nothing"]) == ([shipped], {"o2": [carried]}, True)
     assert builder["waits"] == []
     assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    assert builder["brief_flags"]["done_when"].startswith(f"drive job prove {builder_id} ")
     assert (builder["brief_flags"]["native"], builder["brief_flags"]["interactions"]) == (page, "open a run's page")
     assert ("j2" in data["orders"]["o1"]["jobs"], "j2" in data["orders"]["o2"]["jobs"]) == (True, True)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {product} merged: {merged}")
@@ -2322,6 +2364,10 @@ def test_a_proof_file_reading_a_card_back_word_for_word_names_the_post_its_slack
         ({"repro": None}, "j1 keeps no proof file to run: keep one with drive job set j1 --repro <file>"),
         ({"said": "PUSHED https://github.com/Forge-AI/monorepo/pull/9", "prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
         ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove"),
+        (
+            {"said": "WAITING on the release", "prs": [], "waits": ["release:sandsql:Forge-AI/monorepo#9"], "brief_flags": {"handoff": "Forge-AI/monorepo#9 at fedcba merged: prove it live"}},
+            "j1 waits on no READY or PUSHED whose PRs all merged, so there is nothing to prove: it is no repair",
+        ),
     ],
 )
 def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_only_merges_outside_yasyf_or_no_merged_ready(

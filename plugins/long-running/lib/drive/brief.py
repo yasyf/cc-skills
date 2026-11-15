@@ -606,7 +606,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     if job["kind"] == "builder" and opening == "DONE":
         from drive import install
 
-        if (refused := unproven(text, job_id, job)) and install.repair(data, job_id) and not install.proof_gap(data, job_id):
+        if (refused := unproven(text, job_id, job)) and install.own_proof(data, job_id) and not install.proof_gap(data, job_id):
             return (
                 f"{refused}; {job_id} opened no PR and keeps a proof file, so run drive job prove {job_id}, which runs it and takes DONE or BLOCKED"
                 f" itself, or on a WAIT keeps {job_id} waiting until he is next heard, then end the turn on the first line drive job report {job_id} prints"
