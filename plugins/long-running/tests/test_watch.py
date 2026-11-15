@@ -5685,15 +5685,38 @@ def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, m
     assert (draws.keys, state.load(demo)["prs"][OTHER]["head"]) == ([list(STACKED)], "ddddddd444")
 
 
-def test_a_live_bugs_stack_waiting_on_his_card_is_asked_again_every_30_minutes_once_for_its_card(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
+def test_a_live_bugs_stack_waiting_on_his_card_is_asked_again_once_for_its_card_each_time_he_is_heard_after_that_card_went_up(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+) -> None:
     three_stacked(demo, monkeypatch)
     with state.edit(demo) as data:
         for order_id in ("o1", "o2"):
             data["orders"][order_id]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
-    for minutes in (0, 10, 39, 40, 69, 70):
-        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    for minutes, heard in ((0, None), (10, None), (40, None), (70, None), (100, 80), (130, None), (160, None), (190, 165), (220, None)):
+        if heard is not None:
+            with state.edit(demo) as data:
+                data["owner"]["heard"] = state.stamp(T0 + timedelta(minutes=heard))
+        moment = T0 + timedelta(minutes=minutes)
+        draws.link = f"https://forge.slack.com/archives/D123/p{int(moment.timestamp() * 1_000_000)}"
+        watch.run_pass(watching, moment)
     assert (draws.keys, draws.again) == ([list(STACKED)] * 3, [False, True, True])
+
+
+def test_his_card_on_a_pr_is_asked_again_only_once_he_was_heard_after_it_went_up_and_after_the_last_wake_on_it(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
+    found = NO_CARDS | {"pr_cards": [pr_card(KEY, url=CARD, head="aaaaaaa111")]}
+    shown = datetime.fromtimestamp(int(view.message_key(CARD)) / 1_000_000).astimezone()
+    woke = state.stamp(shown - timedelta(hours=1))
+    data = state.load(demo)
+    assert watch.heard_since_shown(data, [KEY], found, woke) is False
+    for heard, again in ((shown - timedelta(minutes=1), False), (shown + timedelta(minutes=1), True)):
+        data["owner"]["heard"] = state.stamp(heard)
+        assert watch.heard_since_shown(data, [KEY], found, woke) is again
+    assert watch.heard_since_shown(data, [KEY], found, state.stamp(shown + timedelta(minutes=2))) is False
+    assert watch.heard_since_shown(data, [KEY], NO_CARDS, woke) is True
+    assert watch.heard_since_shown(data, [KEY], NO_CARDS, state.stamp(shown + timedelta(minutes=2))) is False
 
 
 def test_a_live_bugs_stack_he_held_is_never_asked_again_since_its_card_would_offer_no_approve(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:

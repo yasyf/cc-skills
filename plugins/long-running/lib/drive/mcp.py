@@ -187,10 +187,10 @@ SAY = {
                 "items": TEXT,
                 "description": (
                     "The PRs on his tap, bottom of the stack first, each as its URL or owner/repo#number, drawn as one stack"
-                    " card in the first thread its line goes in when they have none yet, else redrawn where it sits, its line"
-                    " posted in the thread of each open order they carry out and its link under it in each other thread, one outside"
-                    " his DM, such as an alert's, named with channel_id and thread_ts; refused while text leaves out the words of"
-                    " a drive tooling order one of them serves"
+                    " card with its buttons right under the line in the first thread it goes in, the card that asked before marked"
+                    " replaced and one he answered left where it sits, its line also posted in the thread of each other open order"
+                    " they carry out with the card's link, and in one outside his DM, such as an alert's, named with channel_id and"
+                    " thread_ts; refused while text leaves out the words of a drive tooling order one of them serves"
                 ),
             },
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},

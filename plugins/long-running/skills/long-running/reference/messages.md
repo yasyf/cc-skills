@@ -481,10 +481,15 @@ When it is answered, replaced or redone:
 - A PR has one card. The drive's own draw sends cc-slack the PRs with no line: cc-slack redraws
   their card where it sits, offering Approve again when the drive still asks it, or first posts it
   in his DM's thread of the first order they carry out, at his DM root when they carry out none, and
-  posts nothing else. While its PRs wait on him and fix a bug hurting someone now, the watch draws
-  it again every 30 minutes, once per card, with one line in that thread, else the card's own, with
-  no link, so Slack draws no other card: `Asking again, since it fixes a reported bug: <what each PR
-  does>`, or `an open incident`. Before it posts, `cc-slack check-post` reads the line, and Jev
+  posts nothing else. While its PRs wait on him and fix a bug hurting someone now, the watch asks
+  his tap again, once per card, at its next 30-minute wake after he was heard later than that card
+  went up and than its last wake on them, so while he stays silent it asks none: one line in that thread, else his open card's own,
+  `Asking again, since it fixes a reported bug: <what each PR does>`, or `an open incident`, naming
+  the PRs, under which cc-slack posts the card with Approve and Hold and edits the card it replaces
+  to say it was asked again under a newer line, linking the new one, with no buttons, by his words
+  "you keep sending these but there's nothing attached to them". A line with no thread to go in
+  posts nothing, and one cc-slack drew no card under is kept as said and fails the ask, so it goes
+  out once per word of his. Before it posts, `cc-slack check-post` reads the line, and Jev
   judges what it finds by the plain-words rule in one request, one yes-or-no question a finding. A
   flake fix's card says under its body that it fixes a flaking test at its cause, quoting his ruling. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
   line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
@@ -493,12 +498,14 @@ When it is answered, replaced or redone:
   port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
   every class that lands with no tap.
 - `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>)` makes cc-slack draw
-  one card for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him,
-  in the first thread the line goes in when it has none yet, else redrawn where it sits. The drive
-  posts the line in the thread of each open order those PRs carry out, the one each serves, its own
-  and each its job carries, in his DM, and cc-slack puts the card's permalink under it in each
-  other thread, so whichever thread he reads carries its buttons; with none, the line
-  goes at his DM root. An incident whose thread is outside his DM, such as an alert's, gets the line with
+  one card for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him.
+  The drive posts the line in the thread the call names, else the first open order's, and cc-slack
+  posts the card right under it there, editing the card that asked before, wherever it sits, to say
+  it was asked again under a newer line, with no buttons, and a card he answered stays where it sits,
+  by his words "You can't say that and not link me to anything I can tap we already agreed in this
+  rule ^^". The line then goes in the thread of each other open order those PRs carry out, the one
+  each serves, its own and each its job carries, in his DM or an operator channel, with the card's
+  link under it, so one card carries the buttons; with none, the line goes at his DM root. An incident whose thread is outside his DM, such as an alert's, gets the line with
   the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and
   `thread_ts`, the one place cc-slack's Slack permission hook judges it for, and is refused without
   them, naming both. His words: "There's no approval button". The call's `card_permalink` names
@@ -533,7 +540,7 @@ When it is answered, replaced or redone:
   asks his tap on no longer asks it. A stack card whose other
   PRs still ask his tap keeps Approve and Hold for them. A head that moved under his card keeps Approve showing, and a head the check against
   his words judges against them keeps Approve and any Approve he gave, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". While a PR
-  fixes a bug hurting someone now, a card that waits on him is posted again every 30 minutes until it lands. Its Show me comes last,
+  fixes a bug hurting someone now, a card that waits on him is posted again under the line asking his tap again, once each time he is heard after it went up, until it lands. Its Show me comes last,
   its pictures inline. A stack card's summary comes from `## The stack` in its bottom PR, under its PRs' leads.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
