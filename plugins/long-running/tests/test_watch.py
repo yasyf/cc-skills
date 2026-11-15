@@ -21,6 +21,10 @@ from drive import agents, card, cli, codex, github, install, land, launchd, limi
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
 YASYF = "yasyf/cc-skills#7"
+REPLAYED_5547 = "yasyf/cc-skills#5547"
+REPLAYED_5442 = "yasyf/cc-skills#5442"
+HEAD_5547 = "0106ac2aaa"
+BASE_5547 = "j5396-unstarted-jobs"
 BASE_MOVED = "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"
 DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cleanly created."
 MERGE_CONFLICTS = "GraphQL: Pull Request has merge conflicts (mergePullRequest)"
@@ -138,7 +142,7 @@ def demo(state_root: Path) -> str:
     data = state.new_drive("demo", "coordinator", "session-under-test", "/work")
     data["orders"]["o1"] = order()
     data["jobs"]["j1"] = job(prs=[state.pr_url(KEY)])
-    data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title", "wants_tap": False, "checked": CHECKED}
+    data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "title": "Old title", "wants_tap": False, "checked": CHECKED}
     state.create(data)
     return "demo"
 
@@ -166,6 +170,7 @@ def read(**overrides: object) -> dict:
         "merge_method": "squash",
         "permission": "ADMIN",
         "default": "main",
+        "under": None,
         "base_pr": None,
     }
     return {**base, **overrides}
@@ -251,6 +256,7 @@ def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict_th
 
 
 REPLAYED_55220 = "Forge-AI/monorepo#55220"
+REPLAYED_54904 = "Forge-AI/monorepo#54904"
 STACKED_BASE = "durable-agents-j1389-send-user-question"
 ON_TRUNK = "dev, the trunk of its native stack"
 CONFLICTS_WITH_TRUNK = f"it conflicts with {ON_TRUNK}: restack the whole stack onto dev with ccx vcs stack rebase"
@@ -271,7 +277,9 @@ def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_h
             "checked": CHECKED | {"head": "5e95abf000"},
             "stage": {"name": "red", "owner": stage.BUILDER, "why": CONFLICTS_WITH_TRUNK, "since": state.stamp(T0 - timedelta(hours=2, minutes=55)), "woke": state.stamp(T0 - timedelta(minutes=22))},
         }
-    pushed = {"headRefOid": "c388588e73", "baseRefName": STACKED_BASE, "checks": GREEN, "reviewDecision": "APPROVED", "native": [(key, "open") for key in REPLAYED_STACK_55221], "trunk": "dev"}
+        data["prs"][REPLAYED_54904] = state.new_pr(state.pr_url(REPLAYED_54904), "j1", "o1") | {"wants_tap": False}
+    native = [(key, "open") for key in REPLAYED_STACK_55221]
+    pushed = {"headRefOid": "c388588e73", "baseRefName": STACKED_BASE, "under": REPLAYED_54904, "checks": GREEN, "reviewDecision": "APPROVED", "native": native, "trunk": "dev", "default": "dev"}
     reads = {REPLAYED_55220: read(**pushed, mergeable="UNKNOWN")}
     monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS | {"pr_cards": [pr_card(REPLAYED_55220, head="c388588e73")]})
     serve(monkeypatch, reads)
@@ -288,7 +296,7 @@ def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_h
 
 REPLAYED_54026 = "Forge-AI/monorepo#54026"
 REPLAYED_UNKNOWN = (REPLAYED_55220, "Forge-AI/monorepo#55285", "Forge-AI/monorepo#55522")
-REPLAYED_STACK_55221 = (REPLAYED_54026, "Forge-AI/monorepo#54916", "Forge-AI/monorepo#54904", *REPLAYED_UNKNOWN)
+REPLAYED_STACK_55221 = (REPLAYED_54026, "Forge-AI/monorepo#54916", REPLAYED_54904, *REPLAYED_UNKNOWN)
 REPLAYED_HOLDING_CARD = "demo:j850-684800"
 
 
@@ -305,8 +313,8 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
     native = [(key, "open") for key in REPLAYED_STACK_55221]
     branches = ["durable-agents-j850", "durable-agents-j1389-a", STACKED_BASE, "durable-agents-j2279-a", "durable-agents-j2279-b", "durable-agents-j2279-c"]
     stacked = {
-        key: {"baseRefName": base, "headRefName": branch, "checks": GREEN, "reviewDecision": "APPROVED", "native": native, "trunk": "dev"}
-        for key, base, branch in zip(REPLAYED_STACK_55221, ["dev", *branches[:-1]], branches, strict=True)
+        key: {"baseRefName": base, "headRefName": branch, "under": under, "checks": GREEN, "reviewDecision": "APPROVED", "native": native, "trunk": "dev", "default": "dev"}
+        for key, base, branch, under in zip(REPLAYED_STACK_55221, ["dev", *branches[:-1]], branches, [None, *REPLAYED_STACK_55221[:-1]], strict=True)
     }
     reads = {key: read(**stacked[key], mergeable="CONFLICTING" if key == REPLAYED_54026 else "UNKNOWN" if key in REPLAYED_UNKNOWN else "MERGEABLE") for key in REPLAYED_STACK_55221}
     serve(monkeypatch, reads)
@@ -594,6 +602,7 @@ def pull_node(head: str) -> dict:
         "timelineItems": {"nodes": []},
         "commits": {"nodes": []},
         "stack": None,
+        "baseRef": None,
     }
 
 
@@ -4117,10 +4126,10 @@ def test_drive_status_shows_each_open_prs_stage_now_keeping_its_since_only_while
 def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_one_pr_at_a_time(demo: str) -> None:
     above = "yasyf/cc-skills#8"
     with state.edit(demo) as data:
-        for key, head, base, branch in ((YASYF, "aaaaaaa111", "main", "the-watch"), (above, "bbbbbbb222", "the-watch", "above-the-watch")):
+        for key, head, base, branch, under in ((YASYF, "aaaaaaa111", "main", "the-watch", None), (above, "bbbbbbb222", "the-watch", "above-the-watch", YASYF)):
             tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button", "picks": {}}
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
-                "head": head, "base": base, "branch": branch, "checks": "pass", "review": "approved", "tap": tap, "checked": CHECKED | {"head": head}
+                "head": head, "base": base, "branch": branch, "under": under, "checks": "pass", "review": "approved", "tap": tap, "checked": CHECKED | {"head": head}
             }
     data = state.load(demo)
     assert (land.landing_stacks(data)[above], land.units(data, [YASYF, above], NO_CARDS)) == ((YASYF, above), [(YASYF,)])
@@ -4130,7 +4139,7 @@ def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_sh
     below = "yasyf/cc-skills#8"
     with state.edit(demo) as data:
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {
-            "head": "aaaaaaa111", "base": "below-the-watch", "branch": "the-watch", "checks": "pass", "wants_tap": False, "checked": CHECKED
+            "head": "aaaaaaa111", "base": "below-the-watch", "branch": "the-watch", "under": below, "checks": "pass", "wants_tap": False, "checked": CHECKED
         }
         data["jobs"]["j1"]["prs"].append(state.pr_url(YASYF))
         state.take_result(data, "j1", f"READY {state.pr_url(YASYF)}")
@@ -5156,9 +5165,9 @@ def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_and_none_wh
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
         data["jobs"]["j2"] = job(prs=[state.pr_url(OTHER), state.pr_url(THIRD)])
-        for key, job_id, branch, base in [(KEY, "j1", "root", "main"), (OTHER, "j2", "middle", "root"), (THIRD, "j2", "top", "middle")]:
+        for key, job_id, branch, base, under in [(KEY, "j1", "root", "main", None), (OTHER, "j2", "middle", "root", KEY), (THIRD, "j2", "top", "middle", OTHER)]:
             data["prs"][key] = state.new_pr(state.pr_url(key), job_id, "o1") | {
-                "head": "aaaaaaa111", "branch": branch, "base": base, "wants_tap": True,
+                "head": "aaaaaaa111", "branch": branch, "base": base, "under": under, "wants_tap": True,
                 "checker": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "orders": ["o1"], "answers": [], "outcome": refused, "against": "o1 \"ship the watch\": it stops", "faulted": [OTHER, THIRD]},
             }
         data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "pressed the button", "1.2")
@@ -5323,8 +5332,8 @@ def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch, native: bool = Tru
     monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
     reads = {key: stacked_read(head) for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"))}
     if not native:
-        for key, (base, branch) in zip(STACKED, (("main", "move-1"), ("move-1", "move-2"), ("move-2", "move-3"))):
-            reads[key] |= {"native": [], "baseRefName": base, "headRefName": branch}
+        for key, below, (base, branch) in zip(STACKED, (None, *STACKED[:2]), (("main", "move-1"), ("move-1", "move-2"), ("move-2", "move-3"))):
+            reads[key] |= {"native": [], "baseRefName": base, "headRefName": branch, "under": below}
     serve(monkeypatch, reads)
     return reads
 
@@ -5432,8 +5441,8 @@ def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is
     serve(
         monkeypatch,
         {
-            OTHER: read(headRefOid="bbbbbbb222", baseRefName="dev", headRefName="cloud-agent-identity", checks=GREEN, reviewDecision="APPROVED"),
-            KEY: read(baseRefName="cloud-agent-identity", headRefName="cloud-agent-pod-identity", checks=GREEN, reviewDecision="APPROVED"),
+            OTHER: read(headRefOid="bbbbbbb222", baseRefName="dev", default="dev", headRefName="cloud-agent-identity", checks=GREEN, reviewDecision="APPROVED"),
+            KEY: read(baseRefName="cloud-agent-identity", under=OTHER, default="dev", headRefName="cloud-agent-pod-identity", checks=GREEN, reviewDecision="APPROVED"),
         },
     )
     watch.run_pass(watcher(demo), T0)
@@ -5450,7 +5459,7 @@ def test_sibling_prs_of_one_order_in_no_stack_draw_one_card_and_a_pr_of_another_
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j2", "o2")
     heads = {KEY: "aaaaaaa111", OTHER: "bbbbbbb222", THIRD: "ccccccc333"}
-    serve(monkeypatch, {key: read(headRefOid=head, baseRefName="dev", headRefName=f"cutover-{key.split('#')[1]}", checks=GREEN, reviewDecision="APPROVED") for key, head in heads.items()})
+    serve(monkeypatch, {key: read(headRefOid=head, baseRefName="dev", default="dev", headRefName=f"cutover-{key.split('#')[1]}", checks=GREEN, reviewDecision="APPROVED") for key, head in heads.items()})
     watch.run_pass(watcher(demo), T0)
     assert draws.keys == [[KEY, OTHER], [THIRD]]
 
@@ -5513,6 +5522,7 @@ def test_replayed_design_docs_363_a_lander_try_that_merged_the_pr_reads_merged_o
         data["jobs"]["j1"]["prs"].append(state.pr_url(docs))
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {
             "head": old,
+            "base": "main",
             "merge_method": "rebase",
             "tap": state.new_tap("Approve", old, "pressed the button", at=state.stamp(T0 - timedelta(minutes=1))),
             "lander": {"head": old, "pid": 1, "at": state.stamp(T0), "outcome": behind, "below": []},
@@ -5854,7 +5864,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
     passes = []
 
     def at(minutes: int, **fetched: object) -> None:
-        reads[red_pr] = read(**{"headRefOid": "a2d5a98aaa", "baseRefName": "dev", "mergeable": "CONFLICTING"} | fetched)
+        reads[red_pr] = read(**{"headRefOid": "a2d5a98aaa", "baseRefName": "dev", "default": "dev", "mergeable": "CONFLICTING"} | fetched)
         watch.run_pass(watching, T0 + timedelta(minutes=minutes))
         kept = state.load(demo)["prs"][red_pr]["stage"]
         passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken]))
@@ -6008,7 +6018,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
         data["orders"]["o2"] = order(jobs=["j4413"])
         data["jobs"]["j1"]["prs"].append(state.pr_url(pr))
         data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *(links if named else [])], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
-        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
+        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "checked": CHECKED, "waits": ["j4413"], "lander": tried}
     approve(demo, pr)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
     serve(monkeypatch, {pr: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -6069,7 +6079,7 @@ def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_rea
             waits=list(links),
             questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()],
         )
-        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j4413", "o2") | {"head": "aaaaaaa111", "checked": CHECKED, "lander": tried}
+        data["prs"][pr] = state.new_pr(state.pr_url(pr), "j4413", "o2") | {"head": "aaaaaaa111", "base": "main", "checked": CHECKED, "lander": tried}
     approve(demo, pr)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": link} for waits, link in links.items()], "closed": [], "pr_cards": [pr_card(pr)]})
     serve(monkeypatch, {pr: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -6247,7 +6257,7 @@ def approve(name: str, *keys: str) -> None:
 
 def stacked(name: str, native: list[str] | None = None, cards: list[list[str]] | None = None) -> None:
     with state.edit(name) as data:
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "checked": CHECKED | {"head": "bbbbbbb222"}}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "base": "main", "checked": CHECKED | {"head": "bbbbbbb222"}}
         for card in cards or [[KEY, OTHER]]:
             for key in card:
                 data["prs"][key] |= {"stack": card, "native": [KEY, OTHER] if native is None else native, "checks": "pass", "review": "approved"}
@@ -6704,17 +6714,18 @@ def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_
 ) -> None:
     bottom, renewal, reparent = "Forge-AI/monorepo#49869", "Forge-AI/monorepo#53227", "Forge-AI/monorepo#55258"
     shape = {
-        bottom: ("bottom", "dev", [bottom, renewal]),
-        renewal: ("on-bottom-1", "bottom", [bottom, renewal]),
-        reparent: ("on-bottom-2", "bottom", [reparent]),
+        bottom: ("bottom", "dev", None, [bottom, renewal]),
+        renewal: ("on-bottom-1", "bottom", bottom, [bottom, renewal]),
+        reparent: ("on-bottom-2", "bottom", bottom, [reparent]),
     }
     with state.edit(demo) as data:
-        for key, (branch, base, card) in shape.items():
+        for key, (branch, base, under, card) in shape.items():
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
                 "head": "aaaaaaa111",
                 "checked": CHECKED,
                 "branch": branch,
                 "base": base,
+                "under": under,
                 "stack": card,
                 "checks": "pass",
                 "review": "approved",
@@ -6764,10 +6775,10 @@ def test_his_approve_on_a_branch_of_a_stack_tree_beside_an_unapproved_one_queues
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     fourth, fifth = "Forge-AI/monorepo#45", "Forge-AI/monorepo#46"
-    shape = {KEY: ("root", "main"), OTHER: ("middle", "root"), THIRD: ("top", "middle"), fourth: ("left", "root"), fifth: ("right", "root")}
+    shape = {KEY: ("root", "main", None), OTHER: ("middle", "root", KEY), THIRD: ("top", "middle", OTHER), fourth: ("left", "root", KEY), fifth: ("right", "root", KEY)}
     with state.edit(demo) as data:
-        for key, (branch, base) in shape.items():
-            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "branch": branch, "base": base, "checks": "pass", "review": "approved"}
+        for key, (branch, base, under) in shape.items():
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "branch": branch, "base": base, "under": under, "checks": "pass", "review": "approved"}
     approve(demo, KEY, THIRD, fourth, fifth)
     head = enqueue_exiting(tmp_path, demo, 0)
     monkeypatch.setattr(land.github, "below", lambda key: {THIRD: [KEY, OTHER], fourth: [KEY], fifth: [KEY]}.get(key, []))
@@ -6790,8 +6801,8 @@ def test_a_native_stack_on_another_tracked_prs_branch_joins_its_landing_stack_an
     with state.edit(demo) as data:
         for key, head in ((OTHER, "bbbbbbb222"), (THIRD, "ccccccc333")):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "checked": CHECKED | {"head": head}}
-        for key, native, branch, base in ((KEY, [KEY], "chat-organize", "main"), (OTHER, [OTHER, THIRD], "chat-pins", "chat-organize"), (THIRD, [OTHER, THIRD], "chat-pins-2", "chat-pins")):
-            data["prs"][key] |= {"native": native, "branch": branch, "base": base, "checks": "pass", "review": "approved"}
+        for key, native, branch, base, under in ((KEY, [KEY], "chat-organize", "main", None), (OTHER, [OTHER, THIRD], "chat-pins", "chat-organize", KEY), (THIRD, [OTHER, THIRD], "chat-pins-2", "chat-pins", OTHER)):
+            data["prs"][key] |= {"native": native, "branch": branch, "base": base, "under": under, "checks": "pass", "review": "approved"}
     assert land.landing_stacks(state.load(demo)) == dict.fromkeys(STACKED, STACKED)
     approve(demo, OTHER, THIRD)
     assert land.start(demo, list(STACKED), NO_CARDS) == []
@@ -7377,6 +7388,7 @@ def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
         data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED), state.pr_url(FLAKE_FIX)]
         data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {
             "head": "bb28d680bf",
+            "base": "main",
             "checks": "pass",
             "review": "approved",
             "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0 - timedelta(minutes=5))),
@@ -7509,6 +7521,7 @@ def queued_stack(name: str, monkeypatch: pytest.MonkeyPatch, at: datetime = T0) 
             lander = {"head": head, "pid": 1, "at": state.stamp(at), "outcome": land.QUEUED, "was": None, "below": [], "entry": TOP}
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
                 "head": head,
+                "base": "main",
                 "checked": CHECKED | {"head": head},
                 "native": [BOTTOM, TOP],
                 "checks": "pass",
@@ -8281,7 +8294,7 @@ def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_an
 def tried(name: str, outcome: str) -> None:
     with state.edit(name) as data:
         lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}
-        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "lander": lander}
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "wants_tap": False, "lander": lander}
 
 
 def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_updates_its_branch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -8381,7 +8394,7 @@ def conflicting(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ours
     tried(demo, "")
     with state.edit(demo) as data:
         pr = data["prs"][YASYF]
-        pr |= {"head": head, "base": "main", "branch": "change", "title": "Fix: drive a runs fast", "conflict": True, "lander": pr["lander"] | {"head": head}}
+        pr |= {"head": head, "base": "main", "branch": "change", "title": "Fix: drive a runs fast", "conflict": True, "lander": pr["lander"] | {"head": head, "base": "main"}}
     return origin, main
 
 
@@ -8512,6 +8525,43 @@ def test_a_reported_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_nex
     assert landers == [(YASYF,)]
     lander = state.load(demo)["prs"][YASYF]["lander"]
     assert (lander["head"], lander["outcome"]) == ("bbbbbbb222", None)
+
+
+def test_a_yasyf_pr_on_the_head_of_a_pr_the_drive_does_not_track_reads_behind_it_waking_no_one_and_lands_once_github_moves_it_onto_main_as_5547_on_5442_did_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(demo) as data:
+        lander = {"head": HEAD_5547, "base": BASE_5547, "pid": os.getpid(), "at": state.stamp(T0), "outcome": f"not landed: it sits on {BASE_5547}, not main"}
+        data["prs"][REPLAYED_5547] = state.new_pr(state.pr_url(REPLAYED_5547), "j1", "o1") | {"head": HEAD_5547, "base": BASE_5547, "wants_tap": False, "lander": lander}
+    pushed(demo, REPLAYED_5547)
+    reads = {KEY: read(), REPLAYED_5547: read(headRefOid=HEAD_5547, baseRefName=BASE_5547, headRefName="o43-card-waits", under=REPLAYED_5442, checks=GREEN)}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    said = [line for minutes in (0, 30, 61, 90) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith((f"STAGE {REPLAYED_5547}", "STUCK"))]
+    data = state.load(demo)
+    behind = data["prs"][REPLAYED_5547]["stage"]
+    assert (behind["name"], behind["owner"], behind["why"]) == (
+        "behind",
+        stage.OUTSIDE,
+        f"it sits on {BASE_5547}, the head of {REPLAYED_5442}, which the drive does not track, so it lands once that PR merges and GitHub moves it onto main",
+    )
+    assert (said, woken, landers, REPLAYED_5547 in stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=90))) == ([], [], [], False)
+    reads[REPLAYED_5547] = read(headRefOid=HEAD_5547, headRefName="o43-card-waits", checks=GREEN)
+    watch.run_pass(watching, T0 + timedelta(minutes=91))
+    assert (state.load(demo)["prs"][REPLAYED_5547]["lander"]["base"], landers, woken) == ("main", [(REPLAYED_5547,)], [])
+
+
+def test_a_pr_on_a_base_no_open_pr_heads_reads_red_and_wakes_its_builder_to_restack_it_onto_its_default_branch(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    serve(monkeypatch, {KEY: read(baseRefName=BASE_5547, checks=GREEN)})
+    watch.run_pass(watcher(demo), T0)
+    red = state.load(demo)["prs"][KEY]["stage"]
+    assert ((red["name"], red["owner"], red["why"]), [key for key, _ in woken], landers) == (
+        ("red", stage.BUILDER, f"it sits on {BASE_5547}, which no open PR heads, so restack it onto main"),
+        [KEY],
+        [],
+    )
 
 
 REPLAYED_4745_4756 = {"yasyf/cc-skills#4745": ("aa8d008", "FAILURE"), "yasyf/cc-skills#4756": ("ed25f62", "FAILURE"), "yasyf/cc-skills#4755": ("1120acd", None)}

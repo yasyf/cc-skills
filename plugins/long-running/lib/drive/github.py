@@ -42,6 +42,7 @@ MERGEABILITY = "state headRefOid mergeable"
 MERGEABILITY_PER_QUERY = 100
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
+UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } }"
 DELETED_AUTHOR = "ghost"
 PICK = re.compile(r" \(#(\d+)\)$")
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
@@ -278,7 +279,7 @@ def merge_method(repository: dict) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, what its repository lets this account do, as GitHub's viewerPermission reads it, conflict, by conflicts()) of one fetched PR against its stored row."""
+    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, the open PR it sits on, by parent(), title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, what its repository lets this account do, as GitHub's viewerPermission reads it, conflict, by conflicts()) of one fetched PR against its stored row."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = landing(read) | {
         "default": read["default"],
@@ -289,6 +290,7 @@ def live(read: dict, stored: dict) -> dict:
         "head": read["headRefOid"],
         "base": read["baseRefName"],
         "branch": read["headRefName"],
+        "under": read["under"],
         "title": read["title"],
         "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
@@ -346,6 +348,7 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
             "merge_method": merge_method(repository),
             "permission": repository["viewerPermission"],
             "default": repository["defaultBranchRef"]["name"],
+            "under": parent(repo_of(key), node["baseRefName"], repository["defaultBranchRef"]["name"], node["baseRef"]),
             "base_pr": None,
         }
         for key, node in nodes(payload, keys).items()
@@ -365,17 +368,21 @@ def below(key: str) -> list[str]:
     owner, name, number = split(key)
     text = (
         f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ baseRefName "
-        f"baseRef {{ associatedPullRequests(states: OPEN, first: 2) {{ nodes {{ number }} }} }} {STACK} }} }} }}"
+        f"{UNDER} {STACK} }} }} }}"
     )
     pull = graphql(text, f"the native stack under {key}")["data"]["repository"]["pullRequest"]
     under = [member for member, status in takewhile(lambda entry: entry[0] != key, entries(f"{owner}/{name}", pull["stack"])) if status == "open"] if pull["stack"] else []
     if under:
         return [*below(under[0]), *under]
-    opened = (pull["baseRef"] or {"associatedPullRequests": {"nodes": []}})["associatedPullRequests"]["nodes"]
-    if pull["baseRefName"] == default_branch(f"{owner}/{name}") or len(opened) != 1:
+    if not (pr := parent(f"{owner}/{name}", pull["baseRefName"], default_branch(f"{owner}/{name}"), pull["baseRef"])):
         return []
-    parent = f"{owner}/{name}#{opened[0]['number']}"
-    return [*below(parent), parent]
+    return [*below(pr), pr]
+
+
+def parent(repo: str, base: str, default: str, ref: dict | None) -> str | None:
+    """The PR a PR of repo sits on, from its base branch and the open PRs GitHub's UNDER reads heading that branch: the one same-repository open PR whose head is its base, or None when its base is its repository's default branch, no open PR heads it, or more than one does."""
+    opened = (ref or {"associatedPullRequests": {"nodes": []}})["associatedPullRequests"]["nodes"]
+    return f"{repo}#{opened[0]['number']}" if base != default and len(opened) == 1 else None
 
 
 def entries(repo: str, stack: dict) -> list[tuple[str, str]]:
@@ -451,7 +458,7 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
     found, refused = {}, []
     for chunk in by_repository(asked, PRS_PER_QUERY):
         try:
-            found |= parse(graphql(query(chunk, f"{FIELDS} {STACK}", RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
+            found |= parse(graphql(query(chunk, f"{FIELDS} {UNDER} {STACK}", RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
         except GithubError as error:
             refused.append(str(error))
     for chunk in by_repository([key for key, read in found.items() if key not in into and merged_off_default(read)], PRS_PER_QUERY):

@@ -915,7 +915,10 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("default", None)
         pr.setdefault("into", None)
         pr.setdefault("branch", None)
+        pr.setdefault("under", None)
         pr.setdefault("lander", None)
+        if pr["lander"]:
+            pr["lander"].setdefault("base", pr["base"])
         pr.setdefault("checker", None)
         if pr["checker"]:
             pr["checker"].setdefault("against", "")
@@ -4347,6 +4350,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "default": None,
         "into": None,
         "branch": None,
+        "under": None,
         "draft": False,
         "merged_sha": None,
         "stage": None,
