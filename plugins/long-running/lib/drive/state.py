@@ -1421,6 +1421,18 @@ def hold_text(job: dict, text: str, sender: str | None) -> None:
         job["undelivered"].append({"seq": None, "words": text, "sender": sender, "at": stamp(), "said": None, "request": str(uuid.uuid4())})
 
 
+def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
+    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox a worker's turn ended on, matched by their words: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts held that the job did not hold already."""
+    senders = {sent_by(sender): sender for sender in [HIM, *SENDER_NAMES]}
+    unread = {message["body"]: senders.get(message["subject"]) for message in box if hold and not message["read"]}
+    settled = {message["body"] for message in box if message["read"]} | set(unread)
+    held = [text for text in unread if all(kept["words"] != text for kept in job["undelivered"])]
+    for text in held:
+        hold_text(job, text, unread[text])
+    job["queued"] = [sent for sent in job["queued"] if sent["words"] not in settled]
+    return held
+
+
 def parts_goal(parts: list[str]) -> str:
     """The goal of the builder drive job add records beside a reader: the parts of his order it builds, never the reader's question, whose limits, such as read-only, bind the reader alone."""
     return f"build {'; '.join(parts)}"
@@ -2408,6 +2420,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "mail_seen": 0,
         "turn_open": False,
         "undelivered": [],
+        "queued": [],
         "state": "running",
         "said": None,
         "due": None,

@@ -58,7 +58,7 @@ REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
 REAL_CHECKOUT = orca.checkout
 REAL_SPRITE_CONFIG = orca.sprite_config
-REAL_UNREAD = orca.unread
+REAL_MAILBOX = orca.mailbox
 REAL_PLUGIN_COPIES_FIRST = install.plugin_copies_first
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
@@ -746,7 +746,7 @@ def tooled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def unread_mail(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     mail: list[dict] = []
-    monkeypatch.setattr(orca, "unread", lambda job: mail)
+    monkeypatch.setattr(orca, "mailbox", lambda job, dispatch: mail)
     return mail
 
 

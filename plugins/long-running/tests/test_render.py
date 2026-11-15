@@ -65,6 +65,8 @@ def sample() -> dict:
             "questions": [],
             "state": "running",
             "said": None,
+            "undelivered": [],
+            "queued": [],
             "created": "2026-11-09T08:00:00-08:00",
             "updated": "2026-11-09T08:00:00-08:00",
         }

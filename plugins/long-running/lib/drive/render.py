@@ -295,10 +295,11 @@ def cut(text: str, limit: int) -> str:
     return (head if flat[limit - 1] == " " else head.rsplit(" ", 1)[0]).rstrip(" ,;:") + "…"
 
 
-def unread(words: list[str]) -> str:
-    """What a job's line says of the texts its worker ended without reading, which the job holds for its next worker."""
+def unread(words: list[str], failed: str | None = None) -> str:
+    """What a job's line says of the texts its worker never got, which the job holds for its next worker: those it ended without reading, or those whose delivery failed as failed says."""
     count = "1 text" if len(words) == 1 else f"{len(words)} texts"
-    return f'it never read {count}, held for its next worker: "{cut(words[0], 80)}"'
+    lead = f"delivery of {count} to its worker failed ({failed})" if failed else f"it never read {count}"
+    return f'{lead}, held for its next worker: "{cut(words[0], 80)}"'
 
 
 def clock(moment: datetime, seconds: bool = False) -> str:
@@ -427,7 +428,9 @@ def job_line(drive: dict, job_id: str, job: dict, limit: int = 100) -> str:
     waits = f"; waits on {', '.join(slot if wait == SLOT_WAIT else wait for wait in job['waits'])}" if job.get("waits") else ""
     shown = f"lane dead since {when(dead['at'])} ({dead['why']})" if job["state"] == "running" and (dead := lane_death(job)) else job["state"]
     woken = f"; resumed {when(woke)} by a message after its last line" if (woke := resumed(job)) else ""
-    return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}{woken}"
+    held = "".join(f'; holds to deliver: "{cut(kept["words"], 80)}"' for kept in job["undelivered"])
+    queued = "".join(f'; queued in its worker\'s mailbox, not yet seen read: "{cut(sent["words"], 80)}"' for sent in job["queued"])
+    return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}{woken}{held}{queued}"
 
 
 def agent_elsewhere(drive: dict, job: dict) -> str:

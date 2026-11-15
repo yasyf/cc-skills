@@ -24,7 +24,7 @@ from conftest import (
     REAL_SAVED_BRANCHES,
     REAL_SESSION_OF,
     REAL_SPRITE_CONFIG,
-    REAL_UNREAD,
+    REAL_MAILBOX,
     RESEARCH,
     SPRITE_CONFIG,
     Answers,
@@ -5787,7 +5787,7 @@ def test_the_watch_holds_the_mail_a_finished_sprite_worker_never_read_once_and_r
     sent = "rebase onto dev before you push"
     unread_mail.append(message("message", sent, id="relay_eb719c146649", subject=state.sent_by("coordinator"), from_handle="term_root", to_handle=f"dispatch:{SPRITE_DISPATCH}"))
     read, senders = [], []
-    monkeypatch.setattr(orca, "unread", lambda job: read.append((job["dispatch"], job["environment"])) or unread_mail)
+    monkeypatch.setattr(orca, "mailbox", lambda job, dispatch: read.append((dispatch, job["environment"])) or unread_mail)
     monkeypatch.setattr(watch, "send_held", lambda watcher, job_id, moment: senders.append(job_id) or os.getpid())
     finished = {**FINISHED_WORKER, "dispatch": {**FINISHED_WORKER["dispatch"], "completedAt": state.stamp(T0)}}
     monkeypatch.setattr(orca, "worker", lambda dispatch: finished)
@@ -5800,14 +5800,115 @@ def test_the_watch_holds_the_mail_a_finished_sprite_worker_never_read_once_and_r
     assert (read, senders, [(kept["words"], kept["sender"]) for kept in held]) == ([(SPRITE_DISPATCH, "pool-sprite-one")], ["j1"], [(sent, "coordinator")])
 
 
-def test_orca_unread_reads_a_sprite_lanes_mailbox_from_that_sprites_orca_and_a_lane_here_from_this_macs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_orca_mailbox_reads_a_sprite_lanes_mailbox_from_that_sprites_orca_and_a_lane_here_from_this_macs_read_mail_and_unread(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {"messages": [message("message", "rebase first", to_handle=args[-3])]})
-    assert [[mail["body"] for mail in REAL_UNREAD(job)] for job in (SPRITE_LANE, {"route": state.LOCAL_ROUTE, "dispatch": DISPATCH})] == [["rebase first"], ["rebase first"]]
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {"messages": [message("message", "rebase first", read=1, to_handle=args[-3]), message("message", "then push", to_handle=args[-3])]})
+    assert [[mail["body"] for mail in REAL_MAILBOX(job, job["dispatch"])] for job in (SPRITE_LANE, {"route": state.LOCAL_ROUTE, "dispatch": DISPATCH})] == [["rebase first", "then push"], ["rebase first", "then push"]]
     assert calls == [
         ("inbox", "--environment", "pool-sprite-one", "--terminal", f"dispatch:{SPRITE_DISPATCH}", "--limit", str(orca.MAIL_LIMIT)),
         ("inbox", "--terminal", f"dispatch:{DISPATCH}", "--limit", str(orca.MAIL_LIMIT)),
     ]
+
+
+FOLLOW_UP = "ctx_52c40ab71a25"
+J93_TEXT = "Push d8672a301a92 now. CI needs the head with the snapshot test."
+
+
+def follow_up_shown(worker_state: str, error: str | None = None) -> dict:
+    """Orca's worker-show of the New messages follow-up it started in the lane's terminal to carry the mail the lane's worker had not read when it reported, as j93's ctx_52c40ab71a25 read once its 60-second readiness wait ran out."""
+    return {"worker": {"state": worker_state, "stage": "agent_readiness", "lastError": error, "agentTerminalHandle": "term_lane"}, "dispatch": {"id": FOLLOW_UP, "followUpOf": DISPATCH, "runId": RUN}}
+
+
+def follow_up_stop() -> dict:
+    """Orca's stop escalation for j93's follow-up whose start timed out, posted on the lane's Run from the follow-up's own handle."""
+    return message(
+        "escalation",
+        f'Worker dispatch:{FOLLOW_UP} is gone (it never started: timeout) without sending worker_done for task "New messages" (task_37b45f8c1c4c).',
+        id="msg_stop_1",
+        subject="Worker lost without reporting",
+        from_handle=f"dispatch:{FOLLOW_UP}",
+        payload=json.dumps({"taskId": "task_37b45f8c1c4c", "dispatchId": FOLLOW_UP, "handle": f"dispatch:{FOLLOW_UP}", "stopReason": "lost"}),
+    )
+
+
+def test_j93s_follow_up_whose_start_timed_out_posts_no_stopped_and_holds_the_text_it_carried_for_the_jobs_next_worker(
+    remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", queued=[{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}])
+    stop = follow_up_stop()
+    notice = message("escalation", "Mail did not reach the finished worker", id="msg_followup_1", payload=json.dumps({"dispatchId": DISPATCH, "reason": "timeout"}))
+    deliver(monkeypatch, [stop, notice])
+    monkeypatch.setattr(orca, "worker", lambda dispatch: follow_up_shown("failed", "timeout") if dispatch == FOLLOW_UP else FINISHED_WORKER)
+    unread_mail.append(message("status", J93_TEXT, id="msg_070a5d6b5d0c", subject=state.sent_by("coordinator"), from_handle=DRIVE_TERMINAL, to_handle=f"dispatch:{FOLLOW_UP}"))
+    boxes, senders = [], []
+    monkeypatch.setattr(orca, "mailbox", lambda job, dispatch: boxes.append(dispatch) or unread_mail)
+    monkeypatch.setattr(watch, "send_held", lambda watcher, job_id, moment: senders.append(job_id) or os.getpid())
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert staged(watch.lane_lines, watching, T0) == [
+        f"JOB j1 o1 delivery of 1 text to its worker failed (Orca's follow-up dispatch {FOLLOW_UP} never started: timeout), held for its next worker:"
+        f' "{J93_TEXT}"; the watch ran drive job resume j1, which carries it, its output in the drive\'s {watch.RELAUNCHES_LOG}'
+    ]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (boxes, senders, [(kept["words"], kept["sender"]) for kept in job["undelivered"]], job["queued"], job["state"]) == ([FOLLOW_UP], ["j1"], [(J93_TEXT, "coordinator")], [], "waiting")
+    assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_stop_1", "msg_followup_1"]
+
+
+def test_a_follow_up_whose_mailbox_shows_its_text_read_ends_its_turn_as_the_jobs_report_and_takes_that_text_off_the_queued_list(
+    remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
+) -> None:
+    later = "then rebase onto dev"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["queued"] = [{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}, {"words": later, "sender": "coordinator", "at": state.stamp(T0)}]
+    deliver(monkeypatch, [message("worker_done", "BLOCKED CI", id="msg_own", from_handle="term_lane", payload=json.dumps({"dispatchId": FOLLOW_UP, "outcome": "succeeded"}))])
+    monkeypatch.setattr(orca, "worker", lambda dispatch: follow_up_shown("succeeded") if dispatch == FOLLOW_UP else LIVE_WORKER)
+    unread_mail += [message("status", J93_TEXT, read=1, to_handle=f"dispatch:{FOLLOW_UP}"), message("status", later, to_handle=f"dispatch:{FOLLOW_UP}")]
+    assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == ["JOB j1 o1 BLOCKED CI"]
+    job = state.load(remote)["jobs"]["j1"]
+    assert ([sent["words"] for sent in job["queued"]], job["undelivered"]) == ([later], [])
+
+
+def test_a_workers_own_turn_end_reads_its_mailbox_only_while_its_job_keeps_a_text_queued_and_takes_each_text_it_shows_read_off_the_list(
+    remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
+) -> None:
+    boxes = []
+    monkeypatch.setattr(orca, "mailbox", lambda job, dispatch: boxes.append(dispatch) or unread_mail)
+    deliver(monkeypatch, [message("worker_done", "BLOCKED CI", id="msg_done_1")], [message("worker_done", "BLOCKED CI again", id="msg_done_2")])
+    assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == ["JOB j1 o1 BLOCKED CI"]
+    assert boxes == []
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="running", queued=[{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}])
+    unread_mail.append(message("status", J93_TEXT, read=1, to_handle=f"dispatch:{DISPATCH}"))
+    assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == ["JOB j1 o1 BLOCKED CI again"]
+    assert (boxes, state.load(remote)["jobs"]["j1"]["queued"]) == ([DISPATCH], [])
+
+
+def test_a_follow_up_orca_cannot_show_leaves_the_runs_mail_for_the_next_pass(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [follow_up_stop()], [follow_up_stop()])
+
+    def unshown(dispatch: str) -> dict:
+        raise orca.OrcaError("orca orchestration worker-show: runtime_error: Orca is restarting")
+
+    monkeypatch.setattr(orca, "worker", unshown)
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert staged(watch.lane_lines, watching, T0) == []
+    assert (state.load(remote)["jobs"]["j1"]["mail_seen"], watching.failures[f"lane mail of {RUN}"]) == (0, 1)
+
+
+def test_a_text_sent_to_a_live_worker_stays_queued_on_its_job_until_its_ended_workers_mailbox_shows_it_read_and_the_job_row_names_each_held_and_queued_text(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
+) -> None:
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(DISPATCH)}")
+    job = state.load(remote)["jobs"]["j1"]
+    assert ([(sent["words"], sent["sender"]) for sent in job["queued"]], job["undelivered"]) == ([("PR checks failed", "coordinator")], [])
+    with state.edit(remote) as data:
+        state.hold_text(data["jobs"]["j1"], "rebase first", "coordinator")
+    data = state.load(remote)
+    assert render.job_line(data, "j1", data["jobs"]["j1"]).endswith('; holds to deliver: "rebase first"; queued in its worker\'s mailbox, not yet seen read: "PR checks failed"')
+    unread_mail.append(message("status", "PR checks failed", read=1, to_handle=f"dispatch:{DISPATCH}"))
+    assert cli.hold_unread(remote, "j1", state.load(remote)["jobs"]["j1"]) == []
+    assert state.load(remote)["jobs"]["j1"]["queued"] == []
 
 
 def j3495_prompt(state_now: str, **overrides: str) -> dict:
