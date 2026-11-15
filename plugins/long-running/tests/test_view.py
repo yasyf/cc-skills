@@ -1344,8 +1344,13 @@ def tracked(number: int, **overrides: object) -> tuple[str, dict]:
 
 
 def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards() -> None:
-    lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc"})])
+    lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc", "merges_first": False})])
     assert view.staging(lifted, "Forge-AI/monorepo#7") == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes only the docs"
+
+
+def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merges_first_and_is_tested_after() -> None:
+    freed = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True})])
+    assert view.staging(freed, "Forge-AI/monorepo#7") == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
 
 
 def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:

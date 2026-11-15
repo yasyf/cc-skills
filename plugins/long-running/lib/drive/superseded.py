@@ -752,8 +752,9 @@ def stops_open_pr(data: dict, key: str, into: str | None) -> bool:
 
 
 def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
-    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, which drops each text a job it stops held, keeping each live job it trims waiting to hear his words; what was done, a line each, naming each text dropped."""
+    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, which drops each text a job it stops held, a staging test part letting each PR it names merge before that test, by state.merge_first, keeping each live job it trims waiting to hear his words; what was done, a line each, naming each text dropped."""
     trimmed, stopped = state.drop_part(data, order_id, part, f"his answer {answer_id} dropped every part it delivered")
+    state.merge_first(data, order_id, part, "his answer took its staging test off its order")
     for job_id in trimmed:
         if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
             owe(data, answer_id, job_id)

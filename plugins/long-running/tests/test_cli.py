@@ -6536,7 +6536,7 @@ def test_staging_reach_counts_no_path_on_go_cis_dev_list_whose_code_only_its_cal
         released: {"components": ["api", "platy"], "touched": ["api", "platy"], "dev": ["tools/ci"], "releases": ["api"]},
     }
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reach[key] for key in keys})
-    assert cli.staging_reach("demo", {}, [caller_run, released]) == [released]
+    assert cli.staging_reach("demo", {"prs": {}}, [caller_run, released]) == [released]
 
 
 def reaching(monkeypatch: pytest.MonkeyPatch, *reached: str) -> None:
@@ -6770,7 +6770,7 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
         data["jobs"][tester_id]["agent"] = "a1"
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     data = state.load("demo")
-    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["unstaged"]) == (True, [f"o1:{part}"], {"why": "it changes no path AGENTS.md calls dangerous", "head": "abc"})
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["unstaged"]) == (True, [f"o1:{part}"], {"why": "it changes no path AGENTS.md calls dangerous", "head": "abc", "merges_first": False})
     with state.edit("demo") as data:
         data["jobs"][tester_id]["agent"] = None
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")

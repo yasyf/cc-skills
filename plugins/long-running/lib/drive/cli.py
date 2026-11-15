@@ -722,7 +722,7 @@ def quoted_parts(parts: Iterable[str]) -> str:
 
 
 def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str]) -> list[str]:
-    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
+    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part, a dropped `staging test of #N before it lands` part letting each PR it names merge before that test, by state.merge_first: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
     parts = data["orders"][order_id]["parts"]
     if held := [part for part in added if part in parts]:
         raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
@@ -743,6 +743,8 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
     state.split_research(data, order_id, added, dropped)
     parts |= {part: state.new_part() for part in added}
     stopped = {job_id: held for part in dropped for job_id, held in state.drop_part(data, order_id, part, f"drive order set {order_id} --drop-part took off every part it delivered")[1].items()}
+    for part in dropped:
+        state.merge_first(data, order_id, part, "drive order set --drop-part took its staging test off its order")
     return [superseded.stopped_line(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()]
 
 
@@ -4405,7 +4407,8 @@ def live_sand_next(checkout: Path) -> str:
 
 
 def staging_reach(name: str, data: dict, keys: list[str]) -> list[str]:
-    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases through paths off go/ci's dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested"; DriveError when that read fails, so its caller keeps nothing."""
+    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases through paths off go/ci's dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; DriveError when that read fails, so its caller keeps nothing."""
+    keys = [key for key in keys if not state.merges_first_lift(data["prs"].get(key))]
     try:
         reach = release_reach(name, data, keys)
     except github.GithubError as error:

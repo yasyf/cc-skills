@@ -383,8 +383,11 @@ def staging(drive: dict, key: str) -> str:
     part = state.STAGING_TEST.format(number=number)
     held = [order_id for order_id, order in drive["orders"].items() if part in order["parts"]]
     if not held:
-        lifted = drive["prs"][key]["unstaged"]
-        return f"Not on staging: its builder says AGENTS.md's dangerous rule misses it: {cut(lifted['why'], NOW_CHARS)}" if lifted else "Not on staging: no staging test is set for it"
+        if not (lifted := drive["prs"][key]["unstaged"]):
+            return "Not on staging: no staging test is set for it"
+        if lifted["merges_first"]:
+            return f"Not on staging before it merges: {cut(lifted['why'], NOW_CHARS)}, so it is tested on staging after its merge"
+        return f"Not on staging: its builder says AGENTS.md's dangerous rule misses it: {cut(lifted['why'], NOW_CHARS)}"
     parts = [drive["orders"][order_id]["parts"][part] for order_id in held]
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""

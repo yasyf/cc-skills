@@ -967,6 +967,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("answers", None)
         pr.setdefault("paths_at", None)
         pr.setdefault("unstaged", None)
+        if pr["unstaged"]:
+            pr["unstaged"].setdefault("merges_first", False)
         pr.setdefault("reached", False)
         pr.pop("stall", None)
         pr.setdefault("graded", pr["state"] == "merged")
@@ -2213,7 +2215,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, never one reading `#N none: <why>`, by stage_pr, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, never one reading `#N none: <why>`, by stage_pr, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, either line leaving alone a PR drive order set --drop-part or his answer let merge before its staging test, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -2224,12 +2226,12 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
         if not (found := STAGED.fullmatch(staging)) or UNSTAGED.match(found["cases"]) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
             continue
         staged.add(key)
-        if tester_id := stage_pr(data, key, found["cases"], job.get("session")):
+        if not merges_first_lift(data["prs"][key]) and (tester_id := stage_pr(data, key, found["cases"], job.get("session"))):
             added.append(tester_id)
     if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
         named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if f"{found[1]}/{found[2]}".casefold() == MONOREPO.casefold())
         for key in dict.fromkeys(named):
-            if key and key not in staged:
+            if key and key not in staged and not merges_first_lift(data["prs"][key]):
                 unstage(data, key, why, job_id)
     return added
 
@@ -2251,7 +2253,7 @@ def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None
 def unstage(data: dict, key: str, why: str, job_id: str) -> None:
     """Lift a Forge-AI/monorepo PR off its staging test once its builder's `STAGING: none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which no job took it up, by drop_part, with the PR's wait on it, while a test a job took up stays to finish, by his ruling 0048b14."""
     pr = data["prs"][key]
-    pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"]}
+    pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": False}
     part = STAGING_TEST.format(number=key.split("#")[1])
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         if all(untaken(job) for _, job in part_jobs(data, order_id, part)):
@@ -2259,10 +2261,25 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
             pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
 
 
+def merge_first(data: dict, order_id: str, part: str, why: str) -> None:
+    """Let each open PR a `staging test of #N before it lands` part names merge before that test once drive order set --drop-part or his answer drops the part, as his answer 2eb7e76 has the PRs he freed "merge, then get tested": a lift kept with why and merges_first, which the release reach honours at every head, by merges_first_lift, so the lander puts no test back on it, the PR's wait on that part ended and its reach mark cleared, its staging test then the after-merge pass install.add_prover owes each PR merged with none delivered. A builder's `STAGING: none`, by unstage, lifts no reach."""
+    if not (named := STAGING_PARTS.fullmatch(part)):
+        return
+    for number in re.findall(r"\d+", named["numbers"]):
+        if (pr := data["prs"].get(f"{MONOREPO}#{number}")) and pr["state"] == "open":
+            pr.update(unstaged={"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": True}, reached=False)
+            pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+
+
+def merges_first_lift(pr: dict | None) -> bool:
+    """Whether a drop of the tracked PR's staging test part let it merge before that test, by merge_first, which the release reach honours whatever its head."""
+    return bool(pr and pr["unstaged"] and pr["unstaged"]["merges_first"])
+
+
 def markable(data: dict, key: str, head: str) -> bool:
-    """Whether mark_dangerous may stage a PR at a head from its changed files: an open Forge-AI/monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head."""
+    """Whether mark_dangerous may stage a PR at a head from its changed files: an open Forge-AI/monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test drive order set --drop-part or his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
-    return pr["state"] == "open" and github.repo_of(key).casefold() == MONOREPO.casefold() and not (pr["unstaged"] and pr["unstaged"]["head"] == head) and not any(part in order["parts"] for order in data["orders"].values())
+    return pr["state"] == "open" and github.repo_of(key).casefold() == MONOREPO.casefold() and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
 
 
 def unmarked(data: dict) -> list[str]:
