@@ -5042,6 +5042,62 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
     ]
 
 
+@pytest.mark.parametrize("returned", ["ASK", "WAITING"])
+def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_open_question_reads_blocked_on_him_until_his_answer_or_new_words_wake_it_once(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], returned: str
+) -> None:
+    reworked, card_link, waits = "Forge-AI/monorepo#56316", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794675864869599", "demo:j4783-1794675861699"
+    url = state.pr_url(reworked)
+    asked = state.new_question("/drive/asks/j4783-pool.md", "How does the staging test get a pool only a platform admin can create?", state.stamp(T0), card=card_link) | {"waits": waits}
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j4783")
+        data["jobs"]["j4783"] = job(prs=[url], said=asked["title"], questions=[asked])
+        data["prs"][reworked] = state.new_pr(url, "j4783", "o1") | {"head": "aaaaaaa111", "wants_tap": True, "checked": CHECKED}
+        state.rework(data["prs"][reworked], "o2", "The point of using staging is not to hold it there")
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": card_link}], "closed": [], "pr_cards": []})
+    serve(monkeypatch, {reworked: read(checks=GREEN)})
+    watching = watcher(demo)
+    line = f"WAITING {url} waits on {waits}" if returned == "WAITING" else f"ASK {asked['file']}"
+    passes = []
+
+    def at(minutes: int) -> None:
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+        kept = state.load(demo)["prs"][reworked]["stage"]
+        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken]))
+        woken.clear()
+
+    def report() -> None:
+        with state.edit(demo) as data:
+            state.take_result(data, "j4783", line)
+
+    at(0)
+    report()
+    at(2)
+    blocked_why = state.load(demo)["prs"][reworked]["stage"]["why"]
+    at(32)
+    at(62)
+    with state.edit(demo) as data:
+        state.rework(data["prs"][reworked], "o2", "Run the staging test from its pipeline")
+    at(64)
+    report()
+    at(66)
+    with state.edit(demo) as data:
+        data["jobs"]["j4783"]["questions"][-1]["closed"] = state.new_close("answered", "option 1", None, seq="9")
+    at(68)
+    at(70)
+    assert blocked_why == f'being reworked to his words "The point of using staging is not to hold it there", and its builder waits on his answer on [his question card]({card_link})'
+    assert passes == [
+        (0, "rework", stage.BUILDER, [reworked]),
+        (2, "blocked", stage.HIM, []),
+        (32, "blocked", stage.HIM, []),
+        (62, "blocked", stage.HIM, []),
+        (64, "rework", stage.BUILDER, [reworked]),
+        (66, "blocked", stage.HIM, []),
+        (68, "rework", stage.BUILDER, [reworked]),
+        (70, "rework", stage.BUILDER, []),
+    ]
+
+
 def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names_reads_blocked_on_his_answer_on_that_card(demo: str) -> None:
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j2"])

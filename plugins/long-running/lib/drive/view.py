@@ -386,7 +386,9 @@ def tap_of(pr: dict) -> str | None:
         return None
     if pr["hold_label"]:
         return "labeled"
-    return {"card": "wanted", "uncarded": "wanted", "rework": "reworking"}.get(stage_name(pr))
+    if pr["rework"]:
+        return "reworking"
+    return {"card": "wanted", "uncarded": "wanted"}.get(stage_name(pr))
 
 
 def stage_name(pr: dict) -> str | None:

@@ -882,6 +882,27 @@ def test_a_waiting_report_naming_his_open_card_only_below_its_first_line_waits_o
     assert (data["jobs"]["j9"]["waited"]["waits"], data["prs"][f"{MONOREPO}#4289"]["waits"]) == ([f"{MONOREPO}#4279"], [f"{MONOREPO}#4279"])
 
 
+def test_a_builders_ask_keeps_the_step_each_of_its_prs_owes_beside_its_open_cards_and_its_next_other_result_drops_it() -> None:
+    data = kept_prs()
+    asked = state.new_question("/asks/j9.md", "Which pool runs the staging test?", state.stamp(REFERENCE), card="https://acme.slack.com/archives/D123/p1794300000000200") | {"waits": "demo:j9-1"}
+    data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) | {"prs": [state.pr_url(f"{MONOREPO}#4289")], "questions": [asked]}
+    state.rework(data["prs"][f"{MONOREPO}#4289"], "o227", "Test it on staging before it merges")
+    state.take_result(data, "j9", "ASK /asks/j9.md")
+    assert data["jobs"]["j9"]["waited"] == {"owed": {f"{MONOREPO}#4289": 'being reworked to his words "Test it on staging before it merges"'}, "waits": ["demo:j9-1"]}
+    state.take_result(data, "j9", "PUSHED #4289")
+    assert data["jobs"]["j9"]["waited"] is None
+
+
+def test_load_keeps_the_red_an_older_install_kept_for_a_builders_waiting_as_the_step_it_owed_and_drops_one_kept_past_another_result(state_root: Path) -> None:
+    data = kept_prs()
+    red = {f"{MONOREPO}#4289": "its checks fail at abc: test"}
+    for job_id, said in (("j9", "WAITING #4289 waits on demo:j9-3"), ("j10", "PUSHED #4289")):
+        data["jobs"][job_id] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) | {"said": said, "waited": {"red": red, "waits": ["demo:j9-3"]}}
+    state.create(data)
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j9"]["waited"], jobs["j10"]["waited"]) == ({"owed": red, "waits": ["demo:j9-3"]}, None)
+
+
 def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_how_they_are_met_which_drops_his_approve_so_a_fresh_card_asks_it() -> None:
     data = kept_prs()
     data["jobs"] |= {job_id: state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) for job_id in ("j9", "j622")}

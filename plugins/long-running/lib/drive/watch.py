@@ -3228,8 +3228,9 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
     from drive import talk
 
     said = []
-    card = view.standing_card(state.load(watcher.name)["prs"][key], view.live_cards(watcher.name) or view.NO_CARDS)
-    if now.name == "rework":
+    pr = state.load(watcher.name)["prs"][key]
+    card = view.standing_card(pr, view.live_cards(watcher.name) or view.NO_CARDS)
+    if pr["rework"]:
         if card:
             try:
                 talk.withdraw(watcher.name, key)
@@ -3245,7 +3246,6 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
     if now.name in ("rework", "red"):
         stage.wake(watcher.name, key, line)
     elif now.name == "grading" and not entered:
-        pr = state.load(watcher.name)["prs"][key]
         repo, number = key.split("#")
         if pr["review_asked"] == pr["head"]:
             stage.wake(watcher.name, key, line)

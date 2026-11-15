@@ -76,12 +76,10 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)
-    if pr["rework"]:
-        return Stage("rework", BUILDER, f'being reworked to his words "{pr["rework"]["words"]}"')
-    if failing := red(key, pr):
-        if waits := answered(data, key, failing):
-            return blocked(data, key, failing, waits, cards)
-        return flake_red(data, pr, failing) or Stage("red", BUILDER, failing)
+    if step := owed(key, pr):
+        if waits := answered(data, key, step):
+            return blocked(data, key, step, waits, cards)
+        return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, pr, step) or Stage("red", BUILDER, step)
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if state.ships_untapped(data, key):
@@ -239,38 +237,45 @@ def red(key: str, pr: dict) -> str:
     return ""
 
 
+def owed(key: str, pr: dict) -> str:
+    """What its builder owes at its head, which the rework and red stages name and a builder's WAITING or ASK answers: the rework to his words, else its red()."""
+    if pr["rework"]:
+        return f'being reworked to his words "{pr["rework"]["words"]}"'
+    return red(key, pr)
+
+
 def conflicts_with(pr: dict) -> str:
     """What GitHub reads the PR conflicting with: the trunk of its native GitHub stack, onto which GitHub test-merges it with every PR below it rather than onto its base branch, so only a restack of the whole stack onto that trunk clears it; its base branch for a PR in none."""
     return f"{pr['trunk']}, the trunk of its native stack" if pr["trunk"] else f"its base {pr['base']}"
 
 
 def waited(data: dict, job_id: str, line: str) -> dict:
-    """What a builder's WAITING line answers, kept on its job as the drive takes it: the red of each open PR the job carries, and each PR of another job's and each release its words name and each question card of his its first line's `waits on <cards>` names, the builder's own question included, that holds then, so a red only his answer fixes wakes that builder once per red until he answers, while a card cited on any other line, such as DESIGN:, is no wait of its red, holding only the landing of a PR whose DESIGN: line cites it, by state.part_cards."""
+    """What a builder's WAITING or ASK line answers, kept on its job as the drive takes it: the step each open PR the job carries owes then, by owed(), its rework to his words or its red, and each PR of another job's and each release its words name and each question card of his a WAITING's first line's `waits on <cards>` names, the builder's own question included, or each card of his the job's open questions are drawn on as an ASK ends its run, that holds then, so a PR that step owes wakes that builder once per step until he answers, while a card cited on any other line, such as DESIGN:, is no wait of its step, holding only the landing of a PR whose DESIGN: line cites it, by state.part_cards."""
     job = data["jobs"][job_id]
     own = [key for key, pr in data["prs"].items() if pr["url"] in job["prs"]]
     declared = state.WAITING_LINE.match(line)
-    asked = [card for card in view.stored_waits(data, state.BUILT_CARD.findall(declared["cards"])) if view.drawn_on(data, card)] if declared else []
+    asked = view.stored_waits(data, view.open_cards(job)) if re.match(r"ASK\b", line) else [card for card in view.stored_waits(data, state.BUILT_CARD.findall(declared["cards"])) if view.drawn_on(data, card)] if declared else []
     return {
-        "red": {key: failing for key in own if data["prs"][key]["state"] == "open" and (failing := red(key, data["prs"][key]))},
+        "owed": {key: step for key in own if data["prs"][key]["state"] == "open" and (step := owed(key, data["prs"][key]))},
         "waits": [wait for wait in [*state.named_waits(data, job["order"], line), *asked] if wait not in own and view.holds(data, wait, None)],
     }
 
 
-def answered(data: dict, key: str, failing: str) -> list[str]:
-    """What the builder answering for a red PR waits on by its last WAITING, while that line answered this same red and each PR, release and card of his it named still holds, so the PR wakes that builder again only once one of them ends, his answer closing the card, or the red changes."""
+def answered(data: dict, key: str, step: str) -> list[str]:
+    """What the builder answering for the PR waits on by its last WAITING or ASK, while that line answered this same step the PR owes, by owed(), and each PR, release and card of his it named still holds it, by onward(), so the PR wakes that builder again only once one of them ends, his answer closing the card, his new words reworking it, or its red changing."""
     if not (owner := owner_job(data, key)):
         return []
     job = data["jobs"][owner]
-    if job["state"] != "waiting" or not (job["said"] or "").startswith("WAITING") or not job["waited"] or job["waited"]["red"].get(key) != failing:
+    if not job["waited"] or job["waited"]["owed"].get(key) != step:
         return []
     waits = job["waited"]["waits"]
-    return waits if all(wait in job["waits"] and view.holds(data, wait, None) for wait in waits) else []
+    return waits if set(waits) <= set(onward(data, owner, None)) else []
 
 
-def blocked(data: dict, key: str, failing: str, waits: list[str], cards: dict | None) -> Stage:
-    """A red PR whose builder waits on the PRs, releases and question cards of his that fix it: each PR and card named by its link, owed by him while an end of them is his to move by asked(), which it names and links too, else by what it waits on, whose own stage wakes its owner."""
+def blocked(data: dict, key: str, step: str, waits: list[str], cards: dict | None) -> Stage:
+    """A PR owing its builder a step, a rework to his words or a red, whose builder waits on the PRs, releases and question cards of his that let it take that step: each PR and card named by its link, owed by him while an end of them is his to move by asked(), which it names and links too, else by what it waits on, whose own stage wakes its owner."""
     mine = asked(data, key, waits, cards)
-    return Stage("blocked", HIM if mine else WAITED, f"{failing}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*waits, *mine]))}")
+    return Stage("blocked", HIM if mine else WAITED, f"{step}, and its builder waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*waits, *mine]))}")
 
 
 def fix_words(data: dict, wait: str, cards: dict | None) -> str:
