@@ -10015,9 +10015,9 @@ def stalling(name: str) -> watch.Watcher:
     return watching
 
 
-def watchdog_answered(out: Path) -> None:
+def watchdog_answered(out: Path, answer: str = WATCHDOG_ANSWER) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(f"I read the checks and both transcripts.\n\n```text\n{WATCHDOG_ANSWER}```\n")
+    out.write_text(f"I read the checks and both transcripts.\n\n```text\n{answer}```\n")
 
 
 def test_a_red_pr_behind_a_builder_waiting_on_prs_the_lander_has_not_landed_gets_one_watchdog_at_an_hour_one_stuck_line_and_one_line_to_him_30_minutes_on(
@@ -10027,33 +10027,39 @@ def test_a_red_pr_behind_a_builder_waiting_on_prs_the_lander_has_not_landed_gets
     said = {minutes: watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 59, 60, 61)}
     assert said == {0: [], 59: [], 60: [], 61: []}
     [(brief, out)] = watchdogs
-    assert brief.splitlines()[:7] == [
+    assert brief.splitlines()[:8] == [
         f"Stall: {KEY}, which holds j1, j2, unmoved 60 minutes",
         "Job: j1 of o1: ship the watch",
         "Holder: the coordinator, session session-under-test",
         f"Chain: {STALLED_CHAIN}",
         "Drive: demo",
         "Read:",
+        "- cci grep '(o1|j1|#42|j2|#53645|#53648)\\b' --drive demo --limit 30",
         f"- drive status o1 j1 {KEY} j2 {FOOTER} {FOOTER_STACKED} --drive demo",
     ]
-    assert {f"- gh pr checks {state.pr_url(KEY)}", f"- gh pr checks {state.pr_url(FOOTER)}"} <= set(brief.splitlines())
+    assert {f"- gh pr view {state.pr_url(key)} --json state,mergedAt,headRefOid,statusCheckRollup" for key in (KEY, FOOTER)} <= set(brief.splitlines())
     watchdog_answered(out)
     assert watch.stall_lines(watching, T0 + timedelta(minutes=68)) == [
         f"STUCK j1 o1: {KEY}, which holds j1, j2, unmoved 68 minutes: {STALLED_CARD}. WHY: {READERS_FIRST}, and j2 waits on {FOOTER}, which the lander has not merged; NEXT: drive pr land {FOOTER};"
         f" its whole answer, WHO and UNREAD with it, in {out}"
     ]
-    for minutes in (69, 97, 98, 150):
+    for minutes in (69, 97, 98):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    assert ready_records == []
+    [_, (_, fresh)] = watchdogs
+    watchdog_answered(fresh)
+    for minutes in (99, 150):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     [[report]] = ready_records
     assert (report["attr"], report["to"]) == ({"order": "o1", "job": "j1", "stall": "true"}, ["communicator@demo"])
-    assert report["text"] == f"POST {KEY}, which holds j1, j2, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    assert report["text"] == f"POST {KEY}, which holds j1, j2, has not moved in 99 minutes and the coordinator was told 31 minutes ago: post one line on it in its thread"
     assert ["Holds: j1 of o1, j2 of o1", "WHO: the lander", f"NEXT: drive pr land {FOOTER}"] == [line for line in report["body"].splitlines() if line.startswith(("Holds:", "WHO:", "NEXT:"))]
     with state.edit(demo) as data:
         data["prs"][KEY]["stage"] = RED_STAGE | {"why": "it fails readers-first at bbbbbbb"}
     watch.stall_lines(watching, T0 + timedelta(minutes=151))
     data = state.load(demo)
     assert (list(data["stalls"]), data["stalls"][KEY]["since"], data["stalls"][KEY]["agent"], data["stalls"][KEY]["said"]) == ([KEY], state.stamp(T0 + timedelta(minutes=151)), None, None)
-    assert [brief.splitlines()[0] for brief, _ in watchdogs] == [f"Stall: {KEY}, which holds j1, j2, unmoved 60 minutes"]
+    assert [brief.splitlines()[0] for brief, _ in watchdogs] == [f"Stall: {KEY}, which holds j1, j2, unmoved {minutes} minutes" for minutes in (60, 98)]
 
 
 def test_jobs_waiting_on_one_pr_the_lander_has_not_landed_make_one_stall_one_watchdog_one_stuck_line_and_one_line_to_him_naming_each(
@@ -10083,12 +10089,15 @@ def test_jobs_waiting_on_one_pr_the_lander_has_not_landed_make_one_stall_one_wat
     ]
     with state.edit(demo) as data:
         waiting(data, "j4")
-    for minutes in (70, 98, 130):
+    for minutes in (70, 98):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    watchdog_answered(watchdogs[1][1])
+    for minutes in (99, 130):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     [[report]] = ready_records
-    assert report["text"] == f"POST {OTHER}, which holds j1, j2, j3, j4, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    assert report["text"] == f"POST {OTHER}, which holds j1, j2, j3, j4, has not moved in 99 minutes and the coordinator was told 31 minutes ago: post one line on it in its thread"
     assert "Holds: j1 of o1, j2 of o1, j3 of o1, j4 of o1" in report["body"].splitlines()
-    assert (len(watchdogs), list(state.load(demo)["stalls"])) == (1, [OTHER])
+    assert (len(watchdogs), list(state.load(demo)["stalls"])) == (2, [OTHER])
 
 
 STAGING_TARGETS = ("api", "rsw-cp", "rsw-dp", "rsw-go", "rsw-search", "executor", "staging-smoke", "sandsql", "runtime-api-next", "cloudrunner-next", "dashboard")
@@ -10141,11 +10150,13 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
     watchdog_answered(out)
     [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
     assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, j2, j3, j4, unmoved 68 minutes: {state.STAGING_ENV} running api at 6d44e8728ec1 or a build carrying it")
-    for minutes in (69, 97, 98, 99):
+    for minutes in (69, 97, 98):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    watchdog_answered(watchdogs[1][1])
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=99)) == []
     [[report]] = ready_records
-    assert report["text"] == f"POST {thing}, which holds j1, j2, j3, j4, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
-    assert (len(watchdogs), list(state.load(demo)["stalls"])) == (1, [thing])
+    assert report["text"] == f"POST {thing}, which holds j1, j2, j3, j4, has not moved in 99 minutes and the coordinator was told 31 minutes ago: post one line on it in its thread"
+    assert (len(watchdogs), list(state.load(demo)["stalls"])) == (2, [thing])
     lone = staged_on("cloudrunner-next", "5f986a0")
     with state.edit(demo) as data:
         for job_id in ("j1", "j2", "j4"):
@@ -10154,7 +10165,7 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
     assert watch.stall_lines(watching, T0 + timedelta(minutes=100)) == []
     assert state.load(demo)["stalls"][thing]["since"] == state.stamp(T0 + timedelta(minutes=100))
     watch.stall_lines(watching, T0 + timedelta(minutes=160))
-    [_, (brief, out)] = watchdogs
+    [_, _, (brief, out)] = watchdogs
     assert brief.splitlines()[0] == f"Stall: {thing}, which holds j3, unmoved 60 minutes"
     assert [line for line in brief.splitlines() if line.startswith("Staging:")] == [
         f"Staging: cloudrunner-next on {state.STAGING_ENV}, awaited at 5f986a0: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4"
@@ -10254,12 +10265,15 @@ def test_a_stall_whose_report_another_live_watch_claimed_posts_nothing_and_one_w
             "claim": live,
         }
     assert watch.stall_lines(watching, T0 + timedelta(minutes=98)) == []
-    assert ready_records == []
+    assert (ready_records, watchdogs) == ([], [])
     live["pid"] = 0
-    for minutes in (99, 100):
+    watch.stall_lines(watching, T0 + timedelta(minutes=99))
+    [(_, out)] = watchdogs
+    watchdog_answered(out)
+    for minutes in (100, 101):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
-    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 99 minutes and the coordinator was told 31 minutes ago: post one line on it in its thread"]
-    assert (state.load(demo)["stalls"][KEY]["told"], state.load(demo)["stalls"][KEY]["claim"]) == (state.stamp(T0 + timedelta(minutes=99)), None)
+    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 100 minutes and the coordinator was told 32 minutes ago: post one line on it in its thread"]
+    assert (state.load(demo)["stalls"][KEY]["told"], state.load(demo)["stalls"][KEY]["claim"]) == (state.stamp(T0 + timedelta(minutes=100)), None)
 
 
 def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_its_watchdog_reads_it_and_wakes_its_agent_by_its_resume(
@@ -10286,8 +10300,10 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
     assert watch.handed(watching, [stuck], T0 + timedelta(minutes=68)) == []
     assert posted(sent) == [("handoff", f"meta@{demo}", stuck)]
     watch.stall_lines(watching, T0 + timedelta(minutes=98))
+    watchdog_answered(watchdogs[1][1])
+    watch.stall_lines(watching, T0 + timedelta(minutes=99))
     [[report]] = ready_records
-    assert report["text"] == f"POST {KEY}, which holds j1, j2, has not moved in 98 minutes and the meta session was told 30 minutes ago: post one line on it in its thread"
+    assert report["text"] == f"POST {KEY}, which holds j1, j2, has not moved in 99 minutes and the meta session was told 31 minutes ago: post one line on it in its thread"
 
 
 def test_j4802_a_stalls_watchdog_brief_says_its_jobs_remote_lane_ended_so_it_offers_no_wake(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
@@ -10331,13 +10347,15 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
         }
     for minutes in (98, 140):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
-    assert ready_records == []
+    assert (ready_records, watchdogs) == ([], [])
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=141)), "away": state.stamp(T0 + timedelta(minutes=201))}
-    for minutes in (141, 142):
+    watch.stall_lines(watching, T0 + timedelta(minutes=141))
+    [(_, out)] = watchdogs
+    watchdog_answered(out)
+    for minutes in (142, 143):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
-    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
-    assert watchdogs == []
+    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 142 minutes and the coordinator was told 74 minutes ago: post one line on it in its thread"]
 
 
 @pytest.mark.parametrize(("kept", "thread"), [([["D123", "1794439546.145729", state.stamp(T0), "question"]], "1794439546.145729"), ([], None)])
@@ -10357,22 +10375,26 @@ def test_a_stall_on_an_order_from_a_channel_thread_names_the_thread_of_his_dm_it
             "claim": None,
         }
     watch.stall_lines(watching, T0 + timedelta(minutes=141))
+    watchdog_answered(watchdogs[0][1])
+    watch.stall_lines(watching, T0 + timedelta(minutes=142))
     [[record]] = ready_records
     assert (record["attr"]["stall"], record["attr"].get("thread")) == ("true", thread)
 
 
 def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_its_handler_beside_the_coordinator_once(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], posts_to_communicator: list[str]
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ready_records: list[list[dict]], posts_to_communicator: list[str]
 ) -> None:
     ran: list[tuple[list[str], Path]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None, stdin=None: ran.append((argv, checkout)) or "")
     watching = stalling(demo)
-    told_at = T0 + timedelta(minutes=98)
+    told_at = T0 + timedelta(minutes=108)
+    fresh = tmp_path / "stall.md"
+    watchdog_answered(fresh)
     with state.edit(demo) as data:
         data["stalls"][KEY] = {
             "print": STALLED_CARD,
             "since": state.stamp(T0),
-            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
+            "agent": {"pid": 1, "out": str(fresh), "at": state.stamp(T0 + timedelta(minutes=98))},
             "found": {"WHY": READERS_FIRST},
             "said": state.stamp(T0 + timedelta(minutes=68)),
             "told": None,
@@ -10382,7 +10404,7 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_
     assert "communicator" not in state.load(demo)["roles"]
     assert watch.stall_lines(watching, told_at) == []
     [[report]] = ready_records
-    assert (report["text"], report["to"]) == (f"POST {KEY}, which holds j1, j2, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread", [f"communicator@{demo}"])
+    assert (report["text"], report["to"]) == (f"POST {KEY}, which holds j1, j2, has not moved in 108 minutes and the coordinator was told 40 minutes ago: post one line on it in its thread", [f"communicator@{demo}"])
     [(argv, checkout)] = ran
     assert (argv[:4], checkout) == (["claude", "--bg", "--agent", "long-running:handler"], Path(coordinator["cwd"]))
     assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
@@ -10559,23 +10581,69 @@ def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check
     watching = stalling(demo)
     for minutes in (0, 60):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    asked = "WHY: no sand-next release carries it\nWHO: the holder\nNEXT: start a sand-next production release now\nUNREAD: nothing\n"
     [(_, out)] = watchdogs
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("WHY: no sand-next release carries it\nWHO: the holder\nNEXT: start a sand-next production release now\nUNREAD: nothing\n")
+    watchdog_answered(out, asked)
     jev.picks("asks")
     [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
     assert f"; NEXT: {watch.cut(watch.brief.RELEASE_UNNAMED, 200)}; its whole answer" in stuck
     watch.stall_lines(watching, T0 + timedelta(minutes=98))
+    watchdog_answered(watchdogs[1][1], asked)
+    watch.stall_lines(watching, T0 + timedelta(minutes=99))
     [[report]] = ready_records
     assert f"NEXT: {watch.brief.RELEASE_UNNAMED}" in report["body"].splitlines()
 
 
-def test_watchdog_agents_count_those_still_searching_and_those_started_within_the_hour() -> None:
-    def kept(started: int, said: bool) -> dict:
-        return {"agent": {"pid": 1, "out": "/s/a.md", "at": state.stamp(T0 - timedelta(minutes=started))}, "said": state.stamp(T0) if said else None}
+@pytest.mark.parametrize(
+    ("key", "standing", "stale", "fresh"),
+    [
+        (
+            "yasyf/cc-slack#460",
+            RED_STAGE | {"why": "its required check test failed at 5e1c0de"},
+            "WHY: Its replacement fix, https://github.com/yasyf/cc-slack/pull/460, is stuck. The `test` check is red\nWHO: the holder\nNEXT: send its builder after the red test check\nUNREAD: nothing\n",
+            "WHY: yasyf/cc-slack#460 merged at 2026-11-15T12:50:33Z with every check at its head passing (gh pr view), and cc-slack 0.20.82 carries it\nWHO: the holder\nNEXT: drive job resume j1 with the merged fix\nUNREAD: nothing\n",
+        ),
+        (
+            "Forge-AI/monorepo#56693",
+            UNLANDED | {"why": "green and approved by him at afb881f, its ready line 714494"},
+            "WHY: #56693's ready line 714494 is stale\nWHO: the holder\nNEXT: cut #56693's ready line again\nUNREAD: nothing\n",
+            "WHY: record 717774 re-cut #56693's ready line 714494 into cut 4 on afb881f92076\nWHO: the lander\nNEXT: drive pr land Forge-AI/monorepo#56693\nUNREAD: nothing\n",
+        ),
+    ],
+)
+def test_replayed_718877_and_718879_a_stalls_report_to_him_carries_a_fresh_watchdogs_read_of_the_newest_records_and_github_never_the_stuck_lines_answer(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], key: str, standing: dict, stale: str, fresh: str
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"stage": standing}
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [key]}
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(_, out)] = watchdogs
+    watchdog_answered(out, stale)
+    [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
+    assert stall.answer(stale)["WHY"] in stuck
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=98)) == []
+    [_, (brief, out)] = watchdogs
+    assert {
+        f"- cci grep '(o1|j1|#{key.split('#')[1]})\\b' --drive demo --limit 30",
+        f"- gh pr view {state.pr_url(key)} --json state,mergedAt,headRefOid,statusCheckRollup",
+    } <= set(brief.splitlines())
+    watchdog_answered(out, fresh)
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=99)) == []
+    [[report]] = ready_records
+    assert [line for line in report["body"].splitlines() if line.startswith(("WHY:", "WHO:", "NEXT:", "UNREAD:"))] == fresh.splitlines()
 
-    stalls = {"j1": kept(5, False), "j2": kept(12, False), "j3": kept(30, True), "j4": {"agent": None, "said": None}, KEY: kept(61, True)}
-    assert stall.starts(stalls, T0) == (1, 3)
+
+def test_watchdog_agents_count_those_still_searching_and_those_started_within_the_hour() -> None:
+    def kept(started: int, said: int | None = None) -> dict:
+        return {"agent": {"pid": 1, "out": "/s/a.md", "at": state.stamp(T0 - timedelta(minutes=started))}, "said": None if said is None else state.stamp(T0 - timedelta(minutes=said)), "told": None}
+
+    stalls = {"j1": kept(5), "j2": kept(12), "j3": kept(30, 0), "j4": {"agent": None, "said": None, "told": None}, "j5": kept(3, 35), KEY: kept(61, 0)}
+    assert stall.starts(stalls, T0) == (2, 4)
 
 
 @pytest.mark.parametrize(

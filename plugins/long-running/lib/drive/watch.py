@@ -2813,7 +2813,7 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Age each thing the drive's chains of waits end on, a PR stack's card, a PR's release, a staging env or a job, and act once on each that stood unmoved past its deadline, however many jobs and PRs wait on it, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line" and his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first, never on a chain ending at a step of his, his hold on every release read once a pass, nor on a staging env, or a release on it, behind another drive's staging claim until that claim ends, as stall.behind() reads the claims of every other drive on this Mac once a pass; once that agent answers, or ten minutes pass, say one STUCK line naming it, each job and PR waiting on it and what the agent found, a NEXT brief.release_ask_refusal() refuses replaced by its refusal, or that alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with the thing unmoved and he is here, write him one report the communicator's handler posts in that work's thread. Each stall is one row of the drive's stalls, aged under the drive's lock by every watch and acted on only by the watch hearing the job answering for the first job or PR waiting on it, each step claimed under the lock with the pid and start time of the watch taking it, as waiting_lines claims its lines, then taken outside the lock and settled under it, so a watch restart adopts its agent, two watches never take one step and nothing is said twice; a thing that moves starts a fresh one."""
+    """Age each thing the drive's chains of waits end on, a PR stack's card, a PR's release, a staging env or a job, and act once on each that stood unmoved past its deadline, however many jobs and PRs wait on it, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line" and his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first, never on a chain ending at a step of his, his hold on every release read once a pass, nor on a staging env, or a release on it, behind another drive's staging claim until that claim ends, as stall.behind() reads the claims of every other drive on this Mac once a pass; once that agent answers, or ten minutes pass, say one STUCK line naming it, each job and PR waiting on it and what the agent found, a NEXT brief.release_ask_refusal() refuses replaced by its refusal, or that alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with the thing unmoved and he is here, start a fresh watchdog agent, since records and PRs move while the thing's own words do not, as a merged replacement fix or a re-cut ready line, and once it answers, or ten minutes pass, write him one report of that answer the communicator's handler posts in that work's thread. Each stall is one row of the drive's stalls, aged under the drive's lock by every watch and acted on only by the watch hearing the job answering for the first job or PR waiting on it, each step claimed under the lock with the pid and start time of the watch taking it, as waiting_lines claims its lines, then taken outside the lock and settled under it, so a watch restart adopts its agent, two watches never take one step and nothing is said twice; a thing that moves starts a fresh one."""
     if watcher.cards is None:
         return []
     known = state.load(watcher.name)
@@ -2848,29 +2848,35 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
             watcher.failures.pop("watchdog", None)
             settle(watcher.name, thing, held, {"agent": {"pid": pid, "out": str(out), "at": state.stamp(moment)}})
         elif step == "said":
-            answered = stall.answer(Path(held["agent"]["out"]).read_text())
-            order = known["orders"][stall.owner(known, found[thing]["subjects"][0])[1]]
             try:
-                refused = "NEXT" in answered and brief.release_ask_refusal("handoff", [f"{state.holder_lane(order) or 'coordinator'}@{watcher.name}"], answered["NEXT"], known)
+                done = {"found": watchdog_answer(watcher, known, found[thing], held), "said": state.stamp(moment)}
             except state.DriveError as error:
                 settle(watcher.name, thing, held, {})
                 lines += failed(watcher, f"stall {thing}", f"release check of the NEXT {thing}'s watchdog agent answered", error, moment)
                 continue
             watcher.failures.pop(f"stall {thing}", None)
-            done = {"found": answered | ({"NEXT": refused} if refused else {}), "said": state.stamp(moment)}
             settle(watcher.name, thing, held, done)
             lines.append(stuck_line(known, thing, found[thing], held | done, moment))
         else:
             try:
-                [seq] = reported(watcher, [stall_report(known, thing, found[thing], held, watcher.cards, moment)])
+                done = {"found": watchdog_answer(watcher, known, found[thing], held), "told": state.stamp(moment)}
+                [seq] = reported(watcher, [stall_report(known, thing, found[thing], held | done, watcher.cards, moment)])
             except (reads.ReadError, state.DriveError) as error:
                 settle(watcher.name, thing, held, {})
                 lines += failed(watcher, f"stall {thing}", f"line to him on {thing}, which stood unmoved", error, moment)
                 continue
-            settle(watcher.name, thing, held, {"told": state.stamp(moment)})
+            settle(watcher.name, thing, held, done)
             watcher.failures.pop(f"stall {thing}", None)
             agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
     return lines
+
+
+def watchdog_answer(watcher: Watcher, data: dict, found: dict, held: dict) -> dict[str, str]:
+    """What the stall's newest watchdog agent answered, a NEXT the drive's release check refuses replaced by that refusal."""
+    answered = stall.answer(Path(held["agent"]["out"]).read_text())
+    order = data["orders"][stall.owner(data, found["subjects"][0])[1]]
+    refused = "NEXT" in answered and brief.release_ask_refusal("handoff", [f"{state.holder_lane(order) or 'coordinator'}@{watcher.name}"], answered["NEXT"], data)
+    return answered | ({"NEXT": refused} if refused else {})
 
 
 def owed(watcher: Watcher, data: dict, found: dict[str, dict], stalls: dict[str, dict], moment: datetime) -> dict[str, str]:
@@ -2905,12 +2911,16 @@ def claimed(claim: dict | None) -> bool:
 
 
 def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: dict, moment: datetime) -> str:
-    """The brief a watchdog agent starts on: the stall, each job and PR waiting on it, their chains to it, the session holding the order of the first of them, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, or that the job's lane or agent ended, by state.lane_death, so no wake reaches it, what to read, the drive's rows of everything in the chains, the job's returns and its agent's transcript, the holding session's transcript since the thing last moved, and the checks of each PR in the chains, then what the chains' releases and builds rest on, which the agent reads nowhere else: a Release line per release wait in them, what the watch's own read of that wait last found, a Staging line per service a staging wait in them awaits on its env, by staging_line, a Build line per Buildkite build they wait on, what the watch's last Buildkite read of it found, a Card line per open card of his on the chains or naming a service they wait on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
+    """The brief a watchdog agent starts on: the stall, each job and PR waiting on it, their chains to it, the session holding the order of the first of them, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, or that the job's lane or agent ended, by state.lane_death, so no wake reaches it, what to read, first the newest records naming the stall's jobs, orders and PRs, newest first, then the drive's rows of everything in the chains, the job's returns and its agent's transcript, the holding session's transcript since the thing last moved, and each PR in the chains as GitHub holds it now, merged or not and the checks at its head, then what the chains' releases and builds rest on, which the agent reads nowhere else: a Release line per release wait in them, what the watch's own read of that wait last found, a Staging line per service a staging wait in them awaits on its env, by staging_line, a Build line per Buildkite build they wait on, what the watch's last Buildkite read of it found, a Card line per open card of his on the chains or naming a service they wait on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
     job_id, order_id = stall.owner(data, found["subjects"][0])
     job = data["jobs"][job_id]
     holder, holding = state.holding_role(data, data["orders"][order_id])
     named = dict.fromkeys([order_id, job_id, *(link for link in found["chain"] if link in data["jobs"] or link in data["prs"])])
-    reading = [f"drive status {' '.join(named)} --drive {watcher.name}", f"drive job replies {job_id} --drive {watcher.name}"]
+    reading = [
+        f"cci grep '({'|'.join(record_names(data, [*named, *found['chain'], *found['members']]))})\\b' --drive {watcher.name} --limit 30",
+        f"drive status {' '.join(named)} --drive {watcher.name}",
+        f"drive job replies {job_id} --drive {watcher.name}",
+    ]
     wake = ""
     if job.get("agent") and (runs_in := session_of(job, data)):
         reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
@@ -2919,7 +2929,7 @@ def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: 
         wake = f"; {job_id}'s lane ended at {when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}, so neither drive job wake nor SendMessage reaches it, and only the holder's drive job resume {job_id} starts its next worker"
     if holding:
         reading.append(f"cc-transcript {session_transcript(holding)}, from {when(held['since'])} on")
-    reading += [f"gh pr {verb} {state.pr_url(key)}" for key in named if key in data["prs"] for verb in ("view", "checks")]
+    reading += [f"gh pr view {state.pr_url(key)} --json state,mergedAt,headRefOid,statusCheckRollup" for key in named if key in data["prs"]]
     awaited: dict[tuple[str, str], list[str]] = {}
     for link in found["chain"]:
         if staging := state.STAGING_WAIT.fullmatch(link):
@@ -2940,6 +2950,19 @@ def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: 
             *(f"Answered: {answer}" for answer in stall_answers(data, job, found["chain"])),
         ]
     )
+
+
+def record_names(data: dict, links: list[str]) -> list[str]:
+    """The names records give a stall's links, each once: a job or order by its id, a part wait by its order, and a PR, or the PR a release wait awaits, by #<number>, as a record's refs and text name it."""
+    names = {}
+    for link in links:
+        if link in data["jobs"] or link in data["orders"]:
+            names[link] = None
+        elif part := state.part_wait(data, link):
+            names[part[0]] = None
+        elif key := link if link in data["prs"] else (release := state.RELEASE_WAIT.fullmatch(link)) and release["pr"]:
+            names[f"#{key.split('#')[1]}"] = None
+    return list(names)
 
 
 def release_line(watcher: Watcher, data: dict, wait: str) -> str:
@@ -3006,7 +3029,7 @@ def stuck_line(data: dict, thing: str, found: dict, held: dict, moment: datetime
 
 
 def stall_report(data: dict, thing: str, found: dict, held: dict, cards: dict, moment: datetime) -> dict:
-    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of his DM its order's lines to him go in, an incident's too, naming each job and PR waiting on it with its order, and his card on each PR in its chains that waits on his tap as his cards stand now, never as its watchdog agent saw them."""
+    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of his DM its order's lines to him go in, an incident's too, naming each job and PR waiting on it with its order, what the fresh watchdog agent started for it found, and his card on each PR in its chains that waits on his tap as his cards stand now, never as its watchdog agent saw them."""
     job_id, order_id = stall.owner(data, found["subjects"][0])
     order = data["orders"][order_id]
     holder, _ = state.holding_session(data, order)

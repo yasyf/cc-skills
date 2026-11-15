@@ -135,14 +135,20 @@ def waiting(found: dict) -> list[str]:
 
 
 def step(held: dict, moment: datetime, away: bool) -> str | None:
-    """The step a stall owes now: its watchdog agent, its STUCK line once that agent answered or SEARCH_FOR passed, or his report once that line stood TOLD_AFTER while he is here; None while it owes none."""
+    """The step a stall owes now: its watchdog agent, its STUCK line once that agent answered or SEARCH_FOR passed, then, once that line stood TOLD_AFTER while he is here, a fresh agent, since the first one read the stall as it stood when the line went out, and his report once that one answered or SEARCH_FOR passed; None while it owes none."""
     if not held["agent"]:
         return "agent"
     if not held["said"]:
-        return None if state.alive(held["agent"]["pid"]) and moment - state.parse_time(held["agent"]["at"]) < SEARCH_FOR else "said"
+        return None if searching(held, moment) else "said"
     if held["told"] or away or moment - state.parse_time(held["said"]) < TOLD_AFTER:
         return None
-    return "told"
+    if state.parse_time(held["agent"]["at"]) <= state.parse_time(held["said"]):
+        return "agent"
+    return None if searching(held, moment) else "told"
+
+
+def searching(held: dict, moment: datetime) -> bool:
+    return moment - state.parse_time(held["agent"]["at"]) < SEARCH_FOR and state.alive(held["agent"]["pid"])
 
 
 def owner(data: dict, subject: str) -> tuple[str, str]:
@@ -154,9 +160,9 @@ def owner(data: dict, subject: str) -> tuple[str, str]:
 
 
 def starts(stalls: dict[str, dict], moment: datetime) -> tuple[int, int]:
-    """How many watchdog agents run now, each started under SEARCH_FOR ago on a stall not said yet, and how many started in the last hour, over every stall of the drive."""
+    """How many watchdog agents run now, each started under SEARCH_FOR ago on a stall whose STUCK line or report has not taken its answer yet, and how many started in the last hour, over every stall of the drive."""
     held = [kept for kept in stalls.values() if kept["agent"]]
-    running = sum(1 for kept in held if not kept["said"] and moment - state.parse_time(kept["agent"]["at"]) < SEARCH_FOR)
+    running = sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < SEARCH_FOR and not ((taken := kept["told"] or kept["said"]) and state.parse_time(taken) >= state.parse_time(kept["agent"]["at"])))
     return running, sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < timedelta(hours=1))
 
 
