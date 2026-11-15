@@ -52,7 +52,7 @@ RULING = "ruling"
 PR_FORMS = "owner/repo#N, its URL, #N or its bare number"
 ID_FORMS = f"an order o<n>, a job j<n>, or a PR as {PR_FORMS}"
 UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
-WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
+WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
 CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
@@ -3925,7 +3925,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
         if not (WAITS_CARD.fullmatch(wait) and view.holds(data, wait, found)):
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
-                " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
+                " card or a PR card still waiting on his tap, whose waits id is merge:<n>[.<n>…]:<heads>, a PR of this drive as"
                 " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as tools/ci release live"
                 " names it, held until one cluster of that service, or that env, serves a commit holding the PR's merge, either one moving to the change"
                 " of the job that opened the PR once it closes unmerged, or a Buildkite build by its link,"
