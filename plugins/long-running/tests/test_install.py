@@ -809,11 +809,16 @@ def start_drive(name: str, **terminals: str | None) -> None:
     state.create(data)
 
 
-def running(*sessions: str, status: str = "idle", folder: str = "/work") -> None:
-    records = install.config_dir() / "sessions"
-    records.mkdir(exist_ok=True)
-    for pid, session in zip((os.getpid(), os.getppid(), 1), sessions, strict=False):
-        (records / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session, "cwd": folder, "status": status}))
+@pytest.fixture
+def running(live_sessions: dict[str, int | None]) -> Callable[..., None]:
+    def recorded(*sessions: str, status: str = "idle", folder: str = "/work") -> None:
+        records = install.config_dir() / "sessions"
+        records.mkdir(exist_ok=True)
+        for pid, session in zip((os.getpid(), os.getppid(), 1), sessions, strict=False):
+            (records / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session, "cwd": folder, "status": status}))
+            live_sessions[session] = pid
+
+    return recorded
 
 
 def handed(drive: str, terminal: str) -> str:
@@ -839,7 +844,7 @@ def stamps(drive: str) -> dict[str, str]:
 
 
 def test_an_install_hands_each_drive_session_to_one_process_that_types_reload_plugins_once_its_turn_ends(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]
 ) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
@@ -861,7 +866,7 @@ def test_an_install_hands_each_drive_session_to_one_process_that_types_reload_pl
     assert stamps("demo") == {"communicator": UPDATED, "coordinator": UPDATED}
 
 
-def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
     running("demo-communicator", "demo-coordinator")
@@ -874,7 +879,7 @@ def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_
     ]
 
 
-def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -889,7 +894,7 @@ def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Cal
 
 @pytest.mark.parametrize("status", ["busy", "waiting"])
 def test_the_process_holding_a_terminal_types_reload_plugins_only_once_claude_code_reads_its_turn_over(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, status: str
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator", status=status)
@@ -909,7 +914,7 @@ def test_the_process_holding_a_terminal_types_reload_plugins_only_once_claude_co
     assert sends(git, "term_comm") == [sent("term_comm")]
 
 
-def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_that_process(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_that_process(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -925,7 +930,7 @@ def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_th
     ]
 
 
-def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that_reload_shows(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that_reload_shows(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -952,7 +957,7 @@ def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that
 
 
 def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is_reloaded_once_the_holder_lets_go(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
@@ -983,7 +988,7 @@ def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is
     assert stamps("demo") == {"communicator": "2026-11-10T10:00:00.000Z"}
 
 
-def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it_is_typed_once(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it_is_typed_once(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -996,7 +1001,7 @@ def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it
     assert git.sleeps == [1, 1]
 
 
-def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -1023,7 +1028,7 @@ def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_a
     ids=["a terminal Orca cannot find", "a send Orca refuses"],
 )
 def test_a_send_orca_refuses_names_the_send_that_types_it_and_is_left_unstamped(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], reply: dict, why: str
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], reply: dict, why: str
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
@@ -1036,7 +1041,7 @@ def test_a_send_orca_refuses_names_the_send_that_types_it_and_is_left_unstamped(
     assert not (state.drive_dir("demo") / install.RELOADS).exists()
 
 
-def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -1062,7 +1067,7 @@ def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_un
 
 @pytest.mark.parametrize("incident", [False, True])
 def test_an_install_types_exit_into_a_session_cci_runs_outside_the_drives_checkout_once_registered_there_so_cci_resumes_it_there(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], incident: bool
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], incident: bool
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator", folder="/old/durable-agents")
@@ -1084,7 +1089,7 @@ def shown_in_orca(alias: str) -> list[str]:
 
 
 def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_exit_then_shown_in_the_orca_terminal_attaching_ccis_tmux_session(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator", folder="/old/durable-agents")
@@ -1102,7 +1107,7 @@ def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_ex
 
 
 def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_is_shown_by_the_attach_that_starts_its_tmux_session(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], tmux_shown: dict[str, str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator", folder="/old/durable-agents")
@@ -1118,7 +1123,7 @@ def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_i
 
 
 def test_a_session_already_in_the_drives_checkout_is_only_reloaded(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running("demo-communicator")
@@ -1131,7 +1136,7 @@ def test_a_session_already_in_the_drives_checkout_is_only_reloaded(
     assert registered == []
 
 
-def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_already_reloaded(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_already_reloaded(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
     (state.drive_dir("demo") / install.RELOADS).write_text(json.dumps({seat: {"onto": SEEDED_UPDATE, "at": state.stamp()} for seat in ("communicator", "coordinator")}))
@@ -1163,7 +1168,7 @@ def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
 
 
 def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_again(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]
 ) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
@@ -1182,7 +1187,7 @@ def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_agai
 
 
 def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each_session(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]
 ) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     with state.edit("demo") as data:
