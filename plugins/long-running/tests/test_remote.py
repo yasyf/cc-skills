@@ -5004,7 +5004,6 @@ def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_w
     for hours in (1, 24):
         watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(hours=hours))
     assert started == [["job", "reclaim", "j1", sprite]]
-    monkeypatch.delenv(state.DETACHED_ENV)
     monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
     assert run("job", "reclaim", "j1", sprite) == (0, f"destroyed {sprite}")
     assert not orca.holds_sprite(state.load(remote)["jobs"]["j1"])
