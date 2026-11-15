@@ -714,6 +714,26 @@ def test_a_pr_on_a_repository_no_hook_delivers_from_says_its_checks_passed_withi
     )
 
 
+def test_his_card_on_a_pr_no_hook_delivers_from_is_redrawn_in_the_pass_whose_read_turns_it_green(
+    demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver, redraws: Redraws
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    docs = "Forge-AI/design-docs#366"
+    url = state.pr_url(docs)
+    with state.edit(demo) as data:
+        data["prs"][docs] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": True}
+    reads = {KEY: read(), docs: read()}
+    serve(monkeypatch, reads)
+    receiving.unhooked.add("Forge-AI/design-docs")
+    receiving.unadministered.add("Forge-AI/design-docs")
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert (redraws.asked.count(url), his_card_row(demo, docs)["lands"]) == (0, "you approve and CI passes")
+    reads[docs] = read(checks=GREEN)
+    watch.run_pass(watching, T0 + timedelta(seconds=60))
+    assert (redraws.asked.count(url), redraws.rows[url]["lands"], redraws.rows[url]["blocks"]) == (1, "you approve", "")
+
+
 def test_a_receiver_that_does_not_answer_is_said_from_its_third_minute_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
     serve(monkeypatch, {})
     receiving.answering = False
