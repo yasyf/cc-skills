@@ -187,10 +187,8 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     done = "DONE every case of #42 passed on staging"
     with state.edit("demo") as data:
         state.take_result(data, "j2", done, f"{done}\nCHECK: https://buildkite.com/forge/release/builds/16303\nCASE a rollback refused: pass\n")
-    taken = state.load("demo")["prs"][drive_pr]
-    assert (taken["tap"], taken["fundamental"]) == (None, "its staging test passed after your Approve, so only an Approve you give now lands it: https://buildkite.com/forge/release/builds/16303")
-    approve(drive_pr)
     data = state.load("demo")
+    assert ((data["prs"][drive_pr]["tap"] or {}).get("label"), data["prs"][drive_pr]["fundamental"]) == ("Approve", None)
     assert (landing_guard.deny_reason(enqueue), land.held_landings(data, [drive_pr], view.NO_CARDS, {}), stage.waiting(data, drive_pr, view.NO_CARDS)) == (None, {}, None)
 
 

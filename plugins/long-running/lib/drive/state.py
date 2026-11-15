@@ -206,6 +206,7 @@ OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PRESENT_WITHIN = timedelta(minutes=15)
 PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
+TAKEN_BY_PASS = "its staging test passed after your Approve"
 STANDING_EVERY = timedelta(minutes=30)
 PART_CHARS = 80
 SHEBANG_BYTES = 512
@@ -694,6 +695,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "messages_kept_once": True,
         "reader_prs_handed": True,
         "stale_queued_dropped": True,
+        "staging_approves_restored": True,
     }
 
 
@@ -1003,7 +1005,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1080,6 +1082,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         hand_reader_prs(data)
     if not data.get("stale_queued_dropped"):
         drop_stale_queued(data)
+    if not data.get("staging_approves_restored"):
+        restore_staging_approves(name, data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1178,6 +1182,19 @@ def drop_stale_queued(data: dict) -> None:
     for job in data["jobs"].values():
         job["queued"] = []
     data["stale_queued_dropped"] = True
+
+
+def restore_staging_approves(name: str, data: dict) -> None:
+    """Give back each open PR the Approve an older install's keep_pass took back once its staging test passed, which left it no tap and a fundamental naming that pass: his newest tap on it, read once from the dashboard's tap and untapped events, when that tap is an Approve, so a pass keeps each Approve he gave before it on the PRs it already passed; marked so this runs once."""
+    taken = {key for key, pr in data["prs"].items() if pr["state"] == "open" and not pr["tap"] and (pr["fundamental"] or "").startswith(TAKEN_BY_PASS)}
+    newest: dict[str, dict] = {}
+    for event, _ in read_events(name):
+        if event["kind"] in ("tap", "untapped") and (key := f"{event['repo']}#{event['number']}") in taken:
+            newest[key] = event
+    for key, event in newest.items():
+        if event["kind"] == "tap" and event["label"] == "Approve":
+            data["prs"][key].update(tap=new_tap("Approve", event["head"], event["source"], event.get("action_ts"), event["at"]), fundamental=None)
+    data["staging_approves_restored"] = True
 
 
 def post_proofs(data: dict) -> None:
@@ -2670,7 +2687,7 @@ def part_testers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]
 
 
 def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
-    """Keep on each staging test part a builder or codex job holds the run of its cases the job's DONE reports for that part's PR, by part_run, beside the job as posted_by, replacing an older job's, and the first proof the run's CHECK: lines name as posted when the run is a full pass, by full_pass, so the PR waiting on that part lands while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it and taking back each Approve he gave before that, or that same second, on each open PR waiting on the part by job_waits, since he gave it before the test and a dangerous change merges only on a tap he gives once its test passed, by his ruling 27ea387, "merging or rleasing dangerous things should only be done wehn the human is present"; a DONE whose run is no full pass takes the part's proof back, and so does the next return other than DONE of the job whose run it holds, as take_result takes back an order's proof_by, but a DONE that ran no case of the part, naming none or each not exercised, as the watch's at a merge, drive job prove's and a job's following a release another job started are, leaves the part as it was, by keep_pass."""
+    """Keep on each staging test part a builder or codex job holds the run of its cases the job's DONE reports for that part's PR, by part_run, beside the job as posted_by, replacing an older job's, and the first proof the run's CHECK: lines name as posted when the run is a full pass, by full_pass, so the PR waiting on that part lands on each Approve he gave, before the test or after it, while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it; a DONE whose run is no full pass takes the part's proof back, and so does the next return other than DONE of the job whose run it holds, as take_result takes back an order's proof_by, but a DONE that ran no case of the part, naming none or each not exercised, as the watch's at a merge, drive job prove's and a job's following a release another job started are, leaves the part as it was, by keep_pass."""
     job = data["jobs"][job_id]
     if job["kind"] in CHANGE_KINDS:
         for order_id, part in staging_parts(data, job):
@@ -2678,7 +2695,7 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
 
 
 def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, report: str, moment: str) -> None:
-    """Keep or take back a staging test part's run on one return of a job testing it, kept at moment, as post_staging_proof says: a DONE running a case of the part keeps its cases and the job as posted_by, and its proof when they make a full pass, which, newly kept, is dated passed_at, when the job's first DONE carrying that proof was kept, so a WAITING between two DONEs of the same cases keeps the first's time, and takes back each Approve given before it or at that moment; any other return of the job whose run the part holds takes its proof back, and a DONE running none of its cases leaves it."""
+    """Keep or take back a staging test part's run on one return of a job testing it, kept at moment, as post_staging_proof says: a DONE running a case of the part keeps its cases and the job as posted_by, and its proof when they make a full pass, which, newly kept, is dated passed_at, when the job's first DONE carrying that proof was kept, so a WAITING between two DONEs of the same cases keeps the first's time; any other return of the job whose run the part holds takes its proof back, and a DONE running none of its cases leaves it."""
     held = data["orders"][order_id]["parts"][part]
     if not re.match(r"DONE\b", line):
         if held["posted_by"] == job_id:
@@ -2695,9 +2712,6 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
     if kept:
         return
     moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
-    for pr in data["prs"].values():
-        if pr["state"] == "open" and (tap := pr["tap"] or {}).get("label") == "Approve" and parse_time(tap["at"]) <= parse_time(moment) and f"{order_id}:{part}" in job_waits(data, pr):
-            pr.update(tap=None, fundamental=f"its staging test passed after your Approve, so only an Approve you give now lands it: {proof}", updated=moment)
     held.update(posted=proof, passed_at=moment)
 
 

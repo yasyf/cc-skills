@@ -4519,18 +4519,15 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
         passed = "DONE every staging case of #42 passed on its cut"
         state.take_result(data, "j4", passed, f"{passed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 release: pass\n")
     freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=60)) if line.startswith("FREE ")]
-    taken = state.load(demo)["prs"][KEY]
-    assert (freed, state.load(demo)["prs"][OTHER]["waits"], taken["tap"], taken["fundamental"], landers) == (
+    watch.run_pass(watching, T0 + timedelta(minutes=61))
+    kept = state.load(demo)["prs"]
+    assert (freed, kept[OTHER]["waits"], kept[KEY]["tap"]["at"], kept[KEY]["fundamental"], landers) == (
         [f"FREE {KEY} j1 o1: o2:staging test of #42 before it lands answered or done, nothing else holds it"],
         ["o2:staging test of #43 before it lands"],
+        state.stamp(T0),
         None,
-        "its staging test passed after your Approve, so only an Approve you give now lands it: https://buildkite.com/forge/release/builds/16164",
-        [],
+        [(KEY,)],
     )
-    with state.edit(demo) as data:
-        data["prs"][KEY].update(tap={"label": "Approve", "at": state.stamp(T0 + timedelta(minutes=61)), "head": "aaaaaaa111", "source": "slack", "picks": {}}, fundamental=None)
-    watch.run_pass(watching, T0 + timedelta(minutes=61))
-    assert landers == [(KEY,)]
 
 
 def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_undelivered_while_its_check_delivers_the_prs_staging_test_so_the_pr_lands_as_j1308s_did_not(
@@ -4556,17 +4553,14 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
     assert (builder["state"], builder["said"], builder["waits"]) == ("waiting", f"WAITING {state.pr_url(KEY)} to merge: {done}", [KEY])
     assert ([state.delivered(data, "o1", part) for part in (change, staging)], data["orders"]["o1"]["parts"][staging]["posted"]) == ([False, True], proof)
     freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
-    taken = state.load(demo)["prs"][KEY]
-    assert (freed, taken["tap"], taken["fundamental"], landers) == (
-        [f"FREE {KEY} j1 o1: o1:{staging} answered or done, nothing else holds it"],
-        None,
-        f"its staging test passed after your Approve, so only an Approve you give now lands it: {proof}",
-        [],
-    )
-    with state.edit(demo) as data:
-        data["prs"][KEY].update(tap={"label": "Approve", "at": state.stamp(T0 + timedelta(minutes=31)), "head": "aaaaaaa111", "source": "slack", "picks": {}}, fundamental=None)
     watch.run_pass(watching, T0 + timedelta(minutes=31))
-    assert landers == [(KEY,)]
+    kept = state.load(demo)["prs"][KEY]
+    assert (freed, kept["tap"]["at"], kept["fundamental"], landers) == (
+        [f"FREE {KEY} j1 o1: o1:{staging} answered or done, nothing else holds it"],
+        state.stamp(T0),
+        None,
+        [(KEY,)],
+    )
 
 
 def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun_naming_each_case_that_did_not_pass(demo: str) -> None:
