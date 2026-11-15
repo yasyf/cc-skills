@@ -116,6 +116,11 @@ CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go
 NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
 HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
 UNSURE = "message_limits: Jev is unsure of finding he is away, so the post goes out as written: if one is wrong, reword the post in place."
+UNROOMED = (
+    "refused: no Jev request of 10,000 characters holds these parts whole beside the post's 1,678 characters, largest first:"
+    ' record:716852 "716852" beside the 5 claims naming it, 12,936.'
+    " Name a grep, jq filter or line range of each in its claims, never a smaller `cci read` budget, then call say again."
+)
 
 
 def verdict(kind: str, note: str) -> dict[str, str]:
@@ -533,6 +538,15 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
         ): Block(pattern="Jev held back this post"),
+        Input(
+            tool=SAY,
+            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+            transcript=COMMUNICATOR_TURN,
+            commands={"python3 -I": json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": UNROOMED}, "judged": False})},
+        ): Block(pattern="largest first: record:716852"),
         Input(
             tool=SAY,
             tool_input={"text": ACK, "thread_ts": THREAD, "dry_run": True},

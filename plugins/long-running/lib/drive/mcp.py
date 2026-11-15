@@ -44,7 +44,10 @@ INSTRUCTIONS = (
     " posts it: a post Jev holds comes back unposted with Jev's reason, to fix and post again; when Jev cannot finish, a"
     " finding a count or a mark decides, the post's word count or his reading as away, still refuses, while each other"
     " finding only warns and the post goes out as written; on a handler's post Jev also checks each of its claims against the read it names, whole, and holds the post"
-    " for a claim that read does not back and a line about code, a number or a state that claims leaves out, a comment,"
+    " for a claim that read does not back, a claim saying only, every, no or never of a set whose read reads one member,"
+    " a sentence about code, a number or a state its claims do not hold word for word, and an answer under a card leaving"
+    " a term of the card's first line his question turns on unexplained, refusing before Jev reads it a post with a read,"
+    " beside the claims naming it, too long for any one of Jev's requests, naming its size, a comment,"
     " message, doc, PR body or earlier answer being a claim to test, never a source, and a record's or job report's line"
     " backing only what the read it shows measured; it posts exactly the words it is given and adds none."
     " The drive's verbs are tools too: heard, handler, which starts a handler as its own session, record for the"
@@ -99,9 +102,12 @@ CLAIMS = {
     },
     "description": (
         "On a handler's post, each line saying where code lives, what it does or why, or a number or state, beside the read"
-        " behind it, a claim standing on several reads listed once beside each. Jev checks each claim against its reads"
-        " together and holds the post for a claim they do not back, a read matching no call of yours, or such a line left"
-        " out; your account of your own act, his words quoted back and the drive's state a reference such as {pr:} or"
+        " behind it, the claims holding every word of each such sentence, one whose parts stand on several reads split into"
+        " the claims of its parts, each beside its own read. Jev checks each claim against its read, whole, and holds the"
+        " post for a claim it does not back, a read matching no call of yours, a claim saying only, every, no or never of a"
+        " set while its read reads one member, or a sentence of such a line the claims do not hold whole; say refuses a"
+        " post with a read too long for any one of Jev's requests beside the claims naming it, naming its size, so make that read"
+        " narrower; your account of your own act, his words quoted back and the drive's state a reference such as {pr:} or"
         " {card:} names need none"
     ),
 }

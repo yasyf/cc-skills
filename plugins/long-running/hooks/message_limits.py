@@ -315,7 +315,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
     """What `cc-slack check-post` finds in the exact words the post sends, judged by cc-slack's plain-words rule as a reply to each message of his it answers: those its asked names, word for word or by permalink, and his messages in its thread since the bot's last post there; an order or job id none of them used refuses unjudged, since no reading of his words makes it open anything; a post reporting on an incident keeps its alert's Slack message and Sentry or Datadog issue bare, so Slack unfurls them, as his incident rule asks; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him, and a line waiting on him with no card is judged by his card rule and told how a pick no card asks yet gets its card."""
     if not (text := tool_input.get("text") or ""):
         return []
-    asked = [*answered_words(tool_input.get("asked"), linked), *(message["text"] for message in unanswered(messages))]
+    asked = asked_words(tool_input, messages, linked)
     try:
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
@@ -376,6 +376,19 @@ def thread_messages(payload: dict, dm: str) -> list[dict]:
     return []
 
 
+def thread_card(payload: dict) -> dict | None:
+    """The card or post of the bot's that his DM thread the post goes to is under, by its first line, its headline or question, beside each message of his the post answers, as `asked_words` reads them, so a question of his a communicator's ack already followed still counts; none for a post at his DM root, outside his DM, under a message of his, or answering no message of his."""
+    try:
+        dm = slack.dm()
+        messages = thread_messages(payload, dm)
+        linked = linked_words(payload["tool_input"].get("asked"), dm)
+    except slack.SlackError:
+        return None
+    if not messages or not messages[0].get("from_bot") or not (asked := asked_words(payload["tool_input"], messages, linked)):
+        return None
+    return {"title": messages[0]["text"].partition("\n")[0], "asked": "\n".join(dict.fromkeys(word.strip() for word in asked))}
+
+
 def linked_words(asked: str | list[str] | None, dm: str) -> dict[str, dict]:
     """His messages asked names by permalink, each under the entry naming it, as `thread_words` keeps his words: a message in his DM with the app the bot did not write, read from Slack, so an answer posted outside the thread his message is in, such as a share he ordered to another person's group DM, quotes his order there; a link to any other message is no word of his."""
     found = {}
@@ -391,6 +404,11 @@ def linked_words(asked: str | list[str] | None, dm: str) -> dict[str, dict]:
 def answered_words(asked: str | list[str] | None, linked: dict[str, dict]) -> list[str]:
     """Each message of his asked names, word for word: an entry's own words, or the words of his message its permalink links."""
     return [linked[entry]["quote"] if entry in linked else entry for entry in slack.messages(asked or "")]
+
+
+def asked_words(tool_input: dict, messages: list[dict], linked: dict[str, dict]) -> list[str]:
+    """Each message of his a post answers: those its asked names, word for word or by permalink, and his messages in its thread since the bot's last post there."""
+    return [*answered_words(tool_input.get("asked"), linked), *(message["text"] for message in unanswered(messages))]
 
 
 def heard_him(drive: dict, messages: list[dict], linked: dict[str, dict]) -> None:
@@ -1093,12 +1111,12 @@ def called(item: str, read: str, source: str, calls: dict[str, str], given: dict
     } | ({} if first == item else {"given": first})
 
 
-def unroomed(unfit: list[tuple[str, int]]) -> agents.Unjudged:
-    """Why a handler's post waits for narrower reads: Jev weighs each claim against its read whole within settled.REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call", and these reads, each by its own call's size, largest first, leave no room for it; it refuses before say runs, as a post over its word count does, so no claim goes out unweighed."""
-    sizes = "; ".join(f"{read} is {chars:,} characters" for read, chars in unfit)
+def unroomed(post: int, parts: list[tuple[str, int]]) -> agents.Unjudged:
+    """Why a handler's post waits: Jev weighs each read whole beside the claims naming it, each sentence no claim holds whole and the card his question is under, each in a request of at most settled.REQUEST_CHARS beside the post's own words, by his words "jev should be getting like 10k chars at most for any call", and these parts take more alone, named with what the request holding each takes, largest first, so the handler narrows the read taking the room, such as a report's whole body, and keeps every true line; it refuses before say runs, as a post over its word count does, so no claim is weighed in part or read as unbacked for want of room."""
+    sizes = "; ".join(f"{named}, {chars:,}" for named, chars in parts)
     return agents.Unjudged(
-        f"refused: Jev weighs each claim against its read whole within {settled.REQUEST_CHARS:,} characters, and no room is left for {sizes}."
-        " Make a narrower read, a grep, a jq filter or a line range showing only the lines each claim needs, never a smaller `cci read` budget, which cuts a record's end unseen, name each in claims, keep every line of the post, and call say again."
+        f"refused: no Jev request of {settled.REQUEST_CHARS:,} characters holds these parts whole beside the post's {post:,} characters, largest first: {sizes}."
+        " Name a grep, jq filter or line range of each in its claims, never a smaller `cci read` budget, then call say again."
     )
 
 
@@ -1111,9 +1129,10 @@ def main() -> None:
         sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
-        judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
-        if unfit := judged and settled.unfit_reads(judged):
-            reason, heard, judged = unroomed(unfit), {}, {}
+        card = thread_card(payload | {"tool_input": sent}) if reads else None
+        judged = {"his_words": his_words(payload), "reads": reads, "post": sent} | ({"thread_card": card} if card else {}) if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
+        if judged and (unfit := settled.unfit(judged))[1]:
+            reason, heard, judged = unroomed(*unfit), {}, {}
     except Exception as error:
         if isinstance(error, state.NewerDrive) and install.rechecked(Path(__file__).name, payload):
             return

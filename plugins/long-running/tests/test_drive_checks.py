@@ -1,5 +1,3 @@
-import json
-
 import pytest
 from conftest import Jev
 
@@ -14,8 +12,11 @@ READ = {"id": "read:1", "read": "cloudrunner/inbox.go", "source": "a file", "quo
 FINDING = {"rule": "A line names each thing he could open with its link.", "found": '"the first PR" names something he could open with no link there'}
 
 
-def handled(text: str, reads: list[dict] | None = None) -> dict:
-    return {"post": {"text": text, "claims": [CLAIM]}, "reads": [READ] if reads is None else reads, "his_words": []}
+PASSES = {"verdict": "pass", "note": ""}
+
+
+def handled(text: str, reads: list[dict] | None = None, claims: list[dict] | None = None) -> dict:
+    return {"post": {"text": text, "claims": [CLAIM] if claims is None else claims}, "reads": [READ] if reads is None else reads, "his_words": []}
 
 
 def test_weighed_gives_jev_at_most_the_seconds_the_hook_has_left_and_a_refusal_the_refusal_seconds_at_most(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,7 +57,7 @@ def test_a_refusal_jev_gives_no_verdict_on_only_warns_so_the_call_goes_ahead(jev
     }
 
 
-def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_under_backs_and_stands_at_it_never_only_warning(jev: Jev) -> None:
+def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_output_and_holds_under_backs_and_stands_at_it_never_only_warning(jev: Jev) -> None:
     output = handled(CLAIM["claim"])
     held = settled.post_verdict(output)
     assert held == {
@@ -65,29 +66,78 @@ def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_unde
     }
     assert jev.asked[-1] == {
         "state": {
-            "post": {"text": CLAIM["claim"], "written": CLAIM["claim"], "sentences": [CLAIM["claim"]]},
+            "post": {"text": CLAIM["claim"], "written": CLAIM["claim"]},
             "claims": {"c1": {"claim": CLAIM["claim"], "read": "read:1"}},
-            "reads": {"read:1": {"call": CALL_READ, "lines": 1, "result": {"1": RESULT}}},
+            "reads": {"read:1": {"call": CALL_READ, "result": RESULT}},
         },
         "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1")},
     }
     jev.breaks("c1", "backed", settled.BACKS - 0.01)
     assert settled.post_verdict(output)["verdict"] == "hold"
     jev.breaks("c1", "backed", settled.BACKS)
-    assert settled.post_verdict(output) == {"verdict": "pass", "note": ""}
+    assert settled.post_verdict(output) == PASSES
 
 
-def test_a_claim_whose_read_matched_none_of_the_handlers_calls_holds_unasked_and_a_sentence_no_claim_covers_is_asked_as_a_fact(jev: Jev) -> None:
+def test_a_claim_whose_read_matched_none_of_the_handlers_calls_holds_unasked_and_a_sentence_no_claim_holds_whole_is_asked_as_a_fact(jev: Jev) -> None:
     unread = settled.post_verdict(handled(CLAIM["claim"], [READ | {"quote": 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'}]))
     assert unread["note"].startswith('Jev held back this post: claim "The cloud\'s inbox reader queries Postgres straight." names the read "read:1", which matches none of your calls')
     assert jev.asked == []
     text = f"{CLAIM['claim']} The fix ships tonight."
     jev.picks("backed", 0.9)
-    assert settled.post_verdict(handled(text)) == {"verdict": "pass", "note": ""}
+    assert settled.post_verdict(handled(text)) == PASSES
     assert list(jev.asked[-1]["questions"]) == ["c1.backed", "s1.fact"]
+    assert jev.asked[-1]["state"]["post"]["sentences"] == {"1": "The fix ships tonight."}
     jev.picks("fact", 0.9)
     jev.breaks("c1", "backed", 0.9)
-    assert '"The fix ships tonight." states a fact no claim names: name the read behind it in claims' in settled.post_verdict(handled(text))["note"]
+    assert '"The fix ships tonight." states a fact no claim holds whole: pass that sentence, or each part of it, as claims beside the read behind each' in settled.post_verdict(handled(text))["note"]
+
+
+def test_a_sentence_one_claim_holds_in_part_is_asked_as_a_fact_until_the_claims_of_its_parts_hold_it_whole_links_and_drive_references_aside(jev: Jev) -> None:
+    sentence = "The cloud's inbox reader queries Postgres straight, and the pod reads the bucket {pr:7}."
+    jev.picks("backed", 0.9)
+    settled.post_verdict(handled(sentence))
+    assert list(jev.asked[-1]["questions"]) == ["c1.backed", "s0.fact"]
+    parts = [CLAIM, {"claim": "and the pod reads the bucket", "read": "read:1"}]
+    settled.post_verdict(handled(sentence, claims=parts))
+    assert list(jev.asked[-1]["questions"]) == ["c1.backed", "c2.backed"]
+
+
+def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_read_reads_one_member_and_holds_at_yes(jev: Jev) -> None:
+    only = {"claim": "Only the cloud's inbox reader queries Postgres straight.", "read": "read:1"}
+    output = handled(only["claim"], claims=[only])
+    jev.picks("backed", 0.9)
+    assert settled.post_verdict(output) == PASSES
+    assert jev.asked[-1]["questions"] == {
+        "c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1"),
+        "c1.spans": settled.asking(settled.SPANS, read="read:1", claim="c1"),
+    }
+    jev.breaks("c1", "spans", settled.YES)
+    assert settled.post_verdict(output) == {
+        "verdict": "hold",
+        "note": f'Jev held back this post: claim "{only["claim"]}" speaks for a whole set while its read reads one member of it: name a read that finds every member, such as a grep across the code, or cut the claim to the member it reads. So fix each, then call say again.',
+    }
+    jev.breaks("c1", "spans", 0.5)
+    assert settled.post_verdict(output) == {
+        "verdict": "warn",
+        "note": f'message_limits: Jev is unsure of claim "{only["claim"]}" speaking for more of a set than its read reads, so the post goes out as written: if one is wrong, reword the post in place.',
+    }
+    settled.post_verdict(handled(CLAIM["claim"]))
+    assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
+
+
+def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_first_line_unexplained_and_holds_at_yes(jev: Jev) -> None:
+    card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
+    output = handled(CLAIM["claim"]) | {"thread_card": card}
+    jev.picks("backed", 0.9)
+    assert settled.post_verdict(output) == PASSES
+    assert (jev.asked[-1]["state"]["card"], jev.asked[-1]["questions"]["card"]) == (card, settled.CARD)
+    jev.breaks("card", "", 0.9)
+    assert settled.post_verdict(output) == {
+        "verdict": "hold",
+        "note": f'Jev held back this post: it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: say in a clause what each term of it your answer needs is and why the change needs it. So fix each, then call say again.',
+    }
+    settled.post_verdict(handled(CLAIM["claim"]))
+    assert "card" not in jev.asked[-1]["questions"]
 
 
 def test_jev_reads_the_typed_words_beside_slacks_and_asks_no_fact_of_a_sentence_that_is_a_reference_alone(jev: Jev) -> None:
@@ -96,7 +146,7 @@ def test_jev_reads_the_typed_words_beside_slacks_and_asks_no_fact_of_a_sentence_
     post = {"text": f"{CLAIM['claim']}\n{drawn}", "written": f"{CLAIM['claim']}\n{card}", "claims": [CLAIM]}
     jev.picks("backed", 0.9)
     assert settled.post_verdict({"post": post, "reads": [READ], "his_words": []}) == {"verdict": "pass", "note": ""}
-    assert jev.asked[-1]["state"]["post"] == {"text": post["text"], "written": post["written"], "sentences": [CLAIM["claim"]]}
+    assert jev.asked[-1]["state"]["post"] == {"text": post["text"], "written": post["written"]}
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
@@ -128,33 +178,43 @@ def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"].startswith("message_limits: Jev gave no verdict (no jev decision within 20s) on whether each claim of this post stands")
 
 
-def test_a_long_read_reaches_jev_by_the_lines_its_claim_cites_most_first_in_line_order_and_only_a_call_with_no_room_refuses(jev: Jev) -> None:
+def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_two_and_a_read_no_request_holds_is_named_by_its_size(jev: Jev) -> None:
     query = "400  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"
-    whole = "\n".join([*(f"{line}  ok := cache.Hit(key)" for line in range(1, 400)), query])
-    output = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{whole}"}])
-    assert len(whole) > settled.REQUEST_CHARS
-    assert settled.unfit_reads(output) == []
+
+    def lines(count: int) -> str:
+        return "\n".join([*(f"{line}  ok := cache.Hit(key)" for line in range(1, count)), query])
+
+    output = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{lines(250)}"}])
+    assert settled.unfit(output)[1] == []
     jev.picks("backed", 0.9)
-    assert settled.post_verdict(output) == {"verdict": "pass", "note": ""}
-    request = jev.asked[-1]
-    read = request["state"]["reads"]["read:1"]
-    assert (read["lines"], read["result"]["400"]) == (400, query)
-    assert list(read["result"]) == sorted(read["result"], key=int)
-    assert 1 < len(read["result"]) < 400
-    assert settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS
-    call = f'ccx_code_read {{"path": "{"cloudrunner/" * 1000}inbox.go"}}'
-    own = len(json.dumps({"state": {"reads": {"read:1": {"call": call, "lines": 1, "result": {}}}}, "questions": {}}, ensure_ascii=False))
-    assert settled.unfit_reads(handled(CLAIM["claim"], [READ | {"quote": f"{call}\n{RESULT}"}])) == [('read:1 "cloudrunner/inbox.go"', own)]
+    assert settled.post_verdict(output) == PASSES
+    [request] = jev.asked
+    assert request["state"]["reads"]["read:1"]["result"] == lines(250)
+    card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
+    filled = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{lines(330)}"}]) | {"thread_card": card}
+    assert settled.unfit(filled)[1] == []
+    jev.asked.clear()
+    assert settled.post_verdict(filled) == PASSES
+    assert sorted(list(request["questions"]) for request in jev.asked) == [["c1.backed"], ["card"]]
+    assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in jev.asked)
+    post, parts = settled.unfit(handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{lines(500)}"}]))
+    assert (post, [label for label, _ in parts]) == (settled.size({"post": {"text": CLAIM["claim"], "written": CLAIM["claim"]}}, {}), ['read:1 "cloudrunner/inbox.go" beside the claim naming it'])
+    assert parts[0][1] > settled.REQUEST_CHARS
 
 
-def test_each_claim_on_one_long_read_gets_its_best_line_before_another_claims_lines_sharing_only_common_words(jev: Jev) -> None:
-    rows = [f"- j{job} reader done: its report is on the drive and waits on nothing" for job in range(1000, 1200)]
-    building = "- j4479 builder running: build state.delivered in plugins/long-running"
-    claims = [{"claim": "j1000 is done and waits on nothing", "read": "record:711222"}, {"claim": "j4479 builds state.delivered", "read": "record:711222"}]
-    quiet = {"id": "record:711222", "read": "711222", "source": "the report this post carries", "quote": "cci show 711222\n" + "\n".join([*rows, building])}
-    output = {"post": {"text": "j1000 is done; j4479 builds state.delivered.", "claims": claims}, "reads": [quiet], "his_words": []}
+def test_a_reports_whole_body_beside_a_narrow_read_reaches_jev_whole_in_a_request_of_its_own_and_only_a_body_no_request_holds_is_named(jev: Jev) -> None:
+    def body(count: int) -> str:
+        return "\n".join(f"716852 line {line}: the five old-design builders stopped" for line in range(1, count))
+
+    wide = {"id": "record:716852", "read": "716852", "source": "the report it carries", "quote": f"cci show 716852\n{body(100)}"}
+    narrow = READ | {"id": "read:2", "quote": f"{CALL_READ}\n" + "\n".join(f"{line}  ok := cache.Hit(key)" for line in range(1, 200))}
+    claims = [*({"claim": f"builder {n} stopped", "read": "record:716852"} for n in range(5)), {"claim": CLAIM["claim"], "read": "read:2"}]
+    text = " ".join(claim["claim"] + "." for claim in claims)
+    output = handled(text, [wide, narrow], claims)
+    assert settled.unfit(output)[1] == []
     jev.picks("backed", 0.9)
-    assert settled.post_verdict(output) == {"verdict": "pass", "note": ""}
-    request = jev.asked[-1]
-    assert request["state"]["reads"]["record:711222"]["result"][str(len(rows) + 1)] == building
-    assert settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS
+    assert settled.post_verdict(output) == PASSES
+    assert sorted(sorted(request["state"]["reads"]) for request in jev.asked) == [["read:2"], ["record:716852"]]
+    assert next(request["state"]["reads"]["record:716852"]["result"] for request in jev.asked if "record:716852" in request["state"]["reads"]) == body(100)
+    longer = wide | {"quote": f"cci show 716852\n{body(220)}"}
+    assert [label for label, _ in settled.unfit(handled(text, [longer, narrow], claims))[1]] == ['record:716852 "716852" beside the 5 claims naming it']
