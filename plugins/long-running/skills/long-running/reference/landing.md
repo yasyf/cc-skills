@@ -324,7 +324,9 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
 - he is present, his word or tap within the last 15 minutes, when it changes what the root `AGENTS.md` calls dangerous:
   a migration, a backfill, a delete of user data, SandSQL, a Sand builtin, the parser, checker, compiler or VM,
-  `runtime-api` or `common/src/iris/appShell`, outside tests. The lander reads its files only while he is away, records
+  `runtime-api` or `common/src/iris/appShell`, outside tests, or any change with a `staging test of #N before it lands`
+  part, which a builder's `STAGING:` line gives only a change it read as dangerous, an infra or blue-green one
+  included, whose passed test lands nothing while he is away. The lander reads its files only while he is away, records
   `not landed while he is away` and lands it at his next word, his Approve standing. A unit Trunk queued before he went
   quiet leaves the queue the same way, since the watch's next pass dequeues it as any other stop does; the `landing_guard` hook refuses a
   hand merge meanwhile, an incident's fix included, by his words "merging or rleasing dangerous things should only be
@@ -636,7 +638,9 @@ the patch.
   release resume`, `approve` and `rollback`, and a `tools/ci bk rerun release` or `tools/ci bk api`
   write to a release cut, a forge/release build whose env holds `RELEASE_START`, or creating one. A
   cluster job's build, such as a team's memory move from `tools/ci cluster-job`, is no release, so
-  any drive session opens its gate on no exception. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
+  any drive session opens its gate on no exception, but only while he is present on a production
+  cluster: while he is away the hook refuses starting, unblocking or rerunning a Job on any cluster
+  but `plat-usw2-staging` or `plat-usw2-sandbox`, a Sprite lane asking with `drive job held --cluster`. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes
   nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
   with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
   `drive job launch` keeps in `~/.codex/hooks.json`.

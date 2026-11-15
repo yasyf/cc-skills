@@ -157,9 +157,10 @@ COORDINATOR_RULES = (
     REACHING,
     (
         "Nothing dangerous lands or releases while he is away, his last word or tap over 15 minutes old: the lander holds a"
-        " Forge-AI merge changing what the root AGENTS.md calls dangerous until his next word, and the release gates"
+        " Forge-AI merge changing what the root AGENTS.md calls dangerous, or one with a staging test, passed or not, until his next word, and the release gates"
         " and the landing_guard hook refuse a production start, resume or approve but an incident's hotfix of PRs changing"
-        " nothing dangerous; a rollback runs whenever it is prudent. A production failure meanwhile pages him: the watch pages"
+        " nothing dangerous, and a Job on a production cluster by tools/ci cluster-job, its gate's unblock or its rerun, a repair"
+        " included; a rollback runs whenever it is prudent. A production failure meanwhile pages him: the watch pages"
         " once for each incident opened since he was last heard, and drive page-owner \"<why>\" pages for one no incident"
         " holds yet, never for news or a question."
     ),

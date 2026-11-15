@@ -112,6 +112,7 @@ RELEASE_PIPELINE = "release"
 RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
 RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
 RELEASE_START_ENV = "RELEASE_START"
+CLUSTER_JOB_ENV = "CLUSTER_JOB"
 HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
@@ -119,6 +120,14 @@ HOLD_UNREAD = (
 CUT_UNREAD = (
     "Refused on purpose: whether this forge/release build is a release cut, one whose env holds RELEASE_START, could not be"
     " read, so `{command}` waits until it can: {error}. Run it again once Buildkite answers"
+)
+JOB_UNREAD = (
+    "Refused on purpose: which cluster this forge/release build starts a Job on, its env's CLUSTER_JOB, could not be read, so `{command}`"
+    " waits until it can: {error}. Run it again once Buildkite answers"
+)
+JOB_UNASKED = (
+    "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held --cluster`"
+    " whether a Job may start on {cluster} now, and the Mac did not say: {error}. Run it again once it answers"
 )
 RELEASE_CANCEL = (
     "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
@@ -508,6 +517,40 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
 
+def job_reason(words: list[str], shell: Shell) -> str | None:
+    """Why a drive session, an agent it started or a Sprite lane may not start a Job from a suspended CronJob now, by brief.away_job_refusal, which a Sprite lane asks the coordinator's Mac with `drive job held --cluster`, and a codex job's run reads in the drive its environment names."""
+    try:
+        cluster = job_cluster(words)
+    except github.GithubError as error:
+        return JOB_UNREAD.format(command=" ".join(words), error=error)
+    if cluster is None:
+        return None
+    if os.environ.get(state.REMOTE_LANE_ENV):
+        try:
+            return land.lane_held(f"--cluster={cluster}")["cluster"]
+        except state.DriveError as error:
+            return JOB_UNASKED.format(cluster=cluster, error=error)
+    if not (drives := [os.environ[state.DRIVE_ENV]] if os.environ.get(state.OWN_JOB_ENV) else state.session_drives(shell.session)):
+        return None
+    return brief.away_job_refusal(cluster, state.load(drives[0]), state.now())
+
+
+def job_cluster(words: list[str]) -> str | None:
+    """The release env a command starts a Job on from a suspended CronJob: the --cluster of a `ci cluster-job` start, never the `run` inside the build it starts, or the cluster a forge/release build's env names in CLUSTER_JOB when a `ci bk rerun` or `ci bk api` write names that build."""
+    if Path(words[0]).name not in brief.CI_BINARIES:
+        return None
+    if words[1:2] == ["cluster-job"]:
+        cluster, rest = None, iter(words[2:])
+        for word in rest:
+            flag, given, value = word.partition("=")
+            if flag == "--cluster":
+                cluster = value if given else next(rest, "")
+        return cluster
+    if not (write := release_write(words)) or write[0] == "cancel" or not (write[1] or "").isdigit():
+        return None
+    return json.loads(github.build(RELEASE_BUILDKITE, write[1])["env"].get(CLUSTER_JOB_ENV) or "{}").get("cluster")
+
+
 def release_of(words: list[str], briefed: str) -> str:
     """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the verb's own words."""
     return next(reversed(brief.RELEASE.findall(briefed)), " ".join(words))
@@ -519,8 +562,15 @@ def release_verb(words: list[str]) -> str | None:
         return None
     if words[1:2] == ["release"]:
         return next(iter(words[2:3]), None)
+    if (write := release_write(words)) is None:
+        return None
+    return write[0] if release_cut(write[1]) else None
+
+
+def release_write(words: list[str]) -> tuple[str, str | None] | None:
+    """The verb and build number of a `ci bk rerun` or `cancel` of a forge/release build, or `api` with the build a `ci bk api` write to forge/release builds names, None when it names none, as when it creates one."""
     if words[1:2] == ["bk"] and words[2:3] in (["rerun"], ["cancel"]) and words[3:4] == [RELEASE_PIPELINE]:
-        return words[2] if release_cut(next(iter(words[4:5]), None)) else None
+        return words[2], next(iter(words[4:5]), None)
     if words[1:3] != ["bk", "api"] or not (named := next(filter(None, map(RELEASE_BUILDS.search, words[3:])), None)):
         return None
     method, rest = "GET", iter(words[3:])
@@ -528,7 +578,7 @@ def release_verb(words: list[str]) -> str | None:
         flag, given, value = word.partition("=")
         if flag in ("-X", "--X"):
             method = value if given else next(rest, "")
-    return "api" if method.upper() != "GET" and release_cut(named[1]) else None
+    return ("api", named[1]) if method.upper() != "GET" else None
 
 
 def release_cut(number: str | None) -> bool:
@@ -587,7 +637,7 @@ def loop_end(groups: list[list[str]], start: int) -> int:
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in) for _, words, run_in in commands(script, shell))
+    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
     return next(filter(None, reasons), None)
 
 
@@ -748,7 +798,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, starts a Job on a production cluster while he is not present, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

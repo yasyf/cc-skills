@@ -205,7 +205,10 @@ and waits ids, record seqs), never a technical name.
      `tools/ci cluster-job --cluster <release env> --cronjob <name> --reason "<why>"`, never
      `drive break-glass` from this Mac, by his words "4, it is never ok to write from local or not
      use a service agent or any things like this". With no service account that can make it, return
-     `BLOCKED` naming the repair and the grant it needs.
+     `BLOCKED` naming the repair and the grant it needs. While he is away, his last word or tap over
+     15 minutes old, the `landing_guard` hook refuses that start on any cluster but staging or
+     sandbox, and the unblock or rerun of the build it starts, a repair included: return
+     `WAITING his word` with the Job unstarted, since the watch pages him for an open incident.
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
