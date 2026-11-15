@@ -53,9 +53,9 @@ def communicator_call(payload: dict) -> agents.Unjudged:
         return agents.Unjudged(f"Refused on purpose: {render.EYES} Go on with the ack.")
     if name in POSTS:
         return agents.Unjudged(
-            f"Refused on purpose: {name} holds the post until cc-slack's Slack permission check and Jev"
-            " have read it, seconds past the 5 to 10 his ack has. Post the ack with say(thread_ts=<his thread>, text=<the ack>),"
-            " which posts at once and has Jev read it afterwards, and reword a post of yours with say(edit=<its permalink>, text=…)."
+            f"Refused on purpose: {name} holds the post until cc-slack's Slack permission check has read it,"
+            " seconds past the 5 to 10 his ack has. Post the ack with say(thread_ts=<his thread>, text=<the ack>),"
+            " which Jev reads in about 0.2 s before it posts, and reword a post of yours with say(edit=<its permalink>, text=…)."
         )
     return agents.Unjudged(
         f"Refused on purpose: the communicator does not run {name} itself, since work in its turn holds his"
