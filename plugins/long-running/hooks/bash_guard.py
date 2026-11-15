@@ -92,6 +92,7 @@ PARSE_ONLY = re.compile(r"-[A-Za-z]*n[A-Za-z]*")
 XARGS_INPUT = "$(xargs)"
 XARGS_REPLACE = re.compile(r"(?:-I|-i|--replace=)(?P<string>.*)|--replace")
 FOLLOWED_DEPTH = 4
+FIRST_LINE_LIMIT = 512
 SCRIPT_FOLDER = re.compile(r'\$\(cd "\$\(dirname "(?:\$0|\$\{BASH_SOURCE\[0\]\})"\)([^"]*)" && pwd\)')
 JSON_FIELD = re.compile(r"\$\(jq -r '?((?:\.\w+)+)'? (\S+)\)")
 TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
@@ -573,7 +574,7 @@ def past_options(words: list[str], valued: set[str]) -> list[str]:
 
 
 def script_file(words: list[str], place: Place) -> tuple[Path, list[str] | None] | None:
-    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script, with the arguments it runs it with, a `source` given none keeping its caller's; None when it runs none, as a shell given `-n` only parses its script, it is not on disk or was read on the way here."""
+    """The shell script file a command runs, by a shell, `source` or its own path, found from the folder it runs in or, inside a script, beside that script, with the arguments it runs it with, a `source` given none keeping its caller's; None when it runs none, as a shell given `-n` only parses its script, a file started by its path is no shell script, it is not on disk or was read on the way here."""
     name = Path(words[0]).name
     if name in SHELLS:
         operands = past_options(words[1:], {"-o"})
@@ -586,15 +587,18 @@ def script_file(words: list[str], place: Place) -> tuple[Path, list[str] | None]
         return None
     beside = place.script and place.script.parent / Path(given[0]).name
     found = next((candidate for candidate in (place.at(given[0]), beside) if candidate and os.path.isfile(candidate)), None)
-    if found is None or found in place.seen or (name not in SHELLS | SOURCES and not shell_shebang(found)):
+    if found is None or found in place.seen or (name not in SHELLS | SOURCES and not shell_script(found)):
         return None
     return found, place.args if name in SOURCES and not given[1:] else given[1:]
 
 
-def shell_shebang(path: Path) -> bool:
-    with path.open(errors="replace") as file:
-        first = file.readline()
-    return first.startswith("#!") and any(Path(word).name in SHELLS for word in first[2:].split())
+def shell_script(path: Path) -> bool:
+    """Whether a file started by its path runs as a shell script: its `#!` line names a shell, or it has no `#!` line and its first line holds no NUL byte, so zsh and bash take it for text and run it through `/bin/sh`."""
+    with path.open("rb") as file:
+        first = file.readline(FIRST_LINE_LIMIT)
+    if first.startswith(b"#!"):
+        return any(Path(word).name in SHELLS for word in first[2:].decode(errors="replace").split())
+    return b"\0" not in first
 
 
 def bucket_locations(words: list[str]) -> list[str]:

@@ -542,6 +542,7 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
         "AWS_PROFILE=plat-prod aws s3 sync s3://frg-plat-usw2-prod-sandsql-replication/wal/team_1/ .": "frg-plat-usw2-prod-sandsql-replication/wal/team_1/",
         "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com/iris/teams/t/runs/blobs/x",
         "aws s3 cp s3://forge-globex-artifact-bucket/iris/teams/t/x -": "forge-globex-artifact-bucket/iris/teams/t/x",
+        "for b in frg-ci-cache frg-plat-usw2-prod-sandsql-replication; do aws s3 ls s3://$b/wal/; done": "frg-plat-usw2-prod-sandsql-replication/wal/",
         'B=artifacts-prod; for d in a b; do aws s3 cp "s3://$B/iris/teams/t/runs/blobs/$d" .; done': "artifacts-prod/iris/teams/t/runs/blobs/a",
         "rclone copy r2:artifacts-prod/iris/teams/t/runs/ ./runs --transfers 32": "artifacts-prod/iris/teams/t/runs/",
         "gsutil -m cp gs://customer-bucket/iris/teams/t/x .": "customer-bucket/iris/teams/t/x",
@@ -565,6 +566,7 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
         "AWS_PROFILE=plat-prod aws s3 cp ./ci-linux.gz s3://frg-plat-usw2-prod-microvm-artifacts/pass-box/j2386-oom/ci-linux.gz",
         "aws s3 ls",
         "aws s3api get-bucket-notification-configuration --bucket $B",
+        "for b in frg-ci-cache frg-core-usw2-root-pulumi-state; do aws s3 ls s3://$b/; done",
         "AWS_PROFILE=plat-prod tools/ci pass-box launch --purpose j2386-oom --type r7i.4xlarge --delete-after 2026-11-14",
         "AWS_PROFILE=plat-prod aws ssm send-command --region us-west-2 --instance-ids i-0abc --document-name AWS-RunShellScript"
         ' --parameters \'commands=["eval \\"$(./ci runs-reader grant --team t)\\"","aws s3 cp s3://artifacts-prod/iris/teams/t/runs/blobs/x ."]\'',
@@ -687,6 +689,8 @@ SANDSQL_STEPS = {
     "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- kubectl -n sandsql-system get secret ssql-blobstore-config -o yaml": ("kubectl get secret", "sandsql-system"),
     "drive break-glass j1 --stack sandsql/plat-usw2-staging --reason x -- kubectl -n sandsql exec sandsql-primary-0 -- sandsql-cli exec 'DELETE FROM files'": ("kubectl exec", "sandsql"),
     "kubectl --context staging --namespace=sandsql-inbox cp ./rows.sql sandsql-primary-0:/tmp/rows.sql": ("kubectl cp", "sandsql-inbox"),
+    "for ns in forge sandsql-system; do kubectl --context plat-usw2-staging -n $ns port-forward svc/sandsql-replica 17791:7690; done": ("kubectl port-forward", "sandsql-system"),
+    "kubectl --context plat-usw2-staging -nsandsql port-forward svc/sandsql-replica 17791:7690": ("kubectl port-forward", "sandsql"),
 }
 
 
@@ -712,6 +716,7 @@ def test_a_drive_job_writes_or_deletes_no_teams_data_where_it_runs_and_reaches_n
         "kubectl -n sandsql logs sandsql-primary-0 --tail 50",
         "kubectl -n forge exec api-0 -- env",
         "kubectl -n sandsql-system describe configmap ssql-blobstore",
+        "for ns in forge default; do kubectl -n $ns port-forward svc/api 8080:80; done",
         "aws s3api get-bucket-notification-configuration --bucket artifacts-prod",
         "AWS_PROFILE=plat-prod tools/ci pass-box run --purpose j3060 job.sh",
         "tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-repair --reason 'repair the stuck rows'",
@@ -796,6 +801,41 @@ def test_a_namespace_or_kind_the_guard_reads_as_another_passes() -> None:
         "kubectl -n sandsql logs sandsql-primary-0 | xargs echo",
     ]
     assert [bash_guard.team_data(command, "/work") for command in passed] == [None] * len(passed)
+
+
+STAGING_CASES = (
+    "#!/usr/bin/env zsh\nset -u\nctx=plat-usw2-staging\nout=${0:A:h}/staging-pass\nmkdir -p $out\n"
+    "for ns in sandsql sandsql-system sandsql-inbox; do\n  kubectl --context $ctx -n $ns get pods -o json > $out/pods-$ns.json\n"
+    "  python3 - \"$ns\" \"$out/pods-$ns.json\" <<'EOF'\nimport json, sys\nprint(len(json.load(open(sys.argv[2]))[\"items\"]))\nEOF\ndone\n"
+    "port=17790\nfor ns in sandsql sandsql-system sandsql-inbox; do\n  for svc in sandsql-replica sandsql-primary; do\n    port=$((port + 1))\n"
+    "    kubectl --context $ctx -n $ns port-forward svc/$svc $port:7690 > $out/pf-$ns-$svc.log 2>&1 &\n    pf=$!\n"
+    "    for _ in 1 2 3 4 5; do\n      curl -s -o /dev/null --max-time 2 http://127.0.0.1:$port/ 2>/dev/null && break\n      sleep 1\n    done\n"
+    "    for route in /v1/db/x/duck /v1/db/x/query; do\n      code=$(curl -s -o $out/body-$ns-$svc-${route:t}.txt -w '%{http_code}' -X POST http://127.0.0.1:$port$route)\n    done\n"
+    "    kill $pf 2>/dev/null\n  done\ndone\n"
+)
+
+
+def test_j156s_scripts_started_by_their_path_are_read_as_zsh_runs_them_each_loop_word_bound_and_a_file_with_no_shebang_read_as_sh(demo: str, tmp_path: Path) -> None:
+    """j156's staging-cases.sh, whose six port-forwards into staging's SandSQL namespaces named each namespace by its `for ns` loop's variable, and a file with no #! line, which zsh runs through /bin/sh."""
+    scripts = tmp_path / "bin"
+    scripts.mkdir()
+    (scripts / "staging-cases.sh").write_text(STAGING_CASES)
+    (scripts / "other-cases.sh").write_text(STAGING_CASES.replace("sandsql sandsql-system sandsql-inbox", "forge default"))
+    (scripts / "forward").write_text("kubectl --context plat-usw2-staging -n sandsql-inbox port-forward svc/sandsql-replica 17791:7690\n")
+    (scripts / "forward-binary").write_bytes(b"\xcf\xfa\xed\xfe\x07\x00\x00\x01\nkubectl -n sandsql port-forward svc/sandsql-replica 17791:7690\n")
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder", "cwd": str(tmp_path)}
+    refused = {
+        f"{scripts}/staging-cases.sh > {tmp_path}/staging-pass.txt 2>&1; grep -c 'ready=True' {tmp_path}/staging-pass.txt": "sandsql",
+        f"chmod +x {scripts}/forward && {scripts}/forward": "sandsql-inbox",
+        "bin/forward": "sandsql-inbox",
+    }
+    for command, namespace in refused.items():
+        reason = bash_guard.deny_reason(bash(command, **builder))
+        assert reason.startswith(f"refused: `kubectl port-forward` in the `{namespace}` namespace opens a team's SandSQL databases"), command
+    reached = [words for words in bash_guard.reached(f"{scripts}/staging-cases.sh", bash_guard.Place(tmp_path)) if "port-forward" in words]
+    assert [(words[4], words[6]) for words in reached] == [(ns, f"svc/{svc}") for ns in ("sandsql", "sandsql-system", "sandsql-inbox") for svc in ("sandsql-replica", "sandsql-primary")]
+    passed = [f"{scripts}/other-cases.sh", f"{scripts}/forward-binary", "zsh -n bin/forward"]
+    assert [bash_guard.deny_reason(bash(command, **builder)) for command in passed] == [None] * len(passed)
 
 
 def test_a_refused_team_data_call_blocks_outright_since_jev_never_weighs_it(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
