@@ -9943,31 +9943,18 @@ def another_order_asking(run: Run, monkeypatch: pytest.MonkeyPatch) -> list[tupl
     return settled
 
 
-@pytest.mark.parametrize(("probability", "held"), [(0.9, True), (0.5, True), (0.2, False)])
-def test_an_answer_holds_each_open_card_of_any_job_or_order_jev_reads_it_as_changing_at_yes_or_in_the_band_read_against_all_of_them_in_one_request(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev, probability: float, held: bool
+@pytest.mark.parametrize("named", [False, True])
+def test_an_answer_lists_a_card_of_another_job_and_order_only_when_his_words_name_it_and_asks_jev_nothing(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev, named: bool
 ) -> None:
     another_order_asking(run, monkeypatch)
-    jev.changes = {"j3-9": probability}
-    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
-    assert (f"  demo:j3-9  question  j3 o2  {LAYOUT}  {LAYOUT_CARD}" in capsys.readouterr().err) is held
-    [read] = [request for request in jev.asked if any(key.startswith("changes.") for key in request["questions"])]
-    assert (read["state"]["answer"]["said"], read["state"]["open"]) == (
-        WORDS,
-        {"j2-7": {"asked": "Which topology?", "options": ["Tree", "Ring"]}, "j3-9": {"asked": LAYOUT, "options": ["One snapshot file", "A map file beside each"]}},
-    )
-    assert read["questions"] == {f"changes.{short}": settled.asking(settled.CHANGES, slot=short) for short in ("j2-7", "j3-9")}
-
-
-def test_an_answer_is_read_against_open_cards_filled_whole_into_one_request_of_at_most_ten_thousand_characters_those_sharing_its_rare_words_first(jev: Jev) -> None:
-    asked = {f"demo:j{number}-1": {"kind": "question", "title": f"Which store does part {number} use?", "options": ["Bucket", "Disk"]} for number in range(1, 274)}
-    asked["demo:j200-1"]["title"] = "Which store holds every bucket for part 200 everywhere?"
-    jev.changes = {"j7-1": 0.5, "j200-1": 0.9, "j273-1": 0.9}
-    assert settled.changed("Which store?", "Bucket everywhere", asked) == {"demo:j7-1", "demo:j200-1"}
-    [read] = [request for request in jev.asked if any(key.startswith("changes.") for key in request["questions"])]
-    shown = list(read["state"]["open"])
-    assert (shown[0], "j7-1" in shown, "j273-1" in shown, list(read["questions"]) == [f"changes.{short}" for short in shown]) == ("j200-1", True, False, True)
-    assert (settled.size(read["state"], read["questions"]) <= settled.REQUEST_CHARS, len(shown) < 273) == (True, True)
+    jev.asked.clear()
+    jev.answer = None
+    assert cli.main(["answer", "a1", "--words", f"{WORDS}, as {LAYOUT_CARD} asks" if named else WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert (f"  demo:j3-9  question  j3 o2  {LAYOUT}  {LAYOUT_CARD}" in listed) is named
+    assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
+    assert (set(state.load("demo")["answers"]["a1"]["cards"]), jev.asked) == ({designing, *(["demo:j3-9"] if named else [])}, [])
 
 
 def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question_and_waits_until_that_job_hears_his_words(
@@ -9976,7 +9963,6 @@ def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question
     settled = another_order_asking(run, monkeypatch)
     with state.edit("demo") as data:
         data["jobs"]["j3"]["agent"] = "agent-3"
-    jev.changes = {"j3-9": 0.9}
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     capsys.readouterr()
     assert cli.main(["answer", "a1", "--stands", designing, "--settled", "demo:j3-9"]) == 2
@@ -10018,7 +10004,6 @@ def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_
     run: Run, designing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev, send_message: Callable[..., None]
 ) -> None:
     another_order_asking(run, monkeypatch)
-    jev.changes = {"j3-9": 0.5}
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["9"])
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
@@ -10057,19 +10042,6 @@ def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_
     kept = [(question["file"], question["waits"], question["card"]) for question in data["jobs"]["j3"]["questions"]]
     assert kept == [(str(narrowed), "demo:j3-9", LAYOUT_CARD)]
     assert data["answers"]["a1"]["cards"]["demo:j3-9"] == {"mark": "redrawn", "job": "j3", "card": LAYOUT_CARD, "ask": redrawn}
-
-
-def test_an_answer_records_nothing_while_jev_cannot_read_it_against_his_open_cards(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
-) -> None:
-    another_order_asking(run, monkeypatch)
-    jev.answer = None
-    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
-    assert (
-        "nothing recorded in the drive: Jev did not read his answer against his 2 open cards (no jev decision within 20s)"
-        in capsys.readouterr().err
-    )
-    assert "a1" not in state.load("demo")["answers"]
 
 
 def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(

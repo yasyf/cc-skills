@@ -1058,7 +1058,7 @@ class Jev:
     answer: float | None = 0.05
     chosen: tuple[str, float] | None = None
     ruled: dict[str, tuple[str, float]] = field(default_factory=dict)
-    changes: dict[str, float] = field(default_factory=dict)
+    supersedes: dict[str, float] = field(default_factory=dict)
     plain: set[str] = field(default_factory=set)
     illustrated: list[str] = field(default_factory=list)
     unexplained: dict[str, float] = field(default_factory=dict)
@@ -1087,8 +1087,8 @@ class Jev:
             return self.looks
         if question.startswith("again") and not about:
             return 0.95 if state["open"][f"a{question.removeprefix('again')}"] in self.again else 0.05
-        if question == "changes":
-            return self.changes.get(about, 0.05)
+        if question == "supersedes":
+            return self.supersedes.get(about, 0.05)
         if question.startswith(limits.PLAIN) and question.removeprefix(limits.PLAIN).isdigit():
             return self.unexplained.get(state["names"][f"n{question.removeprefix(limits.PLAIN)}"], 0.05)
         if question == "names" and state["parts"][about.partition(".")[2]] in self.named:

@@ -615,7 +615,7 @@ def card_drive(name: str, records: list[dict]) -> str:
 
 
 def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
-    """Keep each ruling the owner or answer records of his words name as his drive answer, their words joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each, or why Jev's reading is missing from it."""
+    """Keep each ruling the owner or answer records of his words name as his drive answer, their words joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each."""
     said = []
     for ruling, named in rulings(posts).items():
         data = state.load(name)
@@ -624,17 +624,9 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
         made = named[0]
         words = " … ".join(other["text"] for other in named)
         asked = superseded.asking(data, found, made["url"])
-        try:
-            changes = settled.changed(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["title"], words, asked)
-        except DriveError:
-            changes = set()
-            said.append(
-                f"his ruling {ruling}: Jev gave no reading of it against his other open cards, so it lists only what its card's job and order"
-                f" hold and its words name: mark any other card it changes on drive answer {ruling}"
-            )
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            kept = superseded.record(data, ruling, words, made["url"], asked, changes, bound, state.stamp())
+            kept = superseded.record(data, ruling, words, made["url"], asked, bound, state.stamp())
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 

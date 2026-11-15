@@ -861,7 +861,7 @@ def test_his_tap_on_a_jobs_newer_question_ends_the_older_one_it_decides_whose_ca
     drive: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:
     answered, _ = two_questions_of_j3(drive, monkeypatch)
-    jev.changes = {"q0": 0.95}
+    jev.supersedes = {"q0": 0.95}
     tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     job = state.load(drive)["jobs"]["j3"]
@@ -885,7 +885,7 @@ def test_a_tap_cc_slack_runs_again_after_its_card_command_was_cut_short_posts_it
     jev.answer = None
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     assert closes(state.load(drive)["jobs"]["j3"]["questions"][0]) is None
-    jev.answer, jev.changes = 0.05, {"q0": 0.95}
+    jev.answer, jev.supersedes = 0.05, {"q0": 0.95}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     assert [record["id"] for [record] in posted] == [f"tap:{drive}:j3-661440:1794200001.000100"] * 2
     job = state.load(drive)["jobs"]["j3"]
