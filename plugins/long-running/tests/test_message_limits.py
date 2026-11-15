@@ -1092,6 +1092,24 @@ def test_a_handlers_post_in_a_thread_of_his_dm_holding_an_order_hands_jev_that_t
     assert asked in scope["asked"].splitlines() and root is None
 
 
+def test_a_handlers_post_in_his_thread_hands_jev_each_pr_the_threads_jobs_carry_with_its_card_state_one_another_order_registered_included(
+    run: Run, talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Release", "--project", "The drive", "--workstream", "Releases", "release the monitor fix", "--from", f"https://acme.slack.com/archives/{DM}/p1794300000000100")
+    run("order", "add", "--title", "Monitor fix", "--project", "The drive", "--workstream", "Monitors", "fix the false page", "--from", f"https://acme.slack.com/archives/{DM}/p1794100000000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "release the monitor fix")
+    run("job", "add", "builder", "--order", "o2", "--goal", "fix the false page")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = [DM, "1.2"]
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j2", "o2") | {"title": "Fix: the page reads both primaries"}
+        state.take_pr(data, "j1", "yasyf/cc-skills#7")
+    slack_thread.messages[:] = [{"ts": "1794300000.000100", "user": "U1", "text": "release the monitor fix"}]
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="The monitor fix ships alone.", thread_ts="1.2") | {"tool_name": message_limits.SAY})))
+    message_limits.main()
+    work = json.loads(capsys.readouterr().out)["thread_scope"]["work"].splitlines()
+    assert any(line.startswith('    - yasyf/cc-skills#7 "Fix: the page reads both primaries" open, checks pending') for line in work)
+
+
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
