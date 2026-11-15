@@ -6758,6 +6758,7 @@ def test_replayed_5076_a_pr_whose_design_line_cites_an_open_card_another_orders_
         asked = state.new_question(None, "Which environments must run a commit holding a PR's merge before its release wait ends?", state.stamp(T0), card=CARD, holds=holds)
         data["jobs"]["j2"]["questions"] = [asked | {"waits": RELEASE_WAIT_CARD, "closed": state.new_close("answered", "Any production env", None, seq="9") if answered else None}]
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
+        del data["prs"][KEY]
         data["prs"][REPLAYED_5076] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED, "checks": "pass", "design": design}
     drive = state.load(demo)
     pr = drive["prs"][REPLAYED_5076]
