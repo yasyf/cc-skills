@@ -516,8 +516,8 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
     ]
     with pytest.raises(DriveError, match="a report goes through the cci `post` tool"):
         tools.run("record", demo, {"records": [{"kind": "report", "text": "Land #4"}]})
-    with pytest.raises(DriveError, match="a card of drive other, not demo"):
-        tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "waits": "other:j2-7"}]})
+    with pytest.raises(DriveError, match="a card of drive other, not demo: only his owner or answer words under it go to that drive"):
+        tools.run("record", demo, {"records": [{"kind": "handoff", "text": "start its builder", "waits": "other:j2-7"}]})
     with pytest.raises(DriveError, match="name records"):
         tools.run("record", demo, {"records": []})
     with pytest.raises(DriveError, match="no question card's waits id"):
@@ -1331,6 +1331,47 @@ def test_his_tap_and_an_answer_naming_his_card_by_its_waits_attr_each_post_under
     assert [record["topic"] for batch in cci.posted for record in batch] == ["card:1794200000.000700", "card:1794200000.000701"]
     data = state.load(demo)
     assert [(view.holds(data, wait, view.NO_CARDS), question["closed"]["seq"]) for wait, question in zip(("demo:j1-7", "demo:j2-8"), (data["jobs"]["j1"]["questions"][0], data["jobs"]["j2"]["questions"][0]), strict=True)] == [(False, "51"), (False, "52")]
+
+
+def test_his_words_under_a_card_of_another_drive_whose_sessions_ended_are_kept_on_that_drive_as_its_communicator_lane_as_his_tap_is(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with monkeypatch.context() as ended:
+        ended.setenv("CLAUDE_CODE_SESSION_ID", "other-top")
+        run("start", "other", "--role", "coordinator")
+        run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", "other")
+        run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--drive", "other")
+        run("job", "add", "builder", "--order", "o1", "--goal", "build the page", "--drive", "other")
+        ended.setenv("CLAUDE_CODE_SESSION_ID", "other-talker")
+        run("start", "other", "--role", "communicator")
+    cards = (("j1", "other:j1-7", CARD), ("j2", "other:j2-8", f"{CARD[:-2]}01"))
+    with state.edit("other") as data:
+        for job_id, wait, url in cards:
+            data["jobs"][job_id]["questions"].append(state.new_question(None, "Which ring?", state.stamp(), card=url) | {"waits": wait})
+    found = {
+        "team_url": "",
+        "questions": [{"card": {"waits": wait, "title": "Which ring?", "body": "Ring or knock?", "options": ["Ring", "Knock"], "recommended": "Ring"}, "url": url, "question": "Which ring?", "options": ["Ring", "Knock"]} for _, wait, url in cards],
+        "closed": [],
+        "pr_cards": [],
+    }
+    monkeypatch.setattr(view, "cards", lambda name: found)
+    view.refresh_cards("other")
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {})
+    posted: list[tuple[list[str], list[dict]]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or subprocess.CompletedProcess(argv, 0, '{"seq": 51}\n', ""))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    answer = {"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "other:j1-7"}
+    assert tools.run("record", demo, {"records": [answer]}).splitlines()[:2] == ["1 answer 51", '1 j1\'s question "Which ring?" ended answered by 51']
+    rework = {"kind": "owner", "text": "no, keep the runs flat", "url": f"{CARD[:-2]}51?thread_ts=1794200000.000701", "thread_card": "other:j2-8", "about": "his work"}
+    assert tools.run("record", demo, {"records": [rework]}).splitlines()[:2] == ["1 owner 51", '1 j2\'s question "Which ring?" ended withdrawn by 51']
+    assert [(argv[2:6], [record["to"] for record in records]) for argv, records in posted] == [(["--drive", "other", "--lane", "communicator"], [["root@other"]])] * 2
+    jobs = state.load("other")["jobs"]
+    assert [([question["closed"]["how"] for question in jobs[job_id]["questions"]], [kept["seq"] for kept in jobs[job_id]["undelivered"]]) for job_id in ("j1", "j2")] == [(["answered"], ["51"]), (["withdrawn"], [])]
+    assert state.load(demo)["jobs"] == {}
+    with pytest.raises(DriveError, match="refused, nothing posted: these records are kept on drives demo, other"):
+        tools.run("record", demo, {"records": [answer, {"kind": "defect", "text": "cc-slack delete hides --url"}]})
+    assert len(posted) == 2
 
 
 def test_his_tap_the_drive_takes_late_ends_its_question_at_the_tap_while_its_job_reads_changed_when_taken(

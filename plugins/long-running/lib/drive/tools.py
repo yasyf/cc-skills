@@ -216,7 +216,9 @@ def verb_tools() -> list[dict]:
                 " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
                 " order field says, and one about his work the coordinator hearing its order."
                 " A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
-                " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
+                " Undo tap sets undone. His words under a card of another drive, its waits or thread_card naming that drive,"
+                " go out on that drive as its communicator lane, whatever session calls, as his tap on it does, so every"
+                " order, job and seq the call names is that drive's, and a call mixing two drives' records is refused. Once the records go out, each open card his words close is closed: a question card his"
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
                 " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
                 " whose waits names a card no longer waiting on him is refused, since his answer there is"
@@ -519,9 +521,11 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it."""
-    data = state.load(name)
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question."""
+    held = card_drive(name, records)
+    data = state.load(held)
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID") if held == name else (data["roles"].get("communicator") or {}).get("session")
+    name = held
     role = state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}, so no lane to post as")
@@ -581,6 +585,20 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     said += superseded.supersede_taps(name, [(job_id, question) for _, job_id, question in ended])
     said += keep_rulings(name, posts, found)
     return "\n".join(said)
+
+
+def card_drive(name: str, records: list[dict]) -> str:
+    """The drive a call's records are kept on: the drive of the question card each owner or answer record of his words names by waits, attrs.waits or thread_card, and this one for a record naming none; records kept on two drives are refused, since one call keeps its records on one drive."""
+    drives = {
+        found[1]
+        if item["kind"] in ("owner", "answer")
+        and (found := state.WAITS_ID.fullmatch(state.waits_of(name, item.get("waits") or (item.get("attrs") or {}).get("waits") or item.get("thread_card") or "")))
+        else name
+        for item in records
+    }
+    if len(drives) > 1:
+        raise DriveError(f"refused, nothing posted: these records are kept on drives {', '.join(sorted(drives))}, by the card each names, and one call keeps its records on one drive: send each drive's in a call of its own")
+    return drives.pop()
 
 
 def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
@@ -863,7 +881,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         if not (named := state.WAITS_ID.fullmatch(waits)):
             raise DriveError(f"{waits} is no question card's waits id, <drive>:<j>-<n>; a PR card's tap needs no record")
         if named[1] != drive:
-            raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
+            raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: only his owner or answer words under it go to that drive, kept there by this call")
         attrs |= {"job": state.waits_job(data, waits), "waits": waits}
     if waits := attrs.get("waits"):
         card = next((question["card"] for _, question in view.drawn_on(data, waits) if question["card"]), None)
