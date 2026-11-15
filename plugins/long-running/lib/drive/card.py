@@ -790,7 +790,7 @@ def answer_question(name: str, ask: dict) -> dict:
     item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     item |= {"id": f"tap:{ask['waits']}:{ask['action_ts']}{':undone' if undone else ''}"} if ask.get("action_ts") else {}
-    closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")))
+    closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")), tap=ask.get("action_ts"))
     with state.edit(name) as data:
         on_card = view.drawn_on(data, ask["waits"], ask["url"])
         if undone:

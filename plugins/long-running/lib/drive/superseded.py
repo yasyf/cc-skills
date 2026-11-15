@@ -21,12 +21,14 @@ POINTER = "Read cci record {} whole and act on it"
 POINTED = re.compile(POINTER.format(r"(\d+)"))
 
 
-def asking(data: dict, found: dict) -> dict[str, dict]:
-    """Every card asking him, order and part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, and each unrefused open question no card draws yet by its waits id, so his answer settles it before the watch draws it, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, else the open order itself by its id, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
+def asking(data: dict, found: dict, link: str | None = None) -> dict[str, dict]:
+    """Every card asking him, order and part undelivered and PR not yet live, by the key a mark names it with: the card of each job's open question by its waits id, the question his tap closed that his words at `link` answer by view.answerable included, and each unrefused open question no card draws yet by its waits id, so his answer settles it before the watch draws it, then each open question card cc-slack shows that no job asked, each undelivered part of an open order holding more than one by `<order>:<part>`, else the open order itself by its id, since an order's only part goes with the order, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
     shown = {view.message_key(card["url"]): card for card in found["questions"]}
     asked = {}
     for job_id, job in data["jobs"].items():
-        for question in view.open_questions(job):
+        for question in job["questions"]:
+            if not view.answerable(question, link):
+                continue
             if drawn := question["card"]:
                 card = shown.get(view.message_key(drawn)) or {"question": question["title"], "options": [], "card": {}}
                 asked[question["waits"] or card["card"].get("waits") or view.message_key(drawn)] = {
@@ -120,9 +122,11 @@ def on_open_order(data: dict, key: str) -> dict | None:
 
 
 def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
-    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, each marked heard only when the text its worker started on carries his words, as hear_start reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
-    answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
+    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, each other question card in changes, which Jev read it as deciding, ruling options out of or making moot, whatever job, order or words it shares with the card he answered, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, and each job with a question his tap closed that his words end in place of it, whatever its state, since it heard the tap, each marked heard only when the text its worker started on carries his words, as hear_start reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
+    answered = [entry for entry in asked.values() if entry["card"] and view.under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if ended_at(link, question)}
+    taps = {question["closed"]["tap"] for job in data["jobs"].values() for question in job["questions"] if question["closed"] and question["closed"]["tap"] and view.answerable(question, link)}
+    tapped = {job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["closed"] and question["closed"]["tap"] in taps}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
     orders = {entry["order"] for entry in answered if entry["order"]} | set(drawn.values())
     cards = {
@@ -146,7 +150,7 @@ def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, d
         "jobs": {
             job_id: None
             for job_id, job in data["jobs"].items()
-            if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running"
+            if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running" or job_id in tapped
         },
     }
     for job_id in kept["jobs"]:
@@ -220,52 +224,65 @@ def unmarkable(answer_id: str, kept: dict, asked: dict[str, dict], key: str) -> 
 
 def answers(link: str, entry: dict) -> bool:
     """Whether his message at this link answers this entry's card, so it needs no mark: his tap on the card itself, or his words under a question card, which his answer ends; his words under a PR card end nothing, so that PR still asks for one."""
-    return bool(entry["card"]) and (view.message_key(link) == view.message_key(entry["card"]) or entry["kind"] == "question" and under(link, entry["card"]))
+    return bool(entry["card"]) and (view.message_key(link) == view.message_key(entry["card"]) or entry["kind"] == "question" and view.under(link, entry["card"]))
 
 
 def ended_at(link: str, question: dict) -> bool:
     """Whether his message at this link answers this question: it is the question's card or sits under it, or the `record` tool ended the question with it, as it does for a question the record names by waits id, card thread or seq wherever his words sit, such as under the card of the PR the question holds; every prompt he typed into a terminal shares the one link `terminal`, so it ends no question by its link."""
-    return bool(question["card"]) and under(link, question["card"]) or link != TERMINAL and (question["closed"] or {}).get("link") == link
-
-
-def under(link: str, card: str) -> bool:
-    """Whether his message at this link is the card itself or a reply in the card's own thread, so it answers that card."""
-    return (view.card_thread(link) or "").replace(".", "") == view.message_key(card)
+    return bool(question["card"]) and view.under(link, question["card"]) or link != TERMINAL and (question["closed"] or {}).get("link") == link
 
 
 def answer_cards(data: dict, answer_id: str, kept: dict) -> list[tuple[str, dict]]:
-    """End as answered by his answer each open question whose card his answer is on or under, in the write the caller saves; the questions it ended, for their cards to follow."""
+    """End as answered by his answer each question it answers by view.answerable whose card his answer is on or under, his tap's in its place when his words replace it, in the write the caller saves; the questions it ended, for their cards to follow."""
     return [
         ended
         for job_id, job in data["jobs"].items()
-        for question in view.open_questions(job)
-        if question["card"] and under(kept["link"], question["card"])
-        for ended in end(data, job_id, question, state.new_close("answered", kept["words"], kept["link"], answer=answer_id))
+        for question in job["questions"]
+        if view.answerable(question, kept["link"]) and question["card"] and view.under(kept["link"], question["card"])
+        for ended in end(data, job_id, question, state.new_close("answered", kept["words"], kept["link"], answer=answer_id, replaces=question["closed"]))
     ]
 
 
-def answer_card(card: str, words: str, link: str, settled: bool) -> dict:
-    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, or withdrawn for them; every route that closes a question card goes through this one call. Words he typed into a terminal, and a drive job that read the value a card asked him for, have no page, so the card links itself."""
-    return slack.cc_slack("card-answer", "--card", card, "--label", words, *(("--settled", "--other") if settled else ("--withdrawn",)), "--via", link if limits.PAGE_LINK.fullmatch(link) else card)
+def answer_card(card: str, words: str, link: str, settled: bool, replaces: str | None = None) -> dict:
+    """Close his question card in place showing his words and a link to them with no buttons, so a late tap records nothing: settled by them as his written-in answer, in place of the tap at Slack action ts `replaces` and its Undo, or withdrawn for them; every route that closes a question card goes through this one call. Words he typed into a terminal, and a drive job that read the value a card asked him for, have no page, so the card links itself."""
+    return slack.cc_slack(
+        "card-answer",
+        "--card",
+        card,
+        "--label",
+        words,
+        *(("--settled", "--other") if settled else ("--withdrawn",)),
+        *(("--replaces", replaces) if replaces else ()),
+        "--via",
+        link if limits.PAGE_LINK.fullmatch(link) else card,
+    )
 
 
 def close_card(card: str, closed: dict) -> dict:
-    """Show on his question card how the question it asks ended, his words, or what happened for an event that overtook it, and a link to them with no buttons: settled for his answer, withdrawn for anything else."""
+    """Show on his question card how the question it asks ended, his words, or what happened for an event that overtook it, and a link to them with no buttons: settled for his answer, in place of the tap his words replaced, withdrawn for anything else."""
     words = closed["words"] or f"settled by his answer {closed['answer'] or closed['ruling'] or closed['seq']}"
-    return answer_card(card, words, closed["link"] or card, settled=closed["how"] == "answered")
+    return answer_card(card, words, closed["link"] or card, settled=closed["how"] == "answered", replaces=closed["replaces"] and closed["replaces"]["tap"])
 
 
 def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str, dict]]:
-    """End a job's open question as closed records, with each twin asking it in the same words, answered by his answer that ends it or else superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
+    """End a job's open question as closed records, with each twin asking it in the same words, answered by his answer that ends it or else superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows; a close replacing his tap ends each other question that tap closed the same way, in place of its own tap close, and takes the tap's text off every job holding it. The questions it ended, by their job."""
     answered = closed["how"] == "answered"
     same = twins(data, job_id, question, answered)
+    tapped = closed["replaces"]
+    retapped = [(asker, other) for asker, job in data["jobs"].items() for other in job["questions"] if tapped and other is not question and other["closed"] and other["closed"]["tap"] == tapped["tap"]]
     question["closed"] = closed
+    if tapped:
+        for each in data["jobs"].values():
+            each["undelivered"] = [kept for kept in each["undelivered"] if kept["seq"] != tapped["seq"]]
     data["jobs"][job_id]["updated"] = state.stamp()
     for asker, twin in same:
         twin["closed"] = closed if answered else superseded_by(closed, question)
         data["jobs"][asker]["updated"] = state.stamp()
+    for asker, other in retapped:
+        other["closed"] = closed | {"replaces": other["closed"]}
+        data["jobs"][asker]["updated"] = state.stamp()
     replaced = [(asker, other) for asker, each in data["jobs"].items() for other in view.open_questions(each) if question["file"] and other["replaced"] == question["file"]]
-    return [(job_id, question), *same, *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
+    return [(job_id, question), *same, *retapped, *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
 
 
 def twins(data: dict, job_id: str, question: dict, answered: bool) -> list[tuple[str, dict]]:
@@ -318,6 +335,29 @@ def follow(name: str, ended: list[tuple[str, dict]], shown: str = "his words") -
     return done
 
 
+def supersede_taps(name: str, ended: list[tuple[str, dict]]) -> list[str]:
+    """Mark in cc-notes each tap of his that his words replaced superseded by the answer carrying his words, recording them there first when no answer does, so ccn answer match, which every brief's rulings read, ranks his words and never the tap; what was marked, a line each."""
+    replaced = [(job_id, question) for job_id, question in ended if (tapped := question["closed"]["replaces"]) and tapped["noted"]]
+    if not replaced:
+        return []
+    cwd = state.load(name)["roles"]["coordinator"]["cwd"]
+    done = []
+    for job_id, question in replaced:
+        closed = question["closed"]
+        tapped = closed["replaces"]
+        try:
+            if (by := closed["answer"] or closed["noted"]) is None:
+                by = settled.recorded(name, question["title"], closed["words"], [], closed["link"], cwd)
+                with state.edit(name) as data:
+                    state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = by
+            settled.supersede(tapped["noted"], by, cwd)
+        except DriveError as error:
+            done.append(f"his tap {tapped['words']!r} on {question['waits'] or question['card']} still stands in cc-notes as {tapped['noted'][:7]}: {error}")
+            continue
+        done.append(f"his tap {tapped['words']!r} on {question['waits'] or question['card']} superseded in cc-notes by his words, {by[:7]}")
+    return done
+
+
 def said_at(data: dict, link: str | None) -> bool:
     """Whether a record's link is where he said its words: a prompt he typed into a terminal, or a Slack message no question card of the drive is drawn on; a record linking no message, or a card, as one session tells another the card it drew, carries no word of his, and his tap on a card is ended by the card command before its record goes out."""
     return link == TERMINAL or bool(link and slack.MESSAGE_LINK.search(link) and not view.drawn_on(data, link))
@@ -333,7 +373,7 @@ def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: lis
         if kind == "answer" or (attrs.get("about") == state.ABOUT_DRIVE) == (data["orders"][job["order"]]["owner"] == "meta")
         for question in job["questions"]
         if (waits := question["waits"]) and (waits in (attrs.get("thread_card"), attrs.get("waits")) or waits.rpartition("-")[2] in answered)
-        or (card := question["card"]) and (topic == f"card:{view.card_thread(card)}" or link and under(link, card))
+        or (card := question["card"]) and (topic == f"card:{view.card_thread(card)}" or link and view.under(link, card))
     }
     if kind == "answer":
         on |= {id(twin): (asker, twin) for job_id, question in on.values() for asker, twin in twins(data, job_id, question, True)}
@@ -360,7 +400,7 @@ def unclosed_refusal(names: list[str], kind: str, attrs: dict, topic: str | None
 
 def said_on(data: dict, card: str | None) -> list[dict]:
     """His answers recorded as his pick on this card or his words under it, oldest first."""
-    return [answer for answer in data["answers"].values() if card and under(answer["link"], card)]
+    return [answer for answer in data["answers"].values() if card and view.under(answer["link"], card)]
 
 
 def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:

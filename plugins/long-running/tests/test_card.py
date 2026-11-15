@@ -796,7 +796,7 @@ def test_his_tap_answers_another_jobs_card_asking_his_question_in_the_same_words
     view.refresh_cards(drive)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661700}\n', ""))
     answered: list[tuple[str, str, str, bool]] = []
-    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: answered.append((card, words, link, settled)) or {})
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: answered.append((card, words, link, settled)) or {})
     words = "The lander merges prose itself, code conflicts wake the builder"
     tap = {"waits": f"{drive}:j3-661440", "label": words, "url": OLDER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661700"}
@@ -848,7 +848,7 @@ def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[li
     posted: list[list[dict]] = []
     ok = subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
-    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: answered.append((card, words, link, settled)) or {})
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: answered.append((card, words, link, settled)) or {})
     return answered, posted
 
 
@@ -982,7 +982,7 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
     monkeypatch.setattr(card, "run", answering(pr_json()))
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
     closed: list[tuple[str, str, str, bool]] = []
-    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closed.append((card, words, link, settled)) or {})
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: closed.append((card, words, link, settled)) or {})
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["prs"][0]["lands"] == f'you approve; your Approve also picks "{JOURNAL_PICK}" on [{JOURNAL_QUESTION}]({JOURNAL_CARD})'
     assert stage.held(state.load(drive), state.load(drive)["prs"]["Forge-AI/monorepo#42"]) == f"his cards {JOURNAL_CARD} on its work are open"
@@ -1002,7 +1002,7 @@ def test_a_card_that_comes_to_hold_his_approved_pr_has_his_card_offer_approve_ag
     monkeypatch.setattr(card, "run", answering(pr_json()))
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
     closed: list[tuple[str, str, str, bool]] = []
-    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closed.append((card, words, link, settled)) or {})
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: closed.append((card, words, link, settled)) or {})
     with state.edit(drive) as data:
         data["orders"]["o1"] |= {"incident": True, "jobs": ["j1"]}
         data["prs"][key] |= {"checks": "fail", "review": "approved", "parts": ["fix"]}
