@@ -163,6 +163,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "author": "yasyf",
             "labels": [],
             "ejected_at": None,
+            "cancelled_at": None,
             "key": "a/one#1",
             "native": [],
             "trunk": None,
@@ -191,6 +192,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "author": "ghost",
             "labels": ["hold"],
             "ejected_at": None,
+            "cancelled_at": None,
             "key": "a/one#2",
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
             "trunk": "main",
@@ -671,6 +673,13 @@ def test_ejected_at_is_when_trunk_last_put_on_the_trunk_failed_label_a_pr_still_
     added = {"nodes": [{"createdAt": at, "label": {"name": name}} for at, name in (("2026-11-11T09:00:00Z", github.EJECTED_LABEL), ("2026-11-12T01:35:00Z", "trunk-pending-failure"), ("2026-11-12T01:36:43Z", github.EJECTED_LABEL))]}
     assert github.flatten(node(labels={"nodes": [{"name": github.EJECTED_LABEL}]}, timelineItems=added))["ejected_at"] == "2026-11-12T01:36:43Z"
     assert github.flatten(node(timelineItems=added))["ejected_at"] is None
+
+
+def test_cancelled_at_is_when_trunk_last_put_on_the_trunk_cancelled_label_a_pr_still_carries() -> None:
+    added = {"nodes": [{"createdAt": at, "label": {"name": name}} for at, name in (("2026-11-15T03:22:40Z", "externally-merged"), ("2026-11-15T04:12:09Z", github.CANCELLED_LABEL))]}
+    read = github.flatten(node(labels={"nodes": [{"name": "externally-merged"}, {"name": github.CANCELLED_LABEL}]}, timelineItems=added))
+    assert (read["cancelled_at"], read["ejected_at"]) == ("2026-11-15T04:12:09Z", None)
+    assert github.flatten(node(timelineItems=added))["cancelled_at"] is None
 
 
 def test_fetched_reads_origins_head_while_another_fetch_holds_the_clones_remote_tracking_ref_and_moves_no_ref(tmp_path: Path) -> None:

@@ -178,7 +178,7 @@ def ids(pr: dict) -> str:
 
 
 def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
-    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes."""
+    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes; its lander's try ends dequeued, out of the queue, once Trunk put the trunk-cancelled label on entry after that try started and ejected nothing, as when a stack-enqueue --dequeue took it out."""
     fresh = github.live(read, pr)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
@@ -195,6 +195,9 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
     ejected = bool(lander and entry["ejected_at"]) and state.parse_time(entry["ejected_at"]) > state.parse_time(lander["at"])
     if ejected and not pr["ejected"]:
         changes.append("ejected from the merge queue")
+    if lander and lander["outcome"] == land.QUEUED and not ejected and entry["cancelled_at"] and state.parse_time(entry["cancelled_at"]) > state.parse_time(lander["at"]):
+        lander["outcome"] = land.DEQUEUED
+        changes.append(land.DEQUEUED)
     pr.update(fresh, draft=read["isDraft"], ejected=ejected)
     return changes
 
