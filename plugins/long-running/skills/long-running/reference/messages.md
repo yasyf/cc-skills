@@ -784,7 +784,8 @@ restating it.
   whether the system controls that piece where it would run, by his words "we cant do that since we dont control the
   poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
   behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
-  a claim standing on several reads listed once beside each. A bare `{pr:<number>}` or `{card:<waits id>}`
+  every word of each sentence it makes held by its claims, a sentence whose parts stand on several reads split
+  into the claims of its parts, each beside its own read. A bare `{pr:<number>}` or `{card:<waits id>}`
   is no claim, since `say` draws it under the PR's title or the card's question, and Jev reads the post's
   words as written beside it, so it needs no read, and so is one whose words after its `|` quote that title or question word for
   word, with … where they skip words, and a claim copying those words, such as a claim that the PR merged, claims only that
@@ -797,25 +798,28 @@ restating it.
   among them, as the handler's newest call naming its seq, or the record alone as `cci show` prints it when that call
   held more, such as a `cci read` of several seqs, so a record never weighs more than itself; each claim names its read by
   that read's id, so claims sharing a read add only their own words. Each request to Jev is at most 10,000
-  characters, by his words "jev should be getting like 10k chars at most for any call", filled by whole items: the post
-  and its sentences, then each claim beside the call its read names, then the lines of that call's output holding the
-  claim's words, the most of them first, each finding beside its rule, of his words only those the post answers, the
-  checks' own picks first, then each newest first, and last the rest of each read's lines, so neither a long read nor a
-  long thread refuses a post. An item with no room is left out whole, never cut, and a later smaller one still goes in;
-  a read's line left out shows Jev as a line number missing from the count of its lines. A word of his with no room is
-  only left out, while a claim whose call itself has no room refuses the post before say runs, naming each such read
-  beside the size of its call, never a second read of the same call, and the handler makes narrower calls, such as a grep, a jq filter
+  characters, by his words "jev should be getting like 10k chars at most for any call", and say asks Jev at once as
+  many as the post needs, each opening with the post, so reads too long for one request together never crowd each other
+  out: every part Jev cannot weigh the post without goes whole, never cut, into the first request with room for it, each
+  read the claims name beside every claim naming it, each sentence the claims together do not hold word for word, and,
+  on an answer to his question under a card, that card's first line beside his question. Each finding beside its rule
+  and his words the post answers, the checks' own picks first, then each newest first, go into one more request as room
+  allows, so a long thread never refuses a post, and a word of his with no room is only left out. A post with a part no
+  request holds beside the post's own words is refused before say runs, naming each such part beside the characters its
+  request takes, largest first, such as a report's whole body under the claims naming that report, so no claim is
+  weighed in part or held as unbacked for want of room, and the handler makes narrower calls, such as a grep, a jq filter
   or a line range, and names those, never a `cci read` with a smaller budget, which cuts a record's end unseen, and never
-  a line of the post dropped to fit. Jev holds
-  the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
-  pick "The handler names the read behind each claim; Jev
-  checks each claim against that read, whole, and holds only unbacked claims". Jev answers one
-  yes-or-no question a claim, whether its read backs it, and one a line no claim covers, whether it
-  states a fact that stands only on a read, each as a probability of yes, and code decides: a claim
-  Jev answers under 0.45 holds the post and one at 0.45 or more stands, the cut every unbacked claim
-  of the drive's recorded posts drew under, so no claim only warns; a line answered 0.7 or more holds
-  it, and a line's answer between 0.3 and 0.7 only warns, naming the line. The fix is that read,
-  or the line cut to what the reads show, never a line posted marked unread.
+  a true line of the post dropped to fit, or says the post in fewer claims on that read. Jev answers yes-or-no questions
+  as probabilities of yes, and code decides, by his pick "The handler names the read behind each claim; Jev checks each
+  claim against that read, whole, and holds only unbacked claims": a claim whose read backs it under 0.45 holds the post
+  and one at 0.45 or more stands, the cut every unbacked claim of the drive's recorded posts drew under, so no claim's
+  backing only warns; a read matching no call holds it; and so does, at 0.7 or more, a claim saying only, every, all, no,
+  nobody or never of a set whose read reads one member, such as a sed of one route file beside a claim about every route
+  minting a key, a sentence the claims do not hold whole that states a fact about code, a number or a state, and an
+  answer under a card leaving a term of the card's first line his question turns on unexplained, by his words under such
+  a card, "You're not properly explaining why does the PR mention a saved mark then?". An answer between 0.3 and 0.7
+  only warns, naming the line. The fix is that read, or the line cut to what the reads show, never a line posted marked
+  unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` refuses an `ASK`, and the post hook a post, that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so

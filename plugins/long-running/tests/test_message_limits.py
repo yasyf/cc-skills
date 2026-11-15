@@ -1008,23 +1008,47 @@ def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_n
     assert sum(read["quote"].count(cards) for read in reads) == 1
 
 
-def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_and_each_claim_names_it_by_its_id(
+def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_each_claim_names_it_by_its_id_and_a_post_with_no_room_names_that_read_first(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427"}, '{"state": "passed", "jobs": 40}')
     tool(lane_of(transcript), *build)
 
-    def handed(many: int) -> dict:
-        claims = [{"claim": f"release step {n} passed", "read": "tools/ci bk api /pipelines/release/builds/15427"} for n in range(many)]
-        claims.append({"claim": "the release ran 40 jobs", "read": "bk api /pipelines/release/builds/15427"})
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", claims=claims) | {"tool_name": message_limits.SAY})))
+    def claimed(many: int) -> list[dict]:
+        return [*({"claim": f"release step {n} passed", "read": "tools/ci bk api /pipelines/release/builds/15427"} for n in range(many)), {"claim": "the release ran 40 jobs", "read": "bk api /pipelines/release/builds/15427"}]
+
+    def printed(many: int) -> dict:
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", claims=claimed(many)) | {"tool_name": message_limits.SAY})))
         message_limits.main()
         return json.loads(capsys.readouterr().out)
 
-    one, many = handed(1), handed(100)
-    assert one["reads"] == many["reads"]
-    assert [(read["id"], read["quote"]) for read in many["reads"]] == [("read:1", shown(*build)), ("read:2", message_limits.GIVEN.format(read="read:1"))]
-    assert [claim["read"] for claim in many["post"]["claims"]] == ["read:1"] * 100 + ["read:2"]
+    payload = agents.seen(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2") | {"tool_name": message_limits.SAY})
+    one, many = (message_limits.read_evidence(payload, claimed(count)) for count in (1, 100))
+    assert one == many
+    assert [(read["id"], read["quote"]) for read in many] == [("read:1", shown(*build)), ("read:2", message_limits.GIVEN.format(read="read:1"))]
+    assert [claim["read"] for claim in printed(1)["post"]["claims"]] == ["read:1", "read:2"]
+    refused = printed(100)
+    reason = refused["hookSpecificOutput"]["permissionDecisionReason"]
+    assert (refused["judged"], "reads" in refused) == (False, False)
+    assert reason.startswith("refused: no Jev request of 10,000 characters holds these parts whole beside the post's ")
+    assert 'largest first: read:1 "tools/ci bk api /pipelines/release/builds/15427" beside the 101 claims naming it, ' in reason
+
+
+def test_a_handlers_answer_under_a_card_hands_jev_the_cards_first_line_beside_his_question_though_the_communicators_ack_came_between(
+    talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tool(lane_of(transcript), *SHADOW)
+    asked = "Why does the API need to know any of this?"
+    title = "Mac chats' rows in the API catch up from a saved mark"
+    ack = {"ts": "1794300002.000100", "from_bot": True, "text": "You're asking why the API needs to know any of this."}
+    claims = [{"claim": "Each table has a `<table>__history` shadow table", "read": "lower.rs:355-365"}]
+    handed = []
+    for root in ({"ts": "1794300000.000100", "from_bot": True, "text": f"{title}\n• the PR it lands"}, {"ts": "1794300000.000100", "user": "U1", "text": "look into the saved mark"}):
+        slack_thread.messages[:] = [root, {"ts": "1794300001.000100", "user": "U1", "text": asked}, ack]
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", asked=[asked], claims=claims) | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        handed.append(json.loads(capsys.readouterr().out).get("thread_card"))
+    assert handed == [{"title": title, "asked": asked}, None]
 
 
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
@@ -1680,11 +1704,11 @@ def test_say_refuses_a_line_telling_him_a_card_is_coming_until_it_names_that_car
     coming = "The release card is coming once the cut is green."
     refused = say(transcript, text=coming)
     assert isinstance(refused, agents.Unjudged) and refused.startswith(f'refused: "{coming}" tells him a card is coming and names no open card of his')
-    assert say(transcript, text=f"The release card {{card:demo:j1-7}} is coming once the cut is green.") is None
+    assert say(transcript, text="The release card {card:demo:j1-7} is coming once the cut is green.") is None
     assert posted(transcript, text=coming, card={"title": said(5), "body": coming, "options": ["Yes", "No"], "waits": "demo:j1-7"}) is None
     assert say(transcript, text="No release card follows, since your Nov 5 answer settled it.") is None
     monkeypatch.setattr(view, "stored_cards", lambda name: (view.NO_CARDS, "live"))
-    assert "names no open card of his" in say(transcript, text=f"The release card {{card:demo:j1-7}} is coming once the cut is green.")
+    assert "names no open card of his" in say(transcript, text="The release card {card:demo:j1-7} is coming once the cut is green.")
 
 
 def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_names_the_job_or_a_handoff_asking_for_one_no_job_answered_is_kept_on_its_order(
