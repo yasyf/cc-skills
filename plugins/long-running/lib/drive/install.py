@@ -1180,7 +1180,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
             code, tail = "0 but prints nothing", "a proof file prints a line for each check it passed, so one printing nothing proves nothing"
         elif code == 0 and (shut := brief.dead([found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)])):
             code, tail = "0 but names a link that does not open", f"{shut[0]}: a proof file prints the live post or picture it read back, never a stand-in"
-        elif code == 0 and brief.surface(job) and (gap := brief.story_gap(job, output)):
+        elif code == 0 and (surfaced := brief.surface(job)) and (gap := brief.story_gap(job, surfaced, output)):
             code, tail = "0 but falls short of its surface", gap[0]
             output += "".join(f"{line}\n" for line in gap[1])
         elif code == 0 and (steps := (job.get("brief_flags") or {}).get("after")):

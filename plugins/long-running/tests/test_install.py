@@ -2112,7 +2112,7 @@ def test_a_proof_of_something_he_sees_takes_blocked_naming_every_gap_in_each_use
         'S1 prints "GAP S1 next card: j selected the card under it and left it shut"',
         "S2 prints no CRITERION S2 error state: line",
         'S2\'s criterion "title" has no PASS S2 title: or FAIL S2 title: line',
-        "S2 prints no SEEN S2: line naming a picture or recording it saved or a live post's link that opens",
+        "S2 prints no SEEN S2: line naming a picture or recording it saved, a live post's link that opens, or, for a command, a file holding the output of its run",
     ]
     said = (
         f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}:"
