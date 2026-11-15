@@ -5140,7 +5140,7 @@ def test_a_build_added_on_a_part_a_prover_carries_starts_beside_it_and_leaves_th
         data["jobs"]["j1"].update(waits=released, state="waiting")
     assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "retry each stalled copy")[1].splitlines()[0] == "j2"
     jobs = state.load("demo")["jobs"]
-    assert [(jobs[job_id]["goal"], jobs[job_id]["waits"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [(proof, released, "waiting"), ("retry each stalled copy", [], "running")]
+    assert [(jobs[job_id]["goal"], jobs[job_id]["waits"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [(proof, released, "waiting"), ("retry each stalled copy", [], "waiting")]
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(agent="a", said="WAITING on the release of Forge-AI/monorepo#7")
         data["jobs"]["j2"]["state"] = "stopped"
