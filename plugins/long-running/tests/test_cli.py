@@ -5599,7 +5599,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     assert (job["state"], job["waits"]) == ("built", ["demo:j2-3"])
 
 
-def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing_until_a_fresh_worker_runs_it(
+def test_a_report_takes_a_waiting_or_built_job_and_a_stopped_ones_is_kept_ahead_of_every_refusal_setting_nothing_until_a_fresh_worker_runs_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -5614,17 +5614,18 @@ def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_k
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("done", "DONE installed 1.0.392")
     run("job", "set", "j1", "--state", "stopped", "--said", "handed to j2")
-    code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
-    assert (code, "j1: refused, nothing kept: j1 is stopped, so its work goes on in another job" in err) == (2, True)
-    assert [reply["body"] for reply in state.returns("demo", "j1")] == [done, f"WAITING on his card demo:j1-3\n{check}", built]
-    assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it again")
-    code, err = keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n")
-    assert (code, err) == (
-        2,
-        'drive: j1: refused, nothing kept: j1 is stopped, so its work goes on in j2, the newest open job carrying its part "Short title": hand j2 this return'
-        " with drive job resume j2 -, the return on stdin\n",
-    )
+    before = state.load("demo")
+    handoff = "HANDOFF /scratch/j1/left.md\nBranch: lr-move, commit 7667b812e9c5, unpushed\n"
+    unfreed = "WAITING release: #54575 merged after the newest release was cut\n"
+    pushed = "PUSHED https://github.com/yasyf/cc-skills/pull/9\n"
+    for last in (handoff, unfreed, pushed):
+        monkeypatch.setattr("sys.stdin", io.StringIO(last))
+        code, out = run("job", "report", "j1", "-")
+        assert (code, out.splitlines()[-1]) == (0, "j1 stays stopped: this return sets nothing on it")
+    after = state.load("demo")
+    assert (after["jobs"], after["prs"]) == (before["jobs"], before["prs"])
+    assert [reply["body"] for reply in state.returns("demo", "j1")] == [pushed, unfreed, handoff, done, f"WAITING on his card demo:j1-3\n{check}", built]
     run("job", "set", "j1", "--agent", "a-7")
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert keep(monkeypatch, capsys, "j1", "DONE The lane comes from bookkeeping\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/13\n") == (0, "")

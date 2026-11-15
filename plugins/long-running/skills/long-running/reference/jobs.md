@@ -140,7 +140,7 @@ marks the job running again, when its type is one the job's kind runs as: `long-
 `long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
 a codex job; a call or stop after its return with no such prompt leaves
 the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, a `drive job resume` of a job not stopped, which refuses a stopped one, and `drive job set <j> --agent` naming a worker other
-than the one recorded. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. Only the agent a stop left on its job keeps the stop, so that agent's later return is refused. An agent of any other type is never recorded this way, even
+than the one recorded. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. Only the agent a stop left on its job keeps the stop, so that agent's later return is kept in the job's history and sets nothing, and the agent ends on its line. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
@@ -151,7 +151,7 @@ only when `drive handler --answer` adds a read-only question's reader job with t
 remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite
 Orca shows for that dispatch, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
 an agent holds, and nothing else does but a codex job's run: the stop sends back a line not kept, `drive job set` refuses
-every state but `stopped`, and `drive job report` refuses, naming the fix, a job still stopped, a line
+every state but `stopped`, a job still stopped keeps what `drive job report` is piped and takes nothing from it, and `drive job report` refuses, naming the fix, a line
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>`, `staging:<target>/<env>@<commit>` and `<order>:<part>` a
