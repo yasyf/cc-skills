@@ -66,8 +66,8 @@ def transcript(job: dict) -> Path | None:
 
 
 def lane_transcript(job: dict) -> str | None:
-    """The transcript orca.keep_transcripts kept from the Sprite of the job's current lane once that lane ended, None while it runs."""
-    return (death := state.lane_death(job)) and death.get("transcript")
+    """The transcript orca.keep_transcripts kept from the Sprite of the Orca lane the job's row records once that lane ended, whatever its where names, None while it runs."""
+    return (death := state.lane_death(job, "dispatch")) and death.get("transcript")
 
 
 def read(name: str, job_id: str, job: dict, kind: str) -> dict:

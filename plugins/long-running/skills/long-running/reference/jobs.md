@@ -148,7 +148,7 @@ when its brief, the brief file it names or the record it is briefed with names a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
 brief leaves the job to that lane. No agent is recorded over a remote job's dispatch either: its
-Orca lane holds it, and `drive job resume` restarts that lane once it dies. A handler holds a job
+Orca lane holds it, and `drive job resume` restarts that lane once it dies. Nor is one recorded, by an Agent start or by `drive job set <j> --agent`, which refuses it with nothing changed, while a `drive job launch` or `drive job resume` holds the job's lock to start its next lane on a Sprite and has recorded no dispatch yet, since that lane would run beside the agent. A handler holds a job
 only when `drive handler --answer` adds a read-only question's reader job with the handler as its
 `agent`. `drive job set <j> --agent <the dispatch the job records>` puts a
 remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite

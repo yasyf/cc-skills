@@ -90,6 +90,26 @@ SPRITE_WORKER = {
 }
 SPRITE_LANE = {"where": "remote", "route": None, "dispatch": SPRITE_DISPATCH, "workspace": "pool-sprite-one", "environment": "pool-sprite-one"}
 LANE_QUESTION = "Which Buildkite build should the slice wait on, 224 or 225?"
+J22_ROW = {
+    "state": "stopped",
+    "where": "local",
+    "route": None,
+    "agent": "a93a9c6f5c1cf0a44",
+    "run": "run_8a225f49dbee",
+    "dispatch": "ctx_628a7d977038",
+    "workspace": "pool-kw272e6jqxewvdun",
+    "environment": "pool-kw272e6jqxewvdun",
+    "launching": "2026-11-13T12:13:42-08:00",
+}
+J92_ROW = J22_ROW | {
+    "agent": "a49499381d64d1a36",
+    "run": "run_e330941f365b",
+    "dispatch": "ctx_84acb21860a8",
+    "workspace": "pool-ftyaxolekgyaedwc",
+    "environment": "pool-ftyaxolekgyaedwc",
+    "launching": "2026-11-14T20:18:34-08:00",
+}
+J92_HELD = 'His answer on card demo:j17-1794717211156, verbatim: "Inside the server: no worker binary, pool or protocol, about 150 lines"'
 REAL_LOCAL_GAP = watch.local_gap
 REAL_LAST_WRITE = watch.last_write
 UNSENT = (
@@ -4680,6 +4700,97 @@ def test_end_of_a_finished_job_never_reads_its_sprite_and_keeps_the_parts_it_car
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays stopped")
     data = state.load(remote)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"]) == ("stopped", {"o2": parts}, ["j1"])
+
+
+@pytest.mark.parametrize("row", [J22_ROW, J92_ROW], ids=["j22", "j92"])
+def test_end_frees_the_sprite_lane_a_row_records_beside_an_agent_on_this_mac_so_no_later_watch_ends_it_again(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str], kept_transcripts: list[tuple[str, str]], row: dict
+) -> None:
+    cloned(tmp_path, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(row)
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / f"{row['workspace']}.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert ended_lanes == ["j1"]
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("a stopped job's lane ends whatever its Sprite holds"))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: f"closed {dispatch} of {run_id}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
+    assert run("job", "end", "j1") == (0, f"closed {row['dispatch']} of {row['run']}\ndestroyed {row['workspace']}\nj1's lane ended; j1 stays stopped")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["where"], job["agent"], [death["dispatch"] for death in job["deaths"]], state.lane_ended(job), kept_transcripts) == (
+        "local",
+        row["agent"],
+        [row["dispatch"]],
+        True,
+        [("j1", row["dispatch"])],
+    )
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert ended_lanes == ["j1"]
+
+
+def test_an_end_the_watch_ran_says_its_refusal_in_the_watchs_line_and_one_run_by_hand_only_prints_it(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(J92_ROW | {"state": "waiting"})
+    monkeypatch.setattr(orca, "save", unsaveable(UNREAD))
+    start = state.events_end(remote)
+    assert cli.main(["job", "end", "j1"]) == 2
+    assert state.events_end(remote) == start
+    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
+    assert cli.main(["job", "end", "j1"]) == 2
+    refusal = (
+        f"j1: refused, nothing ended: it is waiting, and what {J92_ROW['workspace']} holds on no remote could not be saved"
+        f" to GitHub for its next lane: {UNREAD}. End it again once that Sprite answers"
+    )
+    assert capsys.readouterr().err == f"drive: {refusal}\n" * 2
+    assert state.load(remote)["jobs"]["j1"].get("deaths", []) == []
+    assert watch.event_lines(watch.Watcher(remote, offset=start)) == [
+        f"EVENT relaunch_refused drive job end j1, which the watch ran, refused: {refusal}; its output is in the drive's relaunches.log [o1 j1]"
+    ]
+
+
+def test_his_answer_dropping_every_part_a_job_delivered_stops_it_and_drops_the_text_it_held_naming_it(run: Run, remote: str) -> None:
+    run("order", "set", "o1", "--add-part", "the analytics server")
+    with state.edit(remote) as data:
+        job = data["jobs"]["j1"]
+        job.update(J92_ROW | {"state": "waiting"})
+        state.hold_text(job, J92_HELD, state.HIM)
+        [part] = job["parts"]
+        lines = superseded.drop(data, "5565a57", "o1", part)
+    assert lines == [
+        f"o1:{part} dropped from o1 and j0, j1",
+        f'j1 stopped, left with no part: end its agent, or its lane with drive job end j1; the text it held, which no worker of a stopped job carries, dropped: "{render.cut(J92_HELD, 160)}"',
+    ]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["said"], job["undelivered"]) == ("stopped", "his answer 5565a57 dropped every part it delivered", [])
+
+
+def test_no_agent_binds_a_job_whose_launch_holds_its_lock_with_no_dispatch_recorded_yet_and_one_binds_once_that_launch_ends(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(where="remote", run=None, dispatch=None, launching=J22_ROW["launching"])
+    before = state.load(remote)["jobs"]["j1"]
+    monkeypatch.setattr(state, "holders", lambda path: f"pid 50612 drive job launch j1 on {path.name}")
+    with open(state.job_lock_path(remote, "j1"), "a") as launch:
+        fcntl.flock(launch, fcntl.LOCK_EX)
+        assert not agents.free(remote, state.load(remote), "j1", J22_ROW["agent"])
+        assert cli.main(["job", "set", "j1", "--agent", J22_ROW["agent"]]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1: refused, nothing changed: a drive job launch or resume holds its lock (pid 50612 drive job launch j1 on j1.lock) while it starts"
+        f" the job's next lane, which it records once that lane's worker starts, so agent {J22_ROW['agent']} bound now would run beside it; set it again once that launch ends\n"
+    )
+    assert state.load(remote)["jobs"]["j1"] == before
+    assert agents.free(remote, state.load(remote), "j1", J22_ROW["agent"])
+    run("job", "set", "j1", "--agent", J22_ROW["agent"])
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["where"], job["agent"]) == ("local", J22_ROW["agent"])
 
 
 GONE_SPRITE = "Orca no longer holds its Sprite's environment"

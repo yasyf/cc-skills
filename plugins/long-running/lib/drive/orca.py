@@ -756,7 +756,7 @@ def gone(error: OrcaError) -> str | None:
 def lane_end(drive: str, job: dict, wake: bool = True) -> LaneEnd | None:
     """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. A lane a `drive job end` ended is read from the end its job records, never from Orca, since that end stopped its worker and destroyed its Sprite, which Orca then reads as a lane it no longer holds or pairs with. OrcaError when Orca cannot tell either way."""
     if state.lane_ended(job):
-        return LaneEnd(f"the drive job end of {state.lane_death(job)['ended']['at']} ended it", None, None, ended=True)
+        return LaneEnd(f"the drive job end of {state.lane_death(job, 'dispatch')['ended']['at']} ended it", None, None, ended=True)
     try:
         return shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
