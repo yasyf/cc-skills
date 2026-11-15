@@ -655,12 +655,12 @@ def reclaimer(checkout: Path, *args: str) -> str:
     return out.strip()
 
 
-def mail(run: str, after: int) -> list[dict]:
-    """The Run's mail past sequence `after`, oldest first, read without binding or consuming: this terminal binds one Run at a time, and the watch reads every lane's. Orca returns a mailbox's newest rows, so a read that comes back full with none at or before `after` goes again ten times as deep."""
+def mail(after: int | None) -> list[dict]:
+    """Orca's mail to every Run past sequence `after`, or with none among its newest MAIL_LIMIT messages, oldest first, read without binding or consuming, so one call hears every lane whatever Run Orca filed its mail on, and none of the mail sent to a worker's own Dispatch. Orca returns a mailbox's newest rows, so a read that comes back full with none at or before `after` goes again ten times as deep."""
     limit = MAIL_LIMIT
-    while len(messages := call("inbox", "--terminal", f"run:{run}", "--limit", str(limit))["messages"]) == limit and min(message["sequence"] for message in messages) > after:
+    while len(messages := call("inbox", "--limit", str(limit))["messages"]) == limit and after is not None and min(message["sequence"] for message in messages) > after:
         limit *= 10
-    return sorted((message for message in messages if message["to_handle"] == f"run:{run}" and message["sequence"] > after), key=lambda message: message["sequence"])
+    return sorted((message for message in messages if message["to_handle"].startswith("run:") and (after is None or message["sequence"] > after)), key=lambda message: message["sequence"])
 
 
 def newest_mail() -> list[dict]:
@@ -669,7 +669,7 @@ def newest_mail() -> list[dict]:
 
 
 def mailbox(job: dict, dispatch: str) -> list[dict]:
-    """The mail in one Dispatch mailbox of the job, read or not, oldest first, from the Orca that keeps it: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads a Run's. A message keeps its read flag there once its worker reads it, and Orca moves a reported worker's unread mail to the mailbox of the follow-up it starts to carry it."""
+    """The mail in one Dispatch mailbox of the job, read or not, oldest first, from the Orca that keeps it: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads every Run's. A message keeps its read flag there once its worker reads it, and Orca moves a reported worker's unread mail to the mailbox of the follow-up it starts to carry it."""
     environment = [] if state.on_mac(job) else ["--environment", job["environment"]]
     messages = call("inbox", *environment, "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
     return sorted((message for message in messages if message["to_handle"] == f"dispatch:{dispatch}"), key=lambda message: message["sequence"])
