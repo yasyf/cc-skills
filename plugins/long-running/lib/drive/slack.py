@@ -49,9 +49,10 @@ def whoami() -> dict:
     return cc_slack("whoami")
 
 
-def owed() -> list[dict]:
-    """His messages cc-slack still owes an answer, by `dm-owed`, each with its thread_ts, ts, text and permalink."""
-    return cc_slack("dm-owed")["replies"]
+def owed(session: str) -> list[dict]:
+    """His messages cc-slack still owes an answer, by `dm-owed`, each with its thread_ts, ts, text and permalink, while the session holding his DM, which owes them, is the one given; none while another session holds it, such as another drive's communicator."""
+    held = cc_slack("dm-owed")
+    return held["replies"] if held["holder_session"] == session else []
 
 
 def dm() -> str:

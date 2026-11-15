@@ -236,7 +236,6 @@ def test_a_post_whose_asked_names_his_message_that_started_an_answer_order_close
     result = f"POSTED {answer}"
     assert line == f'{result}; o1 "Copy fix shipped": posted {answer}; o1 closed on report 700001; j1 keeps {result} as its return, the line you end on'
     assert ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "report", "--attr", "close=o1", "--json", "--text", "It shipped in 1.0.540."] in started
-    assert [argv[argv.index("--answers") + 1] for argv in calls if "--answers" in argv] == [asked]
     assert state.load("demo")["orders"]["o1"]["state"] == "done"
 
 

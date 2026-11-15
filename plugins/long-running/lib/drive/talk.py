@@ -619,7 +619,7 @@ def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: st
 
 
 def status(name: str, data: dict, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
-    """The `cc-slack dm-status` call making a new post in his DM, or in the operator channel channel_id names, as the session holding it from every session but a handler's, so his replies under a post a coordinator, the meta session or the watch made reach the communicator, and a handler's stay with that handler while it lives, each PR its card taps linked from data, the drive read before the post."""
+    """The `cc-slack dm-status` call making a new post in his DM, or in the operator channel channel_id names, as the session holding it from every session but a handler's, so his replies under a post a coordinator, the meta session or the watch made reach the communicator, and a handler's stay with that handler while it lives, each PR its card taps linked from data, the drive read before the post. A post made as the holder answers none of his messages above it in cc-slack, so each stays owed until the handler answering it posts in its thread."""
     argv = ["dm-status", "--agent", "claude", "--drive", name]
     if not state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
         argv.append("--as-holder")
@@ -629,7 +629,6 @@ def status(name: str, data: dict, post: dict, stack: list[str], pictures: list[s
         argv += ["--thread", thread]
     if card := post.get("card"):
         argv += ["--card", json.dumps(card)]
-    argv += answering(post)
     if about := post.get("about"):
         argv += ["--about", about]
     argv += [flag for key in stack for flag in ("--tap-pr", data["prs"][key]["url"])]
@@ -706,12 +705,7 @@ def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
     thread = ["--thread", post["thread_ts"]] if post.get("thread_ts") else []
     argv = ["reply" if thread else "send", "--agent", "claude", "--channel", post["channel_id"], *thread, "--text", sent]
     argv += [flag for path in pictures for flag in ("--file", path)]
-    return argv + answering(post) + keyed(post) + ticketed(post)
-
-
-def answering(post: dict) -> list[str]:
-    """The flags naming each message of his the post answers, its asked, which cc-slack then owes him no more; an ack names none, so his message stays owed until its answer posts."""
-    return [flag for message in slack.messages(post.get("asked") or "") for flag in ("--answers", message)]
+    return argv + keyed(post) + ticketed(post)
 
 
 def keyed(post: dict) -> list[str]:

@@ -86,14 +86,14 @@ def test_a_post_in_his_dm_goes_as_the_session_holding_it_from_every_session_but_
     assert ["--as-holder" in argv for argv in posts] == [True, False]
 
 
-def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_names_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}])
     with state.edit(demo) as data:
         data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
     talk.posted(demo, {"text": "The fix is up.", "asked": json.dumps(["1794200000.000300"])}, "o1")
     talk.posted(demo, {"text": "The fix is in."})
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--channel", "C777", "--answers", "1794200000.000300", "--", "The fix is up."),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--channel", "C777", "--", "The fix is up."),
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--", "The fix is in."),
     ]
     assert [(event["channel"], event["answers"]) for event in said(demo)] == [("C777", ["1794200000.000300"]), (None, [])]
