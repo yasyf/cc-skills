@@ -266,6 +266,7 @@ READ_ONLY = {
     "cci": ("show", "grep", "find", "digest", "state"),
     "ccn": ("answer show", "answer list", "answer match", "answer search", "note list"),
     "ci": ("release select",),
+    "bk": ("build view", "build list"),
     "security": ("find-generic-password",),
     "gh": ("pr view", "pr list", "pr checks", "pr diff", "run view", "run list", "repo view"),
     "tailscale": ("status", "whois"),
@@ -1948,7 +1949,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one changing only tools/ci and go/ci, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one changing only tools/ci and go/ci, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, a job of such an order named as j<n> among it, by tooling_waits."""
     from drive import install, place, view
 
     job = data["jobs"][job_id]
@@ -1993,7 +1994,9 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             f" since a PR that merged or closed, a part delivered, a process that ended and a card he answered free it at once, and a PR waiting on a part {job_id} carries, as the PR its staging test tests, waits on {job_id} in turn: name with it the job"
             f" whose work frees {job_id}, as j<n>, which frees it once that job's change merges, or once that job next reports while its change waits on {job_id}"
         )
-    if re.match(r"(?:WAITING|BUILT)\b", line) and (tooled := tooling_waits(data, job["order"], [*named_waits(data, job["order"], line), *BUILT_CARD.findall(line)])):
+    if re.match(r"(?:WAITING|BUILT)\b", line) and (
+        tooled := tooling_waits(data, job["order"], [*named_waits(data, job["order"], line), *BUILT_CARD.findall(line), *(other for other in LINE_JOB.findall(line) if other in data["jobs"])])
+    ):
         return (
             f'its line names {", ".join(tooled)}, the work of a "{TOOLING}" order, which never holds {job_id}\'s work on his product, by his ruling {TOOLING_RULING}:'
             " take each off the line, and open or keep its PR as its own work needs, since his PRs land on their taps while a tooling question waits on its own card"
@@ -4227,9 +4230,15 @@ def heard_job_lane(data: dict, job: dict) -> str:
 
 
 def returned(name: str, data: dict, job_id: str, line: str) -> None:
-    """Write the event the watch hearing a job says as `JOB <j> <o> <line>`, the one maker of a return's line wherever it was taken: by `drive job report` in any process on this Mac, by the watch from a lane's mail, or by the watch from a codex-ask run."""
+    """Write the event the watch hearing a job says as `JOB <j> <o> <line>`, the one maker of a return's line wherever it was taken: by `drive job report` in any process on this Mac, by the watch from a lane's mail, or by the watch from a codex-ask run; inside a batch once its save lands, by after_save, so a dry run writes none."""
     job = data["jobs"][job_id]
-    append_event(name, RETURNED, job=job_id, order=job["order"], line=line, lane=heard_job_lane(data, job))
+    fields = {"job": job_id, "order": job["order"], "line": line, "lane": heard_job_lane(data, job)}
+
+    def said() -> list[str]:
+        append_event(name, RETURNED, **fields)
+        return []
+
+    after_save(name, said)
 
 
 def job_lane(data: dict, job: dict) -> str:

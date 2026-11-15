@@ -1836,15 +1836,7 @@ def job_ask(args: argparse.Namespace) -> int:
         raise DriveError("name the job whose ASK this keeps: drive job ask <j> <file>; drive job ask <j> --check <file> runs every check it runs and keeps nothing")
     name = state.resolve(args.drive)
     if args.check:
-        text = limits.ask_block(named_text(args.check, "ASK block file"))
-        if answer := settled.answered(state.load(name), asked_title(text)):
-            print(f"no card: he already answered this same question, asked in the same words, at {answered_at(answer)}, so drive job ask keeps it settled on his words, checking nothing and drawing no card")
-            return 0
-        with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
-            asked, *_, detail = checked_ask(name, args.id, text, args.unsettled, args.redraws, Path(scratch))
-        if detail:
-            print(settled.DECIDES.format(option=render.cut(asked.recommended, 200), ruling=state.TOOLING_DETAILS_RULING), file=sys.stderr)
-        print("ready")
+        print(ask_checked(name, args.id, named_text(args.check, "ASK block file"), args.unsettled, args.redraws))
         return 0
     if args.answer and not args.drop:
         raise DriveError(f"--answer ends the question --drop names: drive job ask {args.id} --drop <the file it is kept in> --answer {args.answer}")
@@ -1928,6 +1920,18 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
     closed = settled.tooling_decided(option, settled.given_at(data, answer))
     said = f'{job_id}\'s question "{title}" ended decided on its recommended option, "{render.cut(option, 200)}", under his ruling {state.TOOLING_DETAILS_RULING} on tooling details'
     return [said, *ended_on(name, closed, question["waits"], question["card"], f'"{render.cut(closed["words"], 300)}" linked to {closed["link"] or "itself"}'), builds_on(state.load(name), job_id)]
+
+
+def ask_checked(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None) -> str:
+    """What `drive job ask --check` prints of an ASK block, keeping nothing, refused as `keep_ask` refuses it: that his answer to this same question, asked in the same words, settles it, checking nothing, else ready once every check `keep_ask` runs passed, by `checked_ask`, its Show me pictures drawn in a folder deleted after it, with settled.DECIDES on stderr for one kept decided with no card."""
+    text = limits.ask_block(text)
+    if answer := settled.answered(state.load(name), asked_title(text)):
+        return f"no card: he already answered this same question, asked in the same words, at {answered_at(answer)}, so drive job ask keeps it settled on his words, checking nothing and drawing no card"
+    with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
+        asked, *_, detail = checked_ask(name, job_id, text, unsettled, redraws, Path(scratch))
+    if detail:
+        print(settled.DECIDES.format(option=render.cut(asked.recommended, 200), ruling=state.TOOLING_DETAILS_RULING), file=sys.stderr)
+    return "ready"
 
 
 def asked_title(text: str) -> str:
@@ -2770,7 +2774,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a stopped job's return is kept ahead of every refusal and sets nothing, its state, said line, waits, PRs, builders and briefs left as they were, the print saying it stays stopped, so the agent its stop left running ends on that line; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there, each write only the line naming when to start each builder it added, which no other line carries; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each; each open card of the job the return no longer names it withdraws, by superseded.moved_on, printing how each is asked again; a reader's or design's return whose line goes against a recorded answer of his is refused, by brief.overruled_refusal. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a stopped job's return is kept ahead of every refusal and sets nothing, its state, said line, waits, PRs, builders and briefs left as they were, the print saying it stays stopped, so the agent its stop left running ends on that line; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there, each write only the line naming when to start each builder it added, which no other line carries; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each; each open card of the job the return no longer names it withdraws, by superseded.moved_on, printing how each is asked again; a reader's or design's return whose line goes against a recorded answer of his is refused, by brief.overruled_refusal. With --dry-run, by rehearsed, a take keeps nothing and prints each drive row field it would change: the report it keeps, its returned event, the briefs it writes and each card it draws or withdraws run by state.after_save once a save lands, which a dry run never makes, and a reader's DESIGN is checked by ask_checked, drawing no card. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2782,7 +2786,7 @@ def job_report(args: argparse.Namespace) -> int:
         kept = str(state.replies_path(name, args.id))
         where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
         if job["state"] == "stopped":
-            state.keep_report(name, args.id, line, whole)
+            state.after_save(name, lambda: state.keep_report(name, args.id, line, whole) or [])
             return emit(args, f"{where}\n{args.id} stays stopped: this return sets nothing on it", {"id": args.id, "report": kept, "ask": None, "fixes": [], "builders": []})
         if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or brief.overruled_refusal(data, job, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
@@ -2799,10 +2803,13 @@ def job_report(args: argparse.Namespace) -> int:
         asked = said = None
         if job["kind"] == "reader" and line.startswith("DESIGN"):
             try:
-                asked, _, _, said = keep_ask(name, args.id, whole.strip(), None)
+                if name in state.REHEARSING:
+                    said = ask_checked(name, args.id, whole.strip(), None, None)
+                else:
+                    asked, _, _, said = keep_ask(name, args.id, whole.strip(), None)
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
-        state.keep_report(name, args.id, line, whole)
+        state.after_save(name, lambda: state.keep_report(name, args.id, line, whole) or [])
         fixes = []
         for key in state.untracked_fixes(data, args.id, line, whole):
             try:
@@ -2817,8 +2824,8 @@ def job_report(args: argparse.Namespace) -> int:
             rebriefed = brief.unstarted_builders(data, args.id) if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else []
             brief.name_goals(name, data, rebriefed, whole)
             moved_on = superseded.moved_on(data, args.id, whole, asked and str(asked))
-        withdrawn = [*superseded.follow(name, moved_on, "that its work went on without it"), *redraws(data, moved_on)] if moved_on else []
-        briefed = [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed]
+        withdrawn = [*state.after_save(name, lambda: superseded.follow(name, moved_on, "that its work went on without it")), *redraws(data, moved_on)] if moved_on else []
+        briefed = state.after_save(name, lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
         told = state.load(name)
         started = render.builder_lines(name, data, added)
         if (taken := told["jobs"][args.id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
@@ -2847,7 +2854,7 @@ def register_named(name: str, job_id: str, line: str) -> list[str]:
         if key.casefold() in tracked:
             continue
         _, testers = add_pr(name, key, job_id, github_pr(key), lead={})
-        added += [f"{key}: registered on {job_id}{drawn_card(name, key)}", *render.builder_lines(name, state.load(name), testers)]
+        added += [f"{key}: registered on {job_id}{''.join(state.after_save(name, lambda key=key: [drawn_card(name, key)]))}", *render.builder_lines(name, state.load(name), testers)]
     return added
 
 
@@ -6163,7 +6170,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_card)
     verb = job.add_parser(
         "report",
-        parents=both,
+        parents=[*both, dry_opt],
         help="keep a job's whole return in the drive, or print the returns it took",
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
@@ -6175,7 +6182,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print the returns it took, newest first")
     verb.add_argument("--all", action="store_true", help="print every return the job took whole")
-    verb.set_defaults(run=job_report)
+    verb.set_defaults(run=rehearsed(job_report))
     verb = job.add_parser(
         "brief",
         parents=[*both, brief_opt],
@@ -6939,16 +6946,47 @@ def rehearsed(run: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Na
     def rehearse(args: argparse.Namespace) -> int:
         if not args.dry_run:
             return run(args)
+        name = state.resolve(args.drive)
+        before = after = state.load(name)
         try:
-            with state.batch(state.resolve(args.drive), dry=True):
-                code = run(args)
+            with state.batch(name, dry=True):
+                try:
+                    code = run(args)
+                finally:
+                    after = state.load(name)
         except state.Rehearsed as reached:
             print(f"checked up to `{reached}`, which a dry run never starts")
             code = 0
+        for line in changed_fields(before, after):
+            print(line)
         print("a dry run: nothing kept")
         return code
 
     return rehearse
+
+
+def changed_fields(before: dict, after: dict) -> list[str]:
+    """Each change a dry run's writes made to the drive's rows, a line each: a record of a collection added or dropped, else each field of a record or top-level field whose value changed, as `<collection> <key> <field>: <before> -> <after>`, each value its JSON cut to 160 characters."""
+
+    def shown(value: object) -> str:
+        return render.cut(json.dumps(value, ensure_ascii=False, sort_keys=True), 160)
+
+    lines = []
+    for field in dict.fromkeys([*before, *after]):
+        was, now = before.get(field), after.get(field)
+        if was == now:
+            continue
+        if field not in state.COLLECTIONS:
+            lines.append(f"{field}: {shown(was)} -> {shown(now)}")
+            continue
+        for key in dict.fromkeys([*was, *now]):
+            if key not in now:
+                lines.append(f"{field} {key}: dropped")
+            elif key not in was:
+                lines.append(f"{field} {key}: added")
+            else:
+                lines += [f"{field} {key} {column}: {shown(was[key].get(column))} -> {shown(now[key].get(column))}" for column in dict.fromkeys([*was[key], *now[key]]) if was[key].get(column) != now[key].get(column)]
+    return lines
 
 
 def keyed_prs(args: argparse.Namespace) -> None:
