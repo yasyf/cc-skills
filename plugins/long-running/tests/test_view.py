@@ -1318,6 +1318,18 @@ def tracked(number: int, **overrides: object) -> tuple[str, dict]:
     return f"Forge-AI/monorepo#{number}", state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", "j1", "o1") | overrides
 
 
+def test_a_merged_monorepo_prs_staging_line_reads_its_after_merge_pass_alone_or_after_the_staging_test_it_held_as_56539s_did_not() -> None:
+    passed = {"cases": [["old clients still read", "pass"], ["sand-exec", "not exercised: staging has no Riza credentials"]], "posted": PROOF, "posted_by": "j2", "at": at(-30)}
+    failed = passed | {"cases": [["old clients still read", "fail: 500 on GET /api/sessions"]], "posted": None}
+    staging = state.STAGING_TEST.format(number=7)
+    tested = drive_of({"o1": order("ship it", ["j1"], parts={staging: state.new_part() | {"soak": SOAK, "posted": PROOF}})}, {"j1": job("o1", "waiting", parts=[staging], created=at(-60))}, [tracked(7, after_merge=failed)])
+    after = f"passed at {when(at(-30))}, [proof]({PROOF}); not exercised: sand-exec (staging has no Riza credentials)"
+    assert [view.staging(drive_of({"o1": order("ship it", [])}, {}, [tracked(7, after_merge=passed)]), "Forge-AI/monorepo#7"), view.staging(tested, "Forge-AI/monorepo#7")] == [
+        f"Tested on staging after its merge: {after}",
+        f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF}); after its merge: no pass: CASE old clients still read: fail: 500 on GET /api/sessions",
+    ]
+
+
 def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards() -> None:
     lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc", "merges_first": False})])
     assert view.staging(lifted, "Forge-AI/monorepo#7") == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes only the docs"
@@ -1370,6 +1382,20 @@ def test_a_monorepo_prs_staging_words_read_the_done_a_job_of_its_order_waiting_o
     report = f"DONE #7's staging case ran\nCHECK: {PROOF}\nCASE run 1 on dev reproduces the failure: pass\nCASE run 2 at #7's head lands: {verdict}\nCASE a retry of an unlanded run: not exercised\n"
     state.keep_report("demo", "j1", "DONE #7's staging case ran", report, T0)
     assert view.staging(drive, "Forge-AI/monorepo#7") == words
+
+
+def test_a_done_a_job_waiting_on_two_prs_ran_both_in_gives_each_pr_only_the_case_lines_naming_it_and_a_later_after_merge_pass_follows_it(state_root: Path) -> None:
+    part = "This is the kinda thing that needs to be tested in staging ffs"
+    after = {"cases": [["old clients still read", "pass"]], "posted": PROOF, "posted_by": "j2", "at": at(-30)}
+    jobs = {"j1": job("o1", "done", "DONE #7 and #8 ran on staging", parts=[part], waits=["Forge-AI/monorepo#7", "Forge-AI/monorepo#8"])}
+    drive = drive_of({"o1": order("ship it", ["j1"], parts={part: state.new_part()})}, jobs, [tracked(7, after_merge=after), tracked(8)])
+    state.drive_dir("demo").mkdir(parents=True)
+    report = f"DONE #7 and #8 ran on staging\nCASE #7 run 1 lands: pass\nCASE #8 run 2 lands: fail: the second run never landed\nCHECK: {PROOF}\n"
+    state.keep_report("demo", "j1", "DONE #7 and #8 ran on staging", report, T0)
+    assert [view.staging(drive, "Forge-AI/monorepo#7"), view.staging(drive, "Forge-AI/monorepo#8")] == [
+        f"Tested on staging: passed at {when(state.stamp(T0))}, [proof]({PROOF}); after its merge: passed at {when(at(-30))}, [proof]({PROOF})",
+        "Tested on staging: no pass: CASE #8 run 2 lands: fail: the second run never landed",
+    ]
 
 
 def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say() -> None:
