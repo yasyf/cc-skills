@@ -1584,7 +1584,7 @@ def test_the_watch_starts_the_handler_on_a_quiet_incident_while_he_holds_every_r
     calls = catching_up(monkeypatch, demo)
     assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=7)) == []
     [_, (start, _)] = calls
-    assert start[-1].splitlines()[-1] == 'Release freezes: his hold 15c4de1 on every release stands: "no releases until I say we can again"'
+    assert start[-1].splitlines()[-1] == 'Release freezes: his hold 15c4de1 on every release reaching past plat-usw2-staging and plat-usw2-sandbox stands: "no releases until I say we can again"'
     assert state.load(demo)["orders"]["o1"]["quiet"]["handler"] in state.load(demo)["handlers"]
 
 

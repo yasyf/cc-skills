@@ -109,6 +109,7 @@ TAP_LABELS = ("Approve", "Hold")
 CARDS_FIRST = 'fe09e93 "Buttons only after you answer each question"'
 TOOLING = "Drive tooling:"
 TOOLING_DETAILS_RULING = "43aa665"
+REHEARSAL_RULING = "716e70d"
 POST_FEEDBACK = f"{TOOLING} post feedback:"
 DRIVE_TOOLING = (
     "how the drive itself works: a tool it runs on (the drive CLI and its MCP tools, a hook, the watch, the dashboard,"

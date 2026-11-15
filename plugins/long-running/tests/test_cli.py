@@ -3673,6 +3673,34 @@ def test_a_tooling_question_jev_reads_as_only_a_detail_is_kept_decided_on_its_re
     assert (asked["closed"], bool(asked["waits"]), len(jev.details)) == (None, True, 2)
 
 
+def test_a_card_whose_recommended_option_names_only_releases_on_staging_or_sandbox_alone_is_kept_decided_on_it_with_no_card_and_no_jev_read_and_one_reaching_production_draws_his_card(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    rehearsed = SHORT_ASK.replace("; a backfill writes one for each old run.", "; `release start runtime-api-next --env plat-usw2-sandbox` tries it on the sandbox first.")
+    option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    monkeypatch.setattr("sys.stdin", io.StringIO(rehearsed))
+    assert cli.main(["job", "ask", asking, "--check", "-"]) == 0
+    said = capsys.readouterr()
+    assert (said.out.strip(), settled.REHEARSES.format(option=option, ruling="716e70d") in said.err) == ("ready", True)
+    monkeypatch.setattr("sys.stdin", io.StringIO(rehearsed))
+    kept = str(state.drive_dir("demo") / "asks" / f"{asking}-{state.ask_hash(rehearsed)}.md")
+    assert run("job", "ask", asking, "-") == (0, settled.REHEARSED_LINE.format(file=kept, job=asking, option=option, ruling="716e70d"))
+    [question] = state.load("demo")["jobs"][asking]["questions"]
+    assert (question["card"], question["waits"], question["closed"]["ruling"], question["closed"]["words"], jev.details) == (
+        None,
+        None,
+        "716e70d",
+        f"{option}: decided without you, since a release on staging or sandbox alone needs no word of yours",
+        [],
+    )
+    production = rehearsed.replace("ASK How should", "ASK When should").replace("plat-usw2-sandbox", "plat-usw2-prod")
+    monkeypatch.setattr("sys.stdin", io.StringIO(production))
+    run("job", "ask", asking, "-")
+    asked = state.load("demo")["jobs"][asking]["questions"][-1]
+    assert (asked["closed"], bool(asked["waits"])) == (None, True)
+
+
 def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_order_redraws_under_its_waits_id_leaving_its_own_job_and_folding_into_the_other(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

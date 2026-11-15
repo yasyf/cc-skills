@@ -97,7 +97,7 @@ def test_a_handler_started_while_his_hold_on_every_release_stands_closes_its_pro
     recorded.listed = [HELD_RELEASES]
     start(run, tmp_path)
     [argv] = started
-    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + f"\n{agents.IN_THREAD}: none" + '\nRelease freezes: his hold 15c4de1 on every release stands: "no releases until I say we can again"'
+    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + f"\n{agents.IN_THREAD}: none" + '\nRelease freezes: his hold 15c4de1 on every release reaching past plat-usw2-staging and plat-usw2-sandbox stands: "no releases until I say we can again"'
 
 
 def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_tools_and_this_macs_lane_settings_over_them_but_the_datadog_plugin(

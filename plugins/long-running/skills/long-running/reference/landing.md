@@ -607,7 +607,7 @@ PR checks that everyone hits".
   and one claim, by 0c33b7b, "But also combine jobs as possible". The drive starts each test on staging
   alone with no card, by his pick 23eefb9, "A standing yes: the drive soaks any dangerous branch on
   staging alone, while production keeps waiting for your word", which [After merge](#after-merge) reads
-  as that start's order.
+  as needing no `--order`.
 - **Its tools.** The steps are the monorepo `AGENTS.md`'s **Landing** rule. `tools/ci release soak`, once
   on `dev`, freezes staging, deploys the branches and unfreezes, by his pick 9e17cb0, "One soak command
   that freezes staging, deploys the branch, waits for its tests, unfreezes, and posts a pass the merge
@@ -616,7 +616,7 @@ PR checks that everyone hits".
   cf6fc93, "Redeploy the soaked stacks at latest-green-rc when --fail ends the soak". `tools/ci
   staging-smoke soak` runs the agent's scenarios on staging as the smoke-test account.
 - **Its restore.** Staging goes back to the commit it served before the test, the cut's base, with
-  `tools/ci release start <each soaked target> --from <restore commit> --emergency --env plat-usw2-staging --order 23eefb9`,
+  `tools/ci release start <each soaked target> --from <restore commit> --emergency --env plat-usw2-staging`,
   where the restore commit is an empty commit on the base, `git commit-tree <base>^{tree} -p <base>`,
   pushed on a branch of its own, such as `<job>-staging-restore-<base>`, so `buildkite/test` grades it
   before the off-dev emergency start needs it green. Never name the base itself: the soaked cut descends
@@ -701,10 +701,18 @@ the patch.
   on random tooling fixes that are necessary but not blocking." A release-path PR whose staging cases
   passed while the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on
   its tester's part, the turn the defect goes to meta.
+- His hold and his word cover every release reaching past `plat-usw2-staging` and
+  `plat-usw2-sandbox`, by his words 716e70d, "You never have to ask for sandbox", and on staging
+  33de0fc, "every time we want to do a test, you don't need my permission", and 23eefb9. A release
+  whose every place, its `--env` places and its stacks' envs, is one of those two, and that is no
+  `--for-production` start, starts, resumes, passes its approve hold and reruns with no `--order`, no
+  card and no Jev read, on any order, the repository's staging-claim post still going first on
+  staging. `drive job ask` keeps a card whose recommended option names only such releases in
+  backticks decided on that option, drawing no card.
 - His hold on every release is his answer labelled `release-hold` that no later answer of his
   supersedes, such as 15c4de1: "no releases until I say we can again, only I can give exceptions".
-  While it stands, a release runs only on his exception, an answer of his recorded after the hold
-  that approves that one release. `drive job add --release` refuses any other start, and the
+  While it stands, any other release runs only on his exception, an answer of his recorded after the
+  hold that approves that one release. `drive job add --release` refuses any other start, and the
   `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
   release resume`, `approve` and `rollback`, and a `tools/ci bk rerun release` or `tools/ci bk api`
   write to a release cut, a forge/release build whose env holds `RELEASE_START`, or creating one. A
@@ -721,8 +729,9 @@ the patch.
   --reason <why>`. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
   with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
   `drive job launch` keeps in `~/.codex/hooks.json`.
-- A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
-  `--order` of its `Release:` line. A call naming none is refused, with no answer of his read. An
+- A start reaching past staging and sandbox names his exception in `--order`. A job's approve,
+  resume, rerun or rollback passes on the `--order` of its `Release:` line. A call naming none is
+  refused, with no answer of his read, unless it runs on staging or sandbox alone. An
   incident's order passes on its words, never on its label. Ask
   him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
   again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
@@ -763,21 +772,14 @@ the patch.
   by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the
   same" orders option 1's hotfix on Acme's env. Each `--stack <project>/<env>` a release names reads
   as its project among the targets and its env among the `--env` places, and `--commit` as `--from`,
-  so a release's places are its `--env` places and its stacks' envs, else production. When that option's
-  release and this one both run on staging alone, each place one its `infra/envs` file marks
-  `stage: staging`, as go/ci's `StagingOnly` reads it, the release picks its own targets and `--only`
-  where the option's names none, and starts with `--emergency`, `--manual` or
-  `--rollback` or not, so his standing yes to soak any dangerous branch on staging, whose option starts
-  `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start there, the
-  restore or rollback that returns staging after it, and none past staging. On an option naming no release in backticks, his number
+  so a release's places are its `--env` places and its stacks' envs, else production. On an option naming no release in backticks, his number
   or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from` or `--commit`, `--order` and
   `--emergency`, with a target and a place, when the option's words name each target and they or his
   words past the number name each place it runs on, so his "1" on a card whose option deploys the
   branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers,
   the drive's `Notes:` on his words, his answers recorded before it in the same Slack thread and the
   places the release runs on with each one's stage, ordering only what his words name, so
-  his words to get work built or tested on a sandbox or staging order its release on those places
-  alone and none on production. A staging release started with `--for-production`, which go/ci
+  his words to get work built or tested on a sandbox or staging order no release on production. A staging release started with `--for-production`, which go/ci
   starts on both staging envs through every staging freeze, a teammate's included, reads as the
   production release it tests, the same start without `--for-production` and its `--env`: only his
   answer ordering that production release orders it, such as his pick of an option whose release
