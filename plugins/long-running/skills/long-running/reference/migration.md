@@ -185,8 +185,10 @@ His rulings already live in cc-notes answers.
   comes for work nobody is doing. A PR with work owed, such as a review finding not yet answered, a
   step after its merge like a fill, or a plan a ruling of his touches, gets a builder with a handoff in
   the same turn. On Nov 9 a builder stopped at 3:04 AM with a review finding open, its adopting job
-  had no agent, and nothing touched it for two days. Otherwise start a builder only when an event
-  needs action: failed checks, requested changes, a new head, or his tap.
+  had no agent, and nothing touched it for two days. Otherwise its builder starts only when an event
+  needs action: failed checks, requested changes, a conflict, a new head, or his tap. The watch's wake
+  starts it then with `drive job launch <j> --handoff "<the PR> at <its head>: <the line>"`, so no
+  session starts it by hand.
 - Ask an implementation session that is mid-change to push and stop on the cci `post` tool:
   `drive: <old>`, `kind: ask`, `lane: root`, `to: [<its lane>]`, `text: Push your branch and PR now,
   reply with the branch and head, then stop work: drive <new> adopts it.` When it replies, carry its

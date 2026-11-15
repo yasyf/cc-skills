@@ -4223,6 +4223,32 @@ def test_a_pr_wake_for_a_builder_the_top_coordinator_started_that_returned_on_a_
     assert state.held_elsewhere(data, "o1", top) is not None
 
 
+def test_a_pr_wake_for_an_adopted_prs_job_launches_its_first_builder_with_the_line_as_its_handoff_and_no_hand_step(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "watch", "--remote")
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    key = state.pr_key(url)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", prs=[url], waits=[key])
+        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"head": "abc1234def"}
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    detached = []
+    monkeypatch.setattr(state, "detach", lambda name, argv, log: detached.append((argv, log)) or 0)
+    monkeypatch.setattr(tools, "sent", lambda *args: pytest.fail(f"an adopted PR's wake hands no session a step: {args}"))
+    line = f"PR {key}: red: it conflicts with main"
+    assert run("pr", "wake", url, "--text", line) == (0, f"{key}: ran drive job launch j1 with this line as its handoff, its output in the drive's relaunches.log")
+    handoff = f"{url} at abc1234def: {line}"
+    assert detached == [(["job", "launch", "j1", "--handoff", handoff], "relaunches.log")]
+    data = state.load(demo)
+    assert view.start_refusal(data, "j1", True) is None
+    assert superseded.delivery(data, "j1", data["jobs"]["j1"], line, "this line")[1] == (
+        f'drive job launch j1 --handoff "<{url}, its head and this line verbatim>", starting the first builder of its adopted PR'
+    )
+    assert run("job", "brief", "j1", "--handoff", handoff)[0] == 0
+
+
 def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_waits_for_it_and_sends_that_worker_its_line(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

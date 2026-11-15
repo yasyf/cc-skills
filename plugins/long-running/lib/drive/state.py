@@ -3870,6 +3870,11 @@ def title(role: str) -> str:
     return "meta session" if role == "meta" else role
 
 
+def adopted_pr_job(data: dict, job: dict) -> bool:
+    """Whether the job is an adopted PR's: waiting on an open PR it holds with no agent or lane ever started on it, so only an event on one of them that needs action, failed checks, requested changes, a new head or his tap, starts its builder, briefed with that event as its handoff."""
+    return job["state"] == "waiting" and not (job.get("agent") or job.get("dispatch")) and any(data["prs"][pr_key(url)]["state"] == "open" for url in job["prs"])
+
+
 def held_elsewhere(data: dict, order_id: str, session: str | None, cut: bool = False) -> str | None:
     """Why a session may not act on an order another session of the drive holds, or on a job of it starting a production cut, cut, which the top coordinator holds whatever order it serves, naming the holder, its session and the record that asks it for the step; compared by holding lane rather than session role, as pr_held_elsewhere is, so the top coordinator and a sub-coordinator, both of role coordinator, are told apart; a session the drive does not bind, such as a Sprite lane's, is refused nothing, and an order from before owners is held by the first role to add a job to it."""
     order = data["orders"][order_id]

@@ -469,8 +469,6 @@ def evidence_record(name: str, title: str, words: str, source: str, again: str) 
 
 def turned_incident(name: str, data: dict, order_id: str, created: str) -> list[str]:
     """Turn an open order into an incident in the save that marks it, as drive incident open opens one: its fix and cause parts, a build whose other parts an answer order asked stay answers, its evidence record when its note names none, and a codex job by state.incident_job on each of those two parts no unfinished codex job holds, but on an order joined to an open incident, whose owner job carries it; the lines that say so."""
-    if refused := state.held_elsewhere(data, order_id, os.environ.get("CLAUDE_CODE_SESSION_ID")):
-        raise DriveError(f"refused, nothing written: {refused}")
     order = data["orders"][order_id]
     parts = [state.INCIDENT_FIX, state.INCIDENT_CAUSE]
     for part in parts:
@@ -776,7 +774,7 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -784,6 +782,11 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    filing = state.session_role(data, session) == "communicator"
+    shaping = args.incident is not None or not filing and (args.add_part or args.drop_part or args.kind or args.standing is not None or args.options_only is not None)
+    if shaping and (refused := state.held_elsewhere(data, args.id, session)):
+        raise DriveError(f"{args.id}: refused, nothing written: {refused}")
     refuse_unquotable_parts("--add-part", args.add_part)
     added = state.reporter(args.reporter) if args.reporter else None
     held = {(kept["channel"], kept["thread"]) for kept in order["reporters"]}
@@ -2890,7 +2893,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
     flags = {flag: earlier_flags.get(flag) if named.get(flag) is None else named[flag] or None for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
     flags["serves"] = flags["serves"] or " and ".join(part for part in job["parts"] if state.PORT_PART.fullmatch(part)) or ("drive tooling" if state.tooling(order) else "his order")
-    if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
+    if state.adopted_pr_job(data, job) and not named.get("handoff"):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
@@ -3936,7 +3939,7 @@ def releaded(pr: dict) -> str:
 
 
 def pr_wake(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
@@ -3961,6 +3964,9 @@ def pr_wake(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][target]
+    if job_id and state.adopted_pr_job(data, job):
+        state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
+        return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
     if job_id:
         lane, step = superseded.delivery(data, job_id, job, text, "this line")
         said = f"STAGE {text}; for {job_id}, with this line alone: {step}"
