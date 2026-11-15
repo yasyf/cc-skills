@@ -155,7 +155,7 @@ def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
 
 
 def mover(data: dict, key: str, waits: list[str], cards: dict | None) -> str:
-    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); else, at the first, the job at work there, a PR standing for the job answering for it, by owner_job(), so the stage's deadline wakes that job's lane; the watch for a builder slot on this Mac, which it gives; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a part no job carries or waits that only come back to the PR."""
+    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); else, at the first, the job at work there, a PR standing for the job answering for it, by owner_job(), so the stage's deadline wakes that job's lane; the watch for a builder slot on this Mac, which it gives; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
     found = ends(data, waits, cards, {key})
     if any(his(data, end, cards) for end in found):
         return HIM
