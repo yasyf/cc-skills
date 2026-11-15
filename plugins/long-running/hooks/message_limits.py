@@ -60,10 +60,6 @@ REPORTER_RULE = (
     " is proven live, or the answer once it is posted to him, by his words \"we have authorization to message once in bug fix threads"
     ' after we ship the fix".'
 )
-TITLED = (
-    " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}}, {{record:…}} and {{answer:…}} references draw as their words;"
-    " {{pr:<number>|<words>}} or {{record:<seq>|<words>}} names one in fewer words of your own."
-)
 UNREAD = (
     "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={channel},"
     " thread_ts={thread}, since_ts=<the newest ts you read there>), or limit=1000 in place of since_ts for a thread you never read, then post."
@@ -81,8 +77,9 @@ LENGTH_RULE = (
     "A line in his thread is at most 60 words and a summary of two or more features at most 120, the coordinator's reading"
     ' of his words "your messages need to be way shorter rewrite this for a human"; an answer to a question or order of his'
     " in that thread, his words passed as asked, goes out whole at any length. His words are the evidence items holding them, never"
-    " the agent's brief or the records it reads, whatever they quote, and a count counts the post as Slack draws it, each"
-    " reference's drawn words included."
+    " the agent's brief or the records it reads, whatever they quote, and a count counts only the words its writer typed, post.written:"
+    " each {card:…}, {pr:…}, {order:…}, {record:…}, {answer:…}, {started:…} or {at:…} reference counts once, as one word or as the"
+    " words after its |, never the title or time say draws for it."
 )
 ACK_RULE = "The communicator's ack is one sentence: what he asked, in his words, and what happens next; its handler answers the rest."
 LINK_RULE = (
@@ -571,8 +568,9 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         )
     if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive):
         return refusal
+    written = tool_input.get("written") or said
     if payload["tool_name"] == SAY and talk.to_members(drive, tool_input):
-        return unread(payload, dm) or members_findings(payload, dm)
+        return unread(payload, dm) or members_findings(payload, written, dm)
     if not posts_to(payload, drive, dm):
         return unread(payload, dm) if payload["tool_name"] == SAY else None
     report, order_id = said_order(payload, drive)
@@ -584,8 +582,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     except slack.SlackError as error:
         return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
     heard_him(drive, messages, linked)
-    if (long := over_length(payload, dm, messages, linked)) and found:
-        long += TITLED.format(limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found, talk.shown_in(drive["name"], tool_input))))
+    long = over_length(payload, written, dm, messages, linked)
     return every(
         [
             long and agents.Ruled(long, LENGTH_RULE, long, found=long.found),
@@ -612,14 +609,14 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     )
 
 
-def members_findings(payload: dict, dm: str) -> str | None:
-    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root keeps to a summary's words and a line in its thread to a line's, an edit rewording its post at that post's length, and it names no file or function, each finding judged by Jev against his words on those posts."""
+def members_findings(payload: dict, written: str, dm: str) -> str | None:
+    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root keeps to a summary's words and a line in its thread to a line's, counting the words its writer typed, written, an edit rewording its post at that post's length, and it names no file or function, each finding judged by Jev against his words on those posts."""
     tool_input = payload["tool_input"]
     text = tool_input.get("text") or ""
     shape, limit = ("a line in the thread of a post to a channel's members", limits.LINE_WORDS) if talk.place(tool_input)[1] else ("a post at the root of a channel outside his DM", limits.SUMMARY_WORDS)
     try:
         findings = slack.post_findings(text, False)
-        long = limits.word_refusal(tool_input, limit, shape, edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
+        long = limits.word_refusal(tool_input | {"text": written}, limit, shape, edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
     except slack.SlackError as error:
         return f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}."
     named = ", ".join(limits.code_names(text))
@@ -909,13 +906,14 @@ def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | 
     return agents.Ruled(f"refused: {named}. Name it beside what it asks about, and tell him the news as that card's.", KNOWN_RULE, found=asked)
 
 
-def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
-    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
+def over_length(payload: dict, written: str, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
+    """Why the post is longer than he reads, counting the words its writer typed, written, each reference once, never the titles say draws for them: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
     tool_input = payload["tool_input"]
-    if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
+    typed = tool_input | {"text": written}
+    if (refusal := limits.post_refusal(typed)) is None or tool_input.get("card"):
         return refusal
     try:
-        refusal = limits.post_refusal(tool_input, edited_words(payload, dm))
+        refusal = limits.post_refusal(typed, edited_words(payload, dm))
     except slack.SlackError as error:
         refusal += f" The post it edits could not be read to check its length: {error}."
     if refusal is None:

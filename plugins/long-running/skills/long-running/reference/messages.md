@@ -20,16 +20,18 @@ the card with its buttons whenever it says something waits on him.
 
 ## Limits
 
-The tooling holds every post to a length, counted as the post goes out with a link counted as the
-words of its label, so a `report` record names no cap of its own. The limits are the coordinator's
-reading of his words "your messages need to be way shorter rewrite this for a human".
+The tooling holds every post to a length, counted on the words its writer typed, so a `report`
+record names no cap of its own. A link, a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`,
+`{answer:…}`, `{started:…}` or `{at:…}` reference included, counts as the words after its `|`, or as
+one word, never the title or time `say` draws for it, and what `say` adds itself, such as a
+catch-up's title and its open cards, counts for nothing. The limits are the coordinator's reading of
+his words "your messages need to be way shorter rewrite this for a human".
 
 | What he reads | At most |
 |---|---|
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | Each row of a markdown table, which `say` draws as Slack's own table | 60 words, its words outside the post's count |
-| The count of his open cards and the cards asked since he was last heard, which `say` adds to his catch-up | none: drawn whole, outside the 120 |
 | A question card: question, summary and options together | 150 words |
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |

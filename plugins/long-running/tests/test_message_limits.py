@@ -533,20 +533,16 @@ def test_blocks_count_as_much_as_the_text(talker: str, transcript: Path) -> None
     assert "70 words" in posted(transcript, text="short", blocks=blocks)
 
 
-def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_naming_nothing_is_refused(talker: str, transcript: Path) -> None:
+def test_a_say_post_counts_the_words_its_writer_typed_each_reference_once_and_one_naming_nothing_is_refused(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
-        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(10)}
-    say = call("slack_dm_status", transcript, text=said(55) + " {pr:7}") | {"tool_name": message_limits.SAY}
-    refusal = message_limits.deny_reason(say)
-    assert "65 words" in refusal
-    assert refusal.endswith(
-        " 10 of the words counted are the titles its {card:…}, {pr:…}, {order:…}, {record:…} and {answer:…} references draw as their words;"
-        " {pr:<number>|<words>} or {record:<seq>|<words>} names one in fewer words of your own."
-    )
-    labeled = call("slack_dm_status", transcript, text=said(55) + " {pr:7|the run page}") | {"tool_name": message_limits.SAY}
-    assert message_limits.deny_reason(labeled) is None
-    unknown = call("slack_dm_status", transcript, text="see {card:demo:j9-1}") | {"tool_name": message_limits.SAY}
-    assert "{card:demo:j9-1} names no card" in message_limits.deny_reason(unknown)
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
+    assert say(transcript, text=said(59) + " {pr:7}") is None
+    refusal = say(transcript, text=said(60) + " {pr:7}")
+    assert refusal.found == "this post is 61 words, and a line in his thread is at most 60 words"
+    assert "titles" not in refusal
+    assert say(transcript, text=said(57) + " {pr:7|the run page}") is None
+    assert say(transcript, text=said(58) + " {pr:7|the run page}").startswith("refused: this post is 61 words")
+    assert "{card:demo:j9-1} names no card" in say(transcript, text="see {card:demo:j9-1}")
 
 
 def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in_a_links_words_is_refused_unjudged(
@@ -2801,6 +2797,9 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     assert "this post is 121 words, and a post at the root of a channel outside his DM is at most 120 words" in long
     assert long.rule == message_limits.MEMBERS_RULE
     assert long.counted == long
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
+    assert say(transcript, text=said(119) + " {pr:7}", channel_id="C0STAGING1") is None
     coded = say(transcript, text="Claiming staging until 3 PM to test the fix in talk.py and record_on(). Does anyone object?", channel_id="C0STAGING1")
     assert coded.startswith("refused: this post names record_on, talk.py; say in plain words what the work does")
     assert coded.rule == message_limits.MEMBERS_RULE
