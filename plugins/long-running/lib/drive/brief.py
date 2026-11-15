@@ -757,7 +757,7 @@ def held_piece(data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, st
         if other := next((key for key in state.named_prs(data, order_id, line[0]) if data["prs"][key]["job"] != job_id and data["prs"][key]["state"] != "closed"), None):
             return line[0].strip(), f"in {other}, a PR of {data['prs'][other]['job']}"
     pieces_held = {*job["parts"], *(state.whole_order(line["change"]) for line in listed)}
-    if not (building := [part for part in data["orders"][order_id]["parts"] if part not in pieces_held and not state.delivered(data, order_id, part)]):
+    if not listed or not (building := [part for part in data["orders"][order_id]["parts"] if part not in pieces_held and not state.delivered(data, order_id, part)]):
         return None
     try:
         read = pieces([line[0].strip() for line in listed], building, None)

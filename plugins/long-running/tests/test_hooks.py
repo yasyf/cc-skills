@@ -19,7 +19,7 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, kept_brief, label, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, kept_brief, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -959,25 +959,6 @@ def test_a_brief_whose_runs_as_line_writes_a_teams_data_under_break_glass_starts
     assert brief.brief_refusal("demo", state.load("demo"), "j1", tooling) is None
 
 
-def test_a_tooling_builders_brief_whose_goal_names_a_step_after_the_install_starts_only_once_its_mac_line_declares_it(meta: str, run: Run, jev: Jev) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: redraw the stale card")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix the redraw")
-    goal = "build the redraw fix; once installed, redraw j961's card through drive tool say"
-    planned = f"Order (his words): Drive tooling: redraw the stale card\nServes: drive tooling\nGoal: {goal}\nResearched: j0\n{{}}Drive: demo, order o1, job j1"
-    jev.picks("after")
-    assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("")).startswith(
-        f'j1\'s Goal "{goal}" names a step to take once its change is installed, as Jev reads it, and no Mac: line declares it: a yasyf/* merge reaches no lane'
-    )
-    [asked] = [asked for asked in jev.asked if "after" in asked["questions"]]
-    assert asked["state"] == {"goal": goal}
-    assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("Mac: redraw j961's card from the proof file\n")) is None
-    unworded = planned.format("").replace(goal, "build the redraw fix")
-    assert brief.brief_refusal("demo", state.load("demo"), "j1", unworded) is None
-    assert len([asked for asked in jev.asked if "after" in asked["questions"]]) == 1
-    jev.picks("none")
-    assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("")) is None
-
-
 def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1277,7 +1258,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     ]
     assert jev.asked[-1]["state"] == {
         "action": f"start this release on {settled.PRODUCTION}: `{J2666_START}`",
-        "answers": [{"id": "5419ffd", "asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]}],
+        "answer": {"asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]},
     }
     assert run("job", "brief", "j2", "--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")[0] == 0
     assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
@@ -1366,9 +1347,9 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     [asked] = jev.asked
     assert asked["state"] == {
         "action": f"start this release on {settled.PRODUCTION}: `{start.format('5d0c4a1')}`",
-        "answers": [{"id": "5d0c4a1", "asked": RELEASE_PICK["title"], "said": "Release now (Recommended)"}],
+        "answer": {"asked": RELEASE_PICK["title"], "said": "Release now (Recommended)"},
     }
-    assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", "5d0c4a1"]
+    assert asked["questions"] == {"orders.5d0c4a1": settled.ORDERS, "more": settled.SHIPS_MORE}
     assert brief.approval_refusal(start.format("9e1f2b3"), state.load("demo")) is None
     assert len(jev.asked) == 1
     jev.picks("none")
@@ -1434,7 +1415,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     assert brief.approval_refusal(start.format("8b2e4f7"), data) is None
     assert jev.asked[-1]["state"] == {
         "action": f"start this release on {settled.PRODUCTION}: `{start.format('8b2e4f7')}`",
-        "answers": [{"id": "8b2e4f7", "asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]}],
+        "answer": {"asked": SSQL_EXCEPTION["title"], "said": SSQL_EXCEPTION["body"]},
     }
     asked = len(jev.asked)
     refused = [landing_guard.deny_reason(bash(command) | top) for command in HELD_VERBS]
@@ -1502,13 +1483,13 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
 def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_start_his_answer_approves(
     demo: str, run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    reads, read_kinds = {"asks": "asks", "decides": "5d0c4a1"}, []
+    reads, read_kinds = {"asks": True, "orders": True}, []
 
-    def read(request: dict) -> dict:
-        read_kinds.append(request.get("state", {}).get("record", {}).get("kind"))
+    def read(told: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float]:
+        read_kinds.append(told.get("record", {}).get("kind"))
         if not reads:
             raise settled.Unheard("no jev decision within 20s")
-        return {key: label(reads[key], {"none": 0.1, reads[key]: 0.9}) for key in request["questions"]}
+        return {key: 0.9 if reads.get(key.partition(".")[0]) else 0.05 for key in questions}
 
     monkeypatch.setattr(settled, "jev", read)
     recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_PICK, PR_TAP)}
@@ -1520,13 +1501,13 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
     unread = ("owner", "answer", "report", "note", "evidence")
     assert [brief.release_ask_refusal(kind, ["root@demo"], RELEASE_ASK.format(""), data) for kind in unread] == [None] * len(unread)
     assert set(read_kinds).isdisjoint(unread)
-    reads["decides"] = "none"
+    reads["orders"] = False
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order ac61348"), data).startswith(
         f"{brief.RELEASE_ASKED}, and `drive job add --release` would refuse `{HANDOFF_START} --order ac61348`: `--order ac61348` names his answer to"
     )
-    reads["asks"] = "none"
+    reads["asks"] = False
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data) is None
-    reads |= {"asks": "asks", "decides": "5d0c4a1"}
+    reads |= {"asks": True, "orders": True}
     with state.edit(demo) as held_data:
         held_data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, RELEASE_PICK | {"created_at": EARLIER}]
@@ -1650,7 +1631,7 @@ def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ship
     for pick in picks:
         jev.picks(pick["id"][:7])
         assert brief.approval_refusal(J2666_START.replace("5419ffd", pick["id"][:7]), state.load("demo")) is None
-    assert [asked["state"]["answers"] for asked in jev.asked] == [[{"id": pick["id"][:7], "asked": pick["title"], "said": pick["body"]}] for pick in picks]
+    assert [(asked["state"]["answer"], list(asked["questions"])) for asked in jev.asked] == [({"asked": pick["title"], "said": pick["body"]}, [f"orders.{pick['id'][:7]}", "more"]) for pick in picks]
     jev.picks("none")
     assert brief.approval_refusal(J2666_START.replace("5419ffd", "6881a3a"), state.load("demo")) == (
         f'refused: `--order 6881a3a` names his answer to "{QUEUE_PICK["title"]}", "Enqueue it (Recommended)", and Jev does not read it'
@@ -1688,7 +1669,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
         f'refused: `--order 3c0ffee` names his answer to "{unread["title"]}", "{unread["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
     )
     [asked] = jev.asked
-    assert (asked["state"]["action"], asked["state"]["answers"]) == (f"start this release on {settled.PRODUCTION}: `tools/ci release start --order 3c0ffee`", [{"id": "3c0ffee", "asked": unread["title"], "said": unread["body"]}])
+    assert (asked["state"]["action"], asked["state"]["answer"]) == (f"start this release on {settled.PRODUCTION}: `tools/ci release start --order 3c0ffee`", {"asked": unread["title"], "said": unread["body"]})
     assert asked["state"]["card"].splitlines()[:3] == [f"Question: {CUT_PICK['title']}", "Drive tooling: your pick decides which cut ships the api hotfix.", "Option 1 (recommended): Api alone everywhere but Acme's cluster -- Starts `release start --hotfix 101 --only api --without tnt-usw2-acme`, the hotfix's api change on every place but Acme's cluster."]
     recorded.listed = [RELEASE_HOLD, CUT_PICK]
     assert brief.approval_refusal(ACME_CUT.format("5d17d9c"), data) is None

@@ -689,12 +689,17 @@ def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, di
     """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
     left: list[tuple[dict, dict[str, Noul]]] = []
     for part, asked in items:
-        merged = state | {key: state[key] | value if isinstance(value, dict) and isinstance(state.get(key), dict) else value for key, value in part.items()}
+        merged = joined(state, part)
         if size(merged, questions | asked) > REQUEST_CHARS:
             left.append((part, asked))
             continue
         state, questions = merged, questions | asked
     return state, questions, left
+
+
+def joined(state: dict, part: dict) -> dict:
+    """The state with an item's state merged in at every depth, so an item adding one field of a nested object, such as one input field of a call, keeps the fields earlier items added."""
+    return state | {key: joined(state[key], value) if isinstance(value, dict) and isinstance(state.get(key), dict) else value for key, value in part.items()}
 
 
 def lined(key: str, text: str) -> Iterator[tuple[dict, dict[str, Noul]]]:

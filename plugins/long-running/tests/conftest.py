@@ -1043,7 +1043,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
 @dataclass
 class Jev:
-    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise; answer None makes every request Unheard."""
+    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds; answer None makes every request Unheard."""
 
     asked: list[dict] = field(default_factory=list)
     answer: float | None = 0.05
@@ -1055,6 +1055,7 @@ class Jev:
     looks: float = 0.05
     looked: list[dict] = field(default_factory=list)
     again: set[str] = field(default_factory=set)
+    named: set[str] = field(default_factory=set)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         """Every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
@@ -1076,6 +1077,8 @@ class Jev:
             return 0.95 if state["open"][f"a{question.removeprefix('again')}"] in self.again else 0.05
         if question == "changes":
             return self.changes.get(about, 0.05)
+        if question == "names" and state["parts"][about.partition(".")[2]] in self.named:
+            return 0.9
         if self.chosen and self.chosen[0] in key.split("."):
             return self.chosen[1]
         return self.answer

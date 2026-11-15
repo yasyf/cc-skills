@@ -856,7 +856,7 @@ def test_a_tap_cc_slack_runs_again_after_its_card_command_was_cut_short_posts_it
     jev.answer = None
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     assert closes(state.load(drive)["jobs"]["j3"]["questions"][0]) is None
-    jev.answer, jev.changes = {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}, {"q0": 0.95}
+    jev.answer, jev.changes = 0.05, {"q0": 0.95}
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     assert [record["id"] for [record] in posted] == [f"tap:{drive}:j3-661440:1794200001.000100"] * 2
     job = state.load(drive)["jobs"]["j3"]
