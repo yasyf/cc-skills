@@ -5435,7 +5435,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--said", help="its latest line")
     verb.add_argument("--due", help="its clock: when it must have returned, said once as DUE if it still runs then, a time or +10m")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
-    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one; a PR the drive does not track, kept on a builder stopped before any agent took it, such as a teammate's open PR its reader found already doing its work, carries its parts while GitHub reads it open, and once it merged the part's ORPHAN line names the drive order posted that delivers it")
+    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one; a PR the drive does not track, kept on a builder stopped before any agent took it, such as a teammate's open PR its reader found already doing its work, carries its parts while GitHub reads it open, and once it merged the part's ORPHAN line names the drive order posted that delivers it; one kept on a live job can wake it, its WAITING waiting on it until the watch's GitHub read finds it merged or closed")
     named = verb.add_mutually_exclusive_group()
     named.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
     named.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the parts of its own order this job delivers, replacing its list")

@@ -3234,6 +3234,23 @@ def test_a_pr_the_drive_does_not_track_carries_the_part_of_the_stopped_builder_n
     assert (watch.run_pass(watching, T0 + timedelta(seconds=15)), calls) == ([], [[OTHER]])
 
 
+def test_a_waiting_job_keeping_a_pr_the_drive_does_not_track_waits_on_it_while_github_reads_it_open_and_is_freed_once_it_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    serve(monkeypatch, {KEY: read(), OTHER: read()})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(prs=[state.pr_url(OTHER)])
+    with state.edit(demo) as data:
+        state.take_result(data, "j2", f"WAITING {state.pr_url(OTHER)}, a teammate's open PR that already does this work")
+    assert state.load(demo)["jobs"]["j2"]["waits"] == [OTHER]
+    watching = watcher(demo)
+    assert [line for line in watch.run_pass(watching, T0) if line.startswith(("FREE ", "ORPHAN "))] == []
+    calls = serve(monkeypatch, {OTHER: read(state="MERGED")})
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="pull_request", guid="g1")
+    freed = [line for line in watch.run_pass(watching, T0 + watch.READ_EVERY) if line.startswith("FREE ")]
+    assert (freed, state.load(demo)["jobs"]["j2"]["waits"], calls) == ([f"FREE j2 o1: {OTHER} merged, nothing else holds it"], [], [[OTHER]])
+
+
 def test_a_stopped_builder_no_agent_took_holds_its_part_as_work_under_way_only_while_it_keeps_a_pr(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0)

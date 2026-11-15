@@ -199,7 +199,7 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to, then each a delivery named, each open one on a repository no hook delivers from every READ_EVERY, as receiver_lines owes it, each never asked for, each a builder's PUSHED names unread since its take, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to, then each a delivery named, each open one on a repository no hook delivers from every READ_EVERY, as receiver_lines owes it, each never asked for, each a builder's PUSHED names unread since its take, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
     data = state.load(watcher.name)
     pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
     heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
@@ -903,12 +903,12 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
-    """Each release wait of a live job or open PR that out_because frees, each staging wait whose env runs its soak commit and each Buildkite build that ended or stopped at an approve step, with what says so."""
+    """Each release wait of a live job or open PR that out_because frees, each staging wait whose env runs its soak commit, each Buildkite build that ended or stopped at an approve step and each PR the drive does not track that merged or closed, with what says so."""
     return {wait: said for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (said := out_because(watcher, data, wait))}
 
 
 def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
-    """What frees a wait. A release wait is a wake the job set, never a gate: it frees once its PR merged and the watch's release live read finds one cluster of its service, or the env the wait names after its @, serving a commit holding the merge, and at once once its PR merged where release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs, naming why. A staging wait frees once release live reads its env's target serving its commit or a build carrying it, and a build wait once the watch's Buildkite read finds it ended or stopped at an approve step. None for any other wait, or while it holds."""
+    """What frees a wait. A release wait is a wake the job set, never a gate: it frees once its PR merged and the watch's release live read finds one cluster of its service, or the env the wait names after its @, serving a commit holding the merge, and at once once its PR merged where release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs, naming why. A staging wait frees once release live reads its env's target serving its commit or a build carrying it, a build wait once the watch's Buildkite read finds it ended or stopped at an approve step, and a wait on a PR the drive does not track once github_lines reads it merged or closed. None for any other wait, or while it holds."""
     if found := state.RELEASE_WAIT.fullmatch(wait):
         key, service, env = found["pr"], found["service"], found["env"]
         if not data["prs"][key]["merged_sha"]:
@@ -927,6 +927,8 @@ def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
         return f"tools/ci release live reads {found['env']}'s {found['target']} serving {found['commit'][:12]} or a build carrying it"
     if github.BUILD.fullmatch(wait) and wait in watcher.builds:
         return build_said(wait, watcher.builds[wait])
+    if state.untracked_wait(data, wait) and (landed := watcher.untracked.get(wait)) and landed not in github.UNLANDED:
+        return f"{wait} {'merged' if landed == 'merged' else 'closed unmerged'}"
     return None
 
 
@@ -3004,13 +3006,11 @@ def end_lane(name: str, job_id: str) -> None:
     state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
 
 
-def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
-    """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its or one folded into another open PR's branch, its proof to come, or a time to come, its own clock from drive job set --due or its orders' due times."""
-    if job.get("ask") or view.open_cards(job) or job["waits"] or proving(data, job_id):
+def can_wake(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> bool:
+    """Whether something can wake a waiting or built job: what state.wakes reads, the rule drive job report's refusal of a WAITING reads too, with GitHub's state of each PR the drive does not track as github_lines last read it, or what only the watch follows: its lane's question, a wait it stores that ended, which waits_lines frees by a FREE line, its proof to come, or an open PR of its or one folded into another open PR's branch, whose stage wakes its builder."""
+    if job.get("ask") or job["waits"] or proving(data, job_id) or any(pr["job"] == job_id and pr["state"] in github.UNLANDED for pr in data["prs"].values()):
         return True
-    if any(pr["job"] == job_id and pr["state"] in github.UNLANDED for pr in data["prs"].values()):
-        return True
-    return state.timed(data, job, moment)
+    return state.wakes(data, job_id, moment, read=watcher.untracked)
 
 
 def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -3076,7 +3076,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
             )
         if asked := unanswered(watcher.name, job_id, job, data, moment):
             return asked
-        if can_wake(job_id, job, data, moment):
+        if can_wake(watcher, job_id, job, data, moment):
             return None
         if watch_proves(data, job_id):
             return merged_gap(job_id, data)

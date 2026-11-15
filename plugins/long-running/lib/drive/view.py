@@ -257,7 +257,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open or folded into another open PR's branch, by github.landing, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, each teammate's reply until the watch reads it, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open or folded into another open PR's branch, by github.landing, each PR the drive does not track until the watch's GitHub read finds it merged or closed, by state.untracked_wait, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, each teammate's reply until the watch reads it, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -283,7 +283,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return state.pid_runs(wait)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait)) or card_open(wait, found)
+    return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
 
 
 def shared(drive: dict, wait: str) -> bool:
@@ -364,6 +364,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
     if wait in drive["prs"]:
         pr = drive["prs"][wait]
         return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
+    if state.untracked_wait(drive, wait):
+        return f"{link(wait, state.pr_url(wait))} merges or closes"
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out" + (f" on {release['env']}" if release["env"] else "")
     if staging := state.STAGING_WAIT.fullmatch(wait):
@@ -826,6 +828,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{wait}: {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)}", "url": None}
     if wait in drive["prs"]:
         return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
+    if state.untracked_wait(drive, wait):
+        return {"title": f"{wait} merging or closing", "url": state.pr_url(wait)}
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return {"title": f"the release of {release['service']} carrying {release['pr']}" + (f" on {release['env']}" if release["env"] else ""), "url": state.pr_url(release["pr"])}
     if staging := state.STAGING_WAIT.fullmatch(wait):
