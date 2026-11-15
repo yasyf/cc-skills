@@ -126,8 +126,8 @@ def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict; the outcome for key. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
-    from drive import land
+    """Judge one PR his card waits on at its head against his words together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict; the outcome for key. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    from drive import land, stage
 
     data = state.load(name)
     unit = land.landing_stacks(data).get(key, (key,))
@@ -143,7 +143,8 @@ def verdict(name: str, key: str) -> str:
         outcomes = dict.fromkeys(unit, f"{FAILED}: {error}")
     else:
         basis = f"the words of {', '.join(checked[key]['orders'])}" if checked[key]["orders"] else f"his ruling {state.FLAKE_RULING}"
-        outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}, so his Approve lands it once it is green" for member, stamp in checked.items()}
+        cards = view.live_cards(name)
+        outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}; {stage.on_card(data, member, cards).why}; {view.staging(data, member)}" for member, stamp in checked.items()}
     return kept(name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "checked": checked, "pid": os.getpid()})
 
 
