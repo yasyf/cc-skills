@@ -606,7 +606,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "subcoordinators": {},
         "handlers": {},
         "slack": {"page": None, "watch": []},
-        "owner": {"heard": None, "away": False, "absence": None},
+        "owner": {"heard": None, "away": None, "absence": None},
         "orders": {},
         "jobs": {},
         "prs": {},
@@ -927,6 +927,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("held", {})
     data.setdefault("carried", {})
     data["owner"].setdefault("absence", None)
+    if isinstance(away := data["owner"]["away"], bool):
+        data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     if data["catch_up"]:
@@ -3288,10 +3290,9 @@ def new_catch_up(since: str, orders: list[str]) -> dict:
 
 
 def owner_away(data: dict, moment: datetime) -> bool:
-    """Whether he is away: he said so, or has written nothing for an hour; a drive that never heard him counts him present."""
-    owner = data.get("owner") or {}
-    heard = owner.get("heard")
-    return bool(owner.get("away")) or bool(heard) and moment - parse_time(heard) >= AWAY_AFTER
+    """Whether he is away at moment, from the moment the owner row's away holds: when he said so, else an hour after he was last heard; a drive that never heard him counts him present."""
+    away = (data.get("owner") or {}).get("away")
+    return bool(away) and moment >= parse_time(away)
 
 
 def present(data: dict, since: datetime, moment: datetime) -> timedelta:

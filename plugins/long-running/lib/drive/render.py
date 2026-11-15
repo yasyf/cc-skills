@@ -310,6 +310,18 @@ def when(iso: str, seconds: bool = False) -> str:
     return f"{moment.strftime('%b %-d')} {clock(moment, seconds)}"
 
 
+def owner_reading(owner: dict) -> str | None:
+    """Where he reads, from the moment the owner row's away holds, which every hold on a line to him and every catch-up takes: away from the moment he said so, else from an hour after he was last heard; none for a drive that never heard him."""
+    if not (away := owner["away"]):
+        return None
+    heard = when(owner["heard"])
+    if away == owner["heard"]:
+        return f"away since he said so at {heard}"
+    if now() >= parse_time(away):
+        return f"away since {when(away)}: last heard {heard}, an hour with no word or tap"
+    return f"here until {when(away)}: last heard {heard}, and an hour with no word or tap reads him away"
+
+
 def corrected_by(seqs: list[str]) -> str:
     return f", corrected by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}" if seqs else ""
 
@@ -605,6 +617,7 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Ca
         "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
         "slack": {"channel": slack.dm(), "watch": drive["slack"].get("watch", [])},
+        "owner": drive["owner"],
         "held": drive["held"],
         "catch_up": drive["catch_up"],
     }
@@ -628,6 +641,8 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
     lines.extend(role_line(drive, role, seen) for role in ROLES)
     lines.extend(subcoordinator_line(project, held, seen) for project, held in drive["subcoordinators"].items())
+    if reading := owner_reading(drive["owner"]):
+        lines.append(f"He is {reading}")
     orders = {order_id: order for order_id, order in open_orders(drive).items() if runs is None or runs(order)}
     if incidents := [incident_line(order_id, order) for order_id, order in orders.items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
