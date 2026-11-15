@@ -356,6 +356,7 @@ RELEASE_START = (
     re.compile(r"\b(?:start(?:s|ed|ing)?|began|begun|begins?|kicked off|launched)\b", re.IGNORECASE),
 )
 REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|\\]+)(?:\\?\|([^{}]+))?\}")
+UNTYPED = "link"
 PR_LINK = re.compile(rf"<(?P<link>{PR_URL.pattern})[^|<>\s]*(?:\|(?P<words>[^<>]*))?>|{PR_URL.pattern}")
 STAMPED = {
     "started": (
@@ -540,7 +541,7 @@ def pr_refs(lines: list[str]) -> list[dict]:
 
 def words(text: str) -> int:
     """The words its writer typed in a text: a link counts as the words after its | or as one word, so a drive reference counts as those words or as one, never the title say draws for it."""
-    return len(WORD.findall(TOKEN.sub(" link ", LABELLED.sub(r" \1 ", REF.sub(lambda found: f" {found[3] or 'link'} ", text)))))
+    return len(WORD.findall(TOKEN.sub(f" {UNTYPED} ", LABELLED.sub(r" \1 ", REF.sub(lambda found: f" {found[3] or UNTYPED} ", text)))))
 
 
 def lead_problems(lead: dict) -> list[str]:
@@ -1803,7 +1804,7 @@ def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
 
 
 def kind_refusal(text: str, said: str, data: dict) -> str | None:
-    """Why a summary, a post of two or more `*feature*` lines, names a PR the drive holds and never says what it serves, the first thing he asks of a PR: a port of #N, an order of his, as `{order:o<n>}` in a `say` post, or Drive tooling. `text` is the post as Slack gets it, each reference linked, and `said` the words written."""
+    """Why a summary, a post of two or more `*feature*` lines, names a PR the drive holds and never says what it serves, the first thing he asks of a PR: a port of #N, an order of his, as `{order:o<n>}` in a `say` post, or Drive tooling. `text` is the post as its checks read it, each reference linked under the words its writer typed, and `said` the words written."""
     if len(FEATURE.findall(text)) < 2 or KIND_NAMED.search(said) or not (named := named_prs(data, "", text)):
         return None
     kinds = "; ".join(f"{key} is {kind_words(data, data['prs'][key])}" for key in named)

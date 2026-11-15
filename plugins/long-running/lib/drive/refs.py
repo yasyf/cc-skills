@@ -307,6 +307,11 @@ def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
     return REF.sub(shown, text)
 
 
+def typed(text: str, found: dict[str, dict], thread: str | None) -> str:
+    """The text as slack draws it with each reference under only the words its writer typed after its |, or the one word limits.UNTYPED for a bare one, never the title or time say draws for it: the words every check of a say post reads, so a drawn PR title, card question, order title or ruling refuses nothing its writer never typed."""
+    return slack(text, {key: ref | {"title": ref["title"] if "own" in ref else limits.UNTYPED} for key, ref in found.items()}, thread)
+
+
 def board(text: str, found: dict[str, dict]) -> str:
     """The text as the dashboard shows it: each reference a link to the page or PR it names, or a record that links nothing as its words."""
     return REF.sub(lambda match: linked(found[match[0]], found[match[0]]["board"], "[{words}]({url})"), text)

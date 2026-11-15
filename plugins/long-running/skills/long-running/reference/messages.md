@@ -86,7 +86,8 @@ his words "your messages need to be way shorter rewrite this for a human".
 - When a line names a card or says something waits on him, name the card as `{card:<its waits id>}`
   in `say`'s text, which `say` links under words that name it. A line naming a PR or quoting an
   error one of his open question cards already asks about names that card too: `say`'s hook refuses
-  a handler's post without it, naming the card, so a failure he was already told about reads as
+  a handler's post in his DM without it, naming the card, and never asks it of a line outside his DM,
+  such as one in a teammate channel's thread, whose readers cannot open his card, so a failure he was already told about reads as
   that card's news. The match is on the card's subject, what it asks him to decide, the PR its
   question names or the error its root cause quotes: a file, path or name both texts mention is no
   shared subject, and the rule Jev weighs the finding by says so, so Jev passes a post sharing only one. Slack then draws the card with its buttons under the line, so he answers it
@@ -1021,10 +1022,10 @@ line keeps its bold line and two sentences, as the status lines above show.
 
 ## Before it goes out
 
-- The hook passes the exact words of every post and edit, the ack's included, through
-  `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
-  `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
-  of them those titles are.
+- The hook passes the words of every post and edit, the ack's included, through
+  `cc-slack check-post` and counts them as they go out. Every check of a `say` post reads the words
+  its writer typed, each reference as the words after its `|` or as one word, never the title or time
+  `say` draws for it.
 - A finding refuses nothing on its own. Before `say` posts the post, since an edit takes back neither
   the buzz on his phone nor a line a reporter already read, the hook hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
   stands for, in this skill's and cc-slack's words, and the words of his it answers: his messages in

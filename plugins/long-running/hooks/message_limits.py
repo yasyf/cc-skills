@@ -583,7 +583,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
-    """What the drive's checks find in a post to his DM, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, each {started:} or {at:} stamp say fills from the drive's stamps listed beside the words drawn for it and what it stamps, when that job was added or that record went out, so Jev never reads a time say drew as one the poster typed, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
+    """What the drive's checks find in a post to his DM, each reading the words its writer typed, refs.typed, never a title or time say draws, and the call's input as Slack gets it, each of say's references linked, with its words as written beside them, each {started:} or {at:} stamp say fills from the drive's stamps listed beside the words drawn for it and what it stamps, when that job was added or that record went out, so Jev never reads a time say drew as one the poster typed, and its claims parsed from the JSON text a client may send them as, which Jev weighs the findings against: the coordinator posts nothing, and say refuses a reference that names nothing, claims whose text is not JSON or a link inside a link's words outright, whatever Jev reads."""
     if posted := coordinator_post(payload):
         return posted, payload["tool_input"]
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -599,13 +599,15 @@ def checked(payload: dict) -> tuple[str | None, dict]:
         return agents.Unjudged(str(error)), payload["tool_input"]
     titled = bare(said, found)
     stamps = [{"written": reference, "drawn": shown["title"], "stamps": shown["stamps"]} for reference, shown in found.items() if "stamps" in shown]
+    drawn_in = talk.shown_in(drive["name"], payload["tool_input"]) if found else None
     sent = (
         payload["tool_input"]
-        | ({"text": refs.slack(said, found, talk.shown_in(drive["name"], payload["tool_input"])), "written": refs.REF.sub(lambda match: titled.get(match[0], match[0]), said)} if found else {})
+        | ({"text": refs.slack(said, found, drawn_in), "written": refs.REF.sub(lambda match: titled.get(match[0], match[0]), said)} if found else {})
         | ({"stamps": stamps} if stamps else {})
         | ({"claims": [claim | {"claim": claimed(claim["claim"], titled)} for claim in claims]} if claims else {})
     )
-    return found_in(payload | {"tool_input": sent}, drive, said, found), sent | ({"thread_ts": thread} if thread else {}) | ({"channel_id": channel} if channel != slack.dm() else {})
+    typed = sent | ({"text": refs.typed(said, found, drawn_in)} if found else {})
+    return found_in(payload | {"tool_input": typed}, drive, said, found), sent | ({"thread_ts": thread} if thread else {}) | ({"channel_id": channel} if channel != slack.dm() else {})
 
 
 def bare(said: str, found: dict[str, dict]) -> dict[str, str]:
@@ -621,7 +623,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, links no Slack message from a table cell, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links, in his DM, the open question card of his asking about each PR or error it names, asks no tap that is not owed, links no Slack message from a table cell, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
     dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -631,9 +633,8 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         )
     if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive):
         return refusal
-    written = tool_input.get("written") or said
     if payload["tool_name"] == SAY and talk.to_members(drive, tool_input):
-        return unread(payload, dm) or members_findings(payload, written, dm)
+        return unread(payload, dm) or members_findings(payload, dm)
     if not posts_to(payload, drive, dm):
         return (payload["tool_name"] == SAY and unread(payload, dm)) or teammate_findings(payload)
     report, order_id = said_order(payload, drive)
@@ -645,7 +646,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     except slack.SlackError as error:
         return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
     heard_him(drive, messages, linked)
-    long = over_length(payload, written, dm, messages, linked)
+    long = over_length(payload, dm, messages, linked)
     return every(
         [
             long and agents.Ruled(long, LENGTH_RULE, long, found=long.found),
@@ -670,7 +671,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unbacked_start(payload, drive, said, order_id),
             agents.typed_time(said, drive),
             None if tool_input.get("tap_prs") else limits.kind_refusal(tool_input.get("text") or "", said, drive),
-            overruled_post(drive, written),
+            overruled_post(drive, tool_input.get("written") or said),
         ]
     )
 
@@ -691,13 +692,13 @@ def overruled_post(drive: dict, written: str) -> str | None:
     )
 
 
-def members_findings(payload: dict, written: str, dm: str) -> str | None:
-    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root and each line in its thread keep to a line's words, counting the words its writer typed, written, an edit rewording its post at that post's length, the root is one line with no bold, and it names no file or function, each finding judged by Jev against his words on those posts."""
+def members_findings(payload: dict, dm: str) -> str | None:
+    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root and each line in its thread keep to a line's words, an edit rewording its post at that post's length, the root is one line with no bold, and it names no file or function, each finding judged by Jev against his words on those posts."""
     tool_input = payload["tool_input"]
     text = tool_input.get("text") or ""
     try:
         findings = slack.post_findings(text, False)
-        long = limits.word_refusal(tool_input | {"text": written}, limits.LINE_WORDS, "a line to a channel's members", edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
+        long = limits.word_refusal(tool_input, limits.LINE_WORDS, "a line to a channel's members", edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
     except slack.SlackError as error:
         return f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}."
     named = ", ".join(limits.code_names(text))
@@ -1001,9 +1002,9 @@ def unlinked(payload: dict, drive: dict, order_id: str | None) -> str | None:
 
 
 def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | None:
-    """Why a handler's post names a PR or an error his open question card already asks about, by state.asking_cards, with no {card:…} of that card, so a failure he was already told about would read to him as new; a card or PR card the post draws, and the card a reply is about, link themselves."""
+    """Why a handler's post in his DM names a PR or an error his open question card already asks about, by state.asking_cards, with no {card:…} of that card, so a failure he was already told about would read to him as new; a card or PR card the post draws, and the card a reply is about, link themselves, and a post outside his DM, such as a line in a teammate channel's thread, names no card of his, which its readers cannot open."""
     tool_input = payload["tool_input"]
-    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs"):
+    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or talk.place(tool_input)[0] != slack.dm():
         return None
     linked = {view.message_key(ref["url"]) for ref in found.values() if ref["kind"] == "card"}
     about = tool_input.get("about") and state.waits_of(drive["name"], tool_input["about"])
@@ -1014,14 +1015,13 @@ def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | 
     return agents.Ruled(f"refused: {named}. Name it beside what it asks about, and tell him the news as that card's.", KNOWN_RULE, found=asked)
 
 
-def over_length(payload: dict, written: str, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
-    """Why the post is longer than he reads, counting the words its writer typed, written, each reference once, never the titles say draws for them: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
+def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
+    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
     tool_input = payload["tool_input"]
-    typed = tool_input | {"text": written}
-    if (refusal := limits.post_refusal(typed)) is None or tool_input.get("card"):
+    if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
         return refusal
     try:
-        refusal = limits.post_refusal(typed, edited_words(payload, dm))
+        refusal = limits.post_refusal(tool_input, edited_words(payload, dm))
     except slack.SlackError as error:
         refusal += f" The post it edits could not be read to check its length: {error}."
     if refusal is None:
