@@ -855,7 +855,7 @@ def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -
     def post(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
         if queue and not queue.pop(0):
             raise reads.ReadError("cci post exited 1: no drive demo")
-        sent.append(argv)
+        sent.append([stdin if stdin is not None and argv[at - 1] == "--path" else arg for at, arg in enumerate(argv)])
         return ""
 
     monkeypatch.setattr(watch.reads, "run", post)
@@ -863,7 +863,15 @@ def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -
 
 
 def posted(sent: list[list[str]]) -> list[tuple[str, str, str]]:
-    return [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[argv.index("--text") + 1]) for argv in sent]
+    return [
+        (argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], line)
+        for argv in sent
+        for line in (
+            [row for row in argv[argv.index("--path") + 1].splitlines() if not row.startswith("  ")]
+            if re.match(r"\d+ lines: ", argv[argv.index("--text") + 1])
+            else [argv[argv.index("--text") + 1]]
+        )
+    ]
 
 
 def test_the_watch_tells_the_communicator_once_each_time_the_coordinators_process_exits(
@@ -2472,7 +2480,7 @@ def test_a_projects_watch_hands_a_stuck_or_lane_line_to_the_session_that_started
     died = 'LANE j1 o1 died as agent a4667d5c611bb5233 on this Mac: its transcript ended, while it worked on "watch"'
     kept = [f"PR {KEY}: checks failed [o1 j1]", 'STUCK j2 o1: its agent\'s Bash call "gh pr checks" has had no result for 30 minutes']
     assert watch.handed(platform, [stuck, died, *kept], T0) == kept
-    assert posted(sent) == [("evidence", f"root@{demo}", stuck), ("handoff", f"root@{demo}", died)]
+    assert (posted(sent), [argv[argv.index("--text") + 1] for argv in sent]) == ([("handoff", f"root@{demo}", stuck), ("handoff", f"root@{demo}", died)], ["2 lines: 1 STUCK, 1 LANE"])
     assert platform.unsent == {"root": []}
 
 
@@ -6066,9 +6074,25 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
         "EVENT note",
         "WAITING-ON-HIM demo:j1-7-a blocks j1, built on lane/built, since 9:00 AM, posted https://acme.slack.com/archives/D123/p1",
     ]
-    assert watch.sent(watcher(demo), "root", waking + batched, T0) == []
+    watching = watcher(demo)
+    assert [watch.sent(watching, "root", [line], T0) for line in waking + batched] == [[]] * len(waking + batched)
     assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", line) for line in batched]
     assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)
+
+
+def test_the_lines_one_stage_makes_for_a_lane_go_as_one_record_counting_them_by_kind_its_body_holding_each_and_a_lane_message_named_whole_under_its_line(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = posts(monkeypatch)
+    orphans = [f'ORPHAN o1 "part {n}": no job' for n in range(35)]
+    checks = [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]"]
+    monkeypatch.setattr(watch, "whole_message", lambda name, line: "the status\nsaid whole" if line == checks[0] else None)
+    watching = watcher(demo)
+    assert (watch.sent(watching, "root", orphans + checks, T0), watch.sent(watching, "root", checks, T0)) == ([], [])
+    assert [(argv[argv.index("--kind") + 1], argv[argv.index("--text") + 1], argv[argv.index("--path") + 1]) for argv in sent] == [
+        ("handoff", "37 lines: 35 ORPHAN, 2 PR", "".join(f"{line}\n" for line in orphans) + f"{checks[0]}\n  the status\n  said whole\n{checks[1]}\n"),
+        ("evidence", "2 lines: 2 PR", f"{checks[0]}\n  the status\n  said whole\n{checks[1]}\n"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -6104,7 +6128,8 @@ def test_a_prs_red_wakes_no_coordinator_since_its_stage_wakes_its_builder_and_it
     sent = posts(monkeypatch)
     merged = f"PR {KEY}: merged [o1 j1]"
     reds = [f"PR {KEY}: {move} [o1 j1]" for move in ("checks failed", "conflicts with its base", "changes requested")]
-    watch.sent(watcher(demo), "root", [merged, *reds], T0)
+    watching = watcher(demo)
+    assert (watch.sent(watching, "root", [merged], T0), watch.sent(watching, "root", reds, T0)) == ([], [])
     assert posted(sent) == [(merged_kind, f"root@{demo}", merged), *[("evidence", f"root@{demo}", line) for line in reds]]
 
 

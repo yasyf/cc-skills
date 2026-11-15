@@ -647,6 +647,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         CARDS_NOTED: True,
         "delivered_by_prs": True,
         "finished_texts_dropped": True,
+        "delivered_restored": True,
     }
 
 
@@ -958,7 +959,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("delivered_restored"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1025,6 +1026,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         posted_from_jobs(data)
     if not data.get("finished_texts_dropped"):
         drop_finished_texts(data)
+    if not data.get("delivered_restored"):
+        restore_delivered(name, data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1116,6 +1119,27 @@ def posted_from_jobs(data: dict) -> None:
             if merged := [key for job_id, _ in done for key in opened_or_proven(data, job_id) if data["prs"][key]["merged_sha"]]:
                 held["posted"] = data["prs"][merged[0]]["url"]
     data["delivered_by_prs"] = True
+
+
+def restore_delivered(name: str, data: dict) -> None:
+    """Mark each part of work he ordered that a done builder or codex job held, a DONE the watch took at a merge aside, which posted_from_jobs left undelivered: by the link of the first merged PR a done change job on it opened or proves, one whose DONE the watch took at the merge included, whose merged diff the check names carrying it, and else by what a return of such a job names, a merged PR carrying it by post_carried or the part itself from a job that opened and proves no PR by post_acts; a part none of those names stays open, since a job holding it proves nothing alone; marked so this runs once."""
+    unmarked = []
+    for order_id, order in data["orders"].items():
+        for part, held in order["parts"].items():
+            if held["standing"] or STAGING_PART.fullmatch(part) or held["posted"] and PR_URL.search(held["posted"]) or not work(data, order_id, part):
+                continue
+            done = [(job_id, job) for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] == "done"]
+            if all(done_at_merge(job) for _, job in done):
+                continue
+            if carrying := [key for job_id, _ in done for key in opened_or_proven(data, job_id) if part in carried_by(data, [key]).get(order_id, [])]:
+                held["posted"] = data["prs"][carrying[0]]["url"]
+            else:
+                unmarked += [job_id for job_id, job in done if not done_at_merge(job)]
+    for job_id in dict.fromkeys(unmarked):
+        words = "\n".join([data["jobs"][job_id]["said"] or "", *(reply["body"] for reply in returns(name, job_id))])
+        post_carried(data, job_id, words)
+        post_acts(data, job_id, words)
+    data["delivered_restored"] = True
 
 
 def undo_finished_replacers(name: str, data: dict) -> None:
@@ -1799,6 +1823,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     post_staging_proof(data, job_id, line, report)
     if taken == "done" and job["kind"] in CHANGE_KINDS and not MERGED_LINE.match(line):
         post_carried(data, job_id, f"{line}\n{report}")
+        post_acts(data, job_id, f"{line}\n{report}")
     if held := unlanded_done(data, job_id):
         hold_done(job, held)
     if built := BUILT_LINE.match(line):
@@ -2397,7 +2422,7 @@ def staged(data: dict, order_id: str, part: str) -> bool:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; work he ordered once its posted link names the merged PR that delivered it, the one whose merged diff the check found carries it, posted by the DONE of the job proving it, by post_carried, or the one drive order posted or drive pr set --part recorded, whatever a job's DONE or a post says, and an act no PR carries, by acted, once the builder or codex job doing it returned DONE, never the DONE the watch takes at a merge, which proves nothing live; and words he reads once posted to him or built by a builder that returned DONE."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; work he ordered once its posted link names the merged PR that delivered it, the one whose merged diff the check found carries it, posted by the DONE of the job proving it, by post_carried, or the one drive order posted or drive pr set --part recorded, whatever a job's DONE or a post says, and an act no PR carries, by acted, once the builder or codex job doing it returned DONE, never the DONE the watch takes at a merge, which proves nothing live, nor a DONE that names neither the part nor a PR carrying it; and words he reads once posted to him or built by a builder that returned DONE."""
     if data["orders"][order_id]["parts"][part]["standing"]:
         return False
     if STAGING_PART.fullmatch(part):
@@ -2410,10 +2435,14 @@ def delivered(data: dict, order_id: str, part: str) -> bool:
 
 
 def acted(data: dict, job_id: str, order_id: str, part: str) -> bool:
-    """Whether a job's work on a part is an act no PR carries, which its DONE delivers: an open or closed incident's part but its fix, such as its stop or rollback, which the incident's own proof follows, or the whole of a repair that opened no PR, by install.repair, once drive job prove ran its proof file, so a repair's own word delivers nothing either."""
+    """Whether a job's work on a part is an act no PR carries, which its DONE delivers: an open or closed incident's part but its fix, such as its stop or rollback, which the incident's own proof follows, or the whole of a repair that opened no PR, by install.repair, once drive job prove ran its proof file, so a repair's own word delivers nothing either, or a part a job that opened and proves no PR named in its DONE, by post_acts."""
     from drive import install
 
-    return bool(data["orders"][order_id]["incident"]) and part != INCIDENT_FIX or install.repair(data, job_id) and bool(data["jobs"][job_id].get("proof"))
+    return (
+        bool(data["orders"][order_id]["incident"]) and part != INCIDENT_FIX
+        or install.repair(data, job_id) and bool(data["jobs"][job_id].get("proof"))
+        or data["orders"][order_id]["parts"][part]["posted_by"] == job_id
+    )
 
 
 def carried(pr: dict) -> dict[str, list[str]] | None:
@@ -2449,6 +2478,18 @@ def post_carried(data: dict, job_id: str, words: str) -> None:
                 held = data["orders"][order_id]["parts"].get(part)
                 if held and part in job_parts(job, order_id) and not (held["posted"] and PR_URL.search(held["posted"])):
                     held["posted"] = data["prs"][key]["url"]
+
+
+def post_acts(data: dict, job_id: str, words: str) -> None:
+    """Deliver each part of work he ordered a builder or codex job that opened and proves no PR holds once its DONE's words name the part, by marking the job its posted_by, which acted reads as an act that DONE delivers; a part the words leave unnamed stays open, since a job holding it proves nothing alone, and one a merged PR delivered keeps its link."""
+    job = data["jobs"][job_id]
+    if job["prs"] or opened_or_proven(data, job_id):
+        return
+    for order_id in [job["order"], *job["carries"]]:
+        for part in job_parts(job, order_id):
+            held = data["orders"][order_id]["parts"].get(part)
+            if held and not STAGING_PART.fullmatch(part) and work(data, order_id, part) and not (held["posted"] and PR_URL.search(held["posted"])) and names_part(words, [part]):
+                held["posted_by"] = job_id
 
 
 def staging_tested(data: dict, key: str) -> bool:

@@ -3922,7 +3922,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post each line to the lane over cci, a remote lane's question or status its line names carrying it whole as the record's body, by whole_message, but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, or that is a READY whose fix its builder owes, by fixing(), so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: the lander's own failure goes as a defect, which the meta session starts a fix from, a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, each credential cci refuses withheld from it, and a line that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until each posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, or that is a READY whose fix its builder owes, by fixing(), so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
         watcher.unsent[lane] += lines
         return []
@@ -3930,18 +3930,16 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     if not owed:
         return []
     data = state.load(watcher.name)
+    posting = [line for line in owed if lane not in state.HOLDERS or needs_step(line, data, watcher.cards) and not fixing(line, data, watcher.cards)]
+    defects = [line for line in posting if line.startswith(LANDER)]
+    rest = [line for line in posting if line not in defects]
+    kind = "handoff" if lane in state.HOLDERS or any(wakes(line, data, watcher.cards) for line in rest) else "evidence"
     refusal, unsent = None, []
-    for line in owed:
-        if lane in state.HOLDERS and (not needs_step(line, data, watcher.cards) or fixing(line, data, watcher.cards)):
-            continue
-        kind = "defect" if line.startswith(LANDER) else "handoff" if lane in state.HOLDERS or wakes(line, data, watcher.cards) else "evidence"
-        topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
-        whole = whole_message(watcher.name, line)
-        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, *(["--path", "-"] if whole else []), "--text", reads.withheld(line)]
+    for each, said in (("defect", defects), (kind, rest)):
         try:
-            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=whole and reads.withheld(whole))
+            posted_record(watcher.name, lane, each, said, Path(data["roles"]["coordinator"]["cwd"]))
         except reads.ReadError as error:
-            unsent.append(line)
+            unsent += said
             refusal = error
     watcher.unsent[lane] = unsent
     project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
@@ -3950,6 +3948,22 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         watcher.failures.pop(what, None)
         return []
     return failed(watcher, what, what, refusal, moment)
+
+
+def posted_record(name: str, lane: str, kind: str, lines: list[str], checkout: Path) -> None:
+    """Post these lines to the lane as one cci record of this kind: one line as its text, the remote lane's question or status it names whole as its body, by whole_message; several counted by first word as its text, as `35 lines: 35 ORPHAN`, each line in its body with any such message under it, indented."""
+    if not lines:
+        return
+    wholes = [whole_message(name, line) for line in lines]
+    if len(lines) == 1:
+        text, body = lines[0], wholes[0]
+    else:
+        counts = collections.Counter(line.partition(" ")[0] for line in lines)
+        text = f"{len(lines)} lines: " + ", ".join(f"{count} {word}" for word, count in counts.items())
+        body = "".join(f"{line}\n" + ("".join(f"  {row}\n" for row in whole.splitlines()) if whole else "") for line, whole in zip(lines, wholes, strict=True))
+    topic = f"watch-{hashlib.sha1('\n'.join(lines).encode()).hexdigest()[:10]}"
+    argv = ["cci", "post", "--drive", name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{name}", "--topic", topic, *(["--path", "-"] if body else []), "--text", reads.withheld(text)]
+    reads.run(argv, checkout, reads.posting(), stdin=body and reads.withheld(body))
 
 
 def whole_message(name: str, line: str) -> str | None:
