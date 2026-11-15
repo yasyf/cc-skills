@@ -1162,8 +1162,30 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "review": review(drive, found),
         "incidents": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in incidents(drive)],
         "bug_reports": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in bug_reports(drive, moment, served)],
+        "edges": edges(drive),
         "channel": slack.dm(),
     }
+
+
+def edges(drive: dict) -> list[dict]:
+    """Each other order a job of an order carries, and each it waits on while that wait holds, through a part, job, PR or PR's release of that order, once each as from the job's order to the other."""
+    named = {}
+    for job in drive["jobs"].values():
+        held = [] if job["state"] in state.FINISHED_JOB_STATES else job["waits"]
+        waited = [order_id for wait in held if (order_id := waited_order(drive, wait)) and holds(drive, wait, None)]
+        for kind, others in (("carries", list(job["carries"])), ("waits", waited)):
+            for order_id in others:
+                if order_id != job["order"]:
+                    named[(job["order"], order_id, kind)] = {"from": job["order"], "to": order_id, "kind": kind}
+    return list(named.values())
+
+
+def waited_order(drive: dict, wait: str) -> str | None:
+    if wait in drive["jobs"]:
+        return drive["jobs"][wait]["order"]
+    if (key := state.waited_pr(wait)) in drive["prs"]:
+        return drive["prs"][key]["order"]
+    return (part := state.part_wait(drive, wait)) and part[0]
 
 
 def part_entry(drive: dict, order_id: str, part: str) -> dict:
@@ -1313,8 +1335,8 @@ def outline(entry: dict) -> dict:
 
 
 def summary(model: dict) -> dict:
-    """The board without its history and lanes, each card at a glance without its rail or story and each feature without its order's words and jobs."""
-    rest = {key: value for key, value in model.items() if key not in ("history", "work")}
+    """The board without its history, lanes and edges, which a page reads from its slice, each card at a glance without its rail or story and each feature without its order's words and jobs."""
+    rest = {key: value for key, value in model.items() if key not in ("history", "work", "edges")}
     return rest | {
         "queue": [{key: value for key, value in item.items() if key not in ("rail", "told")} | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
         "review": [{key: value for key, value in entry.items() if key != "told"} | {"card": entry["card"] and glance(entry["card"])} for entry in model["review"]],

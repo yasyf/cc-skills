@@ -19,6 +19,7 @@ KINDS = {
     ".svg": "image/svg+xml",
     ".png": "image/png",
 }
+WHOLE_DRIVE = "drive"
 
 
 def pages_dir(name: str) -> Path:
@@ -55,8 +56,8 @@ def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
     if unknown := [each for each in orders if each not in drive["orders"]] + [each for each in said.get("prs", []) if each not in drive["prs"]]:
         raise DriveError(f"page.json names {', '.join(unknown)}, which the {name} drive does not hold")
     scope = said.get('scope')
-    if scope is not None and (not isinstance(scope, dict) or set(scope) - {'projects', 'workstreams', 'words'} or any(not isinstance(values, list) or any(not isinstance(word, str) or not word.strip() for word in values) for values in scope.values())):
-        raise DriveError('page.json scope holds projects, workstreams and words as lists of nonempty strings')
+    if scope not in (None, WHOLE_DRIVE) and (not isinstance(scope, dict) or set(scope) - {'projects', 'workstreams', 'words'} or any(not isinstance(values, list) or any(not isinstance(word, str) or not word.strip() for word in values) for values in scope.values())):
+        raise DriveError(f'page.json scope is "{WHOLE_DRIVE}", the whole drive, or holds projects, workstreams and words as lists of nonempty strings')
     page = {
         "title": said["title"],
         "goal": said["goal"],
@@ -119,15 +120,18 @@ def scope_orders(features: list[dict], page: dict) -> set[str]:
     scope = page.get('scope') or {}
     return set(page['orders']) | {
         entry['id'] for entry in features
-        if entry.get('project') in scope.get('projects', [])
+        if scope == WHOLE_DRIVE
+        or entry.get('project') in scope.get('projects', [])
         or entry.get('workstream') in scope.get('workstreams', [])
         or any(word.casefold() in entry['title'].casefold() for word in scope.get('words', []))
     }
 
 
 def slice_of(model: dict, page: dict) -> dict:
+    """What a page sees of the board: its orders' features, the edges between them, and their open PRs, questions and story, or on a whole-drive scope every open PR, question and moment."""
     features = [entry for group in model['status'] for entry in group['features']]
     orders = scope_orders(features, page)
+    every = page.get('scope') == WHOLE_DRIVE
     def actable(item: dict, answer: str, options: list[str]) -> dict:
         return item | {'answer': answer, 'options': options, 'answered': None}
 
@@ -135,8 +139,9 @@ def slice_of(model: dict, page: dict) -> dict:
         'page': page,
         'at': model['at'],
         'features': [entry for entry in features if entry['id'] in orders],
-        'prs': [actable(entry, entry.get('answer') or f"tap:{entry['key']}", (entry.get('card') or {}).get('options', ['Approve', 'Hold'])) for entry in model['review'] if entry['feature'] in orders or entry['key'] in page['prs']],
-        'questions': [actable(entry, entry['answer'], entry['card']['options']) for entry in model['queue'] if entry['kind'] == 'question' and orders.intersection(entry['tasks'])],
-        'story': [entry for entry in model.get('history', []) if entry.get('feature') in orders][:30],
+        'edges': [edge for edge in model['edges'] if {edge['from'], edge['to']} <= orders],
+        'prs': [actable(entry, entry.get('answer') or f"tap:{entry['key']}", (entry.get('card') or {}).get('options', ['Approve', 'Hold'])) for entry in model['review'] if every or entry['feature'] in orders or entry['key'] in page['prs']],
+        'questions': [actable(entry, entry['answer'], entry['card']['options']) for entry in model['queue'] if entry['kind'] == 'question' and (every or orders.intersection(entry['tasks']))],
+        'story': [entry for entry in model.get('history', []) if every or entry.get('feature') in orders][:30],
         'asked': None,
     }

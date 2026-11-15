@@ -62,6 +62,7 @@ def test_a_page_goes_in_whole_under_its_slug_and_a_second_add_replaces_it(run: R
         ("run-lane", PAGE | {"build.py": "print()"}, "not build.py"),
         ("run-lane", PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "orders": ["o9"]})}, "names o9, which the demo drive does not hold"),
         ("run-lane", PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "prs": ["a/b#1"]})}, "names a/b#1, which the demo drive does not hold"),
+        ("run-lane", PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "scope": "everything"})}, 'page.json scope is "drive", the whole drive, or holds'),
     ],
 )
 def test_page_add_refuses_a_folder_the_dashboard_could_not_serve_or_naming_what_the_drive_does_not_hold(
@@ -474,3 +475,41 @@ def test_live_scope_covers_new_matching_orders_beyond_the_project() -> None:
         {'id': 'o5', 'title': 'Unrelated task', 'project': 'Iris'},
     ]
     assert pages.scope_orders(features, page) == {'o1', 'o2', 'o3', 'o4'}
+
+
+def test_a_slice_keeps_only_edges_between_its_orders_and_a_whole_drive_scope_takes_every_order_pr_question_and_moment() -> None:
+    model = {
+        'at': '2026-11-15T00:00:00-08:00',
+        'status': [{'features': [{'id': 'o1', 'title': 'The page'}, {'id': 'o2', 'title': 'Other title'}]}],
+        'edges': [{'from': 'o1', 'to': 'o2', 'kind': 'waits'}, {'from': 'o2', 'to': 'o9', 'kind': 'carries'}],
+        'review': [{'key': 'a/b#7', 'feature': 'o9', 'card': None}],
+        'queue': [{'kind': 'question', 'answer': 'https://x.slack.com/archives/D1/p1', 'tasks': [], 'card': {'options': ['Yes']}}],
+        'history': [{'kind': 'answer', 'feature': None}],
+    }
+
+    def seen(scope: object) -> tuple:
+        cut = pages.slice_of(model, {'orders': ['o1'], 'prs': [], 'scope': scope})
+        return [entry['id'] for entry in cut['features']], cut['edges'], [entry['key'] for entry in cut['prs']], len(cut['questions']), len(cut['story'])
+
+    assert seen(None) == (['o1'], [], [], 0, 0)
+    assert seen({'words': ['other']}) == (['o1', 'o2'], [{'from': 'o1', 'to': 'o2', 'kind': 'waits'}], [], 0, 0)
+    assert seen('drive') == (['o1', 'o2'], [{'from': 'o1', 'to': 'o2', 'kind': 'waits'}], ['a/b#7'], 1, 1)
+
+
+def test_a_whole_drive_page_sees_every_open_pr_and_question_and_the_edges_between_its_orders(run: Run, ordered: str, tmp_path: Path) -> None:
+    seeing = """<script type="module">
+import { live } from '/kit/kit.js';
+live((slice) => parent.postMessage({ type: 'seen', features: slice.features.map((entry) => entry.id), edges: slice.edges, prs: slice.prs.map((entry) => entry.key), questions: slice.questions.map((entry) => entry.title) }, '*'));
+</script>"""
+    run("page", "add", "whole", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"index.html": seeing, "page.json": json.dumps({"title": "t", "goal": "g", "scope": "drive"})})))
+    features = [FEATURE, FEATURE | {"id": "o2", "title": "other work", "workstream": "Other"}]
+    prs = [RAIL | {"key": "a/b#7", "title": "change 7", "url": "https://github.com/a/b/pull/7", "head": "abc", "card": None, "feature": "o9"}]
+    edges = [{"from": "o2", "to": "o1", "kind": "waits"}, {"from": "o1", "to": "o9", "kind": "carries"}]
+    seen = browse(tmp_path, """
+let seen = null;
+addEventListener('message', (event) => { if (event.data?.type === 'seen') seen = event.data; });
+location.hash = '#/pages/whole';
+await until(() => seen?.edges.length);
+done(seen);
+""", board(status=[{"state": "running", "features": features}], review=prs, queue=[QUESTION], edges=edges, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
+    assert seen == {"type": "seen", "features": ["o1", "o2"], "edges": [{"from": "o2", "to": "o1", "kind": "waits"}], "prs": ["a/b#7"], "questions": ["Raise the limit?"]}

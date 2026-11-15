@@ -16,7 +16,7 @@ Running `drive page add` again with the same slug replaces the page whole; a fai
 
 The folder holds `index.html` and `page.json` (which requires `title` and `goal`), plus any `.js`, `.css`, `.json`, `.svg`, and `.png` files the page loads (`drive page add` refuses other file types). The page's opaque origin cannot fetch its own files or import them as modules, so it loads local scripts with classic `<script src>` tags and imports modules only from `/kit/`.
 
-In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specific orders and PRs besides the build order's; `source` links where the page's idea came from, and `job` names the job that built it. `scope` is additive to `orders` and dynamically includes existing and future orders matching `projects`, `workstreams`, or case-insensitive title substring `words`:
+In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specific orders and PRs besides the build order's; `source` links where the page's idea came from, and `job` names the job that built it. `scope` is additive to `orders` and dynamically includes existing and future orders matching `projects`, `workstreams`, or case-insensitive title substring `words`; `"scope": "drive"` takes the whole drive instead, every order Now shows with every open PR and decision, for a page on where all the work stands:
 
 ```json
 {
@@ -58,6 +58,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 - After each change, the parent dashboard posts `{type: "drive:model", slice}` to the page:
   - `page`, its `page.json`
   - `features`, its matched orders as Now shows them
+  - `edges`, each `{from, to, kind}` between two matched orders, read from the drive's jobs whenever it changes: `carries` when a job of `from` also builds parts of `to`, `waits` while a job of `from` waits on a part, job, PR or PR's release of `to`, so a page draws what holds what without keeping a list of its own
   - `prs`, the open PRs of its matched orders and the PRs it names, each with `staging`, the line its PR cards say of its staging test, such as `Tested on staging: plat-usw2-staging at f3a6f23, passed` with a link to its proof
   - `questions`, open decisions on its matched orders, each with `href`, the queue route that focuses it
   - `story`, the newest moments naming its matched orders

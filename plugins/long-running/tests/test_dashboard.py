@@ -756,7 +756,7 @@ def board(**changed: object) -> dict:
     counts = {"queue": 0, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 0, "not started": 0}
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
-        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "repo": "", "links": [], "channel": "D1", "pages": [],
+        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "edges": [], "repo": "", "links": [], "channel": "D1", "pages": [],
     } | changed | {"queue": [item | {"priority": {"rank": rank, "incident": False, "overdue": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
 
 
