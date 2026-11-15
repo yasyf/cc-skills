@@ -16,6 +16,7 @@ SUBJECT_TERMS = 3
 GENERIC_TITLES = 10
 PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 FRESH_STATES = ("built", "done")
+GIVEN_TEXT = re.compile(r"(j\d+)(?:-\d+(?:\.resume)?|\.handoff|\.sent-[\w-]+)?\.md")
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -54,25 +55,9 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
             continue
         undelivered = [part for part in order["parts"] if not state.delivered(data, order_id, part)]
         if len(undelivered) < 2:
-            asked[order_id] = {
-                "kind": "order",
-                "title": view.order_title(order),
-                "job": None,
-                "jobs": [job_id for job_id in order["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES],
-                "order": order_id,
-                "url": "",
-                "card": None,
-            }
+            asked[order_id] = order_entry(data, order_id)
         for part in undelivered if len(undelivered) > 1 else []:
-            asked[f"{order_id}:{part}"] = {
-                "kind": "part",
-                "title": part,
-                "job": None,
-                "jobs": [job_id for job_id, job in state.part_jobs(data, order_id, part) if job["state"] not in state.FINISHED_JOB_STATES],
-                "order": order_id,
-                "url": "",
-                "card": None,
-            }
+            asked[f"{order_id}:{part}"] = part_entry(data, order_id, part)
     for key, pr in data["prs"].items():
         card = view.card_for(found["pr_cards"], pr["url"])
         if view.waits_on_tap(pr):
@@ -89,6 +74,47 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
         if key not in asked and (pr["state"] == "open" or pr["state"] == "merged" and data["jobs"][pr["job"]]["state"] not in state.FINISHED_JOB_STATES):
             asked[key] = {"kind": pr["state"], "title": view.pr_title(pr), "job": pr["job"], "order": pr["order"], "url": pr["url"], "card": None, "pr": key}
     return asked
+
+
+def order_entry(data: dict, order_id: str) -> dict:
+    """An open order asking him by its own key, with its live jobs."""
+    return {
+        "kind": "order",
+        "title": view.order_title(data["orders"][order_id]),
+        "job": None,
+        "jobs": [job_id for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES],
+        "order": order_id,
+        "url": "",
+        "card": None,
+    }
+
+
+def part_entry(data: dict, order_id: str, part: str) -> dict:
+    """A part of an open order asking him by `<order>:<part>`, with the live jobs delivering it."""
+    return {
+        "kind": "part",
+        "title": part,
+        "job": None,
+        "jobs": [job_id for job_id, job in state.part_jobs(data, order_id, part) if job["state"] not in state.FINISHED_JOB_STATES],
+        "order": order_id,
+        "url": "",
+        "card": None,
+    }
+
+
+def listed(data: dict, kept: dict, asked: dict[str, dict]) -> dict[str, dict]:
+    """What asks him for this answer: every card, order, part and PR asking him now, and each order and part of an open order the answer lists with no mark, by the entry asking builds for it whatever state.delivered reads now, so a builder's DONE never takes one off the answer's list and its relaunch never puts it back."""
+    return asked | {key: entry for key, mark in kept["cards"].items() if mark is None and key not in asked and (entry := on_open_order(data, key))}
+
+
+def on_open_order(data: dict, key: str) -> dict | None:
+    """The entry of the order or part this key names, while that order is open and holds the part; None for any other key."""
+    order_id, _, part = key.partition(":")
+    if (order := data["orders"].get(order_id)) is None or order["state"] in state.CLOSED_ORDER_STATES:
+        return None
+    if not part:
+        return order_entry(data, order_id)
+    return part_entry(data, order_id, part) if part in order["parts"] else None
 
 
 def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], changes: set[str], bound: dict[str, list[str]], moment: str) -> dict:
@@ -175,8 +201,19 @@ def named(words: str, key: str, entry: dict) -> bool:
 
 
 def markable(kept: dict, asked: dict[str, dict]) -> list[str]:
-    """What an answer may still mark: each card, part or PR still asking him that it has not marked, but the card it answers."""
+    """What an answer may still mark, of what asks him for it by listed: each key it lists with no mark, and each other card, order, part or PR asking him, but the card it answers."""
     return [key for key, entry in asked.items() if kept["cards"].get(key) is None and not answers(kept["link"], entry)]
+
+
+def unmarkable(answer_id: str, kept: dict, asked: dict[str, dict], key: str) -> str:
+    """Why an answer takes no mark on this key, of what asks him for it by listed: it marked it already, it is his word on that key's own card, or the key asks him nothing now, listed by the answer or not."""
+    if mark := kept["cards"].get(key):
+        return f"{key}: marked {mark['mark']} already"
+    if key in asked:
+        return f"{key}: his answer {answer_id} is his word on its own card, which needs no mark"
+    if key in kept["cards"]:
+        return f"{key}: listed by {answer_id} but asking him nothing now, so it needs no mark"
+    return f"{key}: on no list of {answer_id} and asking him nothing"
 
 
 def answers(link: str, entry: dict) -> bool:
@@ -347,7 +384,7 @@ def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
 
 
 def unmarked(kept: dict, asked: dict[str, dict]) -> list[str]:
-    """The cards, parts and PRs an answer has not marked that still ask him, are undelivered or are not yet live."""
+    """The cards, orders, parts and PRs an answer lists that it has not marked and that still ask him for it by listed: a card still open, an order or part of an order still open, and a PR not yet live."""
     return [key for key, mark in kept["cards"].items() if mark is None and key in asked]
 
 
@@ -408,11 +445,21 @@ def held_answer(data: dict, held: dict) -> tuple[str, datetime]:
 
 
 def hear_start(data: dict, job_id: str) -> None:
-    """Hear the text the job's worker started on, as it was written then: the handoff its relaunch or takeover kept, else the brief its launch or agent started on; a job no agent or lane started hears his words from the launch that starts it."""
+    """Hear every text the job's workers were given, each as it was written then: the handoff its newest relaunch or takeover kept, else the brief its launch or agent started on, and each launch, relaunch, resume and handoff text the drive keeps for it in its jobs folder, but one whose launcher attempt started no worker, and each text a resume sent its live worker, so his words any worker of the job got before his answer listed it read heard; a job no agent or lane started hears his words from the launch that starts it."""
+    from drive import orca
+
     job = data["jobs"][job_id]
-    if (job.get("agent") or job.get("dispatch")) and (path := job.get("handoff") or job.get("brief")):
-        started = Path(path)
-        hear(data, job_id, started.read_text(), datetime.fromtimestamp(started.stat().st_mtime).astimezone())
+    if not (job.get("agent") or job.get("dispatch")):
+        return
+    newest = {Path(path)} if (path := job.get("handoff") or job.get("brief")) else set()
+    folder = state.drive_dir(data["name"]) / "jobs"
+    kept = {
+        path
+        for path in folder.glob(f"{job_id}*.md")
+        if (matched := GIVEN_TEXT.fullmatch(path.name)) and matched[1] == job_id and (not path.with_suffix(".worker").exists() or orca.kept_start(path))
+    }
+    for given_text in sorted(newest | kept):
+        hear(data, job_id, given_text.read_text(), datetime.fromtimestamp(given_text.stat().st_mtime).astimezone())
 
 
 def heard(data: dict, job_id: str, kept: dict, mark: str) -> None:

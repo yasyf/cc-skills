@@ -498,6 +498,51 @@ def test_a_lane_whose_brief_names_a_report_holding_his_words_still_owes_them_onc
     assert state.load(demo)["answers"]["a1"]["jobs"] == {"j2": None}
 
 
+def test_a_text_a_resume_sent_the_live_worker_is_kept_dated_when_held_so_his_answer_given_before_it_and_listing_the_job_later_reads_it_heard(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    words = "keep the one snapshot file"
+    link = "https://acme.slack.com/archives/D123/p1794300000000300"
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    with state.edit(remote) as data:
+        data["answers"]["a1"] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    assert run("job", "resume", "j1", f"His answer, verbatim: {words}")[0] == 0
+    [sent] = (state.drive_dir(remote) / "jobs").glob("j1.sent-*.md")
+    assert sent.read_text() == f"His answer, verbatim: {words}"
+    later = state.stamp(state.now() + timedelta(minutes=1))
+    with state.edit(remote) as data:
+        data["answers"]["a2"] = {"words": words, "link": link, "at": later, "said": later, "cards": {}, "jobs": {}}
+        superseded.owe(data, "a1", "j1")
+        superseded.owe(data, "a2", "j1")
+    answers = state.load(remote)["answers"]
+    assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": None})
+
+
+def test_his_answer_listing_a_job_reads_it_heard_from_any_launch_text_a_worker_of_it_started_on_never_one_whose_attempt_started_no_worker(
+    remote: str,
+) -> None:
+    heard, unstarted = "keep the one snapshot file", "move the copy to the pool"
+    folder = state.drive_dir(remote) / "jobs"
+    folder.mkdir(exist_ok=True)
+    (folder / "j1.md").write_text(f"His answer, verbatim:\n\n{heard}\n")
+    (folder / "j1-2.md").write_text("Order (his words): ship it\n")
+    (folder / "j1-3.md").write_text(f"His answer, verbatim:\n\n{unstarted}\n")
+    (attempt := folder / "j1-3.worker").mkdir()
+    given = state.stamp(state.now() - timedelta(minutes=1))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["handoff"] = str(folder / "j1-2.md")
+        for answer_id, words in (("a1", heard), ("a2", unstarted)):
+            data["answers"][answer_id] = {"words": words, "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": given, "said": given, "cards": {}, "jobs": {}}
+            superseded.owe(data, answer_id, "j1")
+    answers = state.load(remote)["answers"]
+    assert (answers["a1"]["jobs"], answers["a2"]["jobs"]) == ({"j1": {"mark": "sent"}}, {"j1": None})
+    (attempt / "worker-start.status").write_text("0\n")
+    (attempt / "worker-start.json").write_text(json.dumps({"result": {"state": "ready"}}))
+    with state.edit(remote) as data:
+        superseded.hear_start(data, "j1")
+    assert state.load(remote)["answers"]["a2"]["jobs"] == {"j1": {"mark": "sent"}}
+
+
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
     run: Run, demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

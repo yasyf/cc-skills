@@ -2977,7 +2977,11 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
+    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; when a newer install saved the drive while Orca took the text, the newest install's `drive job sent` keeps it, so the text is never sent twice."""
+    given_text = state.drive_dir(name) / "jobs" / f"{job_id}.sent-{sent['request']}.md"
+    given_text.write_text(sent["words"])
+    held = state.parse_time(sent["at"]).timestamp()
+    os.utime(given_text, (held, held))
     try:
         with state.edit(name) as data:
             fresh = data["jobs"][job_id]
@@ -4068,7 +4072,7 @@ def pr_checked(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; any other card, part or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, each other question card Jev reads it as changing, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; each order and part of an open order the answer lists stays listed and markable until it is marked, whatever a builder's DONE or relaunch makes state.delivered read, and any other card, part or PR still asking him may be marked too."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -4118,13 +4122,14 @@ def answer(args: argparse.Namespace) -> int:
             ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
         done = superseded.follow(name, ended)
     kept = data["answers"][args.id]
+    asked = superseded.listed(data, kept, asked)
     open_keys = superseded.unmarked(kept, asked)
     named = [*args.stands, *args.dropped, *(key for key, _ in [*args.settled, *args.superseded, *args.reopened])]
     told = args.untouched
     if twice := sorted({key for key in [*named, *told] if [*named, *told].count(key) > 1}):
         raise DriveError(f"{', '.join(twice)}: marked twice; mark each card, part or PR once, standing, settled, dropped, superseded or reopened, and each job once, sent or untouched")
     if stray := [key for key in named if key not in superseded.markable(kept, asked)]:
-        raise DriveError(f"{', '.join(stray)}: not a card, order, part or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
+        raise DriveError(f"{'; '.join(superseded.unmarkable(args.id, kept, asked, key) for key in stray)}\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
     hearing = [job_id for key, _ in args.settled if (job_id := asked[key]["job"]) and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
     if stray := [job_id for job_id in told if job_id not in [*superseded.unheard(data, kept), *hearing]]:
         raise DriveError(

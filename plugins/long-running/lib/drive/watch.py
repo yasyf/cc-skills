@@ -1567,14 +1567,15 @@ def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him, a part undelivered or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one."""
+    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
     due = [answer_id for answer_id, kept in data["answers"].items() if moment - state.parse_time(kept["said"]) >= DUE_EVERY]
     data = hear_sent(watcher.name, {job_id for answer_id in due for job_id in superseded.unheard(data, data["answers"][answer_id])})
-    asked = superseded.asking(data, watcher.cards)
-    owed = {answer_id: (superseded.unmarked(data["answers"][answer_id], asked), superseded.unheard(data, data["answers"][answer_id])) for answer_id in due}
+    asking = superseded.asking(data, watcher.cards)
+    asked = {answer_id: superseded.listed(data, data["answers"][answer_id], asking) for answer_id in due}
+    owed = {answer_id: (superseded.unmarked(data["answers"][answer_id], asked[answer_id]), superseded.unheard(data, data["answers"][answer_id])) for answer_id in due}
     owed = {answer_id: left for answer_id, left in owed.items() if any(left)}
     if not owed:
         return []
@@ -1585,7 +1586,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
         f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": '
         + "; ".join(
             [
-                *([f"{superseded.counted(keys, asked)} with no mark, standing, settled, dropped, superseded or reopened by it"] if keys else []),
+                *([f"{superseded.counted(keys, asked[answer_id])} with no mark, standing, settled, dropped, superseded or reopened by it"] if keys else []),
                 *([f"{', '.join(jobs)} not sent his words"] if jobs else []),
             ]
         )
