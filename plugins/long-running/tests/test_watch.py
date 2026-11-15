@@ -10176,6 +10176,22 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert watch.line_lane(line, state.load(demo)) == "meta"
 
 
+def test_an_answer_order_whose_last_part_a_report_posted_closes_on_the_watchs_pass_once_its_jobs_end_and_its_promised_line_is_kept(demo: str) -> None:
+    posted = state.new_part() | {"posted": "https://acme.slack.com/archives/D123/p1794200300000100"}
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="why do old runs fail?", kind="answer", jobs=["j2"], parts={"why do old runs fail?": posted})
+        data["orders"]["o3"] = order(text="is the runner up?", kind="answer", jobs=[], parts={"is the runner up?": posted}, due=state.stamp(T0 + timedelta(minutes=5)))
+        data["jobs"]["j2"] = job(order="o2", kind="reader")
+    watching = watcher(demo)
+    watch.close_answered(watching, T0)
+    assert [state.load(demo)["orders"][order_id]["state"] for order_id in ("o1", "o2", "o3")] == ["working", "working", "working"]
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+        data["orders"]["o3"]["kept"] = state.stamp(T0)
+    watch.close_answered(watching, T0 + timedelta(seconds=5))
+    assert [state.load(demo)["orders"][order_id]["state"] for order_id in ("o1", "o2", "o3")] == ["working", "done", "done"]
+
+
 def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
     with state.edit(demo) as data:
         data["orders"]["o1"] |= {"kind": "answer", "reporters": [state.reporter(REPORTED)], "updated": state.stamp(T0 - timedelta(hours=5))}

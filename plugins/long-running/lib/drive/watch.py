@@ -2134,6 +2134,17 @@ def owed_reporters(data: dict, order: dict, moment: datetime) -> list[dict]:
     return [held for held in state.untold_reporters(order) if not held["tell_said"]]
 
 
+def close_answered(watcher: Watcher, moment: datetime) -> None:
+    """Close done each heard answer order left nothing owed, by state.answered, whichever post delivered its last part, a report's, drive order posted's or a POSTED line's, and whether its last job ended or its last reporter was told after it."""
+    data = state.load(watcher.name)
+    if not any(state.answered(data, order_id) for order_id in heard_orders(watcher, data)):
+        return
+    with state.edit(watcher.name) as data:
+        for order_id in heard_orders(watcher, data):
+            if state.answered(data, order_id):
+                data["orders"][order_id].update(state="done", updated=state.stamp(moment))
+
+
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
     data = state.load(watcher.name)
@@ -3988,7 +3999,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield event_lines(watcher)
     if watcher.read_at is not None:
@@ -4051,6 +4062,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     yield quiet_lines(watcher, moment)
     yield clock_lines(watcher, moment)
     yield undelivered_lines(watcher, moment)
+    close_answered(watcher, moment)
     yield tell_lines(watcher, moment)
     yield standing_lines(watcher, moment)
     yield orphan_lines(watcher, moment)

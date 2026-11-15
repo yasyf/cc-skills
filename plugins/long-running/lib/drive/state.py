@@ -3078,17 +3078,22 @@ def unposted_answer(data: dict, job_id: str) -> bool:
 
 
 def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
-    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and a part whose followed build still runs, which its end line delivers, and close each answer order that post leaves nothing owed: every part posted, every job finished, no promised line owed and every reporter told."""
+    """Deliver each part a finished job's answer carries by the post its POSTED line names, the post that answered it, but work he ordered, which no post delivers, and a part whose followed build still runs, which its end line delivers, and close each answer order that post leaves nothing owed, by answered."""
     job = data["jobs"][job_id]
     for order_id in [job["order"], *job["carries"]]:
         order = data["orders"][order_id]
         for part in job_parts(job, order_id):
             if not (order["parts"][part]["posted"] or work(data, order_id, part) or following(order["parts"][part])):
                 order["parts"][part]["posted"] = link
-        finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
-        if order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(order):
-            if all(held["posted"] for held in order["parts"].values()):
-                order.update(state="done", updated=moment)
+        if answered(data, order_id):
+            order.update(state="done", updated=moment)
+
+
+def answered(data: dict, order_id: str) -> bool:
+    """Whether an open answer order is left nothing owed, so it closes done: every part posted, every job finished, no promised line owed and every reporter told."""
+    order = data["orders"][order_id]
+    finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
+    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(order) and all(held["posted"] for held in order["parts"].values())
 
 
 def merge_proven(order: dict) -> bool:
