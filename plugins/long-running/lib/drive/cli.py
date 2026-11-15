@@ -17,7 +17,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -5499,6 +5499,12 @@ def page_add(args: argparse.Namespace) -> int:
     return emit(args, f"page {page['slug']} for {args.order}: /pages/{page['slug']}/ on the dashboard, listed under Pages as {page['title']!r}", page)
 
 
+def page_frame(args: argparse.Namespace) -> int:
+    """Open <session>-frame, an agent-browser session inside the page frame the dashboard in <session> shows, where every command but screenshot acts on the page, eval, get count, wait --fn and set media included, which agent-browser's own frame command leaves on the dashboard."""
+    framed = page_check.frame(args.session, args.slug)
+    return emit(args, framed, {"session": framed})
+
+
 def break_glass(args: argparse.Namespace) -> int:
     """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials and the machine-break-glass role the grant opens to this Mac's machine, each minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. The moment bk build create prints the grant's link, before the grant shows in #releases, it posts root@<drive> one evidence record from lane break-glass naming the job and its order, the link, the stack, the command and the reason, so the top coordinator reads whose a grant is rather than asking every session; a post cci refuses runs nothing."""
     name = state.resolve(args.drive)
@@ -6920,6 +6926,21 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--order", required=True, help="the order it serves, whose project and workstream file it")
     verb.add_argument("--dir", required=True, metavar="FOLDER", help="the folder the page job built it in")
     verb.set_defaults(run=page_add)
+    verb = page.add_parser(
+        "frame",
+        parents=[json_opt],
+        help="open <session>-frame, an agent-browser session inside the page frame the dashboard in <session> shows, and print its name",
+        description=(
+            "Read <session>'s DevTools address with agent-browser get cdp-url, find in Chrome's /json/list the one iframe target"
+            " at /pages/<slug>/, close any <session>-frame, and open <session>-frame through a browser.provider plugin that"
+            " hands agent-browser that target's socket with directPage: true. There every command but screenshot acts inside"
+            " the page, eval, get count, wait --fn and set media included, which agent-browser's own frame command leaves on"
+            " the dashboard; screenshots stay on <session>. A reload of the dashboard replaces the frame, so run it again after one."
+        ),
+    )
+    verb.add_argument("session", help="the agent-browser session showing the dashboard at #/pages/<slug>")
+    verb.add_argument("slug", help="the page's name in /pages/<slug>/")
+    verb.set_defaults(run=page_frame)
     verb = verbs.add_parser(
         "break-glass",
         parents=[drive_opt],

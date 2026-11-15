@@ -7,6 +7,8 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 from drive.state import DriveError
 
@@ -35,17 +37,38 @@ AUDIT = r"""(() => {
 })()"""
 
 
-def browser(session: str, *args: str, script: str | None = None) -> dict:
+CODEX = {'AGENT_BROWSER_NAMESPACE': 'codex'}
+FRAME_PROVIDER = """case "$(cat)" in
+  *'"browser.close"'*) printf '%s' '{"protocol":"agent-browser.plugin.v1","success":true}' ;;
+  *) printf '{"protocol":"agent-browser.plugin.v1","success":true,"browser":{"cdpUrl":"%s","directPage":true}}' "$1" ;;
+esac"""
+
+
+def browser(session: str, *args: str, script: str | None = None, what: str = 'page render check', env: dict[str, str] = CODEX) -> dict:
     try:
-        done = subprocess.run(['agent-browser', '--session', session, *args, '--json'], input=script, text=True, capture_output=True, timeout=45, env=os.environ | {'AGENT_BROWSER_NAMESPACE': 'codex'})
+        done = subprocess.run(['agent-browser', '--session', session, *args, '--json'], input=script, text=True, capture_output=True, timeout=45, env=os.environ | env)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise DriveError(f'page render check could not run agent-browser: {error}') from None
+        raise DriveError(f'{what} could not run agent-browser: {error}') from None
     if done.returncode:
-        raise DriveError(f'page render check failed: {done.stderr.strip() or done.stdout.strip()}')
+        raise DriveError(f'{what} failed: {done.stderr.strip() or done.stdout.strip()}')
     result = json.loads(done.stdout)
     if not result['success']:
-        raise DriveError(f"page render check failed: {result['error']}")
+        raise DriveError(f"{what} failed: {result['error']}")
     return result['data']
+
+
+def frame(session: str, slug: str) -> str:
+    what = 'drive page frame'
+    cdp = urlparse(browser(session, 'get', 'cdp-url', what=what, env={})['cdpUrl'])
+    with urlopen(f'http://{cdp.netloc}/json/list', timeout=10) as listing:
+        targets = [target for target in json.load(listing) if target['type'] == 'iframe' and urlparse(target['url']).path == f'/pages/{slug}/']
+    if len(targets) != 1:
+        raise DriveError(f'{what}: {session} shows {len(targets)} page frames at /pages/{slug}/, not one: open the dashboard at #/pages/{slug} in it, wait for its iframe.page-frame, and run this again')
+    provider = {'name': 'pageframe', 'command': 'sh', 'args': ['-c', FRAME_PROVIDER, 'pageframe', targets[0]['webSocketDebuggerUrl']], 'capabilities': ['browser.provider']}
+    framed = f'{session}-frame'
+    browser(framed, 'close', what=what, env={})
+    browser(framed, '-p', 'pageframe', 'get', 'url', what=what, env={'AGENT_BROWSER_PLUGINS': json.dumps([provider])})
+    return framed
 
 
 def check(folder: Path, slice: dict, evidence: Path) -> list[str]:
