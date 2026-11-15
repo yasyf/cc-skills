@@ -28,7 +28,6 @@ def say(name: str, post: dict) -> str:
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
-    seq = report.get("seq")
     order = cli.post_order(known, os.environ.get("CLAUDE_CODE_SESSION_ID"), post, report)
     if close and not order:
         raise DriveError(
@@ -38,9 +37,13 @@ def say(name: str, post: dict) -> str:
             ' other, send the owner record with his words and order: "<o>", so the session holding it closes it'
         )
     if close:
-        report = {"close": order, "writer": "communicator", "written": state.stamp()}
         held = known["handlers"][state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))]["holds"] or {}
         post = post | {"asked": [*slack.messages(post.get("asked") or ""), *filter(None, [held.get("link")])]}
+    elif order and cli.answers_order(known, order, post):
+        close, post = True, {key: value for key, value in post.items() if key != "record"}
+    if close:
+        report = {"close": order, "writer": "communicator", "written": state.stamp()}
+    seq = report.get("seq")
     if refused := held_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):

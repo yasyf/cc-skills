@@ -132,8 +132,8 @@ SAY = {
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and the line recording the post on the one order say decides, which no caller names:"
         " a post carrying a record goes on the order that record is about, a handler's close on the order the record it holds"
-        " names or the order his message it holds started, never another order of that thread, and an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread"
-        " and any other post with no record on none; a post on an order from a session that may not record it there, any but the communicator's and a handler's the"
+        " names or the order his message it holds started, never another order of that thread, any other post with no record on the open answer order whose message its asked names,"
+        " which it closes, and an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and a post with neither on none; a post on an order from a session that may not record it there, any but the communicator's and a handler's the"
         " drive binds to it, posts nothing and says why, naming a handler's session the drive binds to nothing unbound; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and a clock time"
         " its words promise his next line by, such as \"Next line by 9:45\" or \"Next line by 10:00 AM tomorrow\", becomes the order's due, from which the watch starts a handler on the line it owes until one is posted, but on an incident, whose"
         " next line the watch owes five quiet minutes after this one once it has news. A refusal posts nothing and names its fix: a reference that names nothing,"
@@ -176,7 +176,9 @@ SAY = {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": (
                     "Each message of his this post answers, word for word or by its permalink in his DM, one per entry, so the answer goes out"
-                    " whole; a post outside the thread his message is in, such as a share he ordered to another person's group DM, passes its permalink"
+                    " whole; a post outside the thread his message is in, such as a share he ordered to another person's group DM, passes its permalink."
+                    " A post naming his message that started an open answer order, such as the one drive handler --answer adds, is that order's"
+                    " answer: say closes the order on it as close does, in place of any record on that order it carries"
                 ),
             },
             "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
@@ -219,7 +221,7 @@ SAY = {
                 "description": (
                     "The seq of the record this post carries, the report it relays or the record of his words the drive's record tool"
                     " wrote for the message it answers, which puts the post on the order that record is about; a post with none, but a"
-                    " close, goes on no order, so every line a handler posts passes one. A record of his words delivers no part; a report"
+                    " close or an answer asked names, goes on no order, so every line a handler posts passes one. A record of his words delivers no part; a report"
                     " delivers each part its part attr names,"
                     " `<o>:<part>` items separated by `;`, on that order and every other order an item names, or every part when its"
                     " close attr names the order, but no work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part"
