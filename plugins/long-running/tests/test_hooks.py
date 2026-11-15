@@ -1303,6 +1303,49 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     assert not (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()
 
 
+def test_715797_a_release_add_that_dies_once_its_release_started_has_printed_and_kept_its_build_and_drive_job_brief_release_build_briefs_a_job_whose_add_kept_none(
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
+    released(demo, f"echo '{STARTED}'")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    written, briefs = state.drive_dir(demo) / "jobs" / "j2.brief.md", cli.write_brief
+
+    def dies(name: str, job_id: str, named: dict) -> tuple[str, dict]:
+        raise state.DriveError("the demo drive was saved by long-running 9.9.9, newer than this one")
+
+    monkeypatch.setattr(cli, "write_brief", dies)
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START]) == 2
+    assert capsys.readouterr().err.splitlines()[-2:] == [
+        f"drive job add: j2 started `{J2666_START}` as {BUILD}; a call that ends before briefing j2 leaves it running, and drive job brief j2 --release-build {BUILD} keeps it and writes the brief",
+        "drive: the demo drive was saved by long-running 9.9.9, newer than this one",
+    ]
+    assert (state.load(demo)["jobs"]["j2"]["release_build"], written.exists()) == (BUILD, False)
+    monkeypatch.setattr(cli, "write_brief", briefs)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["release_build"] = None
+    assert cli.main(["job", "brief", "j2"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: j2: its brief names the release it started, so `drive job add --release` writes it once that release starts;"
+        " a release that add started and kept no build for is briefed with drive job brief j2 --release-build <its build link>"
+    )
+    refusals = (
+        (["j2", "--release-build", "https://buildkite.com/forge/release"], "--release-build https://buildkite.com/forge/release is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>"),
+        (["j1", "--release-build", BUILD], "j1: --release-build keeps the build of the release a drive job add --release started, and j1 was added with no --release"),
+    )
+    for argv, why in refusals:
+        assert cli.main(["job", "brief", *argv]) == 2
+        assert capsys.readouterr().err.strip() == f"drive: {why}"
+    code, out = run("job", "brief", "j2", "--release-build", BUILD, "--serves", "his order")
+    assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {written}")
+    assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
+    other = BUILD.replace("4242", "4243")
+    assert cli.main(["job", "brief", "j2", "--release-build", other]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: j2: its add kept its release's build, {BUILD}: drive job brief j2 briefs it on that one"
+
+
 def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_never_the_coordinators_own_tree(
     demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
