@@ -25,7 +25,7 @@ FIELD = re.compile(
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
     re.MULTILINE,
 )
-RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
+RESEARCHED = re.compile(r"^[ \t]*Researched:.*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
 REUSES = re.compile(r"^REUSES:[ \t]*\S", re.MULTILINE)
@@ -382,17 +382,17 @@ def gives_tooling(job_id: str, order_id: str) -> str:
 
 
 def block_lines(text: str) -> list[str]:
-    """The lines of the Researched: block a reader or design returned under its Researched: line, bulleted or not, up to the first line that is none of rulings, exists, open and build."""
-    found = RESEARCHED.search(text)
-    if not found:
-        return []
-    taken = []
-    for line in text[found.end() :].lstrip("\n").splitlines():
-        key, colon, _ = line.strip().removeprefix("- ").partition(":")
-        if not colon or key.strip().casefold() not in BLOCK_KEYS:
-            break
-        taken.append(line.strip())
-    return taken
+    """The lines of the Researched: block a reader or design returned under the first Researched: line, at any indentation and with any words after it, that has such lines under it, bulleted or not, up to the first line that is none of rulings, exists, open and build."""
+    for found in RESEARCHED.finditer(text):
+        taken = []
+        for line in text[found.end() :].lstrip("\n").splitlines():
+            key, colon, _ = line.strip().removeprefix("- ").partition(":")
+            if not colon or key.strip().casefold() not in BLOCK_KEYS:
+                break
+            taken.append(line.strip())
+        if taken:
+            return taken
+    return []
 
 
 def researched(text: str) -> dict[str, str]:
@@ -406,6 +406,12 @@ def researched(text: str) -> dict[str, str]:
 
 def filled(block: dict[str, str]) -> bool:
     return all(block.get(key) for key in KEYS)
+
+
+def kept_research(name: str, data: dict, job_id: str, order_ids: list[str]) -> bool:
+    """Whether a reader or design given parts of these orders is their research already: each is a build order, and its kept report holds a filled Researched: block, which readers counts for those parts as it stands, so it keeps its state, as state.share_research gives a split part to its reader, rather than run again."""
+    job = data["jobs"][job_id]
+    return job["kind"] in RESEARCH_KINDS and all(data["orders"][order_id]["kind"] == "build" for order_id in order_ids) and filled(researched(state.report_text(name, job_id)))
 
 
 def researches(name: str, data: dict, order_id: str, parts: list[str], besides: str | None = None) -> Iterator[tuple[str, str]]:
@@ -495,7 +501,7 @@ def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = Fa
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, on its order or carrying the part from another, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = bool(set(state.AT_ONCE) & set(parts)) or lands
     immediate = (
@@ -530,19 +536,31 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             if reading
             else ""
         )
-        named = " ".join(f'--part "{part}"' for part in parts)
         return (
             f"{order_id} is a build order, so its {kind} starts only once an Opus reader or a design of its part, a change a design listed counting"
-            f" as that design's part, has kept {BLOCK} in its report: drive job add reader --order {order_id} {named}"
+            f" as that design's part, has kept {BLOCK} in its report: drive job add reader --order {order_id} {part_flags(parts)}"
             ' --goal "research: <what>", then a long-running:reader whose brief'
             " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
-            f" line what already does part of it, and its open line each choice between readings of his words{meanwhile}; {immediate}"
+            f" line what already does part of it, and its open line each choice between readings of his words; {carried_research(order_id, parts)}{meanwhile}; {immediate}"
         )
     return None
 
 
+def part_flags(parts: list[str]) -> str:
+    return " ".join(f'--part "{part}"' for part in parts)
+
+
+def carried_research(order_id: str, parts: list[str]) -> str:
+    """The drive job set that makes a reader or design whose kept report already holds the block research of these parts, by readers, with no second reader restating it: one of another order carrying them, or one of this order holding them."""
+    return (
+        "a reader or design that already kept that block on this work, on another order or this one, is this part's research once it holds the part,"
+        f" with no second reader: drive job set <that reader or design> --carries {order_id} {part_flags(parts)} for another order's,"
+        f" drive job set <that reader or design> {part_flags(parts)} for one of {order_id}"
+    )
+
+
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs an After install: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix or builds the page the drive adds, builds nothing as a --builds-nothing builder such as a staging test of a built PR, starts a release, builds on the branch an open PR already pushed, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs an After install: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, on its order or carrying the part from another, unless it ships the immediate fix or builds the page the drive adds, builds nothing as a --builds-nothing builder such as a staging test of a built PR, starts a release, builds on the branch an open PR already pushed, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     tooling = SERVES_TOOLING.search(brief)
     runs = None if tooling else RUNS_AS.search(brief)
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
@@ -577,10 +595,10 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     if named is None:
         return (
             f"{job_id} builds on {order_id}, a build order: its brief carries the line Researched: <its reader's or design's job>,"
-            " naming the reader or design whose kept report holds the order's rulings, what exists and its open questions"
+            f" naming the reader or design whose kept report holds the order's rulings, what exists and its open questions; {carried_research(order_id, job['parts'])}"
         )
     if not (named[1] in readers(data, order_id, job["parts"]) and filled(researched(state.report_text(name, named[1])))):
-        return f"Researched: {named[1]} names no reader or design of {job_id}'s part of {order_id} that kept {BLOCK} in its report"
+        return f"Researched: {named[1]} names no reader or design of {job_id}'s part of {order_id} that kept {BLOCK} in its report; {carried_research(order_id, job['parts'])}"
     return None
 
 
