@@ -9738,9 +9738,9 @@ def test_pr_set_serves_refuses_a_pr_changing_code_a_ruling_of_its_job_rules_on_u
     with state.edit("demo") as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
-    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": {"data": {"repository": {alias: None for alias in re.findall(r"(g\d+): object", text)}}})
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": {"data": {"repository": {alias: None for alias in re.findall(r"(g\d+_\d+): object", text)}}})
     diff = b"diff --git a/go/sand/cache/key.go b/go/sand/cache/key.go\n--- a/go/sand/cache/key.go\n+++ b/go/sand/cache/key.go\n@@ -1 +1 @@\n-return id\n+return run.ID\n"
-    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: cache key", "body": "", "base": "base1", "head": "abc", "diff": diff})
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: cache key", "body": "", "base": "dev", "head": "abc", "diff": diff})
     assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
     assert f'{with_pr}: refused, nothing set: c0de123 "Key the cache on the run id": {with_pr} changes go/sand/cache/key.go, under go/sand/cache, and no AGENTS.md' in capsys.readouterr().err
     assert state.load("demo")["prs"][with_pr].get("serves") is None
