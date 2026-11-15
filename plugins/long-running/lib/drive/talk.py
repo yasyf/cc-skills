@@ -141,15 +141,15 @@ def caller(name: str) -> dict:
 
 
 def request_key(name: str, known: dict, post: dict, report: dict) -> str | None:
-    """The key cc-slack stamps on each message of the post and reads Slack for before it posts, so a say retried after cc-slack posted and then failed, as dm-status does when its deadline passes while the daemon still posts, gets back what Slack holds instead of posting it again: a record's post keys on the record and when cci wrote it, a handler's post of no record on his message the handler holds and the post's words; an edit or any other post has none, and cc-slack keys it per call."""
+    """The key cc-slack stamps on each message of the post and reads Slack for before it posts, so a say retried after cc-slack posted and then failed, as dm-status does when its deadline passes while the daemon still posts, gets back what Slack holds instead of posting it again, while a post in other words goes out: a record's post keys on the record, when cci wrote it and the post's words, a handler's post of no record on his message the handler holds and the post's words; an edit or any other post has none, and cc-slack keys it per call."""
     if post.get("edit"):
         return None
+    words = hashlib.sha256(json.dumps([post.get(field) for field in ("text", "card", "tap_prs", "visuals")]).encode()).hexdigest()[:16]
     if post.get("record"):
-        return f"{int(state.parse_time(report['written']).timestamp() * 1000)}-{name}.{post['record']}"
+        return f"{int(state.parse_time(report['written']).timestamp() * 1000)}-{name}.{post['record']}.{words}"
     handler = state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if not (message := handler and (known["handlers"][handler]["holds"] or {}).get("message")):
         return None
-    words = hashlib.sha256(json.dumps([post.get(field) for field in ("text", "card", "tap_prs", "visuals")]).encode()).hexdigest()[:16]
     return f"{int(float(message) * 1000)}-{name}.{message}.{words}"
 
 
