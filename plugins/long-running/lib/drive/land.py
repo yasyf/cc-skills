@@ -221,10 +221,17 @@ def conflicted(pr: dict) -> bool:
     return lander.get("head") == pr["head"] and any(conflict in (lander.get("outcome") or "") for conflict in CONFLICTS)
 
 
-def own_red(pr: dict) -> bool:
-    """Whether the lander's try at the PR's head found a check failing there on its own change, by own_reds(), which only its builder's fix settles."""
+def own_red(pr: dict) -> str:
+    """What fails at the PR's head on its own change, which only its builder's fix settles: the checks the watch's read of that head judged so, by own_reds(), or what the lander's try there found; "" when neither found one."""
+    judged = pr["own_reds"] or {}
+    if judged.get("head") == pr["head"] and judged["own"]:
+        return own_words(judged["own"], pr["head"])
     lander = pr["lander"] or {}
-    return lander.get("head") == pr["head"] and (lander.get("outcome") or "").startswith(OWN_RED)
+    return lander["outcome"].removeprefix("not landed: ") if lander.get("head") == pr["head"] and (lander.get("outcome") or "").startswith(OWN_RED) else ""
+
+
+def own_words(owned: list[str], head: str) -> str:
+    return f"its own change fails {', '.join(owned)} at {head[:7]}, which the default branch does not fail on the same tests where the PR's run of it merged its head"
 
 
 def refusals(data: dict, keys: list[str]) -> dict[str, str]:
@@ -494,28 +501,34 @@ def admin_merged(name: str, key: str) -> str:
         return f"not landed: {why}"
     if github.checks(read["checks"], []) == "pending":
         return f"{RUNNING} at {head[:7]}"
-    if owned := own_reds(key, read["checks"]):
-        return f"{OWN_RED} {', '.join(owned)} at {head[:7]}, which the default branch does not fail on the same tests where the PR's run of it merged its head"
+    while (owned := own_reds(key, read["checks"])) is None:
+        time.sleep(BRANCH_SECONDS)
+    if owned:
+        return f"not landed: {own_words(owned, head)}"
     return merged(name, key, read["merge_method"], ["--admin", "--match-head-commit", head])
 
 
-def own_reds(key: str, rollup: list[dict]) -> list[str]:
-    """The name of each check the PR's head fails on its own change: each it fails on a test the default branch does not fail too, by inherited(), by his words that tooling fixes merge early only when no check is failing on their own change."""
-    return sorted({github.check_name(check) for check in github.counted(rollup) if github.outcome(check) in github.FAILED and not inherited(key, check)})
+def own_reds(key: str, rollup: list[dict]) -> list[str] | None:
+    """The name of each check the PR's head fails on its own change: each it fails on a test the default branch does not fail too, by inherited(), by his words that tooling fixes merge early only when no check is failing on their own change; None while the default branch's run of one still runs."""
+    judged = [(github.check_name(check), inherited(key, check)) for check in github.counted(rollup) if github.outcome(check) in github.FAILED]
+    if any(found is None for _, found in judged):
+        return None
+    return sorted({name for name, found in judged if not found})
 
 
-def inherited(key: str, check: dict) -> bool:
-    """Whether the default branch fails every test a check the PR's head fails failed there, as each job's log names them, where the PR's run of it merged that head: at the base its log's checkout merged the head into, or the newest commit below it the check ran on, as on a `[skip ci]` commit no workflow runs on, once that run finished, which the lander waits for. Never for a check no workflow ran, or whose log names no failing test or no merge, with no failure of the default branch's to compare it to, since a check is one verdict over every test of its job and the default branch failing one of them says nothing of another."""
+def inherited(key: str, check: dict) -> bool | None:
+    """Whether the default branch fails every test a check the PR's head fails failed there, as each job's log names them, where the PR's run of it merged that head: at the base its log's checkout merged the head into, or the newest commit below it the check ran on, as on a `[skip ci]` commit no workflow runs on, once that run finished, None while it runs. Never for a check no workflow ran, or whose log names no failing test or no merge, with no failure of the default branch's to compare it to, since a check is one verdict over every test of its job and the default branch failing one of them says nothing of another."""
     if not (job := github.job_of(check)):
         return False
     repo = github.repo_of(key)
     log = github.job_log(repo, job)
     if not (failed := github.failed_tests(log)) or not (tested := TESTED.search(log)):
         return False
-    named = (check["workflowName"], github.check_name(check))
-    while named in (main := branch_checks(repo, tested["base"])) and main[named]["conclusion"] is None:
-        time.sleep(BRANCH_SECONDS)
-    return named in main and main[named]["conclusion"] in github.FAILED and failed <= github.failed_tests(github.job_log(repo, main[named]["databaseId"]))
+    if not (main := branch_checks(repo, tested["base"]).get((check["workflowName"], github.check_name(check)))):
+        return False
+    if main["conclusion"] is None:
+        return None
+    return main["conclusion"] in github.FAILED and failed <= github.failed_tests(github.job_log(repo, main["databaseId"]))
 
 
 def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:

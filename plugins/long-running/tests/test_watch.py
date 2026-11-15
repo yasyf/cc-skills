@@ -9558,18 +9558,28 @@ def replayed(demo: str, monkeypatch: pytest.MonkeyPatch, checks: dict[str, list[
     return reads
 
 
-def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_one_once_every_check_finished_failing_or_not_for_it_to_judge(
-    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_one_failing_on_its_own_change_reads_red_owed_by_its_builder_at_the_read_that_found_it_as_5629_did_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], woken: list[tuple[str, str]]
 ) -> None:
-    reads = replayed(demo, monkeypatch, {})
+    reads = replayed(demo, monkeypatch, {"yasyf/cc-skills#4756": [long_running_test("FAILURE") | {"detailsUrl": f"{CC_SKILLS_RUNS}/43376582331/job/3"}, SOCKET]})
+    logs = {
+        "repos/yasyf/cc-skills/actions/jobs/1/logs": checked_out_4755(pytest_failed("t.py::a")),
+        "repos/yasyf/cc-skills/actions/jobs/2/logs": pytest_failed("t.py::b"),
+        "repos/yasyf/cc-skills/actions/jobs/3/logs": checked_out_4755(pytest_failed("t.py::b")),
+    }
+    monkeypatch.setattr(github, "run", lambda cmd, **_: branch_history([("ran", "FAILURE")]) if cmd[2] == "graphql" else logs[cmd[2]])
     watching = watcher(demo)
     for minute in (0, 1, 9):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
-    assert sorted(landers) == [("yasyf/cc-skills#4745",), ("yasyf/cc-skills#4756",)]
-    assert stage.of(state.load(demo), "yasyf/cc-skills#4755", NO_CARDS) == stage.Stage("grading", stage.GRADERS, "its checks run at 1120acd")
+    data = state.load(demo)
+    assert (landers, [key for key, _ in woken if key.startswith("yasyf/")]) == ([("yasyf/cc-skills#4756",)], ["yasyf/cc-skills#4745"])
+    assert stage.of(data, "yasyf/cc-skills#4745", NO_CARDS) == stage.Stage(
+        "red", stage.BUILDER, "its own change fails test at aa8d008, which the default branch does not fail on the same tests where the PR's run of it merged its head"
+    )
+    assert stage.of(data, "yasyf/cc-skills#4755", NO_CARDS) == stage.Stage("grading", stage.GRADERS, "its checks run at 1120acd")
     reads["yasyf/cc-skills#4755"]["checks"] = [long_running_test("SUCCESS"), SOCKET]
     watch.run_pass(watching, T0 + timedelta(minutes=10))
-    assert landers[2:] == [("yasyf/cc-skills#4755",)]
+    assert landers[1:] == [("yasyf/cc-skills#4755",)]
 
 
 @pytest.mark.parametrize(
