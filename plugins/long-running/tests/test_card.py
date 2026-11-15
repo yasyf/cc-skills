@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Cci, Chrome, Jev, Judge, Redraws
+from conftest import Cci, Chrome, Images, Jev, Judge, Redraws
 from drive import card, cli, github, land, limits, picture, stage, state, superseded, view
 from drive.github import GithubError
 
@@ -1221,6 +1221,31 @@ FORK_SHARE = {
     ],
     "edges": [{"from": "api", "to": "stream", "label": "appends"}],
 }
+
+
+def test_a_pr_whose_show_me_shows_a_picture_by_its_path_on_a_sprite_draws_it_from_the_copy_the_job_it_was_handed_from_kept(
+    stacked: list[list[str]], state_root: Path, images: Images, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shot = "/home/sprite/.vcache/scratch/j1/before.png"
+    copy = state_root / "demo" / "scratch" / "j1" / "sprite" / shot.lstrip("/")
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(b"before")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "take it over", [], "2026-11-09T09:00:00-08:00")
+        data["jobs"]["j1"]["prs"] = [stack_url(42)]
+        state.take_pr(data, "j2", "Forge-AI/monorepo#42")
+    stacked_gh = card.run
+
+    def gh(cmd: list[str], **kwargs: str) -> str:
+        pr = json.loads(stacked_gh(cmd))
+        if cmd[1] != "api" and int(cmd[3]) == 42:
+            pr["body"] += f"\n## Show me\n![1 · Before, dev]({shot})\n"
+        return json.dumps(pr)
+
+    monkeypatch.setattr(card, "run", gh)
+    [drawn] = ask(asks(41, 42))["cards"]
+    assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [[], ["1 · Before, dev"]]
+    assert images.fetched == [copy.as_uri()]
 
 
 def test_a_stack_whose_show_me_arch_does_not_draw_still_asks_his_approve_naming_the_picture_left_off_and_draws_it_once_its_body_does(

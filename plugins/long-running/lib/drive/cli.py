@@ -3686,7 +3686,10 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     if why := state.foreign(key, author, state.his_words_on(known, [known["orders"][added["order"]]])) or state.pr_held_elsewhere(known, key, job_id):
         raise DriveError(f"{key}: refused, nothing added: {why}")
     refuse_an_unkinded_title(key, read, port_of)
-    refuse_an_undrawn_show_me(name, key, read)
+    jobs = list(dict.fromkeys([job_id, *(state.pr_jobs(known, known["prs"][key]) if key in known["prs"] else [])]))
+    if workspace := added.get("workspace"):
+        take_sprite_pictures(name, key, job_id, jobs, workspace, read)
+    refuse_an_undrawn_show_me(name, key, read, jobs)
     if key not in known["prs"] and (seen := brief.surface(added)) and brief.stories(added["brief_flags"].get("interactions")) and not added.get("repro"):
         raise DriveError(
             f"{key}: refused, nothing added: {job_id} builds something he sees ({seen}), so each user story's strict acceptance criteria"
@@ -4046,11 +4049,22 @@ def github_pr(key: str) -> dict:
     return read
 
 
-def refuse_an_undrawn_show_me(name: str, key: str, read: dict) -> None:
-    """Each picture of a PR's Show me, a fence or an image link, draws as his card will draw it, through the same cache, since a card whose picture does not draw shows him a Show me with nothing in it."""
+def take_sprite_pictures(name: str, key: str, job_id: str, jobs: list[str], workspace: str, read: dict) -> None:
+    """Copy off the job's Sprite each picture a PR's Show me shows by a path that is no file here and that no job carrying the PR kept a copy of, as reads.off_sprite keeps it, since his card, drawn here from the GitHub body as the lane wrote it, names each by that copy; refused, nothing added, when the Sprite does not send one."""
     from drive import card
 
-    for kind, source, _ in picture.sources(card.sections(card.body_of(read)).get("show me", "")):
+    show_me = card.sections(card.body_of(read)).get("show me", "")
+    try:
+        reads.off_sprite(name, job_id, reads.unfound(reads.shown_off_sprite(name, jobs, show_me)))
+    except (DriveError, OSError, subprocess.TimeoutExpired) as error:
+        raise DriveError(f"{key}: refused, nothing added: its Show me pictures did not copy off {workspace}: {error}") from None
+
+
+def refuse_an_undrawn_show_me(name: str, key: str, read: dict, jobs: list[str]) -> None:
+    """Each picture of a PR's Show me, a fence or an image link, draws as his card will draw it, through the same cache and naming a Sprite's picture by its copy here, since a card whose picture does not draw shows him a Show me with nothing in it."""
+    from drive import card
+
+    for kind, source, _ in picture.sources(reads.shown_off_sprite(name, jobs, card.sections(card.body_of(read)).get("show me", ""))):
         picture.shot(state.drive_dir(name) / "pictures", "show-me", kind, source, f"{key}: refused, nothing added: its Show me {kind}")
 
 

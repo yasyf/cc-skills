@@ -337,13 +337,14 @@ prints and a remote lane's brief carries whole:
   A PR that changes what he or a user sees, a UI, page, card or post its `NATIVE:` line names,
   shows a before and an after screenshot of it, `![1 · Before, dev](<path>)` then
   `![2 · After, this PR](<path>)`, each build named in words rather than a sha, which Slack shows
-  side by side, kept anywhere, the drive's pictures folder included. His words: "This is a visual
+  side by side, kept anywhere, the drive's pictures folder or a path on your Sprite included, which
+  `drive pr add` copies to this Mac for his card. His words: "This is a visual
   change so it should have shown before and after screenshots". In Forge-AI/monorepo CI shoots both
   for an Iris view: name it in the body's `iris-evidence` block, and the `product-dashboard-iris-evidence`
   job shoots it on the last dev build's sand and dashboard as `iris-evidence/dev/<shot>.png` and on the
   change as `iris-evidence/<shot>.png`; link the two images of the PR's `<!-- iris-evidence -->`
   comment when that job posted one, or else download both from its artifacts with `tools/ci bk api`
-  into the drive's pictures folder and link their paths, never a `buildkite.com` artifact link, which
+  into the drive's pictures folder, or your scratch directory on a Sprite, and link their paths, never a `buildkite.com` artifact link, which
   his card and GitHub's page both get HTTP 403 for and `drive pr add` refuses, and never by building
   the app on your machine.
 - `## Against the plan`, only on a departure, and each piece of the plan it leaves for a follow-up is an
@@ -453,7 +454,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
 - Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
   coordinator's Mac as one blocking Orca question, carrying stdin, each file a word names and each
-  picture those show by its path on your Sprite, then
+  picture those show by its path on your Sprite, and for `pr add` and each PR a `job report` registers,
+  each picture the PR's Show me shows by its path on your Sprite, then
   prints all it printed there and exits with its status. While it waits it prints a line to stderr
   every 30 s naming the question, and at 9 minutes it gives up and exits 1, inside the Bash call's
   600000 ms; the Mac may still run it, so read what it would change before you type it again. It runs `job report`, `job ask`,

@@ -468,8 +468,10 @@ def watched(entry: dict) -> dict | None:
     }
 
 
-def pictured(name: str, pr: dict, taken: set[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    shown, undrawn = picture.pictures(state.drive_dir(name) / "pictures", sections(body_of(pr)).get("show me", ""), taken)
+def pictured(name: str, pr: dict, jobs: list[str], taken: set[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    from drive import reads
+
+    shown, undrawn = picture.pictures(state.drive_dir(name) / "pictures", reads.shown_off_sprite(name, jobs, sections(body_of(pr)).get("show me", "")), taken)
     return tuple(shown), tuple(undrawn)
 
 
@@ -669,9 +671,9 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             skipped += refusals
             continue
         taken: set[str] = set()
-        drawings = {key: pictured(known[key][0], reads[key], taken) for key in members}
-        held = {key: holding(*known[key]) for key in members}
         drives = {name: state.load(name) for name in {known[key][0] for key in members}}
+        drawings = {key: pictured(known[key][0], reads[key], state.pr_jobs(drives[known[key][0]], known[key][1]), taken) for key in members}
+        held = {key: holding(*known[key]) for key in members}
         picked = {key: picks(drives[known[key][0]], known[key][1]) for key in members}
         card = drawn_card(
             [

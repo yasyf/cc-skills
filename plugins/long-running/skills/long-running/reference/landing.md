@@ -86,7 +86,8 @@ for its repository says, then return `DONE <proof>`.
     or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
     `chart` fence (Vega-Lite) or a markdown table. A change to what he or a user sees, a UI, page,
     card or post, gets a before and an after screenshot of it as two markdown images, kept anywhere,
-    the drive's pictures folder included, `![1 · Before, dev](<path>)` then
+    the drive's pictures folder or a Sprite lane's path on its Sprite included, which `drive pr add`
+    copies to this Mac for his card, `![1 · Before, dev](<path>)` then
     `![2 · After, this PR](<path>)`, each build named in words rather than a sha, which Slack shows
     side by side as one gallery, in his words "This is a visual change so it should
     have shown before and after screenshots". In Forge-AI/monorepo CI shoots both for an Iris view
@@ -94,7 +95,7 @@ for its repository says, then return `DONE <proof>`.
     dev build's shot as `iris-evidence/dev/<shot>.png` and the change's as `iris-evidence/<shot>.png`,
     so a builder links the two images of the PR's `<!-- iris-evidence -->` comment when that job posted
     one, or else downloads both from its artifacts with `tools/ci bk api` into the drive's pictures
-    folder and links their paths, rather than building the app. A `buildkite.com` artifact link draws
+    folder, or its scratch directory on a Sprite, and links their paths, rather than building the app. A `buildkite.com` artifact link draws
     nowhere, since his card's download and GitHub's page both get HTTP 403 for it, and `drive pr add`
     refuses a Show me image that does not download. A fence holds code, never prose, JSON,
     YAML, logs, terminal output, an HTTP exchange, or a stack trace: a request alone is the call, and

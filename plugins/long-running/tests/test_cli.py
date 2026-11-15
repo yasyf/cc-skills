@@ -7007,6 +7007,39 @@ def test_pr_add_refuses_a_show_me_image_his_card_cannot_download_and_adds_it_onc
     assert images.fetched == [attached]
 
 
+
+def test_pr_add_on_a_sprite_lanes_job_copies_each_show_me_picture_off_its_sprite_into_its_scratch_once_and_refuses_one_the_sprite_does_not_send(
+    run: Run, demo: str, on_github: dict, images: Images, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Show the strip", "--project", "The drive", "--workstream", "Releases", "show the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "show it")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["workspace"] = "pool-one"
+    before, after = "/home/sprite/.vcache/scratch/j1/before.png", "/home/sprite/.vcache/scratch/j1/after.png"
+    sprite = tmp_path / "pool-one"
+    (sprite / before.lstrip("/")).parent.mkdir(parents=True)
+    (sprite / before.lstrip("/")).write_bytes(b"before")
+    tarred: list[str] = []
+
+    def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
+        tarred.append(workspace)
+        return subprocess.run(command.replace("-C /", f"-C {tmp_path / workspace}", 1), shell=True, capture_output=True, check=False)
+
+    monkeypatch.setattr(orca, "on_sprite", on_sprite)
+    body = on_github["body"] = CARD_BODY + f"\n## Show me\n![1 · Before, dev]({before})\n![2 · After, this PR]({after})\n"
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    refused = capsys.readouterr().err.strip()
+    assert refused.startswith(f"drive: Forge-AI/monorepo#42: refused, nothing added: its Show me pictures did not copy off pool-one: copying {before}, {after} off pool-one exited ")
+    assert state.load("demo")["prs"] == {}
+    (sprite / after.lstrip("/")).write_bytes(b"after")
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    kept = state_root / "demo" / "scratch" / "j1" / "sprite"
+    assert [(kept / path.lstrip("/")).read_bytes() for path in (before, after)] == [b"before", b"after"]
+    assert (images.fetched, on_github["body"]) == ([(kept / path.lstrip("/")).as_uri() for path in (before, after)], body)
+    tarred.clear()
+    assert run("pr", "add", PR, "--job", "j1", "--headline", "The strip shows on every run page")[0] == 0
+    assert tarred == []
+
 def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(
     run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:
