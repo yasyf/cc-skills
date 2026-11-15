@@ -936,7 +936,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         return None
     found = research(name, data, job["order"], job["parts"])
     exists = researched(found[1])["exists"] if found else "none"
-    if exists.casefold().rstrip(".") == "none" or REUSES.search(text):
+    if settled.none_only(exists) or REUSES.search(text):
         return None
     return (
         f"{found[0]}'s research found what already does part of this: {exists}. A {opening} says, in a REUSES: line, how the"
@@ -945,7 +945,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
 
 
 def overruled_refusal(data: dict, job: dict, text: str) -> str | None:
-    """Why a reader's or design's return may not be kept: a line of its Researched: block but exists:, a Change: line or a line of a list says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words; kept with a warning on stderr when Jev gives no reading, and a reader's DESIGN is read as his card by drive job ask instead, whose finding refuses nothing, by his pick 320b7a7."""
+    """Why a reader's or design's return may not be kept: a line of its Researched: block but exists:, a Change: line or a line of a list says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words, a line saying only none, as the reader's rules ask an empty block line to, going unread; kept with a warning on stderr when Jev gives no reading, and a reader's DESIGN is read as his card by drive job ask instead, whose finding refuses nothing, by his pick 320b7a7."""
     if job["kind"] not in RESEARCH_KINDS or job["kind"] == "reader" and text.lstrip().startswith("DESIGN"):
         return None
     lines = [line for line in block_lines(text) if not line.removeprefix("- ").casefold().startswith("exists:")]

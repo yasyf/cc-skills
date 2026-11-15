@@ -616,6 +616,11 @@ def list_lines(text: str) -> list[str]:
     return list(dict.fromkeys(found[1].strip(" |") for line in text.splitlines() if (found := LIST_LINE.match(line)) and not TABLE_RULE.fullmatch(line)))
 
 
+def none_only(words: str) -> bool:
+    """Whether these words are only none, as a line says it holds nothing: casefold, a trailing period dropped, so `None.` is and `none: the copy path has no ruling` is not."""
+    return words.strip().casefold().rstrip(".") == "none"
+
+
 def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozenset()) -> list[tuple[str, list[dict]]]:
     """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it, never one besides names, a tap approving a PR nor a provisional pick."""
     cwd = data["roles"]["coordinator"]["cwd"]
@@ -655,8 +660,8 @@ def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, 
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading."""
-    return [(line, answer) for line, answer, sure in line_read(line_answers(lines, data)) if reading(sure)]
+    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
+    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data)) if reading(sure)]
 
 
 def overruling(picks: list[tuple[str, dict]]) -> str:

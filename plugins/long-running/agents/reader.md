@@ -100,10 +100,10 @@ A `Research:` line or a `research:` goal asks what a build needs; its builder or
 refused until your kept `DONE` or `DESIGN` report carries a line `Researched:` alone and four
 lines not starting `- `. `rulings:` holds, by id and quote, each `scope:durable` answer of his on
 the order's area, his words alone: a question he asked settles nothing, whatever premise it states.
-`drive job report` reads each line of your block, each `Change:` line and each line of a list
-against the answers of his `ccn answer match` and `ccn answer search` find for that line, and
-refuses one that says no ruling of his covers, puts up for change or asks him again an item one of
-them orders or keeps, naming it. `exists:` names each table, column,
+`drive job report` reads each line of your block, each `Change:` line and each line of a list,
+but one saying only `none`, against the answers of his `ccn answer match` and `ccn answer search`
+find for that line, and refuses one that says no ruling of his covers, puts up for change or asks
+him again an item one of them orders or keeps, naming it. `exists:` names each table, column,
 store, file, process, mechanism, check, tool, code path, platform feature or Slack block that
 already does or holds part of what the order touches, in any language or storage, by `path:line`
 or link, found by searching for what it does as well as its names, since the design or build
