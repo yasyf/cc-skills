@@ -837,7 +837,8 @@ restating it.
   that reaches him anyway, such as a card refused, a check nobody ran, a message that never arrived, a
   hook refusing a post he ordered or a line promised him late, says in that post how it is prevented:
   the tool change, the `{order:}` or `{pr:}` carrying it, and when it is live, so that fix starts
-  before the line goes out. The order the post is about and its PRs say what was late, not what
+  before the line goes out: with none open, a `defect` record whose `order` field names the
+  `Drive tooling:` order adds it in the same call, and the post names that order. The order the post is about and its PRs say what was late, not what
   keeps it from being late again, so they never count, but a drive tooling order's own PRs do.
   His words of Nov 12, 12:44 AM, under "Its card was refused because nobody checked that PR against
   your words": "thats not acceptable to dsay without telling me how you will prevent it". A disconnect

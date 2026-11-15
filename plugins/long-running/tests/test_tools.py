@@ -831,6 +831,41 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "ship the run page", "about": "his work", "order": badge}]})
 
 
+def test_a_handlers_defect_on_line_711706_being_late_adds_the_drive_tooling_order_its_post_names_before_the_record_goes_out(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[dict] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[:2] != ["cci", "post"]:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        posted.extend(json.loads(str(kwargs["input"])))
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"seq": 711738 + len(posted)}) + "\n", "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    monkeypatch.setattr(slack, "dm", lambda: "D0C4HQWPLCC")
+    monkeypatch.setattr(slack, "thread_of", lambda channel, ts: ts)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    thread = "1794693708.560459"
+    late = {"kind": "defect", "text": "o1674's line promised by 8:00 PM went out 20 minutes late", "thread": thread}
+    fix = {"words": "Drive tooling: a line promised him by a time goes out at that time", "title": "Promised lines on time"}
+    with pytest.raises(DriveError, match="1: refused, a defect's order is the \"Drive tooling: <what failed>\" order its fix goes to"):
+        tools.run("record", demo, {"records": [late | {"order": {"words": "make promised lines on time", "title": "On time"}}]})
+    with pytest.raises(DriveError, match="1: refused, nothing posted: order is the order the communicator's owner record about the drive goes to, or the fields"):
+        tools.run("record", demo, {"records": [late | {"order": "o1"}]})
+    assert (posted, state.load(demo)["orders"]) == ([], {})
+    assert tools.run("record", demo, {"records": [late | {"order": fix}]}).splitlines() == ["1 order add: o1", "1 defect 711739"]
+    order = state.load(demo)["orders"]["o1"]
+    assert (order["text"], order["owner"], order["thread"]) == (fix["words"], "meta", ["D0C4HQWPLCC", thread])
+    assert [(record["kind"], record["to"], record["attr"]) for record in posted] == [("defect", ["meta@demo"], {"thread": thread, "order": "o1"})]
+    assert tools.run("record", demo, {"records": [{"kind": "defect", "text": "the say hook refused a post he ordered", "order": fix}]}).splitlines() == [
+        "1 order add: o1; o1 already holds these words, so no order was added",
+        "1 defect 711740",
+    ]
+    assert posted[-1]["attr"] == {"order": "o1"}
+
+
 def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_meta_session_holding_order_o792(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
