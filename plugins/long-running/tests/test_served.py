@@ -315,7 +315,8 @@ def stacked(run: Callable[..., tuple[int, str]], demo: str, numbers: list[int], 
         assert run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1", *LEAD)[0] == 0
     with state.edit(demo) as data:
         for below, number in zip([base, *(f"b{number}" for number in numbers)], numbers, strict=False):
-            data["prs"][f"Forge-AI/monorepo#{number}"] |= {"head": f"head{number}", "branch": f"b{number}", "base": below}
+            under = next((key for key, pr in data["prs"].items() if pr["branch"] == below and pr["state"] == "open"), None)
+            data["prs"][f"Forge-AI/monorepo#{number}"] |= {"head": f"head{number}", "branch": f"b{number}", "base": below, "under": under}
     return [f"Forge-AI/monorepo#{number}" for number in numbers]
 
 

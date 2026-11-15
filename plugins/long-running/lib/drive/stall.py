@@ -12,7 +12,7 @@ ANSWER = re.compile(r"^(WHY|WHO|NEXT|UNREAD):.*$", re.MULTILINE)
 
 
 def chains(data: dict, cards: dict, on_hold: bool, moment: datetime) -> dict[str, list[tuple[str, str, bool]]]:
-    """The chain of waits behind each open PR and each waiting job of the drive, from it to each end, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick": never a job or PR with a set time to come, nor a chain chain() ends at a running job, whose agent moves it or whose gap the watch says as its own line, or at a step of his, which his card or answer already asks of him, on_hold true while his hold on every release stands."""
+    """The chain of waits behind each open PR and each waiting job of the drive, from it to each end, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick": never a job or PR with a set time to come, nor a chain chain() ends at a running job, whose agent moves it or whose gap the watch says as its own line, at a step of his, which his card or answer already asks of him, or at a PR the drive does not track, which only its own author moves, on_hold true while his hold on every release stands."""
     found = {}
     for key, pr in data["prs"].items():
         if pr["state"] != "open" or not pr["stage"] or state.timed(data, data["jobs"][pr["job"]], moment):
@@ -28,12 +28,12 @@ def chains(data: dict, cards: dict, on_hold: bool, moment: datetime) -> dict[str
 
 
 def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) -> list[tuple[str, str, bool]] | None:
-    """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it; None once it reaches a running job, a PR only its repository's maintainers merge, by state.upstream, as one merged outside the drive, or a step of his: a PR whose stage he owes or that his Hold or the hold label stops, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
+    """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it; None once it reaches a running job, a PR only its repository's maintainers merge, by state.upstream, as one merged outside the drive, a step of his or a PR the drive does not track: a PR whose stage he owes, that his Hold or the hold label stops, or that sits on a PR outside the drive, whose stage someone outside it owes, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
     if subject in seen:
         return []
     seen.add(subject)
     pr, job = data["prs"].get(subject), data["jobs"].get(subject)
-    if pr and (pr["stage"] and pr["stage"]["owner"] == stage.HIM or stage.stopped(pr) or state.upstream(pr)) or job and job["state"] == "running":
+    if pr and (pr["stage"] and pr["stage"]["owner"] in (stage.HIM, stage.OUTSIDE) or stage.stopped(pr) or state.upstream(pr)) or job and job["state"] == "running":
         return None
     if not pr and not job and (state.card_wait(data, subject) or on_hold and state.RELEASE_WAIT.fullmatch(subject)):
         return None

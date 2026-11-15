@@ -217,13 +217,12 @@ def refuse(name: str, data: dict, outcomes: dict[str, str]) -> None:
 
 
 def unders(data: dict) -> dict[str, str | None]:
-    """Each open PR the drive tracks mapped to the open tracked PR it sits on, as the watch last read them and as stack-enqueue joins them: the one before it in its native GitHub stack or, at the bottom of one or in none, the open PR whose head branch is its base; None for a PR on no tracked PR."""
+    """Each open PR the drive tracks mapped to the open tracked PR it sits on, as the watch last read them and as stack-enqueue joins them: the one before it in its native GitHub stack or, at the bottom of one or in none, the open PR GitHub read heading its base, by github.parent; None for a PR on no tracked PR."""
     opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
-    by_branch = {(github.repo_of(key), pr["branch"]): key for key, pr in opened.items() if pr["branch"]}
     under: dict[str, str | None] = {}
     for key, pr in opened.items():
         native = [member for member in pr["native"] if member in opened]
-        under[key] = native[native.index(key) - 1] if key in native and native.index(key) else by_branch.get((github.repo_of(key), pr["base"]))
+        under[key] = native[native.index(key) - 1] if key in native and native.index(key) else pr["under"] if pr["under"] in opened else None
     return under
 
 
@@ -448,12 +447,12 @@ def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
 
 
 def mark(data: dict, keys: tuple[str, ...], pid: int) -> None:
-    """Mark the PRs a lander starts on, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began."""
+    """Mark the PRs a lander starts on at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began."""
     at = state.stamp()
     for key in keys:
         pr = data["prs"][key]
         before = pr["lander"] or {}
-        pr["lander"] = {"head": pr["head"], "pid": pid, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == pr["head"] else None}
+        pr["lander"] = {"head": pr["head"], "base": pr["base"], "pid": pid, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == pr["head"] else None}
         pr["ejected"] = False
 
 
@@ -514,7 +513,7 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
         pr = data["prs"][key]
         if outcome == QUEUED and requeues(data, pr):
             pr["flaky"]["requeued"] = state.stamp()
-        pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
+        pr["lander"] = (pr["lander"] or {"head": pr["head"], "base": pr["base"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
         was = pr["lander"].get("was")
         if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and (was or "").startswith(UNREAD):
             continue

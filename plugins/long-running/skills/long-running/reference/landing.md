@@ -208,8 +208,12 @@ no failing test, such as a lint step, is the PR's own.
    cannot merge, and the proof's as `PR … proven live by drive job prove …`,
    `PR … drive job prove failed: …` or `PR … drive job prove waits on his next word: …`. Its stage in `drive status` says why no lander started: a
    failing check, a draft, the `hold` label, a conflict, an open card of his, or a lander already
-   running on it; a stacked PR reads `behind` until the PR below it merges, and the lander refuses one
-   on a base other than the default branch. Read the checks once they finish and fix one that fails
+   running on it; a stacked PR reads `behind` until the PR below it merges; one on the head branch of
+   an open PR the drive does not track, such as another drive's, reads `behind` that PR, owed by someone
+   outside the drive, ahead of its lander's tries and its red, with no deadline and no wake, and no stall
+   reaches past it; one on a branch other than the default that no open PR heads reads `red`, for its
+   builder to restack onto the default branch; and the lander refuses one on a base other than the
+   default branch. Read the checks once they finish and fix one that fails
    after the merge forward in a follow-up PR.
 3. Install by hand only what the lander does not, from the merge sha
    (`gh pr view <n> -R <repo> --json mergeCommit`):
@@ -436,7 +440,7 @@ as the lander's own `LANDER the lander could not …` defect, never as the PR's 
 again at the watch's next pass with no new tap. So does a try that ended on a failed GitHub read before it
 queued or merged anything, such as a TLS handshake timeout on its diff read or on the landing clone's fetch of the
 default branch, said on the PR's line and named by its `ready` stage until a try lands it. A try that
-comes to what the one before it on that head did is said once. A try stands only while what let it run does: once `drive pr set <url> --no-exempt --tap`
+comes to what the one before it on that head did is said once. A try stands only at the head and base it ran on, so a push, or GitHub moving the PR onto the default branch once the PR under it merges, reads it `ready` again, and only while what let it run does: once `drive pr set <url> --no-exempt --tap`
 puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:
 `landing` while Trunk holds it, `merged`, owed by nobody, once its try merged it with `gh pr merge`, even

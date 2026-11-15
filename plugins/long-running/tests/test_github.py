@@ -50,6 +50,7 @@ def node(**overrides: object) -> dict:
         "timelineItems": {"nodes": []},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
         "stack": None,
+        "baseRef": None,
     }
     return {**base, **overrides}
 
@@ -59,7 +60,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "under": None, "base_pr": None, **overrides}
 
 
 def test_query_names_one_repository_aliased_r0_with_one_pull_per_number_and_refuses_the_prs_of_two() -> None:
@@ -170,6 +171,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "merge_method": "squash",
             "permission": "ADMIN",
             "default": "main",
+            "under": None,
             "base_pr": None,
         },
         "a/one#2": {
@@ -197,6 +199,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "merge_method": "squash",
             "permission": "ADMIN",
             "default": "main",
+            "under": None,
             "base_pr": None,
         },
     }
@@ -342,6 +345,22 @@ def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
         github.run(["gh", "api", "graphql"])
 
 
+@pytest.mark.parametrize(
+    ("base", "ref", "under"),
+    [
+        ("lane-4", {"associatedPullRequests": {"nodes": [{"number": 4}]}}, "a/one#4"),
+        ("main", {"associatedPullRequests": {"nodes": [{"number": 4}]}}, None),
+        ("lane-4", {"associatedPullRequests": {"nodes": []}}, None),
+        ("lane-4", {"associatedPullRequests": {"nodes": [{"number": 4}, {"number": 5}]}}, None),
+        ("lane-4", None, None),
+    ],
+)
+def test_fetch_reads_the_one_open_pr_heading_a_base_other_than_the_default_branch_as_the_pr_it_sits_on(monkeypatch: pytest.MonkeyPatch, base: str, ref: dict | None, under: str | None) -> None:
+    monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": node(baseRefName=base, baseRef=ref)}}}))
+    reads, refused = FETCH(["a/one#1"])
+    assert (refused, reads["a/one#1"]["under"]) == (None, under)
+
+
 def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "run", lambda cmd, **_: "<html>bad gateway</html>")
     reads, refused = FETCH(["a/one#1"])
@@ -363,6 +382,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "head": "abc",
         "base": "main",
         "branch": "lane",
+        "under": None,
         "title": "T",
         "author": "yasyf",
         "hold_label": False,

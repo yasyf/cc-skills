@@ -9,6 +9,7 @@ WATCH = "the watch"
 LANDER = "the lander"
 ORDER = "the session holding its order"
 HIM = "him"
+OUTSIDE = "someone outside the drive"
 BUILDER = "its builder"
 GRADERS = "Buildkite and forge-pr-reviewer"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
@@ -70,7 +71,7 @@ def uncarded(data: dict, key: str, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
+    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; a PR on the head of an open PR the drive does not track, by github.parent, reads behind that PR, owed outside the drive, ahead of its lander's tries and its red, since it lands only once that PR merges and the drive moves nothing there, so it has no deadline and wakes no one, and stall.chain ends at it; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, github.fold_line(pr) if pr["state"] == github.FOLDED else f"it is {pr['state']}")
@@ -79,6 +80,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("merged", NOBODY, f"its lander's try at {lander['head'][:7]}, started {lander['at']}, ended {lander['outcome']}")
     if land.landing(pr):
         return Stage("landing", LANDER, landing_why(pr))
+    if (outside := pr["under"]) and outside not in data["prs"]:
+        return Stage("behind", OUTSIDE, f"it sits on {pr['base']}, the head of {outside}, which the drive does not track, so it lands once that PR merges and GitHub moves it onto {pr['default']}")
     if ended := unlanded(data, key, cards):
         if mine := asked(data, key, [pr["job"]], cards):
             return Stage("blocked", HIM, f"its builder {pr['job']} waits on {', '.join(fix_words(data, wait, cards) for wait in mine)}")
@@ -193,10 +196,10 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, a wait it or halt() stopped it on, which waiting() reads while it holds, or the lander's own failure, stack-enqueue ending with no answer on the PR or a gh write GitHub gave no answer to, by land.unanswered(), or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
+    """How a lander's try at the PR's head and base ended without landing it, or None when no try at them stands: none ran on it, its head or base moved since, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, a wait it or halt() stopped it on, which waiting() reads while it holds, or the lander's own failure, stack-enqueue ending with no answer on the PR or a gh write GitHub gave no answer to, by land.unanswered(), or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
     pr = data["prs"][key]
     lander = pr["lander"]
-    if not lander or lander["head"] != pr["head"] or ends(data, pr_waits(data, pr), cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
+    if not lander or lander["head"] != pr["head"] or lander["base"] != pr["base"] or ends(data, pr_waits(data, pr), cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
         return None
     if carded(pr) and not state.cleared(pr) or pr["tap"] and state.parse_time(pr["tap"]["at"]) > state.parse_time(lander["at"]):
         return None
@@ -273,9 +276,11 @@ def waited_on(data: dict, wait: str) -> str:
 
 
 def red(data: dict, key: str) -> str:
-    """What its builder must fix at its head: failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    """What its builder must fix at its head: a base other than its repository's default branch that no open PR heads, by github.parent, as a PR whose parent closed or merged without GitHub moving it leaves it, which the lander refuses to merge, so its builder restacks it onto that default branch, failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     pr = data["prs"][key]
     head = pr["head"][:7]
+    if pr["default"] and pr["base"] != pr["default"] and not pr["under"]:
+        return f"it sits on {pr['base']}, which no open PR heads, so restack it onto {pr['default']}"
     if pr["checks"] == "fail" and land.own_red(pr):
         return pr["lander"]["outcome"].removeprefix("not landed: ")
     if pr["checks"] == "fail" and not state.ships_untapped(data, key):

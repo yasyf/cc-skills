@@ -129,7 +129,7 @@ def test_bulk_stages_build_the_stack_graph_once(monkeypatch: pytest.MonkeyPatch)
     data = drive_of(
         {f"o{n}": order(f"Ship feature {n}", [f"j{n}"]) for n in range(1, 65)},
         {f"j{n}": job(f"o{n}", "waiting") for n in range(1, 65)},
-        [pr(n, f"o{n}", job=f"j{n}", branch=f"change/{n}", base=f"change/{n-1}", checks="pending") for n in range(1, 65)],
+        [pr(n, f"o{n}", job=f"j{n}", branch=f"change/{n}", base=f"change/{n-1}", under=f"yasyf/cc-skills#{n-1}" if n > 1 else None, checks="pending") for n in range(1, 65)],
     )
     keys = list(data["prs"])
     expected = {key: stage.of(data, key, found()) for key in keys}
