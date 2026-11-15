@@ -43,9 +43,10 @@ OWN_FAILURE = "the lander could not"
 NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
+WAITED = "not landed while it waits"
 UNREAD = "not landed: a GitHub read failed before it queued or merged anything, so the next watch pass lands it again"
 RUNNING = "not landed: its checks still run"
-RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, UNREAD, RUNNING)
+RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, WAITED, UNREAD, RUNNING)
 OWN_RED = "not landed: its own change fails"
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
@@ -79,6 +80,11 @@ def ship_held(data: dict, job_id: str, exempt: str | None = None) -> list[str]:
     if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
         return []
     return open_cards(data, job_id, None, exempt)
+
+
+def staged(data: dict, pr: dict) -> list[str]:
+    """Each started staging test of the PR that holds it from landing until it passes, by state.staging_runs, as view.holding reads it."""
+    return view.holding(data, state.staging_runs(data, pr), None)
 
 
 def lane_held(*flags: str) -> dict:
@@ -346,12 +352,12 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
     return failed
 
 
-def halt(name: str, keys: list[str]) -> list[str]:
-    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers and lands then; the PRs stopped."""
-    if not held_landers(state.load(name), keys):
+def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
+    """Stop each lander queueing a Forge-AI/monorepo unit through stack-enqueue that a hold of his on a PR among keys holds, his Hold, the hold label or a card of his opened on its work since it started, or a wait of that PR set since then, a staging test of it or of its job's work included, by ending its process group, which dequeues what it queued, and record that on each PR of its unit, which reads held until he answers or waiting until the wait ends, and lands then; the PRs stopped."""
+    if not held_landers(state.load(name), keys, cards):
         return []
     with state.edit(name) as data:
-        stopped = held_landers(data, keys)
+        stopped = held_landers(data, keys, cards)
         under = unders(data)
         units = {pid: sorted((key for key, pr in data["prs"].items() if running(pr) and pr["lander"]["pid"] == pid), key=lambda key: len(chain(under, key))) for pid in stopped}
         for pid, unit in units.items():
@@ -360,13 +366,21 @@ def halt(name: str, keys: list[str]) -> list[str]:
     return [key for unit in units.values() for key in unit]
 
 
-def held_landers(data: dict, keys: list[str]) -> dict[int, str]:
-    """Each running lander queueing a Forge-AI/monorepo unit with a PR among keys that a hold of his holds, by its pid, with the outcome saying so."""
+def held_landers(data: dict, keys: list[str], cards: dict | None) -> dict[int, str]:
+    """Each running lander queueing a Forge-AI/monorepo unit with a PR among keys that a hold of his or a wait of that PR holds, by state.job_waits, by its pid, with the outcome saying so."""
     return {
-        data["prs"][key]["lander"]["pid"]: f"{HELD}: {holding}"
+        data["prs"][key]["lander"]["pid"]: outcome
         for key in keys
-        if state.queued_by_lander(key) and running(data["prs"][key]) and (holding := held(data, [key]))
+        if state.queued_by_lander(key) and running(data["prs"][key]) and (outcome := stopping(data, key, cards))
     }
+
+
+def stopping(data: dict, key: str, cards: dict | None) -> str:
+    if holding := held(data, [key]):
+        return f"{HELD}: {holding}"
+    if standing := view.holding(data, state.job_waits(data, data["prs"][key]), cards):
+        return f"{WAITED}: {key} waits on {', '.join(standing)}"
+    return ""
 
 
 def unmergeable(read: dict) -> str | None:
@@ -449,7 +463,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor one with a PR whose started staging test has not passed, by state.staging_runs. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -462,6 +476,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     try:
         if holding := held(data, keys):
             outcome = f"{HELD}: {holding}"
+        elif testing := [run for key in keys for run in staged(data, data["prs"][key])]:
+            outcome = f"{WAITED}: its staging test {', '.join(testing)} has not passed"
         elif state.merges_untapped(keys[0]):
             outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
         else:
