@@ -813,7 +813,8 @@ def order_set(args: argparse.Namespace) -> int:
         raise DriveError(
             f"{'--proof' if args.proof else 'its proof'} {proof}: refused, {args.id} builds something he uses ({seen}), so it is proven"
             " done on that surface: a recording of each step through it (agent-browser's recording, or screencapture -v of the window)"
-            " or the link of the live post; data fetched from an API or a command's output does not show what he sees"
+            " or the link of the live post, or, on a command, the saved output of its run; data fetched from an API or another command's output"
+            " does not show what he sees"
             + ("" if args.proof else "; close it with --proof <that recording or link>")
         )
     message = his_message(args.source) if args.source else state.slack_message(order["from"])

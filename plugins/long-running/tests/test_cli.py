@@ -8343,6 +8343,24 @@ def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
     assert run("order", "set", "o3", "--state", "done", "--proof", str(log_walk))[0] == 0
 
 
+def test_order_set_proves_a_command_done_on_the_saved_output_of_its_run(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    output = tmp_path / "flakes.proof.txt"
+    output.write_text("tools/ci flakes TestQueue: 3 failures on dev over 14 days")
+    for order, native in (("o1", "a tools/ci command a flake lane runs to count one test's failures"), ("o2", "the dashboard's command palette")):
+        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", f"build {native}")
+        run("job", "add", "builder", "--order", order, "--goal", "build it")
+        run(
+            "job", "brief", f"j{order[1]}", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+            "--native", native, "--interactions", "a lane asks for one test's failures and gets the counts from one call",
+        )
+    assert run("order", "set", "o1", "--state", "done", "--proof", str(output))[0] == 0
+    assert cli.main(["order", "set", "o2", "--state", "done", "--proof", str(output)]) == 2
+    assert capsys.readouterr().err.startswith(f"drive: --proof {output}: refused, o2 builds something he uses (the dashboard's command palette)")
+    assert state.load("demo")["orders"]["o2"]["state"] == "open"
+
+
 def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_off(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
