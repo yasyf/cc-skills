@@ -69,6 +69,7 @@ REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
 REAL_SESSION_TERMINALS = orca.session_terminals
+SILENT_SPRITE = "ssh exited 255: Connection timed out during banner exchange"
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
 REAL_CHECKOUT = orca.checkout
@@ -857,15 +858,15 @@ def causes() -> dict[str, str]:
 def kept_logs(monkeypatch: pytest.MonkeyPatch, causes: dict[str, str]) -> list[tuple[str, str]]:
     """Each lane whose Sprite's logs a resume or an end copied to the drive's folder, by job and dispatch, each giving the cause line causes holds for it from a Sprite that never faulted."""
     kept: list[tuple[str, str]] = []
-    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)) or (causes.get(dispatch), False, False))
+    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)) or (causes.get(dispatch), False, False, True))
     return kept
 
 
 @pytest.fixture(autouse=True)
 def runtimes_listening(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
-    """Whether anything listens where Orca's runtime serves on each workspace's Sprite, as that Sprite answers over ssh, by workspace; no answer, as from a Sprite ssh does not reach, unless a test puts one."""
+    """Whether anything listens where Orca's runtime serves on each workspace's Sprite, as that Sprite answers over ssh, by workspace; else why ssh got no answer, as from a Sprite whose sshd sends no banner, unless a test puts one."""
     answers: dict[str, bool] = {}
-    monkeypatch.setattr(orca, "runtime_listening", answers.get)
+    monkeypatch.setattr(orca, "runtime_listening", lambda workspace: answers.get(workspace, SILENT_SPRITE))
     return answers
 
 
@@ -873,7 +874,7 @@ def runtimes_listening(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
 def sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The Claude session each Sprite answers with for a dead lane's dispatch, by workspace, which a resume of that lane resumes there; none unless a test puts one."""
     held: dict[str, str] = {}
-    monkeypatch.setattr(orca, "session_of", lambda workspace, dispatch: held.get(workspace))
+    monkeypatch.setattr(orca, "session_of", lambda job_id, workspace, dispatch: held.get(workspace))
     return held
 
 

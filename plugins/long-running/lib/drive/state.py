@@ -546,6 +546,11 @@ def stamp(moment: datetime | None = None) -> str:
     return (moment or now()).isoformat(timespec="seconds")
 
 
+def said(who: str, step: str) -> None:
+    """Say on stderr, stamped as it starts, a step a launch or resume of a job takes that waits on its lane's Sprite, Orca or the job's lock, with the bound it waits under, which the drive's relaunches log keeps for a verb state.detach started, so a verb waiting on a Sprite that does not answer says what it waits on while it waits."""
+    print(f"drive: {who}: {stamp()} {step}", file=sys.stderr, flush=True)
+
+
 def parse_time(text: str) -> datetime:
     moment = datetime.fromisoformat(text)
     return moment if moment.tzinfo else moment.astimezone()

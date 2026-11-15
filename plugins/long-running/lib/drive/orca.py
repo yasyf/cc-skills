@@ -589,19 +589,18 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
     else:
         env["WORKER_TOOLS"] = SPRITE_TOOLS
     attempt = brief.with_suffix(".worker")
+    where = ON_MAC if local else f"on Sprite {workspace} in the checkout it holds" + (f", resuming Claude session {session}" if session else "") if workspace else "on a fresh Sprite"
+    state.said(lane, f"it launches the lane {where} with {LAUNCHER}, for at most {LAUNCH_SECONDS} s")
     try:
-        done = subprocess.run(
-            [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
-            cwd=checkout,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=LAUNCH_SECONDS,
-            check=False,
-        )
+        done = grouped([tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)], cwd=checkout, env=env, timeout=LAUNCH_SECONDS)
     except subprocess.TimeoutExpired as expired:
-        kept = launch_log(attempt, f"ran past {LAUNCH_SECONDS} s", *((said or b"").decode(errors="replace") for said in (expired.stdout, expired.stderr)))
-        raise OrcaError(f"{LAUNCHER} ran past {LAUNCH_SECONDS} s; its attempt is in {attempt}{kept}") from None
+        kept = launch_log(attempt, f"ran past {LAUNCH_SECONDS} s", expired.stdout or "", expired.stderr or "")
+        if (attempt / "worker-start.json").exists():
+            raise OrcaError(
+                f"{LAUNCHER} ran past {LAUNCH_SECONDS} s after its worker-start began, so it was killed with every process it started and the lane may be live;"
+                f" read {attempt}/worker-start.json before starting it anywhere else{kept}"
+            ) from None
+        raise Unstarted(f"{LAUNCHER} ran past {LAUNCH_SECONDS} s before its worker-start began, so it was killed with every process it started; its attempt is in {attempt}{kept}") from None
     kept = launch_log(attempt, f"exited {done.returncode}", done.stdout, done.stderr)
     lines = done.stdout.strip().splitlines()
     if done.returncode or not lines:
@@ -645,6 +644,7 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
 
 def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
     """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it."""
+    state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy, for at most {RECLAIM_SECONDS} s")
     return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job))
 
 
@@ -655,7 +655,10 @@ def holds_sprite(job: dict) -> bool:
 
 def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:
     """Take what the job's Sprite holds that a fresh Sprite would not get to GitHub, by the reclaimer's own read of the checkout it keeps a Sprite for, found by the job's workspace so a Sprite Orca forgot is saved too: it commits each worktree's uncommitted changes on the Sprite and pushes each commit GitHub holds nowhere as saved/<the dead lane's name>/<its branch>, on a GitHub token lent to that one push. What the Sprite held and where it went, naming no branch, which saved reads from GitHub; that it held nothing unpushed or uncommitted; or that cc-remote records no such Sprite, so nothing on it was read or saved; None for a lane on this Mac; OrcaError naming why the Sprite could not be read or the save failed, such as a Sprite that never woke."""
-    return None if state.on_mac(job) else reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job))
+    if state.on_mac(job):
+        return None
+    state.said(job_id, f"it saves to GitHub what Sprite {job['workspace']} holds on no remote with {RECLAIMER} --save, for at most {RECLAIM_SECONDS} s")
+    return reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job))
 
 
 def saved(drive: str, job_id: str, job: dict, checkout: Path, every: bool = False) -> list[str]:
@@ -670,18 +673,26 @@ def lane_of(drive: str, job_id: str, job: dict) -> str:
 
 
 def reclaimer(checkout: Path, *args: str) -> str:
-    """The reclaimer's output, run as a process group of its own; OrcaError naming its last line when it fails, or naming RECLAIM_SECONDS once it runs past them, after every process left in its group, such as an ssh to a Sprite that never answers, is killed."""
-    with subprocess.Popen([tool(RECLAIMER), *args], cwd=checkout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True) as running:
+    """The reclaimer's output, run by grouped; OrcaError naming its last line when it fails, or naming RECLAIM_SECONDS once it runs past them and grouped killed it with every process it started."""
+    try:
+        done = grouped([tool(RECLAIMER), *args], cwd=checkout, timeout=RECLAIM_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise OrcaError(f"{RECLAIMER} {args[0]} ran past {RECLAIM_SECONDS} s, so it was killed with every process it started") from None
+    if done.returncode:
+        said = done.stderr.strip().splitlines()
+        raise OrcaError(f"{RECLAIMER} exited {done.returncode}: {said[-1] if said else 'no output'}")
+    return done.stdout.strip()
+
+
+def grouped(argv: list[str], *, timeout: float, **given: object) -> subprocess.CompletedProcess[str]:
+    """Run argv as a process group of its own with its output captured as text, as subprocess.run does; subprocess.TimeoutExpired carrying all it wrote once it runs past timeout seconds, after every process left in its group is killed, such as the ssh or sprite exec a launcher or the reclaimer left waiting on a Sprite that never answers, which a kill of argv's own process alone leaves running."""
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True, **given) as running:
         try:
-            out, err = running.communicate(timeout=RECLAIM_SECONDS)
+            out, err = running.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             reads.signal_group(running.pid, signal.SIGKILL)
-            running.communicate()
-            raise OrcaError(f"{RECLAIMER} {args[0]} ran past {RECLAIM_SECONDS} s, so it was killed with every process it started") from None
-    if running.returncode:
-        said = err.strip().splitlines()
-        raise OrcaError(f"{RECLAIMER} exited {running.returncode}: {said[-1] if said else 'no output'}")
-    return out.strip()
+            raise subprocess.TimeoutExpired(argv, timeout, *running.communicate()) from None
+    return subprocess.CompletedProcess(argv, running.returncode, out, err)
 
 
 def mail(after: int | None) -> list[dict]:
@@ -783,7 +794,7 @@ def gone(error: OrcaError) -> str | None:
     return next((why for refusal, why in GONE.items() if refusal in str(error)), None)
 
 
-def lane_end(drive: str, job: dict, wake: bool = True) -> LaneEnd | None:
+def lane_end(drive: str, job_id: str, job: dict, wake: bool = True) -> LaneEnd | None:
     """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. A lane a `drive job end` ended is read from the end its job records, never from Orca, since that end stopped its worker and destroyed its Sprite, which Orca then reads as a lane it no longer holds or pairs with. OrcaError when Orca cannot tell either way."""
     if state.lane_ended(job):
         return LaneEnd(f"the drive job end of {state.lane_death(job, 'dispatch')['ended']['at']} ended it", None, None, ended=True)
@@ -796,7 +807,7 @@ def lane_end(drive: str, job: dict, wake: bool = True) -> LaneEnd | None:
             return LaneEnd(f"Orca could not reach its Sprite: {error}", None, None, unreached=True)
         if UNREACHABLE not in str(error):
             raise
-        return woken(drive, job, f"Orca could not reach its Sprite: {error}")
+        return woken(drive, job_id, job, f"Orca could not reach its Sprite: {error}")
 
 
 def out_of_reach(error: OrcaError) -> bool:
@@ -804,19 +815,40 @@ def out_of_reach(error: OrcaError) -> bool:
     return UNREACHABLE in str(error) or UNLIVE in str(error)
 
 
-def woken(drive: str, job: dict, unreached: str) -> LaneEnd | None:
-    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: an unfit end when it answers with nothing listening on the port Orca's runtime serves on there, as when a full disk crash-loops that runtime, which saves the lane and restarts it on a fresh Sprite; the refusal again when something listens there, since Orca then fails on this Mac and no lane restarts for it; and when it does not answer, an end marked unreached, which restarts the lane on that Sprite in the checkout it left, where the launcher's prepare --existing wakes it when this wake did not."""
+def locked_out(drive: str, job_id: str, job: dict) -> str | None:
+    """Why a resume of the job is refused now rather than queued for its lock: another drive verb holds that lock while Orca cannot reach the job's lane on its Sprite, as when a resume wakes a Sprite that does not answer, naming that verb by state.holders and Orca's refusal; None for a job on no Sprite lane, one whose lock is free, or one whose lane Orca reaches."""
+    if not (job.get("where") == "remote" and job.get("dispatch") and state.job_lock_held(drive, job_id)):
+        return None
     try:
-        reclaimer(checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"]), "--wake", job["workspace"])
+        worker(job["dispatch"])
+    except OrcaError as error:
+        if out_of_reach(error):
+            return f"another drive verb holds its lock ({state.holders(state.job_lock_path(drive, job_id))}) while Orca cannot reach its lane on its Sprite ({error})"
+    return None
+
+
+def moved_here(job_id: str) -> str:
+    """The local launch that reaches a job locked_out names a reason for: it moves the job to a fresh worktree on this Mac, the verb holding the lock standing down for it at its next step, and its handoff carries every text the job holds."""
+    return f"drive job launch {job_id} --local moves it to a fresh worktree {ON_MAC} now, the verb holding its lock standing down at its next step, and its handoff carries every text the job holds"
+
+
+def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
+    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again, saying each step by state.said: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: the refusal again when something listens on the port Orca's runtime serves on there, since Orca then fails on this Mac and no lane restarts for it, and otherwise an unfit end, which restarts the lane on a fresh Sprite, by his pick "Wake and restart in place: on an unreachable lane the watch wakes its Sprite and restarts the lane there, else on a fresh Sprite": when it answers with nothing listening there, as when a full disk crash-loops that runtime, which saves the lane first, and when it does not answer, as a Sprite whose memory thrashes until its sshd sends no banner does, which restart asks nothing more and keeps, since every later step on it, a launcher's prepare --existing there included, waits on that same silence."""
+    workspace = job["workspace"]
+    state.said(job_id, f"Orca cannot reach its lane, so it wakes Sprite {workspace} with {RECLAIMER} --wake, for at most {RECLAIM_SECONDS} s")
+    try:
+        reclaimer(checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"]), "--wake", workspace)
         end = shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
         unreached = f"{unreached}, and its wake read {error}"
-        match runtime_listening(job["workspace"]):
+        state.said(job_id, f"its wake read {error}; it asks Sprite {workspace} over ssh what listens on the port Orca's runtime serves on there, for at most {CALL_SECONDS} s")
+        match runtime_listening(workspace):
             case True:
                 raise
             case False:
                 return LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True)
-        return LaneEnd(unreached, None, None, unreached=True)
+            case silent:
+                return LaneEnd(f"{unreached}, and its Sprite did not answer: {silent}", None, None, unfit=True)
     if end is None or end.worktree:
         return end
     return end._replace(why=f"{unreached}, and once it woke {end.why}", unreached=True)
@@ -942,14 +974,20 @@ def take_off_sprite(workspace: str, paths: list[str], into: Path) -> None:
         held.extractall(into, filter="data")
 
 
-def runtime_listening(workspace: str) -> bool | None:
-    """Whether anything on the workspace's Sprite listens on the port its cc-remote task runs Orca's runtime on, asked over cc-remote's ssh forward, never through that runtime; None when cc-remote records no task for it or the Sprite does not answer."""
+def runtime_listening(workspace: str) -> bool | str:
+    """Whether anything on the workspace's Sprite listens on the port its cc-remote task runs Orca's runtime on, asked over cc-remote's ssh forward, never through that runtime; else why it got no answer: cc-remote records no task for it, its ssh exited non-zero, or it ran past CALL_SECONDS."""
     try:
         port = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["port"]
+    except OSError:
+        return "cc-remote records no task for it"
+    try:
         done = on_sprite(workspace, f"ss -Hltn 'sport = :{port}'", b"", CALL_SECONDS)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return None if done.returncode else bool(done.stdout.strip())
+    except subprocess.TimeoutExpired:
+        return f"ssh to it ran past {CALL_SECONDS} s"
+    if done.returncode:
+        why = done.stderr.decode(errors="replace").strip().splitlines()
+        return f"ssh exited {done.returncode}: {why[-1] if why else 'no output'}"
+    return bool(done.stdout.strip())
 
 
 def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
@@ -964,8 +1002,9 @@ def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> sub
     )
 
 
-def session_of(workspace: str, dispatch: str) -> str | None:
+def session_of(job_id: str, workspace: str, dispatch: str) -> str | None:
     """The Claude session the worker on this dispatch ran on the workspace's Sprite, found by the dispatch id Orca's preamble wrote into its transcript, the newest when several hold it; None when the Sprite cannot be read or holds no such transcript."""
+    state.said(job_id, f"it asks Sprite {workspace} over ssh for the Claude session its worker ran, for at most {CALL_SECONDS} s")
     try:
         done = on_sprite(workspace, f"cd && grep -l -F -e {shlex.quote(dispatch)} .claude/projects/*/*.jsonl | xargs -r ls -t | head -n 1", b"", CALL_SECONDS)
     except (OSError, subprocess.TimeoutExpired):
@@ -990,17 +1029,19 @@ def death_logs(drive: str, job_id: str, dispatch: str) -> Path:
     return state.drive_dir(drive) / "jobs" / f"{job_id}.{dispatch}.death.txt"
 
 
-def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> tuple[str, bool, bool]:
-    """Copy to death_logs, once a death, what the Sprite of the job's lane that died or finished on this dispatch holds on why its Orca runtime went down, before a relaunch reuses that Sprite or a relaunch or an end destroys it: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events, the kernel's last lines, the ages of its VM and its pid 1, its cgroup's memory.high and memory.peak, and every kernel line at error level or worse; a Sprite ssh cannot read leaves the file saying why. The cause line those copied logs give, whether that Sprite faulted and whether it failed on its own, by cause."""
+def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> tuple[str, bool, bool, bool]:
+    """Copy to death_logs, once a death, what the Sprite of the job's lane that died or finished on this dispatch holds on why its Orca runtime went down, before a relaunch reuses that Sprite or a relaunch or an end destroys it: the last SPRITE_LOG_BYTES of the runtime's serve.log, daemon.log and orcad trace and of the worker's Claude Code transcript, the free space on its home volume, its cgroup's memory.events, the kernel's last lines, the ages of its VM and its pid 1, its cgroup's memory.high and memory.peak, and every kernel line at error level or worse; a Sprite ssh cannot read leaves the file saying why. The cause line those copied logs give, whether that Sprite faulted and whether it failed on its own, by cause, and whether it answered, which a read that ended before the kernel's lines says it did not."""
     kept = death_logs(drive, job_id, dispatch)
     if not kept.exists():
+        state.said(job_id, f"it copies the logs of Sprite {job['workspace']} over ssh, for at most {CALL_SECONDS} s")
         try:
             done = on_sprite(job["workspace"], "sh -s", SPRITE_LOGS.encode(), CALL_SECONDS)
             said = done.stdout.decode(errors="replace") + (f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}\n" if done.returncode else "")
         except (OSError, subprocess.TimeoutExpired) as error:
             said = f"{job['workspace']} could not be read: {error}\n"
         kept.write_text(said)
-    return cause(kept.read_text())
+    text = kept.read_text()
+    return *cause(text), f"== {KERNEL_ERRORS}\n" in text
 
 
 def cause(said: str) -> tuple[str, bool, bool]:
@@ -1042,6 +1083,7 @@ def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str) -> Path 
     """Copy whole to transcripts, before an end or a relaunch can destroy it, the ~/.claude/projects folder of the Sprite of the job's lane on this dispatch, every Claude Code transcript it holds, the worker's and any earlier lane's on that Sprite; a file the live worker wrote while tar read it, which GNU tar exits 1 for, is still kept. The worker's own transcript, the newest, or None when none was copied, a Sprite ssh cannot read leaving UNKEPT there saying why."""
     kept = transcripts(drive, job_id, dispatch)
     kept.mkdir(parents=True, exist_ok=True)
+    state.said(job_id, f"it copies the Claude Code transcripts of Sprite {job['workspace']} over ssh, for at most {CALL_SECONDS} s")
     try:
         done = on_sprite(job["workspace"], SPRITE_TRANSCRIPTS, b"", CALL_SECONDS)
         if not done.returncode:

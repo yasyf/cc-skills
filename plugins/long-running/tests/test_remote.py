@@ -25,6 +25,7 @@ from conftest import (
     REAL_KEEP_TRANSCRIPTS,
     REAL_SAVED_BRANCHES,
     REAL_SESSION_OF,
+    SILENT_SPRITE,
     REAL_SPRITE_CONFIG,
     REAL_MAILBOX,
     RESEARCH,
@@ -1628,13 +1629,35 @@ def test_a_launch_says_the_lane_may_be_live_only_when_orca_may_have_recorded_its
         (attempt / receipt).write_text("1\n")
     monkeypatch.setattr(orca, "tool", lambda name: name)
     done = subprocess.CompletedProcess([], 1, stdout="", stderr=f"{UNSENT}\n")
-    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
+    monkeypatch.setattr(orca, "grouped", lambda argv, **kwargs: done)
     monkeypatch.setattr(state, "stamp", lambda: "2026-11-15T01:53:00-08:00")
     (attempt / orca.LAUNCH_LOG).write_text("== earlier run\n")
     with pytest.raises(orca.OrcaError) as raised:
         orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
     assert str(raised.value) == said.format(attempt=attempt)
     assert (attempt / orca.LAUNCH_LOG).read_text() == f"== earlier run\n== 2026-11-15T01:53:00-08:00 {orca.LAUNCHER} exited 1\n-- stdout\n-- stderr\n{UNSENT}\n"
+
+
+@pytest.mark.parametrize("began", [False, True], ids=["before its worker-start", "once its worker-start began"])
+def test_a_launch_past_its_bound_kills_every_process_its_launcher_started_and_says_no_worker_started_only_before_its_worker_start_began(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, began: bool
+) -> None:
+    brief = tmp_path / "j1.md"
+    brief.write_text("brief")
+    attempt = brief.with_suffix(".worker")
+    attempt.mkdir()
+    if began:
+        (attempt / "worker-start.json").write_text("{}\n")
+    group = tmp_path / "group"
+    launcher = tmp_path / "orca-worker-launch.sh"
+    launcher.write_text(f"#!/bin/sh\necho $$ >{group}\nsleep 600 &\nwait\n")
+    launcher.chmod(0o755)
+    monkeypatch.setattr(orca, "tool", lambda name: str(launcher))
+    monkeypatch.setattr(orca, "LAUNCH_SECONDS", 1)
+    with pytest.raises(orca.OrcaError) as raised:
+        orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
+    assert (isinstance(raised.value, orca.Unstarted), str(raised.value).startswith(f"{orca.LAUNCHER} ran past 1 s ")) == (not began, True)
+    assert not reads.live(int(group.read_text()))
 
 
 def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
@@ -1959,12 +1982,12 @@ def test_a_dead_sprites_logs_are_copied_once_and_give_one_cause_line_and_an_unre
     read = []
     nbd = sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n")
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, nbd, b""))
-    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-nbd"}, DISPATCH) == (NBD_CAUSE, True, True)
-    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH) == (NBD_CAUSE, True, True)
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-nbd"}, DISPATCH) == (NBD_CAUSE, True, True, True)
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH) == (NBD_CAUSE, True, True, True)
     assert (read, orca.death_logs(remote, "j1", DISPATCH).read_text()) == (["pool-nbd"], nbd.decode())
     refused = b"ssh: connect to host pool-asleep port 22: Connection refused\n"
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
-    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002") == (REFUSED_CAUSE, False, False)
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002") == (REFUSED_CAUSE, False, False, False)
     assert orca.death_logs(remote, "j1", "ctx_lane0002").read_text() == "ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused\n"
 
 
@@ -2040,13 +2063,13 @@ def test_a_dead_lanes_session_is_the_transcript_on_its_sprite_that_holds_its_dis
     (projects / "5d576546-4c87-4a78-94b4-945eb9e49c86.jsonl").write_text('{"content":"orca orchestration send --dispatch-id ctx_other"}\n')
     sprite = {**os.environ, "HOME": str(tmp_path)}
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.run(["sh", "-c", command], input=given, capture_output=True, env=sprite, check=False))
-    assert (REAL_SESSION_OF(J2504_SPRITES[1], J2504_DISPATCH), REAL_SESSION_OF(J2504_SPRITES[1], "ctx_never")) == (J2504_SESSION, None)
+    assert (REAL_SESSION_OF("j1", J2504_SPRITES[1], J2504_DISPATCH), REAL_SESSION_OF("j1", J2504_SPRITES[1], "ctx_never")) == (J2504_SESSION, None)
 
     def asleep(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
         raise subprocess.TimeoutExpired(command, seconds)
 
     monkeypatch.setattr(orca, "on_sprite", asleep)
-    assert REAL_SESSION_OF(J2504_SPRITES[1], J2504_DISPATCH) is None
+    assert REAL_SESSION_OF("j1", J2504_SPRITES[1], J2504_DISPATCH) is None
 
 
 def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], workspace: str, refusal: orca.OrcaError | None = None) -> list[tuple]:
@@ -2386,16 +2409,11 @@ def unreachable_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.parametrize("job_id", J1409_LANES)
-@pytest.mark.parametrize(
-    "after_wake",
-    [dead, lambda: refused("remote_runtime_unavailable", "Could not connect to the remote Orca runtime at ws://127.0.0.1:61207")(DISPATCH)],
-    ids=["exited once woken", "unreachable once woken"],
-)
 def test_a_lane_orca_could_not_reach_restarts_on_its_own_sprite_once_the_wake_reaches_it(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, job_id: str, after_wake: Callable[[], dict]
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, job_id: str
 ) -> None:
     workspace, dispatch, port = J1409_LANES[job_id]
-    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J1409_LANES[job_id], after_wake)
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J1409_LANES[job_id], dead)
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a lane continuing on its own Sprite saves nothing"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane that ended: {args}"))
     code, out = run("job", "resume", "j1", watch.UNREACHED)
@@ -2424,21 +2442,23 @@ def test_a_lane_orca_could_not_reach_resumes_its_own_claude_session_on_its_sprit
 
 
 @pytest.mark.parametrize("lane", [J1409_LANES["j489"], J1409_LANES["j414"], J1409_LANES["j601"], J2504_LANE])
-def test_a_pushed_job_whose_sprite_will_not_wake_restarts_on_a_fresh_sprite_from_its_pushed_branch_with_its_held_text(
+def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_restarts_on_a_fresh_sprite_from_its_pushed_branch_asking_that_sprite_nothing_more_and_keeping_it(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lane: tuple[str, str, int]
 ) -> None:
     workspace, dispatch, port = lane
     wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, lane, None)
-    monkeypatch.setattr(orca, "save", unsaveable(UNREAD))
-    monkeypatch.setattr(orca, "release", lambda *args: pytest.fail("a Sprite holding what no save reached is kept"))
+    silent = f"its Sprite did not answer: {SILENT_SPRITE}"
+    monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: (silent, False, False, False))
+    for step in ("session_of", "keep_transcripts", "save", "release"):
+        monkeypatch.setattr(orca, step, lambda *args, step=step: pytest.fail(f"a Sprite that does not answer is asked nothing more, yet {step} ran"))
     held = "Next event for builder j2504, from the coordinator. Design job j3161 picked the two redo volumes."
     with state.edit(remote) as data:
         data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
     code, out = run("job", "resume", "j1")
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
-    assert f"was dead ({unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and orca-worker-launch.sh exited 1" in out
-    assert out.endswith(f"{workspace} is kept, since what it holds on no remote could not be saved: {UNREAD}")
-    assert (wakes, [launched["workspace"] for launched in launches]) == ([("--wake", workspace)], [workspace, None])
+    assert f"was dead ({unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and its Sprite did not answer: {SILENT_SPRITE}" in out
+    assert out.endswith(f"{workspace} is kept, since what it holds on no remote could not be saved: no save was tried, since {silent}")
+    assert (wakes, [launched["workspace"] for launched in launches]) == ([("--wake", workspace)], [None])
     brief = orca.brief_of(launches[-1]["brief"])
     assert f"You take the job over on a fresh Sprite from its pushed branches; {orca.UNPUSHED}" in brief
     assert "Its branch: durable-agents-j2504/sandsql-two-redo-volumes\n" in brief and unheld(brief).endswith(f"which you act on now:\n\n{held}")
@@ -2541,7 +2561,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     reprepared(monkeypatch)
     monkeypatch.setattr(orca, "launch", LAUNCH)
     monkeypatch.setattr(orca, "tool", lambda name: name)
-    ran, started = subprocess.run, {}
+    ran, started = orca.grouped, {}
 
     def launcher(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         if argv[0] != orca.LAUNCHER:
@@ -2554,7 +2574,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
         receipt = {"state": "ready", "task": "task_2", "dispatch": "ctx_lane0002", "terminal": "term_fresh", "lane": argv[1], "workspace": "pool-one", "allocation": "existing"}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt) + "\n", stderr="")
 
-    monkeypatch.setattr(orca.subprocess, "run", launcher)
+    monkeypatch.setattr(orca, "grouped", launcher)
     code, out = run("job", "resume", "j1", "The review: one medium finding, fix it")
     assert (code, out) == (
         0,
@@ -2755,7 +2775,7 @@ def test_a_resume_whose_fresh_sprites_both_refuse_the_tools_says_his_answer_held
 
 
 def untooled(monkeypatch: pytest.MonkeyPatch, launch: Callable[..., dict]) -> None:
-    ran = subprocess.run
+    ran = orca.grouped
     monkeypatch.setattr(orca, "launch", launch)
     monkeypatch.setattr(orca, "tool", lambda name: name)
 
@@ -2764,7 +2784,7 @@ def untooled(monkeypatch: pytest.MonkeyPatch, launch: Callable[..., dict]) -> No
             return ran(argv, **kwargs)
         return subprocess.CompletedProcess(argv, 1, stdout="", stderr=UNTOOLED.format(attempt=Path(argv[-1]).with_suffix(".worker")) + "\n")
 
-    monkeypatch.setattr(orca.subprocess, "run", launcher)
+    monkeypatch.setattr(orca, "grouped", launcher)
 
 
 def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_stops_reading_as_launching(
@@ -2797,9 +2817,9 @@ def test_a_launch_whose_launcher_said_several_lines_quotes_each_in_its_refusal(
         f"{attempt}.1 keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again",
         f"cc-remote orca prepare exited 1; {attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh",
     ]
-    ran = subprocess.run
+    grouped = orca.grouped
     said = subprocess.CompletedProcess([orca.LAUNCHER], 1, stdout="", stderr="\n".join(lines) + "\n")
-    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: said if argv[0] == orca.LAUNCHER else ran(argv, **kwargs))
+    monkeypatch.setattr(orca, "grouped", lambda argv, **kwargs: said if argv[0] == orca.LAUNCHER else grouped(argv, **kwargs))
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}\n"
 
@@ -3172,7 +3192,9 @@ def test_a_resume_refuses_at_once_rather_than_queue_on_the_lock_another_verb_hol
         assert cli.main(["job", "resume", "j1", watch.UNREACHED]) == 2
     assert capsys.readouterr().err == (
         "drive: j1: refused, nothing sent or held: another drive verb holds its lock (pid 45134 drive job resume j1 on j1.lock) while Orca cannot reach its lane on its Sprite"
-        f" (orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{J2504_LANE[2]}); run it again once that verb ends\n"
+        f" (orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{J2504_LANE[2]});"
+        " drive job launch j1 --local moves it to a fresh worktree on this Mac now, the verb holding its lock standing down at its next step,"
+        " and its handoff carries every text the job holds, or run this again once that verb ends\n"
     )
     assert (wakes, launches, state.load(remote)["jobs"]["j1"]["undelivered"], state.events_end(remote)) == ([], [], [], events)
 
@@ -3194,6 +3216,30 @@ def test_a_resume_holding_the_lock_stands_down_before_it_wakes_or_starts_anythin
         " and its handoff carries the texts the job holds\n"
     )
     assert [held["words"] for held in state.load(remote)["jobs"]["j1"]["undelivered"]] == [watch.UNREACHED]
+
+
+def test_a_resume_stands_down_at_its_next_step_once_a_launch_local_starts_waiting_while_it_reads_the_dead_lanes_sprite(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sessions: dict[str, str]
+) -> None:
+    cloned(tmp_path, remote)
+    restarted_lane(remote, tmp_path, monkeypatch, sessions, J2504_SPRITES[0])
+    waiting = os.getppid()
+
+    def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> tuple[None, bool, bool, bool]:
+        (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
+        (state.drive_dir(remote) / "jobs" / "j1.launch").write_text(f"{waiting}\n")
+        return None, False, False, True
+
+    monkeypatch.setattr(orca, "keep_logs", keep_logs)
+    monkeypatch.setattr(orca, "session_of", lambda *args: pytest.fail("a resume standing down asks its Sprite nothing more"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a resume standing down starts nothing"))
+    assert cli.main(["job", "resume", "j1", "PR #12: checks failed"]) == 2
+    assert capsys.readouterr().err == (
+        f"drive: j1: stood down, nothing sent or started: drive job launch j1 --local, pid {waiting}, waits for its lock to move it to this Mac,"
+        " and its handoff carries the texts the job holds\n"
+    )
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job.get("deaths", []), [held["words"] for held in job["undelivered"]]) == (J2504_DISPATCH, [], ["PR #12: checks failed"])
 
 
 def moving_launch(monkeypatch: pytest.MonkeyPatch) -> dict:
@@ -3623,6 +3669,7 @@ def orca_refuses(monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
     verb, code, message = refusal.split(": ", 2)
     done = subprocess.CompletedProcess([], 1, stdout=json.dumps({"ok": False, "error": {"code": code, "message": message}}), stderr="")
     monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
+    monkeypatch.setattr(orca, "grouped", lambda argv, **kwargs: done)
     monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: done)
 
 
@@ -4244,7 +4291,7 @@ def test_the_watch_starts_one_verb_on_a_job_a_pass_and_none_while_another_drive_
 def test_a_held_text_no_send_took_is_said_as_the_watchs_to_carry(remote: str) -> None:
     held = {"seq": None, "words": "TAP Approve #12", "at": state.stamp(T0), "said": None, "request": "req-held"}
     data = state.load(remote)
-    assert watch.unreached("j1", data["jobs"]["j1"], data, held) == (
+    assert watch.unreached("j1", data["jobs"]["j1"], data, held, None) == (
         f'"TAP Approve #12", held at {render.when(held["at"])}, has not reached j1; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now"
     )
@@ -5095,7 +5142,7 @@ def test_resume_or_launch_after_end_reads_the_end_never_orca_or_the_destroyed_sp
     end_kept = (list(kept_logs), list(kept_transcripts))
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("the end already saved this lane's Sprite and recorded what it found"))
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane drive job end ended is read from its end, never from Orca"))
-    monkeypatch.setattr(orca, "session_of", lambda workspace, dispatch: pytest.fail("nothing resumes on the Sprite drive job end destroyed"))
+    monkeypatch.setattr(orca, "session_of", lambda job_id, workspace, dispatch: pytest.fail("nothing resumes on the Sprite drive job end destroyed"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane whose Sprite is gone: {args}"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
     launched = {}
@@ -7156,7 +7203,7 @@ def test_a_local_launch_runs_the_launcher_in_the_checkouts_orca_repo_with_the_da
         ran.update(argv=argv, env=kwargs["env"], cwd=kwargs["cwd"])
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt) + "\n", stderr="")
 
-    monkeypatch.setattr(orca.subprocess, "run", launcher)
+    monkeypatch.setattr(orca, "grouped", launcher)
     launched = orca.launch("demo", "demo-j1", brief, tmp_path, RUN, state.LOCAL_ROUTE, None, None)
     assert launched == {**receipt, "lane": "demo-j1", "workspace": None, "environment": None}
     assert (ran["argv"], ran["cwd"]) == (["orca-worker-launch.sh", "demo-j1", orca.MODEL, orca.EFFORT, str(brief)], tmp_path)
@@ -7182,7 +7229,7 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
         ran.update(env=kwargs["env"])
         return subprocess.CompletedProcess(argv, 1, stdout="", stderr="no Sprite\n")
 
-    monkeypatch.setattr(orca.subprocess, "run", launcher)
+    monkeypatch.setattr(orca, "grouped", launcher)
     with pytest.raises(orca.OrcaError):
         orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
     assert ran["env"]["WORKER_TOOLS"] == f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}"
@@ -7222,25 +7269,25 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
         PLACE_TOOLS("pool-one")
 
 
-def test_a_sprite_says_whether_anything_listens_on_the_port_its_cc_remote_task_runs_orcas_runtime_on_and_nothing_when_it_does_not_answer(
+def test_a_sprite_says_whether_anything_listens_on_the_port_its_cc_remote_task_runs_orcas_runtime_on_and_why_when_it_does_not_answer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace, dispatch, port = J982_10
     monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
     (tmp_path / f"{workspace}.json").write_text(json.dumps({"port": port, "forward": {"host": workspace, "config": "/ssh/j982-10.ssh"}}))
-    answers = [(0, b""), (0, f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode()), (255, b""), None]
+    answers = [(0, b"", b""), (0, f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode(), b""), (255, b"", b"Connection timed out during banner exchange\r\n"), None]
     ran = []
 
     def ssh(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         ran.append((argv[:3], argv[-2:]))
         if not (answer := answers[len(ran) - 1]):
             raise subprocess.TimeoutExpired(argv, orca.CALL_SECONDS)
-        return subprocess.CompletedProcess(argv, answer[0], stdout=answer[1], stderr=b"")
+        return subprocess.CompletedProcess(argv, answer[0], stdout=answer[1], stderr=answer[2])
 
     monkeypatch.setattr(orca.subprocess, "run", ssh)
-    assert [RUNTIME_LISTENING(workspace) for _ in answers] == [False, True, None, None]
+    assert [RUNTIME_LISTENING(workspace) for _ in answers] == [False, True, SILENT_SPRITE, f"ssh to it ran past {orca.CALL_SECONDS} s"]
     assert ran == [(["ssh", "-F", "/ssh/j982-10.ssh"], [workspace, f"ss -Hltn 'sport = :{port}'"])] * 4
-    assert RUNTIME_LISTENING("pool-unrecorded") is None
+    assert RUNTIME_LISTENING("pool-unrecorded") == "cc-remote records no task for it"
 
 
 def test_putting_a_file_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_path_only_when_the_sprite_kept_those_bytes(
