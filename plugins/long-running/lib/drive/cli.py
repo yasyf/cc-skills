@@ -3727,7 +3727,7 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_an_exempt_revert(known, key, order, read)
     if args.exempt and args.exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, args.exempt, "set")
-    serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in answered or [])
+    serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in (answered["cited"] if answered else []))
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
         if args.serves:
@@ -3895,7 +3895,7 @@ def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, foun
     return view.stored_waits(data, [*([] if no_waits else owner["waits"]), *waits], found)
 
 
-def set_pr(pr: dict, args: argparse.Namespace, answered: list[str] | None = None) -> None:
+def set_pr(pr: dict, args: argparse.Namespace, answered: dict[str, list[str]] | None = None) -> None:
     if args.serves:
         pr["serves"] = args.serves
     if args.design:

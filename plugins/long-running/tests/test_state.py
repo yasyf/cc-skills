@@ -422,6 +422,36 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     assert len(shown) == 2
 
 
+def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_those_a_pr_cites_drops_each_open_prs_kept_answers_and_objection_once_and_keeps_only_the_cited_ones_on_the_rest(
+    state_root: Path,
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["near_answers_apart"]
+    asked = "2026-11-13T11:07:37-08:00"
+    cited = f'11f8cf2, {asked}, asked "Keep the handoff metric?": "Land both"'
+    options = 'the options his card "Keep the handoff metric?" offered, numbered as it drew them: Option 1 (recommended): Land both'
+    near = f'0df9263, {asked}{state.SUBJECT_LABEL}Keep the handoff metric?", asked "Which chart for the dashboard?": "bar charts only"'
+    passed = {"head": "abc", "pid": 1, "at": asked, "orders": ["o1"], "answers": [], "outcome": "CHECKED against the words of o1 at abc", "against": ""}
+    objected = passed | {"outcome": f'NOT READY: yasyf/cc-skills#4 go against his words: 0df9263 "bar charts only": draws a line chart. His answers the check read, each whole: {near}', "against": '0df9263 "bar charts only": draws a line chart'}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "build it", [], asked)}
+    data["prs"] = {
+        f"yasyf/cc-skills#{number}": state.new_pr(f"https://github.com/yasyf/cc-skills/pull/{number}", "j1", "o1") | {"state": status, "answers": answers, "checker": checker}
+        for number, status, answers, checker in (
+            (1, "open", [cited, near, options], passed),
+            (2, "merged", [cited, near, options], objected),
+            (3, "open", None, passed),
+            (4, "open", None, objected),
+        )
+    }
+    state.create(data)
+    drive = state.load("demo")
+    assert [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()] == [(None, passed), ({"cited": [cited, options], "near": []}, objected), (None, passed), (None, None)]
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#1"]["answers"] = {"cited": [cited], "near": [near]}
+    assert (state.load("demo")["prs"]["yasyf/cc-skills#1"]["answers"], state.load("demo")["near_answers_apart"]) == ({"cited": [cited], "near": [near]}, True)
+
+
 def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_each_untaken_one_its_parts_goal_on_its_brief_too(state_root: Path, tmp_path: Path) -> None:
     make("demo")
     data = state.load("demo")

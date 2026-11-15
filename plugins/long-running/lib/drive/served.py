@@ -56,13 +56,13 @@ VERDICT = {
     },
     "required": ["changed", "against"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description, and his durable answers recorded on that card's subject; then each ruling of his this change owes written, his words verbatim, into an AGENTS.md at or above the code it rules on, which his answer on where such a rule is written down names. <change> holds each pull request's title, head and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description; then his durable answers cc-notes ranked near the words of those cards by the words they share, each labelled with the card it was ranked near, never read for their subject; then each ruling of his this change owes written, his words verbatim, into an AGENTS.md at or above the code it rules on, which his answer on where such a rule is written down names. <change> holds each pull request's title, head and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
-An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer. Where his answer picks an option of a card, by its number, as 1 or 1+2, or by its words, that option's own words and description are his words: they bind over the name of a part or anyone's reading of his pick, and a change that builds the option another way, such as one copying a whole file where the option lands only the pages a read needs, goes against them. His durable answers on a card's subject bind a change on that subject as much as his pick does: a change that keeps or adds what they rule out, such as a second code path where they ask for one, goes against them; one on another subject binds nothing here.
+An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer. Where his answer picks an option of a card, by its number, as 1 or 1+2, or by its words, that option's own words and description are his words: they bind over the name of a part or anyone's reading of his pick, and a change that builds the option another way, such as one copying a whole file where the option lands only the pages a read needs, goes against them. An answer ranked near the words of his card shares words with that card and may speak to other work: it binds only where its own words speak to what this change builds, and there it binds as much as his pick does, so a change that keeps or adds what it rules out, such as a second code path where it asks for one, goes against it; one that speaks to other work binds nothing here, however near his card it was ranked.
 
 First list in `changed` each change the diff makes to what already exists: what existing code returns, prints, stores, accepts or depends on, such as a wire, file or API shape, a default or a command's output, and each behavior it removes. List each side of one value as its own change, what it holds or how it is made apart from the form it is written, stored or sized in, since his words can name one and leave the other: a timestamp moving from local time to UTC and from seconds to an ISO string is two changes. Give each its `before` and `after` as the diff shows them, and in `named_by` quote the words of his or of a cited answer that name that side's new form or behavior, else none. Words naming the kind of value name what it holds, never the form it is written in or what else it stops doing: a convention such a word is often read with is a reader's reading, never his words naming it. New code that alters nothing existing is not a change to list.
 
-Then list in `against` each place where the change goes against his words: it does or keeps what his words rule out, such as a flag, a switch or a page they say goes; it removes, or leaves out of every PR here, what his words say this change delivers; it makes the outcome his words name impossible; or it makes a change in `changed` that nothing of his names and the outcome his words name, the problem they describe included, does not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Read his words for what he means, as a careful colleague would. In `order` name the order, or the answer's id or link, in `words` quote the words of his it goes against or beyond, in `file` the path of the file that does it as its `diff --git a/` line names it, or an empty string when no one file does, and in `change` name the file and the line or hunk that does it, with its before and after when it changes what exists, and one sentence on why.
+Then list in `against` each place where the change goes against his words: it does or keeps what his words rule out, such as a flag, a switch or a page they say goes; it removes, or leaves out of every PR here, what his words say this change delivers; it makes the outcome his words name impossible; or it makes a change in `changed` that nothing of his names and the outcome his words name, the problem they describe included, does not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Read his words for what he means, as a careful colleague would. In `order` name the order, or the answer's id or link as its line opens with, in `words` quote the words of his it goes against or beyond, in `file` the path of the file that does it as its `diff --git a/` line names it, or an empty string when no one file does, and in `change` name the file and the line or hunk that does it, with its before and after when it changes what exists, and one sentence on why.
 
 Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
@@ -76,11 +76,12 @@ An empty `against` says the change meets his words."""
 
 
 class Against(DriveError):
-    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries each answer of his the check read whole, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line."""
+    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries whole each answer of his the PR cites for its design and each other answer the check read that named names by the id or link its line opens with, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line; every other answer it read is one its job's brief already carries, or one cc-notes ranked near the words of a card it cites that no objection rests on, so the line stays one a relay carries whole."""
 
-    def __init__(self, keys: list[str], named: str, answered: list[str]):
+    def __init__(self, keys: list[str], named: str, cited: list[str], others: list[str]):
         self.named = named
-        read = f" His answers the check read, each whole: {'; '.join(answered)}." if answered else ""
+        held = list(dict.fromkeys([*cited, *(line for line in others if line.partition(", ")[0] in named)]))
+        read = f" His answers its design cites, and each other one an objection names, each whole: {'; '.join(held)}." if held else ""
         super().__init__(
             f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}.{read} Reconcile each objection with his answers and your own"
             " read of the code, then change the PRs to his words, putting back what exists where they do not need it changed, push, and return READY again;"
@@ -91,7 +92,7 @@ class Against(DriveError):
 
 
 def check(name: str, key: str, bound: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, read by answers with the options of each card of the drive's it answers and his durable answers on that card's subject, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write it owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write it owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
@@ -102,13 +103,16 @@ def check(name: str, key: str, bound: list[str]) -> dict:
     lines = digests(read["diff"])
     passed = pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {}
     flake = [state.FLAKE_RULING] if pr.get("exempt") == state.FLAKE_FIX else []
-    answered = list(dict.fromkeys([*kept_answers(name, data, key), *answers(data, [*bound, *flake, *([WRITES_RULING] if owes else [])], view.live_cards(name))]))
+    kept, binding = kept_answers(name, data, key), answers(data, [*bound, *flake, *([WRITES_RULING] if owes else [])], view.live_cards(name))
+    answered = list(dict.fromkeys([*kept["cited"], *binding["cited"]]))
+    named_answers = {line.partition(", ")[0] for line in answered}
+    near = [line for line in dict.fromkeys([*kept["near"], *binding["near"]]) if line.partition(", ")[0] not in named_answers]
     if lacking := unwritten(key, owes):
-        raise Against([key], lacking, answered)
+        raise Against([key], lacking, kept["cited"], [*binding["cited"], *near])
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
-    if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others, owes), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
-        raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found), answered)
+    if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, near, others, owes), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
+        raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found), kept["cited"], [*binding["cited"], *near])
     return {"head": read["head"], "read": read["head"], "orders": orders, "lines": lines}
 
 
@@ -247,8 +251,8 @@ def files(diff: bytes) -> list[tuple[str, str]]:
     return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)][: len(found)], strict=True)]
 
 
-def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str], owes: list[dict]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the job's PRs, such as a teammate's, is left to other changes with that PR named; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them; then each ruling write the PR owes, by owed, as his ruling WRITES_RULING names it, so the judge reads that AGENTS.md hunk as his words."""
+def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], near: list[str], others: list[str], owes: list[dict]) -> str:
+    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the job's PRs, such as a teammate's, is left to other changes with that PR named; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PR owes, by owed, as his ruling WRITES_RULING names it, so the judge reads that AGENTS.md hunk as his words."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
@@ -267,6 +271,8 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
             lines.append(said + "; ".join(f'{key} "{data["prs"][key]["title"]}"' if data["prs"][key]["title"] else key for key in held))
     if answered:
         lines += ["his answers that bind the PRs, those their brief carries and those they cite for the design they make:", *answered]
+    if near:
+        lines += ["his durable answers cc-notes ranked near the words of the cards above by the words they share, each binding only where it speaks to what the change builds:", *near]
     if owes:
         lines.append(
             f"by his answer {WRITES_RULING}, this change owes each of these rulings of his written, his words verbatim, into an AGENTS.md at or above the code it rules on,"
@@ -352,8 +358,8 @@ def unwritten(key: str, owes: list[dict]) -> str:
     )
 
 
-def kept_answers(name: str, data: dict, key: str) -> list[str]:
-    """The answers of his the PR cites for its design, as the judge reads them: the list kept on it, else its citation read once and kept, so no later check proves a card link again against cc-slack's live cards, which drop a card once its thread goes quiet; a citation replaced while it was read keeps nothing."""
+def kept_answers(name: str, data: dict, key: str) -> dict[str, list[str]]:
+    """The answers of his the PR cites for its design, and those cc-notes ranks near the words of the cards they answer, as answers reads them: those kept on it, else its citation read once and kept, so no later check proves a card link again against cc-slack's live cards, which drop a card once its thread goes quiet; a citation replaced while it was read keeps nothing."""
     pr = data["prs"][key]
     if pr["answers"] is not None:
         return pr["answers"]
@@ -364,8 +370,8 @@ def kept_answers(name: str, data: dict, key: str) -> list[str]:
     return read
 
 
-def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
-    """Each answer of his the citations name, oldest first, as the judge reads it, once for each card however many ways it is named: a card's waits id as the drive keeps his answer on its question, the question and his words, else as the cc-notes answer or card permalink it keeps; an answer id as cc-notes keeps it, the question he was asked and his words above its notes; a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; and an answer record as cci keeps his words, any other record naming no answer. Each card the drive asked him that one of them answers, by its waits id, recorded answer or permalink, adds the options its ASK file kept, as offered draws them, so a number in his answer reads as that option's own words rather than anyone's reading of it, and his durable answers settled.matched finds nearest the card's question, options and descriptions, each read as an answer id is, since his words on the card's subject bind the change as much as his pick. A card he has not answered, or a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
+def answers(data: dict, cited: list[str], found: dict | None) -> dict[str, list[str]]:
+    """Each answer of his the citations name, oldest first, as the judge reads it, once for each card however many ways it is named: a card's waits id as the drive keeps his answer on its question, the question and his words, else as the cc-notes answer or card permalink it keeps; an answer id as cc-notes keeps it, the question he was asked and his words above its notes; a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; and an answer record as cci keeps his words, any other record naming no answer. Each card the drive asked him that one of them answers, by its waits id, recorded answer or permalink, adds the options its ASK file kept, as offered draws them, so a number in his answer reads as that option's own words rather than anyone's reading of it, and, under near, his durable answers settled.matched ranks nearest the card's question, options and descriptions, each read as an answer id is and labelled with the card it was ranked near, since ccn ranks them by the words they share and never by subject, so the judge binds one only where it speaks to what the change builds; never his own answer to that card, recorded as its answer or noted from his tap. A card he has not answered, or a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
     read: dict[str, tuple[datetime, str]] = {}
     asked: dict[str, dict] = {}
     cwd = data["roles"]["coordinator"]["cwd"]
@@ -398,15 +404,16 @@ def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
             read[key] = (at, f'{key}, {at.isoformat(timespec="seconds")}: "{record["text"]}"')
         if question and question["file"]:
             asked[question["file"]] = question
-    own = {question["closed"]["answer"][:7] for question in asked.values() if question["closed"]["answer"]}
+    own = {kept[:7] for question in asked.values() for kept in (question["closed"]["answer"], question["closed"]["noted"]) if kept}
+    near: dict[str, tuple[datetime, str]] = {}
     for file, question in asked.items():
         card = limits.redrawn(Path(file).read_text())
         at = state.parse_time(question["closed"]["at"]).astimezone()
         read[file] = (at, f'the options his card "{card.title}" offered, numbered as it drew them: {"; ".join(limits.offered(card))}')
         for match in settled.matched(["\n".join([card.title, *card.options, *card.hints.values()])], data):
-            if match["id"] not in own and (answer := settled.shown(match["id"], cwd))["id"] not in read:
-                read[answer["id"]] = recorded(answer, f', recorded on the subject of "{card.title}"', drawn(data, "answer", answer["id"]))
-    return [line for _, line in sorted(read.values())]
+            if match["id"] not in own and (answer := settled.shown(match["id"], cwd))["id"] not in read and answer["id"] not in near:
+                near[answer["id"]] = recorded(answer, f', ranked near the words of his card "{card.title}"', drawn(data, "answer", answer["id"]))
+    return {"cited": [line for _, line in sorted(read.values())], "near": [line for _, line in sorted(near.values())]}
 
 
 def recorded(answer: dict, about: str = "", question: dict | None = None) -> tuple[datetime, str]:

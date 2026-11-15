@@ -147,7 +147,7 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     assert refused.startswith(
         f'{served.NOT_READY}: {KEY} go against his words, judged from each PR\'s title and diff: c0de123 "Key the cache on the run id": {KEY} changes go/sand/cache/key.go,'
         " under go/sand/cache, and no AGENTS.md at or above go/sand/cache holds these words of his at the tip of its base branch, at the head of another open PR or in its diff; add them verbatim with their date to the"
-        f' AGENTS.md nearest go/sand/cache, by his ruling {served.WRITES_RULING}, "{served.WRITES_WORDS}". His answers the check read, each whole:'
+        f' AGENTS.md nearest go/sand/cache, by his ruling {served.WRITES_RULING}, "{served.WRITES_WORDS}". His answers its design cites, and each other one an objection names, each whole:'
     ), refused
     assert (WHERE_WRITTEN["title"] in refused, judge.asked, {(branch, path) for _, branch, path in asked[-1]}) == (
         True,
@@ -331,7 +331,7 @@ LAZY_SLICES = {
     "created_at": "2026-11-11T21:18:07Z",
 }
 SEARCH_OPTIONS = f'the options his card "{SEARCH_ASKED}" offered, numbered as it drew them: {"; ".join(limits.offered(limits.redrawn(SEARCH_ASK)))}'
-SEARCH_SUBJECT = f', recorded on the subject of "{SEARCH_ASKED}"'
+SEARCH_NEAR = f', ranked near the words of his card "{SEARCH_ASKED}"'
 REPLAYS = {
     "Forge-AI/monorepo#54664": (
         {
@@ -346,6 +346,7 @@ REPLAYS = {
             "sandsql: a table past 1.7 GB is partitioned on its own (roll-over, carve, rule, ",
         ],
         [GAPS],
+        [],
         "identity.rs",
     ),
     "Forge-AI/monorepo#54901": (
@@ -356,6 +357,7 @@ REPLAYS = {
         },
         ["fix"],
         [GAPS],
+        [],
         None,
     ),
     "Forge-AI/monorepo#54863": (
@@ -364,6 +366,7 @@ REPLAYS = {
         [
             'ab71450, 2026-11-12T05:20:46-08:00, asked "How should a SandSQL release keep the replica caught up when a new primary rewrites every database?": "1+3"',
         ],
+        [],
         None,
     ),
     "Forge-AI/monorepo#55465": (
@@ -373,7 +376,8 @@ REPLAYS = {
             ' "SandSQL journal failing to show cloud chats — prod,request request on plat" opened at warn',
         },
         ["option 1: search lands a journal's pages before reading"],
-        [line for _, line in sorted([served.recorded(ONE_PATH, SEARCH_SUBJECT), served.recorded(LAZY_SLICES, SEARCH_SUBJECT), served.recorded(SEARCH_PICK)])] + [SEARCH_OPTIONS],
+        [served.recorded(SEARCH_PICK)[1], SEARCH_OPTIONS],
+        [line for _, line in sorted([served.recorded(ONE_PATH, SEARCH_NEAR), served.recorded(LAZY_SLICES, SEARCH_NEAR)])],
         "followed_reads.go",
     ),
 }
@@ -382,8 +386,8 @@ REPLAYS = {
 @pytest.mark.skipif(os.environ.get("DRIVE_REAL_JUDGE") != "1", reason="replays four merged PRs, read from GitHub, on the judge itself, which DRIVE_REAL_JUDGE=1 asks for")
 @pytest.mark.parametrize("key", list(REPLAYS))
 def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
-    order, parts, answered, refused_in = REPLAYS[key]
-    said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, [], [])
+    order, parts, answered, near, refused_in = REPLAYS[key]
+    said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}}, {"order": "o1", "parts": parts, "carries": {}}, ["o1"], [], answered, near, [], [])
     found = JUDGE(demo, said, {key: READ_CHANGE(key)})
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
 
@@ -401,7 +405,7 @@ REGRESSION_TEST = "https://github.com/Forge-AI/monorepo/pull/56227"
 )
 def test_a_part_a_merged_pr_outside_the_job_delivered_is_left_to_other_changes_naming_that_pr_and_one_its_own_pr_delivered_stays_its_own(job_prs: list[str], lines: str) -> None:
     order = {"created": "2026-11-13T18:40:00-08:00", "text": "fix the stuck chats", "parts": {"fix": {"posted": TEAMMATES_FIX}, "stop": {"posted": None}, "cause": {"posted": None}}}
-    said = served.words({"orders": {"o1": order}}, {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}, ["o1"], [], [], [], [])
+    said = served.words({"orders": {"o1": order}}, {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}, ["o1"], [], [], [], [], [])
     assert said == f'o1, 2026-11-13T18:40:00-08:00: "fix the stuck chats"\n{lines}'
 
 
@@ -452,10 +456,34 @@ def test_a_not_ready_line_carries_each_answer_his_design_line_cites_whole_for_it
     named = 'o1 "time each handoff": api/run.ts drops the handoff metric'
     outcome = served.verdict(demo, KEY)
     assert outcome.startswith(
-        f'{served.NOT_READY}: {KEY} go against his words, judged from each PR\'s title and diff: {named}. His answers the check read, each whole:'
+        f'{served.NOT_READY}: {KEY} go against his words, judged from each PR\'s title and diff: {named}. His answers its design cites, and each other one an objection names, each whole:'
         f' 11f8cf2, {at("2026-11-13T11:07:37Z")}, asked "Keep the handoff metric?": "Land both". Reconcile each objection with his answers and your own read of the code'
     ), outcome
     assert state.against(state.load(demo)["prs"][KEY]) == named
+
+
+def test_a_not_ready_line_leaves_out_each_answer_his_brief_binds_that_no_objection_names_and_carries_the_one_an_objection_names_whole(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "time each handoff")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    monkeypatch.setattr(github, "files", lambda key: ["api/run.ts"])
+    assert run("pr", "add", URL, "--job", "j1", *LEAD)[0] == 0
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head1"
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["a11c0de", "b22c0de"]}
+    recorded.shown |= {
+        "a11c0de": {"id": "a11c0de" + "0" * 33, "title": "One code path for handoffs?", "body": "one path, never two", "tags": ["scope:durable"], "created_at": "2026-11-10T09:00:00Z"},
+        "b22c0de": {"id": "b22c0de" + "0" * 33, "title": "Which chart for the dashboard?", "body": "bar charts only", "tags": ["scope:durable"], "created_at": "2026-11-09T09:00:00Z"},
+    }
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: time each handoff", "body": "", "head": "head1", "diff": SMALL})
+    judge.against = [{"order": "a11c0de", "words": "one path, never two", "file": "api/run.ts", "change": "api/run.ts adds a second handoff path"}]
+    outcome = served.verdict(demo, KEY)
+    assert "bar charts only" in judge.asked[-1][0] and outcome.startswith(
+        f'{served.NOT_READY}: {KEY} go against his words, judged from each PR\'s title and diff: a11c0de "one path, never two": api/run.ts adds a second handoff path.'
+        f' His answers its design cites, and each other one an objection names, each whole: a11c0de, {at("2026-11-10T09:00:00Z")}, asked "One code path for handoffs?": "one path, never two".'
+    ), outcome
+    assert "bar charts only" not in outcome
 
 
 FLAKE_RULING = (
@@ -482,7 +510,7 @@ FLAKE_FIXES = {
 @pytest.mark.parametrize("case", list(FLAKE_FIXES))
 def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_ruling_532cd3d_alone_and_refuses_a_retry_and_a_timeout_bump(case: str, demo: str) -> None:
     key, read = FLAKE_FIXES[case]
-    said = served.words({"orders": {}}, {"order": "o1", "parts": [], "carries": {}}, [], [], [FLAKE_RULING], [], [])
+    said = served.words({"orders": {}}, {"order": "o1", "parts": [], "carries": {}}, [], [], [FLAKE_RULING], [], [], [])
     found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})
     assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
 
@@ -520,7 +548,7 @@ def at(stamp: str) -> str:
 def test_a_design_line_reads_his_whole_stack_pick_by_its_waits_id_and_each_answer_once_however_many_ways_it_is_named(slack_and_cci: list[str]) -> None:
     line = f"DESIGN: landing the stack whole, by his answer {{at:679494}} at {STACK_UNDER} and his pick {{at:679500}} on card {PICK}, measured in {{record:679510}}"
     closed = state.new_close("answered", WHOLE_STACK_WORDS, WHOLE_STACK, seq="679500", at="2026-11-12T14:42:12-08:00")
-    assert served.answers(drive_holding(closed), [line], None) == [
+    assert served.answers(drive_holding(closed), [line], None)["cited"] == [
         f'{STACK_UNDER}, {slack.sent_at({"ts": "1794520332.007829"}).isoformat(timespec="seconds")}: "Land it with the stack under it"',
         f'{PICK}, {at("2026-11-12T14:42:12-08:00")}, asked "{ASKED}": "{WHOLE_STACK_WORDS}"',
     ]
@@ -529,9 +557,9 @@ def test_a_design_line_reads_his_whole_stack_pick_by_its_waits_id_and_each_answe
 
 def test_a_braced_answer_id_reads_as_cc_notes_keeps_it_and_a_card_answered_with_no_words_kept_reads_as_its_permalink(slack_and_cci: list[str]) -> None:
     assert served.named("asked:{answer:3da552e}; {card:demo:j2274-679400|the stack card}") == [("answer", "3da552e"), ("card", PICK)]
-    assert served.answers(drive_holding(None), ["by {answer:3da552e}"], None) == [f'3da552e, {at("2026-11-12T11:33:00Z")}, asked "": ""']
+    assert served.answers(drive_holding(None), ["by {answer:3da552e}"], None) == {"cited": [f'3da552e, {at("2026-11-12T11:33:00Z")}, asked "": ""'], "near": []}
     closed = state.new_close("answered", None, None, at="2026-11-12T14:42:12-08:00")
-    assert served.answers(drive_holding(closed), [f"by {PICK}"], None) == [
+    assert served.answers(drive_holding(closed), [f"by {PICK}"], None)["cited"] == [
         f'{WHOLE_STACK}, {slack.sent_at({"ts": "1794523024.098799"}).isoformat(timespec="seconds")}: "Land it with the stack under it"'
     ]
 
@@ -546,7 +574,7 @@ def test_his_tap_recorded_hours_late_reads_before_his_words_typed_after_it_wheth
     monkeypatch.setitem(RECORDS, "699068", {"kind": "answer", "text": WHOLE_STACK_WORDS, "refs": {"url": WHOLE_STACK}, "at": "2026-11-12T17:15:38-08:00"})
     data = drive_holding(state.new_close("answered", WHOLE_STACK_WORDS, WHOLE_STACK, seq="699068", at=tapped))
     data["answers"][tap_answer["id"]] = {"words": WHOLE_STACK_WORDS, "link": WHOLE_STACK, "at": "2026-11-12T17:18:48-08:00", "said": None, "cards": {}, "jobs": {}}
-    assert served.answers(data, ["DESIGN: the stack lands whole, by {answer:bf042d6}, {answer:e614876} and {record:699068}"], None) == [
+    assert served.answers(data, ["DESIGN: the stack lands whole, by {answer:bf042d6}, {answer:e614876} and {record:699068}"], None)["cited"] == [
         f'e614876, {at(tapped)}, asked "{ASKED}": "{WHOLE_STACK_WORDS}"',
         f'{WHOLE_STACK}, {at(tapped)}: "{WHOLE_STACK_WORDS}"',
         f'bf042d6, {at(typed["created_at"])}, asked "{ASKED}": "{typed["body"]}"',
@@ -572,21 +600,34 @@ def test_words_naming_no_answer_of_his_name_none() -> None:
     assert served.named("asked:Also start stopped boxes, as built (his pick, 3:24 AM Nov 10)") == []
 
 
-def test_a_cited_card_answer_reads_with_the_options_its_card_offered_and_his_durable_answers_on_its_subject_once_however_it_is_named(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_and_cci: list[str], recorded: Answers
+@pytest.mark.parametrize(
+    ("closed", "design", "cited"),
+    [
+        pytest.param(
+            {"answer": "38dfc32"},
+            f"DESIGN: answer 38dfc32 (card {SEARCH_CARD})",
+            [f'38dfc32, {at(SEARCH_PICK["created_at"])}, asked "{SEARCH_ASKED}": "{SEARCH_PICK["body"]}"'],
+            id="his answer cc-notes recorded for the card",
+        ),
+        pytest.param({"noted": "38dfc32"}, f"DESIGN: card {SEARCH_CARD}", [], id="his words on the card the drive noted as a cc-notes answer"),
+    ],
+)
+def test_a_cited_card_answer_reads_with_the_options_its_card_offered_and_apart_from_them_the_answers_cc_notes_ranks_near_its_words_never_his_own_answer_to_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_and_cci: list[str], recorded: Answers, closed: dict, design: str, cited: list[str]
 ) -> None:
     ask = tmp_path / "j2513-dcd8e53f.md"
     ask.write_text(SEARCH_ASK)
-    closed = state.new_close("answered", SEARCH_PICK["body"], SEARCH_CARD, answer="38dfc32", at="2026-11-13T01:47:14Z")
-    question = state.new_question(str(ask), SEARCH_ASKED, "2026-11-13T01:21:00Z", card=SEARCH_CARD, closed=closed) | {"waits": "demo:j2513-1794535260000"}
+    question = state.new_question(str(ask), SEARCH_ASKED, "2026-11-13T01:21:00Z", card=SEARCH_CARD, closed=state.new_close("answered", SEARCH_PICK["body"], SEARCH_CARD, at="2026-11-13T01:47:14Z", **closed)) | {
+        "waits": "demo:j2513-1794535260000"
+    }
     data = {"name": "demo", "roles": {"coordinator": {"cwd": "/tmp"}}, "jobs": {"j2513": {"questions": [question]}}, "answers": {}}
     recorded.shown |= {answer["id"][:7]: answer for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)}
     monkeypatch.setattr(settled, "matched", lambda texts, data: [{"id": answer["id"][:7]} for answer in (SEARCH_PICK, ONE_PATH, LAZY_SLICES)] if any("land the pages that range needs" in text for text in texts) else [])
-    assert served.answers(data, [f"DESIGN: answer 38dfc32 (card {SEARCH_CARD})"], None) == [
-        f'cb82cc3, {at(ONE_PATH["created_at"])}{SEARCH_SUBJECT}, asked "{ONE_PATH["title"]}": "1 and we can unify all logic on that right? Not keep all these random other code paths?"',
-        f'af02eaf, {at(LAZY_SLICES["created_at"])}{SEARCH_SUBJECT}, asked "{LAZY_SLICES["title"]}": "{LAZY_SLICES["body"]}"',
-        f'{SEARCH_CARD}, {slack.sent_at({"ts": "1794534105.413699"}).isoformat(timespec="seconds")}: "Land it with the stack under it"',
-        f'38dfc32, {at(SEARCH_PICK["created_at"])}, asked "{SEARCH_ASKED}": "{SEARCH_PICK["body"]}"',
-        SEARCH_OPTIONS,
-    ]
+    assert served.answers(data, [design], None) == {
+        "cited": [f'{SEARCH_CARD}, {slack.sent_at({"ts": "1794534105.413699"}).isoformat(timespec="seconds")}: "Land it with the stack under it"', *cited, SEARCH_OPTIONS],
+        "near": [
+            f'cb82cc3, {at(ONE_PATH["created_at"])}{SEARCH_NEAR}, asked "{ONE_PATH["title"]}": "1 and we can unify all logic on that right? Not keep all these random other code paths?"',
+            f'af02eaf, {at(LAZY_SLICES["created_at"])}{SEARCH_NEAR}, asked "{LAZY_SLICES["title"]}": "{LAZY_SLICES["body"]}"',
+        ],
+    }
     assert SEARCH_OPTIONS.count("Option ") == 3 and "Option 1 (recommended): Fetch before reading" in SEARCH_OPTIONS and "land the pages that range needs" in SEARCH_OPTIONS
