@@ -669,15 +669,15 @@ def none_only(words: str) -> bool:
     return words.strip().casefold().rstrip(".") == "none"
 
 
-def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozenset()) -> list[tuple[str, list[dict]]]:
-    """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it and the tags naming the area it rules on, never one besides names, a tap approving a PR nor a provisional pick."""
+def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozenset(), floored: bool = False) -> list[tuple[str, list[dict]]]:
+    """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it and the tags naming the area it rules on, never one besides names, a tap approving a PR nor a provisional pick; floored, only the first LINE_CANDIDATES `ccn answer match` finds with its floors, two of the line's rare words in an answer's question or three anywhere, so a line sharing one word with an answer on another subject, such as cut, reaches none."""
     cwd = data["roles"]["coordinator"]["cwd"]
     failure = "could not check its lines against his recorded answers"
     lined = []
     for line in lines:
         words = read(line)
-        match = ccn(["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], words, cwd, failure)
-        search = ccn(["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", " ".join(words.split()[:LINE_WORDS])], "", cwd, failure)
+        match = ccn(["ccn", "answer", "match", "-", "--label", "scope:durable", *([] if floored else ["--nearest"]), "--limit", "-1", "--json"], words, cwd, failure)
+        search = "[]" if floored else ccn(["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", " ".join(words.split()[:LINE_WORDS])], "", cwd, failure)
         matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
         found: dict[str, dict] = {}
         for answer in (answer for pair in zip_longest(matched, searched) for answer in pair if answer):
@@ -708,8 +708,8 @@ def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, 
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
-    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data)) if reading(sure)]
+    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
+    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data, floored=True)) if reading(sure)]
 
 
 def overruling(picks: list[tuple[str, dict]]) -> str:
