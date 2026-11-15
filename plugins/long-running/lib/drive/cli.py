@@ -5249,7 +5249,9 @@ def receive(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop; else load its launch agent unless one is loaded. A project's watch starts only from the session of that project's sub-coordinator, and a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves gets no process."""
+    """Run the watch with --loop, or its relay with --relay; else load its launch agent unless one is loaded. A project's watch starts only from the session of that project's sub-coordinator, and a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves gets no process."""
+    if args.relay is not None:
+        return watch.relay(state.resolve(args.drive), args.project, args.relay)
     if args.loop:
         return watch.main(args.drive, args.project)
     name = state.resolve(args.drive)
@@ -6630,6 +6632,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=dashboard_command)
     verb = verbs.add_parser("watch", parents=[drive_opt], help="load the launch agent that keeps the drive's watch running unless one is loaded")
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process its launch agent runs")
+    verb.add_argument("--relay", type=int, metavar="FD", help="run the watch's relay in the foreground, writing its lines to the inherited file descriptor FD: the process each watch starts beside its passes and ends")
     verb.add_argument(
         "--project",
         metavar="NAME",

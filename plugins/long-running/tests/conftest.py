@@ -990,6 +990,7 @@ def meta_launches(monkeypatch: pytest.MonkeyPatch) -> MetaLaunches:
 @dataclass
 class WatchProcess:
     ensured: list[str] = field(default_factory=list)
+    relays: list[subprocess.Popen] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
@@ -1007,7 +1008,13 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
         process.ensured.append(f"{name} --project {project}" if project else name)
         return f"the watch runs for {name}"
 
+    def spawn_relay(watcher: watch.Watcher, lines: int) -> subprocess.Popen:
+        relayer = subprocess.Popen(["sleep", "3600"], pass_fds=(lines,))
+        process.relays.append(relayer)
+        return relayer
+
     monkeypatch.setattr(watch, "ensure", ensure)
+    monkeypatch.setattr(watch, "spawn_relay", spawn_relay)
     monkeypatch.setattr(launchd, "session_env", dict)
     return process
 

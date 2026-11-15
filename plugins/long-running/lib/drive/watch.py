@@ -8,6 +8,8 @@ import os
 import re
 import select
 import shlex
+import signal
+import subprocess
 import threading
 import time
 import traceback
@@ -1438,25 +1440,48 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads and owe him each promised line on a thread of the watch process for as long as the watch runs, ended and waited for before the watch keeps its unposted lines, so each line the relay made is kept."""
-    stop = threading.Event()
-    thread = threading.Thread(target=relay, args=(watcher, stop), daemon=True)
-    thread.start()
+    """Answer the lanes' reads and owe him each promised line from the watch's relay, a process of its own the watch starts, by spawn_relay, for as long as the watch runs, each line it writes handed to the watcher as it comes, by relayed_lines; ended with SIGTERM and waited for before the watch keeps its unposted lines, so each line the relay made is kept."""
+    lines, given = os.pipe()
+    relayer = spawn_relay(watcher, given)
+    os.close(given)
+    reader = threading.Thread(target=relayed_lines, args=(watcher, relayer, lines), daemon=True)
+    reader.start()
     try:
         yield
     finally:
-        stop.set()
-        thread.join()
+        relayer.terminate()
+        reader.join()
 
 
-def relay(watcher: Watcher, stop: threading.Event) -> None:
-    """A relay pass every RELAY_SECONDS beside the passes until the watch stops it, so no GitHub read, landing, Slack redraw or install that holds a pass for minutes holds a lane's answer or the handler on a line promised him by a time; its lines wait on the watcher for the pass after them to hand on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block, and keeps any error for the watch to stop on, so its launch agent starts both again."""
-    relaying = Watcher(watcher.name, offset=watcher.offset, project=watcher.project)
-    try:
-        while not stop.wait(RELAY_SECONDS):
-            watcher.relayed.extend(relay_pass(relaying, state.now()))
-    except Exception as error:
-        watcher.relay_error = error
+def spawn_relay(watcher: Watcher, lines: int) -> subprocess.Popen:
+    """Start `drive watch --relay <fd>` as a child of the watch, writing its lines to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch."""
+    return subprocess.Popen(
+        [str(install.DRIVE), "watch", "--relay", str(lines), "--drive", watcher.name, *(["--project", watcher.project] if watcher.project else [])],
+        stdin=subprocess.DEVNULL,
+        pass_fds=(lines,),
+    )
+
+
+def relayed_lines(watcher: Watcher, relayer: subprocess.Popen, lines: int) -> None:
+    """Hand each line the relay writes to the watcher for the pass after it, until the relay ends; a relay that ends before the watch ends it is kept as the error the watch stops on before its next pass, so its launch agent starts both again."""
+    with os.fdopen(lines) as written:
+        for line in written:
+            watcher.relayed.append(line.rstrip("\n"))
+    watcher.relay_error = ChildProcessError(f"the relay, process {relayer.pid}, exited {relayer.wait()}; its output is in {state.watch_log_path(watcher.name, watcher.project)}")
+
+
+def relay(name: str, project: str | None, lines: int) -> int:
+    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, each first moving this process onto the newest install, by install.reopen, so a lane's reads are answered by the code installed now however long a pass holds the watch on the install it started on, and no GitHub read, landing, Slack redraw or install a pass runs holds a lane's answer or the handler on a line promised him by a time. Each line it makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
+    ended: list[int] = []
+    signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    relaying = Watcher(name, offset=state.watch_cursor(name, project), project=project)
+    with os.fdopen(lines, "w", buffering=1) as relayed:
+        while not ended:
+            install.reopen(["watch", "--relay", str(lines), "--drive", name, *(["--project", project] if project else [])])
+            for line in relay_pass(relaying, state.now()):
+                relayed.write(f"{LINE_BREAKS.sub(' ', line)}\n")
+            time.sleep(RELAY_SECONDS)
+    return 0
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
@@ -4470,7 +4495,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, so its launch agent starts the watch on that install; a crash wakes the coordinator session it posts to first, and an error that stopped its relay answering the lanes' reads stops it before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, so its launch agent starts the watch on that install; a crash wakes the coordinator session it posts to first, and a relay process that ended before the watch ended it stops it before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         with relaying(watcher):

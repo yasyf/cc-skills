@@ -7,6 +7,7 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -867,11 +868,75 @@ def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = 
         watch.main(name, project)
 
 
-def test_a_watch_that_stops_ends_its_relay_before_it_returns(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess) -> None:
     serve(monkeypatch, {})
     posts(monkeypatch)
     run_watch(demo, monkeypatch)
-    assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relay)")] == []
+    assert [relayer.returncode for relayer in watch_process.relays] == [-signal.SIGTERM]
+    assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
+
+
+def test_the_watch_hands_on_each_line_its_relay_process_writes_and_stops_on_a_relay_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[subprocess.Popen] = []
+
+    def spawn_relay(watcher: watch.Watcher, lines: int) -> subprocess.Popen:
+        started.append(subprocess.Popen([sys.executable, "-c", f"import os; os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)"], pass_fds=(lines,)))
+        return started[0]
+
+    monkeypatch.setattr(watch, "spawn_relay", spawn_relay)
+    watching = watcher(demo)
+    with watch.relaying(watching):
+        started[0].wait()
+    assert (list(watching.relayed), str(watching.relay_error)) == (
+        ["DUE o1 was due", "DUE o2 was due"],
+        f"the relay, process {started[0].pid}, exited 1; its output is in {state.watch_log_path(demo)}",
+    )
+
+
+def relay_passes(monkeypatch: pytest.MonkeyPatch, ended_on: int) -> list[str]:
+    passes: list[str] = []
+    handlers: dict[int, Callable[[int, object], None]] = {}
+
+    def relay_pass(watching: watch.Watcher, moment: datetime) -> list[str]:
+        passes.append(f"{watching.lane} at offset {watching.offset}")
+        if len(passes) == ended_on:
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+        return [f"DUE o{len(passes)} was due\nby noon"]
+
+    monkeypatch.setattr(watch, "relay_pass", relay_pass)
+    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=handlers.__setitem__, SIGTERM=signal.SIGTERM))
+    monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=lambda seconds: None))
+    return passes
+
+
+def test_the_relay_process_writes_each_line_to_the_watch_moving_onto_the_newest_install_before_each_pass_and_ends_once_the_pass_the_watchs_sigterm_came_in_ends(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lines, given = os.pipe()
+    state.save_watch_cursor(demo, 7, "Iris")
+    passes = relay_passes(monkeypatch, 2)
+    reopened: list[list[str]] = []
+    monkeypatch.setattr(install, "reopen", reopened.append)
+    assert watch.relay(demo, "Iris", given) == 0
+    with os.fdopen(lines) as written:
+        assert written.read() == "DUE o1 was due by noon\nDUE o2 was due by noon\n"
+    assert (passes, reopened) == ([f"{state.project_lane('Iris')} at offset 7"] * 2, [["watch", "--relay", str(given), "--drive", demo, "--project", "Iris"]] * 2)
+
+
+def test_the_relay_process_runs_its_next_pass_on_a_newer_install_in_its_place_keeping_the_pipe_to_the_watch(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lines, given = os.pipe()
+    relay_passes(monkeypatch, 1)
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+
+    def execv(path: Path, argv: list[str]) -> None:
+        raise SystemExit((path, argv))
+
+    monkeypatch.setattr(os, "execv", execv)
+    with pytest.raises(SystemExit) as exec_ran:
+        watch.relay(demo, None, given)
+    assert exec_ran.value.code == (newer, [str(newer), "watch", "--relay", str(given), "--drive", demo])
+    os.close(lines)
 
 
 def test_a_restarted_watch_replays_events_written_while_none_ran(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
