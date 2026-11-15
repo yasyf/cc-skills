@@ -5719,7 +5719,9 @@ def test_his_card_on_a_pr_is_asked_again_only_once_he_was_heard_after_it_went_up
     assert watch.heard_since_shown(data, [KEY], NO_CARDS, state.stamp(shown + timedelta(minutes=2))) is False
 
 
-def test_a_live_bugs_stack_he_held_is_never_asked_again_since_its_card_would_offer_no_approve(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
+def test_a_live_bugs_stack_he_held_is_asked_again_as_a_stack_waiting_on_his_card_is_since_its_card_asks_the_approve_that_lifts_his_hold(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+) -> None:
     three_stacked(demo, monkeypatch)
     with state.edit(demo) as data:
         for order_id in ("o1", "o2"):
@@ -5727,9 +5729,14 @@ def test_a_live_bugs_stack_he_held_is_never_asked_again_since_its_card_would_off
         for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"), strict=True):
             data["prs"][key]["tap"] = state.new_tap("Hold", head, "pressed the button", at=state.stamp(T0))
     watching = watcher(demo)
-    for minutes in (0, 10, 39, 40, 69, 70):
-        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
-    assert (state.load(demo)["prs"][KEY]["stage"]["owner"], draws.again) == (stage.HIM, [])
+    for minutes, heard in ((0, None), (10, None), (40, None), (70, None), (100, 80), (130, None), (160, None), (190, 165), (220, None)):
+        if heard is not None:
+            with state.edit(demo) as data:
+                data["owner"]["heard"] = state.stamp(T0 + timedelta(minutes=heard))
+        moment = T0 + timedelta(minutes=minutes)
+        draws.link = f"https://forge.slack.com/archives/D123/p{int(moment.timestamp() * 1_000_000)}"
+        watch.run_pass(watching, moment)
+    assert (state.load(demo)["prs"][KEY]["stage"]["owner"], draws.keys, draws.again) == (stage.HIM, [list(STACKED)] * 3, [False, True, True])
 
 
 def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is_checked(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
