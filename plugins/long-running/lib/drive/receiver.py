@@ -180,7 +180,7 @@ def hear(repo: str, kind: str, since: str | None) -> None:
 
 
 def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:
-    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it. Only a delivery of CARRYING, which a PR's merge, close or reopen is, reads the drive's jobs too, for the PRs it does not track that carry a stopped builder's parts, by state.carrier_keys."""
+    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it. Only a delivery of CARRYING, which a PR's merge, close or reopen is, reads the drive's jobs too, for the PRs it does not track that carry a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys."""
     said = []
     for name in state.names():
         stored = state.stored(name, ("prs", "jobs") if event in CARRYING else ("prs",))

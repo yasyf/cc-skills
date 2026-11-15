@@ -6473,6 +6473,27 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
     assert (job["state"], job["waits"]) == ("waiting", ["release:api:Forge-AI/monorepo#42"])
 
 
+def test_a_sprite_lanes_waiting_holds_on_its_own_open_card_or_a_kept_pr_the_drive_does_not_track_and_its_refusal_names_only_what_it_can_do(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="ctx_lane0001")
+    code, err = keep(monkeypatch, capsys, "j1", "WAITING his answer\n")
+    assert (code, "its WAITING names nothing the watch frees it on" in err, "pid:<n>" in err, "drive job set" in err) == (2, True, False, False)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the teammate's PR?", state.stamp(state.now()), card=CARDED))
+    assert keep(monkeypatch, capsys, "j1", "WAITING his answer\n") == (0, "")
+    teammate = "https://github.com/Forge-AI/monorepo/pull/77"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="running", questions=[])
+    assert cli.main(["job", "set", "j1", "--pr", teammate]) == 0
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {teammate}, a teammate's open PR that already does this work\n") == (0, "")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["waits"]) == ("waiting", ["Forge-AI/monorepo#77"])
+
+
 def test_a_staging_tests_pause_is_one_waiting_naming_its_soak_commit_which_is_kept_and_held_and_a_ready_for_the_freeze_line_is_refused(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
