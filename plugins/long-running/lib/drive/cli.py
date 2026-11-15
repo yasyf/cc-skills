@@ -2016,9 +2016,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     cards = {} if any(other == job_id for other, _ in asking(data, asked.title)) else {question["waits"]: question["title"] for question in repeating(data, job_id, asked.title, redraws)}
     for answer, release in ordered:
         print(settled.ORDERED.format(id=answer["answer"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
-    spec = brief.spec(name, data, job)
-    words = [*brief.judging(spec), *settled.order_words(data, job["order"])]
-    words += [word for word in settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data) if word["id"] not in {entry["id"] for entry in [*spec, *words]}]
+    words = judging_words(name, data, job, asked, text)
     lines = settled.line_answers([asked.title, *asked.options], data, frozenset(answer["id"][:7] for answer in heard))
     broken, repeated, answered = settled.judged(case, asked, words, heard, cards, frozenset(answer["answer"] for answer in tapped), lines)
     if answered:
@@ -2031,6 +2029,22 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     ordering = taps([answer for answer, _ in ordered])
     detail = not (unsettled or broken or answered or ordering or drawn) and state.tooling(data["orders"][job["order"]]) and settled.detail(case, words)
     return asked, holds, unsettled, repeated, ordering, detail
+
+
+def judging_words(name: str, data: dict, job: dict, asked: limits.Question, text: str) -> list[dict]:
+    """His words Jev reads a job's card against: those its brief binds, by brief.spec, his words on its order, then each recorded answer of his cc-notes matches to the card's words that neither names."""
+    spec = brief.spec(name, data, job)
+    words = [*brief.judging(spec), *settled.order_words(data, job["order"])]
+    named = {entry["id"] for entry in [*spec, *words]}
+    return words + [word for word in settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data) if word["id"] not in named]
+
+
+def reads_as_detail(name: str, data: dict, job: dict, file: Path) -> bool:
+    """Whether Jev reads the job's question kept in this file as asking him only a detail of drive tooling, by settled.detail on the card as limits.ask_case reads it against the words `checked_ask` reads it against, as the watch's daily sweep reads each open card of a Drive tooling order."""
+    text = limits.ask_block(file.read_text())
+    asked = limits.question_problems(text, kept=True)[0]
+    cited = frozenset(answer["answer"] for answer in recorded_answers(data, job, text))
+    return settled.detail(limits.ask_case(text, asked, cited), judging_words(name, data, job, asked, text))
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question | None, dict, str]:
@@ -4040,7 +4054,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     if exempt and exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, exempt, "added")
-    wants_tap = state.guarded(key) or not state.tooling(known["orders"][added["order"]])
+    wants_tap = state.waits_his_tap(known, key, added["order"])
     flaky = flake_tap(key, wants_tap) if exempt == state.FLAKE_FIX else None
 
     def registered(pr: dict, order: str) -> dict:
@@ -4129,7 +4143,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.staging and key.rpartition("#")[0].casefold() != state.MONOREPO.casefold():
         raise DriveError(f"{key}: refused, nothing set: --staging runs a {state.MONOREPO} PR's cases on plat-usw2-staging, and {key} is no {state.MONOREPO} PR")
     if args.exempt == state.FLAKE_FIX and args.tap is None:
-        args.tap = flake_tap(key, state.guarded(key) or not state.tooling(known["orders"][before["order"]]))
+        args.tap = flake_tap(key, state.waits_his_tap(known, key, before["order"]))
     after = dict(before)
     set_pr(after, args)
     if state.guarded(key) and (before["wants_tap"] or before.get("exempt")) and not (after["wants_tap"] or after.get("exempt")):

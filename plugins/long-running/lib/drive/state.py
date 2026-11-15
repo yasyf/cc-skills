@@ -4583,6 +4583,11 @@ def guarded(key: str) -> bool:
     return key.split("/")[0].lower() == GUARDED_OWNER
 
 
+def waits_his_tap(data: dict, key: str, order_id: str) -> bool:
+    """Whether a PR registered on this order waits on his tap: one only his tap lands, by guarded, or one of any order but a Drive tooling one, whose PRs outside Forge-AI land on a taken READY or PUSHED."""
+    return guarded(key) or not tooling(data["orders"][order_id])
+
+
 def queued_by_lander(key: str) -> bool:
     """Whether the drive's lander lands the PR with no session turn once his Approve or an exempt class clears it: a Forge-AI/monorepo one, which it queues through stack-enqueue."""
     return key.split("#")[0].lower() == MONOREPO.lower()

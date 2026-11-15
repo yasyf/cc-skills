@@ -10799,8 +10799,7 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     first = state.load(demo)
     assert [(order_id, order["title"], order["owner"], order["note"]) for order_id, order in first["orders"].items() if order_id != "o1"] == [
         ("o2", "Message unanswered past 10 minutes", "meta", f"1 owed, the oldest since {render.when(slack.sent_at(owed).isoformat())}: {owed['permalink']}"),
-        ("o3", "Card open past 48 hours", "meta", f"1 cards, the oldest asked {render.when(old_card['asked'])}: {CARD}"),
-        ("o4", "Approved pull request open past 24 hours", "meta", f"1 PRs: {KEY}"),
+        ("o3", "Approved pull request open past 24 hours", "meta", f"1 PRs: {KEY}"),
     ]
     assert first["orders"]["o2"]["text"] == "Drive tooling: the daily Slack sweep found a message of yours still unanswered after 10 minutes"
     assert first["slack"]["swept"] == {"at": state.stamp(T0), "offset": end}
@@ -10814,15 +10813,82 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     state.append_event(demo, "said", text=reask, channel=None, thread="1794200000.000100", url=f"{POSTED}?thread_ts=1794200000.000100", card=CARD, order=None, visuals=[], prs=[KEY], edited=False)
     end = state.events_end(demo)
     assert REAL_SWEEP(watching, T0 + timedelta(hours=23)) == []
-    assert len(state.load(demo)["orders"]) == 4
+    assert len(state.load(demo)["orders"]) == 3
     assert REAL_SWEEP(watching, T0 + timedelta(days=1)) == []
     second = state.load(demo)
     assert [(order_id, order["title"], order["note"]) for order_id, order in second["orders"].items() if order_id not in first["orders"]] == [
-        ("o5", "Answers slower than 2 minutes", f"3 answers, 90th percentile 5.0 min, slowest 6 min: {POSTED}2"),
-        ("o6", "Card asked again at a channel's top level", f"1 re-asks, the first {CARD}"),
+        ("o4", "Answers slower than 2 minutes", f"3 answers, 90th percentile 5.0 min, slowest 6 min: {POSTED}2"),
+        ("o5", "Card asked again at a channel's top level", f"1 re-asks, the first {CARD}"),
     ]
-    assert second["orders"]["o4"]["note"] == f"2 PRs: {KEY}, {OTHER}"
+    assert second["orders"]["o3"]["note"] == f"2 PRs: {KEY}, {OTHER}"
     assert second["slack"]["swept"] == {"at": state.stamp(T0 + timedelta(days=1)), "offset": end}
+
+
+def test_the_daily_sweep_ends_his_open_drive_tooling_cards_jev_reads_as_details_on_their_recommended_option_and_takes_his_tap_off_a_flake_fix_of_test_code_alone(
+    demo: str, recorded: Answers, closed_cards: list[tuple[str, str, str, bool]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ruling = "43aa6658b12e48506f920bb19cb32e353fa64a28"
+    message = "https://acme.slack.com/archives/D123/p1794300000000900?thread_ts=1794300000.000800"
+    recorded.shown["43aa665"] = {"id": ruling, "title": "Should an outage report be marked?", "body": f"{settled.TOOLING_SAID}\nNotes: typed in a card's thread", "tags": ["drive:demo", "scope:durable"]}
+    tooling_order(demo, "running")
+    detail = SHORT_ASK.replace("ASK How should", "ASK Where should")
+    kept = {}
+    for text in (SHORT_ASK, detail):
+        kept[text] = state.drive_dir(demo) / "asks" / f"j1-{state.ask_hash(text)}.md"
+        kept[text].parent.mkdir(exist_ok=True)
+        kept[text].write_text(text)
+    title = detail.splitlines()[0].removeprefix("ASK ")
+    with state.edit(demo) as data:
+        data["answers"][ruling] = {"words": settled.TOOLING_SAID, "link": message, "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {}}
+        data["jobs"]["j1"]["questions"] = [
+            state.new_question(str(kept[SHORT_ASK]), SHORT_ASK.splitlines()[0].removeprefix("ASK "), state.stamp(T0), card=CARD) | {"waits": "demo:j1-1"},
+            state.new_question(str(kept[detail]), title, state.stamp(T0), card=POSTED) | {"waits": "demo:j1-2"},
+        ]
+        data["prs"][KEY] |= {"exempt": state.FLAKE_FIX, "wants_tap": True}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "exempt": state.FLAKE_FIX}
+    changed = {KEY: ["rust/crates/sandsql-server/src/admin/tests.rs"], OTHER: ["api/src/run.ts", "api/src/run.test.ts"]}
+    monkeypatch.setattr(github, "files", lambda key: changed[key])
+    monkeypatch.setattr(settled, "detail", lambda case, words: "Where should" in case)
+    monkeypatch.setattr(slack, "owed", list)
+    watching = watcher(demo)
+    watching.cards = NO_CARDS | {"questions": [{"question": text.splitlines()[0], "url": card, "card": {"waits": waits}, "asked": state.stamp(T0)} for text, card, waits in ((SHORT_ASK, CARD, "demo:j1-1"), (detail, POSTED, "demo:j1-2"))]}
+    option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    decided = settled.DECIDED.format(option=option)
+    lines = REAL_SWEEP(watching, T0)
+    swept = state.load(demo)
+    assert (lines[0], lines[-1]) == (
+        f'j1\'s question "{render.cut(title, 80)}" ended decided on its recommended option, "{option}", under his ruling 43aa665 on tooling details [o1 j1]',
+        f"PR {KEY}: waits on his tap no more, its flake fix changing only test and fixture code at aaaaaaa, which lands with no tap [o1 j1]",
+    )
+    closed = swept["jobs"]["j1"]["questions"][-1]["closed"]
+    assert ((closed["how"], closed["words"], closed["link"], closed["ruling"]), swept["jobs"]["j1"]["questions"][0]["closed"]) == (("answered", decided, message, "43aa665"), None)
+    assert [card for card, *_ in closed_cards] == [POSTED]
+    assert (swept["prs"][KEY]["wants_tap"], swept["prs"][OTHER]["wants_tap"], swept["slack"]["swept"]["at"]) == (False, True, state.stamp(T0))
+
+
+def test_a_card_of_his_open_past_48_hours_reaches_its_orders_thread_line_once_saying_it_still_waits_and_what_it_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    threaded(demo)
+    asked = T0 - timedelta(hours=47)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", questions=[state.new_question(None, "Which store should the sand CLI read?", state.stamp(asked), card=CARD, holds=KEY) | {"waits": "demo:j1-1"}])
+        data["prs"][KEY] |= {"wants_tap": True, "added": state.stamp(asked)}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "title": "Fix: the watch reads each PR once", "added": state.stamp(asked)}
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0) == []
+    assert calls == []
+    later = T0 + timedelta(hours=2)
+    assert watch.quiet_lines(watching, later) == []
+    [(_, body), _] = calls
+    assert body.splitlines()[body.splitlines().index("Cards of his open past 48 hours: 2. Say once in its thread that each still waits on him and what it holds, linking each:") + 1 :][:2] == [
+        f'- j1\'s card {CARD}, "Which store should the sand CLI read?", asked {render.when(state.stamp(asked))}, holding {KEY}',
+        f'- his card on {OTHER}, "Fix: the watch reads each PR once", asking his Approve since {render.when(state.stamp(asked))}, holding {OTHER} from landing',
+    ]
+    assert f"Moved since the thread's last line or the watch's last report on it: {watch.WAITED_FACT} {CARD}, {watch.WAITED_FACT} {state.pr_url(OTHER)}. At work: no job." in body.splitlines()
+    with state.edit(demo) as data:
+        data["handlers"].clear()
+    assert watch.quiet_lines(watching, later + timedelta(hours=1)) == []
+    assert len(calls) == 2
 
 
 def test_a_sweep_waits_for_a_pass_that_read_his_cards_and_a_failed_owed_read_is_said_as_a_failed_read_is(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

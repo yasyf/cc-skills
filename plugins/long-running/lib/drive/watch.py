@@ -12,6 +12,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -30,6 +31,7 @@ DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
 CLAIM_REPLIES = timedelta(minutes=5)
 HANDOFF_FACT = "handoff"
+WAITED_FACT = "card waiting"
 FREED_AGAIN = timedelta(minutes=30)
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
@@ -1836,15 +1838,38 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
 
 
 def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], moment: datetime) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or started; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
-    jobs = {job_id: job for job_id, job in state.orders_jobs(data, group).items() if job["order"] in group}
-    prs = {key: data["prs"][key] for key in incident_prs(data, group, jobs, registered) if key in data["prs"]}
+    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or started, and each card of his on those jobs and PRs open past CARD_WAIT, by waited_cards, told once; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
+    jobs, prs = subjects(data, group, registered)
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
         **{job_id: state.job_news(job["state"], job["waits"], view.open_cards(job), job["said"]) for job_id, job in jobs.items() if job["state"] != "running"},
         **{key: [pr["state"], pr["checks"], pr["ejected"], pr["tap"] and pr["tap"]["label"]] for key, pr in prs.items()},
         **{f"{HANDOFF_FACT} {handoff['seq']}": ["owed"] for handoff in quiet_handoffs(data, group, moment)},
+        **{fact: ["waits"] for fact in waited_cards(data, jobs, prs, moment)},
     }
+
+
+def subjects(data: dict, group: list[str], registered: dict[str, list[str]]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """The jobs whose own order is one of these and the PRs registered on them or named in the orders' words, the ones a line on the orders is about."""
+    jobs = {job_id: job for job_id, job in state.orders_jobs(data, group).items() if job["order"] in group}
+    return jobs, {key: data["prs"][key] for key in incident_prs(data, group, jobs, registered) if key in data["prs"]}
+
+
+def waited_cards(data: dict, jobs: dict[str, dict], prs: dict[str, dict], moment: datetime) -> dict[str, str]:
+    """Each card of his on these jobs and PRs still open past CARD_WAIT, by its news fact, with what a line says of it: a job's open question drawn on a card, holding what its `Holds:` line names, and his card asking his Approve on a PR since drive pr add drew it, holding that PR's landing, so its order's next line tells him once that it still waits and what it holds, by his words 6cd6aa2 "stuff I assume is done is jsut sitting around for a week"."""
+    asked = {
+        drawn: f'{job_id}\'s card {drawn}, "{cut(question["title"] or "", 120)}", asked {when(question["asked"])}, holding '
+        + ("every change of its job, its question kept with no Holds: line" if question["holds"] is None else question["holds"] or "nothing, its Holds: line reading none")
+        for job_id, job in jobs.items()
+        for question in view.open_questions(job)
+        if (drawn := question["card"]) and moment - state.parse_time(question["asked"]) > CARD_WAIT
+    }
+    tapped = {
+        pr["url"]: f'his card on {key}, "{cut(pr["title"], 120)}", asking his Approve since {when(pr["added"])}, holding {key} from landing'
+        for key, pr in prs.items()
+        if moment - state.parse_time(pr["added"]) > CARD_WAIT and not pr["rework"] and state.asks_tap(data, pr)
+    }
+    return {f"{WAITED_FACT} {link}": said for link, said in (asked | tapped).items()}
 
 
 def quiet_handoffs(data: dict, group: list[str], moment: datetime) -> list[dict]:
@@ -1923,7 +1948,7 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
 
 
 def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], due: str | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.feature_orders names for it, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; its seq."""
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.feature_orders names for it, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; each card of his among the moved facts that waited_cards reads open past CARD_WAIT, for the line to say once that it still waits and what it holds; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
@@ -1935,6 +1960,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     orders = [order_id for group in groups.values() for order_id in group]
     jobs = [f"- {render.job_line(data, job_id, job)}" for job_id, job in state.orders_jobs(data, orders).items()]
     handoffs = quiet_handoffs(data, orders, moment)
+    waited = [said for fact, said in waited_cards(data, *subjects(data, orders, render.prs_by_job(data)), moment).items() if fact in moved]
     if due:
         opening = (
             ", opening with that line being late"
@@ -1970,6 +1996,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
         f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then {asked}",
         f"Jobs: {len(jobs)}",
         *jobs,
+        *([f"Cards of his open past 48 hours: {len(waited)}. Say once in its thread that each still waits on him and what it holds, linking each:", *(f"- {said}" for said in waited)] if waited else []),
         *(
             [
                 f"Handoffs no job of their order was made or started after: {len(handoffs)}. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
@@ -3868,28 +3895,63 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
 
 
 def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Once a day, on the drive's own watch, file a drive tooling order for each bar the Slack back-and-forth with him crossed, by `crossed`, its measure the order's note, so work he assumes done never sits unseen (his 6cd6aa2): an order still open on a bar holds its words, so that bar crossed again takes the new measure in place of a second order. A sweep waits for a pass that read his cards, and one whose read or filing fails is said as a failed read is and tried again next pass."""
+    """Once a day, on the drive's own watch, end what still asks him only by an oversight, then file a drive tooling order for each bar the Slack back-and-forth with him crossed, by `crossed`, its measure the order's note, so work he assumes done never sits unseen (his 6cd6aa2): each of his open cards on the drive's own questions of a Drive tooling order that Jev reads as asking him only a detail ends decided on its recommended option, as `drive job ask --answer 43aa665` ends it, by his ruling 43aa665 "don't ask me every little thing ask my high level preferences", and each open flake fix of the drive's that changes only test and fixture code at its head stops waiting on his tap, by `untapped_lines`; a card still open past CARD_WAIT reaches him once in its order's news line instead, by waited_cards. An order still open on a bar holds its words, so that bar crossed again takes the new measure in place of a second order. A sweep waits for a pass that read his cards, and one whose read, close or filing fails is said as a failed read is and tried again next pass, keeping the lines of what it ended before."""
     from drive import cli
 
     data = state.load(watcher.name)
     swept = data["slack"]["swept"]
     if watcher.project or watcher.cards is None or swept and moment - state.parse_time(swept["at"]) < SWEEP_EVERY:
         return []
+    lines = []
     try:
+        for job_id, file in decided_details(watcher.name, data, watcher.cards):
+            lines += [f"{line} [{data['jobs'][job_id]['order']} {job_id}]" for line in cli.answered_drop(watcher.name, job_id, file, state.TOOLING_DETAILS_RULING)]
+        lines += untapped_lines(watcher, moment)
         bars, offset = crossed(watcher, data, swept["offset"] if swept else state.events_end(watcher.name), moment)
         filed = {cli.added_order(cli.parser().parse_args(["order", "add", words, "--title", title, "--drive", watcher.name]))[0]: note for words, title, note in bars}
-    except (slack.SlackError, state.DriveError) as error:
-        return failed(watcher, "sweep", "daily Slack sweep", error, moment)
+    except (slack.SlackError, github.GithubError, state.DriveError) as error:
+        return lines + failed(watcher, "sweep", "daily Slack sweep", error, moment)
     watcher.failures.pop("sweep", None)
     with state.edit(watcher.name) as data:
         for order_id, note in filed.items():
             data["orders"][order_id]["note"] = note
         data["slack"]["swept"] = {"at": state.stamp(moment), "offset": offset}
-    return []
+    return lines
+
+
+def decided_details(name: str, data: dict, cards: dict) -> list[tuple[str, Path]]:
+    """Each open question of the drive's on a Drive tooling order whose card of his is open, kept in its file, that no mark keeps unsettled and no other question folded in, which Jev reads as asking him only a detail, by cli.reads_as_detail, every card read at once: its job and the file it is kept in."""
+    from drive import cli
+
+    asked = [
+        (job_id, job, Path(question["file"]))
+        for job_id, job in data["jobs"].items()
+        if state.tooling(data["orders"][job["order"]])
+        for question in view.open_questions(job)
+        if question["card"] and question["file"] and not (question["unsettled"] or question["replaced"]) and view.card_open(question["card"], cards) and Path(question["file"]).exists()
+    ]
+    with ThreadPoolExecutor() as pool:
+        details = list(pool.map(lambda each: cli.reads_as_detail(name, data, each[1], each[2]), asked))
+    return [(job_id, file) for (job_id, _, file), detail in zip(asked, details, strict=True) if detail]
+
+
+def untapped_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Take his tap off each open flake fix of the drive's still waiting on it whose changed files at its head are only test and fixture code, by cli.flake_tap, the one reading `drive pr add` and `drive pr set --exempt` keep a flake fix's tap by, so his card on it gives up Approve in place now, by redraw_lines, by his ruling 2c70b68 "you cna also merge CI/tst-only tweaks/fixes without me, but onyl if it doesnt touch non-test/CI code at all"."""
+    from drive import cli
+
+    data = state.load(watcher.name)
+    untapped = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["exempt"] == state.FLAKE_FIX and pr["wants_tap"] and not cli.flake_tap(key, state.waits_his_tap(data, key, pr["order"]))]
+    if not untapped:
+        return []
+    with state.edit(watcher.name) as data:
+        for key in untapped:
+            data["prs"][key]["wants_tap"] = False
+    told = [f"PR {key}: waits on his tap no more, its flake fix changing only test and fixture code at {(pr := data['prs'][key])['head'][:7]}, which lands with no tap [{pr['order']} {pr['job']}]" for key in untapped]
+    return told + redraw_lines(watcher, moment, set(untapped))
 
 
 def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tuple[list[tuple[str, str, str]], int]:
-    """The words, title and note of an order for each bar the sweep finds crossed, and the events offset it read to: the 90th percentile of his answers since the last sweep over ANSWER_WAIT, each message's first post answering it; a message of his cc-slack still owes an answer past OWED_WAIT; a re-ask posted at a channel's root rather than in its card's thread; a card of his open past CARD_WAIT; a PR open past APPROVED_WAIT after his Approve."""
+    """The words, title and note of an order for each bar the sweep finds crossed, and the events offset it read to: the 90th percentile of his answers since the last sweep over ANSWER_WAIT, each message's first post answering it; a message of his cc-slack still owes an answer past OWED_WAIT; a re-ask posted at a channel's root rather than in its card's thread; a PR open past APPROVED_WAIT after his Approve."""
     from drive import talk
 
     waits, reasks = {}, []
@@ -3901,7 +3963,6 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
         if event["text"].startswith(talk.ASKING_AGAIN) and (message := state.slack_message(event["url"])) and message[1] == message[2]:
             reasks.append(event["url"])
     owed = sorted((reply for reply in slack.owed() if moment - slack.sent_at(reply) > OWED_WAIT), key=lambda reply: float(reply["ts"]))
-    cards = sorted((card for card in [*watcher.cards["questions"], *watcher.cards["pr_cards"]] if moment - state.parse_time(card["asked"]) > CARD_WAIT), key=lambda card: state.parse_time(card["asked"]))
     approved = [key for key, pr in data["prs"].items() if pr["state"] == "open" and (tap := pr["tap"]) and tap["label"] == "Approve" and moment - state.parse_time(tap["at"]) > APPROVED_WAIT]
     found = f"{state.TOOLING} the daily Slack sweep found"
     bars = []
@@ -3912,8 +3973,6 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
         bars.append((f"{found} a message of yours still unanswered after 10 minutes", "Message unanswered past 10 minutes", f"{len(owed)} owed, the oldest since {when(slack.sent_at(owed[0]).isoformat())}: {owed[0]['permalink']}"))
     if reasks:
         bars.append((f"{found} a card asked again in a new top-level post instead of its own thread", "Card asked again at a channel's top level", f"{len(reasks)} re-asks, the first {reasks[0]}"))
-    if cards:
-        bars.append((f"{found} a card of yours open for over 48 hours", "Card open past 48 hours", f"{len(cards)} cards, the oldest asked {when(cards[0]['asked'])}: {cards[0]['url']}"))
     if approved:
         bars.append((f"{found} a pull request you approved still open after 24 hours", "Approved pull request open past 24 hours", f"{len(approved)} PRs: {cut(', '.join(approved), 300)}"))
     return bars, offset
