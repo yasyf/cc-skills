@@ -4100,6 +4100,7 @@ def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_sh
         (lambda reads, data: data["jobs"]["j1"].update(state="done"), "red", [1, 2]),
         (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), "held", [1, 1]),
         (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED")}), "author", [1, 2]),
+        (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED", permission="READ")}), "upstream", [1, 1]),
     ],
 )
 def test_a_red_prs_builder_is_woken_again_only_while_its_stage_stays_red(
