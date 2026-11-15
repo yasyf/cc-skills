@@ -672,11 +672,11 @@ def test_a_drive_saved_before_proof_results_marked_marks_each_proof_that_moved_i
     assert (loaded["own_done_proofs_since"], loaded["proof_results_marked"], state.new_drive("fresh", "coordinator", None, "/work")["own_done_proofs_since"]) == ("2026-11-15T06:49:27-08:00", True, None)
 
 
-def test_a_drive_saved_before_proofs_proven_keeps_work_delivered_only_where_drive_job_prove_proved_it_and_puts_back_a_superseded_job_its_proof_failed(state_root: Path) -> None:
+def test_a_drive_saved_before_work_proofs_owned_keeps_work_delivered_only_where_drive_job_prove_proved_it_on_its_newest_job_and_puts_back_a_superseded_job_its_proof_failed(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
-    del data["proofs_proven"]
-    data["proofs_posted"] = True
+    del data["work_proofs_owned"]
+    data |= {"proofs_posted": True, "proofs_proven": True}
     proven, merged, ended, staging, answered, moved = "the proven fix", "the merged fix", "the ended fix", "staging test of #7 before it lands", "why it broke", "Bulk-apply spike"
     link = "https://github.com/yasyf/cc-skills/pull/7"
     post = "https://acme.slack.com/archives/D123/p1794200040000500"
@@ -701,7 +701,31 @@ def test_a_drive_saved_before_proofs_proven_keeps_work_delivered_only_where_driv
     loaded = state.load("demo")
     assert {part: loaded["orders"]["o1"]["parts"][part]["posted"] for part in parts} == {proven: proof, merged: None, ended: None, staging: build, moved: None}
     assert [(loaded["jobs"][job_id]["state"], loaded["jobs"][job_id]["said"]) for job_id in ("j4", "j5")] == [("done", pinned), ("failed", "BLOCKED j5: repro/j5.sh exits 1")]
-    assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["proofs_proven"], "proofs_posted" in loaded) == (post, True, False)
+    assert [loaded["orders"]["o1"]["parts"][part]["posted_by"] for part in (proven, merged, ended, moved)] == ["j1", None, None, None]
+    assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["work_proofs_owned"], "proofs_posted" in loaded, "proofs_proven" in loaded) == (post, True, False, False)
+
+
+def test_j5802_a_part_a_proof_delivered_reads_undelivered_while_a_newer_builder_holds_it_until_that_builders_own_proof_passes(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    part = "the fix"
+    data["orders"] = {"o1": state.new_order("fix it", "slack", None, {part: state.new_part()}, state.stamp()) | {"kind": "build", "jobs": ["j1"]}}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "fix it", [part], state.stamp()) | {"state": "done", "said": "DONE fix it"}}
+    state.deliver_proven(data, "j1", "j1 live: repro/j1.sh exits 0 on long-running@skills 1.0.3")
+    assert (state.delivered(data, "o1", part), data["orders"]["o1"]["parts"][part]["posted_by"]) == (True, "j1")
+    data["orders"]["o1"]["jobs"].append("j2")
+    data["jobs"]["j2"] = state.new_job("o1", "builder", "fix it again", [part], state.stamp())
+    state.deliver_proven(data, "j1", "j1 live: repro/j1.sh exits 0 on long-running@skills 1.0.4")
+    assert (state.delivered(data, "o1", part), state.owed_work(data, "j1"), state.owed_work(data, "j2")) == (False, [], [("o1", part)])
+    assert data["orders"]["o1"]["parts"][part]["posted"] == "j1 live: repro/j1.sh exits 0 on long-running@skills 1.0.3"
+    data["jobs"]["j2"].update(state="failed", said="BLOCKED repro/j2.sh exits 1")
+    assert not state.delivered(data, "o1", part)
+    data["orders"]["o1"]["jobs"].append("j3")
+    data["jobs"]["j3"] = state.new_job("o1", "builder", "prove it", [part], state.stamp()) | {"state": "done", "said": "DONE proved"}
+    state.deliver_proven(data, "j3", "j3 live: repro/j3.sh exits 0 on long-running@skills 1.0.5")
+    assert (state.delivered(data, "o1", part), data["orders"]["o1"]["parts"][part]["posted_by"], state.owed_work(data, "j3")) == (True, "j3", [])
+    data["jobs"]["j3"]["state"] = "stopped"
+    assert not state.delivered(data, "o1", part)
 
 
 def test_the_post_that_answered_a_part_stops_delivering_it_while_a_builder_takes_it_on_as_work_which_only_its_passing_proof_delivers(state_root: Path) -> None:

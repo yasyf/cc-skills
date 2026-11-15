@@ -694,7 +694,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "replaced_ended": True,
         "change_builders_unwaited": True,
         "finished_replacers_undone": True,
-        "proofs_proven": True,
+        "work_proofs_owned": True,
         "proof_results_marked": True,
         "own_done_proofs_since": None,
         CARDS_NOTED: True,
@@ -1026,8 +1026,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped"))
-    for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped"))
+    for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
     data["slack"].setdefault("swept", None)
@@ -1093,7 +1093,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         unwait_change_builders(data)
     if not data.get("proof_results_marked"):
         mark_proof_results(data)
-    if not data.get("proofs_proven"):
+    if not data.get("work_proofs_owned"):
         post_proofs(data)
     if not data.get("finished_texts_dropped"):
         drop_finished_texts(data)
@@ -1204,19 +1204,19 @@ def drop_stale_queued(data: dict) -> None:
 
 
 def post_proofs(data: dict) -> None:
-    """Deliver work he ordered only by the proofs drive job prove ran: each job an older install's watch failed by proving a DONE of its own on parts a later job holds, by superseded, goes back on that DONE, since a part's one proof is its newest job's; each open order's work part's posted field, the merged PR link or post an older install wrote there, and its posted_by, the job whose DONE an older install read as delivering it, are cleared, but a staging test part's, which its tester's proof wrote, and each part a job whose said line is a passing proof's DONE owes takes that proof, by deliver_proven, since an older install read a part delivered from its job's state or a PR link, or kept a passing proof's part undelivered until a check named it carried; marked so this runs once, after hold_open_dones."""
-    for job in data["jobs"].values():
+    """Deliver work he ordered only by the proofs drive job prove ran: each job an older install's watch failed by proving a DONE of its own on parts a newer job holds, by tester_of, goes back on that DONE, since a part's one proof is its tester's; each open order's work part's posted field, the merged PR link, post or proof an older install wrote there, and its posted_by, the job whose DONE an older install read as delivering it, are cleared, but a staging test part's, which its tester's proof wrote, and each part a job whose said line is a passing proof's DONE owes as its tester takes that proof beside the job, by deliver_proven, since an older install read a part delivered from its job's state, a PR link or any job's proof, or kept a passing proof's part undelivered until a check named it carried; marked so this runs once, after hold_open_dones and mark_proof_results."""
+    for job_id, job in data["jobs"].items():
         held = [(order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id)]
-        if job["state"] == "failed" and (job.get("proof") or {}).get("said", "").startswith("DONE") and held and all(superseded(data, job, order_id, part) for order_id, part in held):
+        if job["state"] == "failed" and (job.get("proof") or {}).get("said", "").startswith("DONE") and held and all(tester_of(data, order_id, part) != job_id for order_id, part in held):
             job.update(state="done", said=job["proof"]["said"], updated=stamp())
     for order_id, order in open_orders(data).items():
         for part, fields in order["parts"].items():
             if work(data, order_id, part) and not STAGING_PART.fullmatch(part):
                 fields.update(posted=None, posted_by=None)
     for job_id, job in data["jobs"].items():
-        if job["state"] == "done" and (proven := PROVEN_LINE.match(job["said"] or "")):
-            deliver_proven(data, job_id, proven["proof"])
-    data["proofs_proven"] = True
+        if job["state"] == "done" and (passed := PROVEN_LINE.match(job["said"] or "")):
+            deliver_proven(data, job_id, passed["proof"])
+    data["work_proofs_owned"] = True
 
 
 def keep_messages_once(data: dict) -> None:
@@ -2856,15 +2856,20 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     )
 
 
-def staged(data: dict, order_id: str, part: str) -> bool:
-    """Whether a staging test part holds the proof of a full pass its tester still stands on: posted_by names a builder or codex job testing the part, by part_testers, done or waiting on its own PRs' merge with that DONE by hold_done, and each tester after it is done, as one following a release another job started is, its DONE running no case of the part, by keep_pass, or stopped, so only a newer tester at work, waiting or failed holds the pass from the PR."""
-    held = data["orders"][order_id]["parts"][part]
-    testers = [(job_id, job) for job_id, job in part_testers(data, order_id, part) if job["kind"] in CHANGE_KINDS]
-    ran = next((index for index, (job_id, _) in enumerate(testers) if job_id == held["posted_by"]), None)
+def tester_of(data: dict, order_id: str, part: str) -> str | None:
+    """The newest builder or codex job on a part not stopped, the one job whose proof delivers it, of the jobs testing it, by part_testers, on a staging test part."""
+    return next((job_id for job_id, job in reversed((part_testers if STAGING_PART.fullmatch(part) else part_jobs)(data, order_id, part)) if job["kind"] in CHANGE_KINDS and job["state"] != "stopped"), None)
+
+
+def proven(data: dict, order_id: str, part: str) -> bool:
+    """Whether a part a proof delivers, a staging test or work he ordered, holds the proof its job still stands on: posted_by names a builder or codex job on the part, by part_testers on a staging test and part_jobs on work, done or waiting on its own PRs' merge with that DONE by hold_done, and each such job after it stopped, or on a staging test done or holding its DONE, as one following a release another job started is, its DONE running no case of the part, by keep_pass, so a newer job at work, waiting or failed takes the proof back, and on work a newer job done too, since only its own passing proof, by deliver_proven, delivers work it took on."""
+    held, staging = data["orders"][order_id]["parts"][part], bool(STAGING_PART.fullmatch(part))
+    jobs = [(job_id, job) for job_id, job in (part_testers if staging else part_jobs)(data, order_id, part) if job["kind"] in CHANGE_KINDS]
+    ran = next((index for index, (job_id, _) in enumerate(jobs) if job_id == held["posted_by"]), None)
     if not held["posted"] or ran is None:
         return False
-    (_, tester), *after = testers[ran:]
-    return done_or_held(tester) and all(done_or_held(job) or job["state"] == "stopped" for _, job in after)
+    (_, job), *after = jobs[ran:]
+    return done_or_held(job) and all(other["state"] == "stopped" or staging and done_or_held(other) for _, other in after)
 
 
 def done_or_held(job: dict) -> bool:
@@ -2911,17 +2916,17 @@ def part_tester(data: dict, order_id: str, part: str) -> str | None:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its tester kept on it, by staged, never by a done job or a post; any other once its posted field holds what delivered it, on work he ordered only the passing proof drive job prove ran, by deliver_proven, so the post that answered a part sorted as an answer stops delivering it once a builder, codex or design job takes it on as work, and on words he reads the post that answered it; no job's state, merge or PR link delivers a part."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its tester kept on it, and work he ordered only by the passing proof drive job prove ran on its tester, by deliver_proven, each by proven, never by a done job or a post, so the post that answered a part sorted as an answer stops delivering it once a builder, codex or design job takes it on as work; words he reads once its posted field holds the post that answered it; no job's state, merge or PR link delivers a part."""
     held = data["orders"][order_id]["parts"][part]
     if held["standing"]:
         return False
-    if STAGING_PART.fullmatch(part):
-        return staged(data, order_id, part)
-    return bool(held["posted"]) and (not work(data, order_id, part) or bool(PROOF.fullmatch(held["posted"])))
+    if STAGING_PART.fullmatch(part) or work(data, order_id, part):
+        return proven(data, order_id, part)
+    return bool(held["posted"])
 
 
 def owed_work(data: dict, job_id: str) -> list[tuple[str, str]]:
-    """Each open order and part of work he ordered that a job works on, on its own order and each it carries, that no proof delivered yet and no later job holds, by superseded, but a staging test part, which only its tester's full pass delivers, by post_staging_proof."""
+    """Each open order and part of work he ordered that a job works on as its tester, on its own order and each it carries, that no proof delivered yet, but a staging test part, which only its tester's full pass delivers, by post_staging_proof; an older job owes no part a newer one holds, whatever its proof."""
     job = data["jobs"][job_id]
     return [
         (order_id, part)
@@ -2931,25 +2936,20 @@ def owed_work(data: dict, job_id: str) -> list[tuple[str, str]]:
         and part in data["orders"][order_id]["parts"]
         and work(data, order_id, part)
         and not STAGING_PART.fullmatch(part)
+        and tester_of(data, order_id, part) == job_id
         and not delivered(data, order_id, part)
-        and not superseded(data, job, order_id, part)
     ]
 
 
-def superseded(data: dict, job: dict, order_id: str, part: str) -> bool:
-    """Whether a builder or codex job created after this one holds the part and was not stopped, so the part's one proof is that later job's, never this one's, whose branch or result the later one may have moved."""
-    return any(other["kind"] in CHANGE_KINDS and other["state"] != "stopped" and parse_time(other["created"]) > parse_time(job["created"]) for _, other in part_jobs(data, order_id, part))
-
-
 def deliver_proven(data: dict, job_id: str, proof: str) -> None:
-    """Deliver each part of work he ordered that a job owes by the proof drive job prove ran on it and saw exit 0, the one writer of a work part's posted field but a staging test's: every part of the job's own order it owes, since that passing proof alone marks its work done, and a part of another order it carries only once the check of the merged diffs its proof proves found they carry it, by carried_by, so a carried part reads done only once a PR its return names carries it."""
+    """Deliver each part of work he ordered that a job owes by the proof drive job prove ran on it and saw exit 0, kept beside the job as posted_by over any older job's, the one writer of a work part's posted field but a staging test's: every part of the job's own order it owes, since that passing proof alone marks its work done, and a part of another order it carries only once the check of the merged diffs its proof proves found they carry it, by carried_by, so a carried part reads done only once a PR its return names carries it."""
     from drive import install
 
     carried = carried_by(data, install.proved_prs(data, job_id))
     own = data["jobs"][job_id]["order"]
     for order_id, part in owed_work(data, job_id):
         if order_id == own or part in carried.get(order_id, []):
-            data["orders"][order_id]["parts"][part]["posted"] = proof
+            data["orders"][order_id]["parts"][part].update(posted=proof, posted_by=job_id)
 
 
 def carried(pr: dict) -> dict[str, list[str]] | None:

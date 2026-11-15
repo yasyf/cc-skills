@@ -3237,6 +3237,24 @@ def test_a_reader_an_older_install_started_on_a_prs_head_holds_no_part_and_is_ne
     assert watch.run_pass(watcher(demo), T0) == ['ORPHAN o1 "ship the watch": j1 failed']
 
 
+def test_j5802_a_newer_builders_failed_proof_takes_back_the_part_an_older_proof_delivered_which_reads_failed_until_a_newer_job_holds_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        proven(data, updated=earlier)
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(state="failed", said="BLOCKED repro/j2.sh exits 1", parts=["ship the watch"], updated=earlier)
+    watching = watcher(demo)
+    assert (state.delivered(state.load(demo), "o1", "ship the watch"), watch.run_pass(watching, T0)) == (False, ['ORPHAN o1 "ship the watch": j2 failed'])
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(parts=["ship the watch"])
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
+
+
 def test_a_job_on_the_immediate_fix_carries_the_orders_other_parts_until_it_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
@@ -7850,9 +7868,9 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     ("part", "posted", "said"),
     [
         (state.STAGING_TEST.format(number=42), "https://poetic.slack.com/archives/C0STAGING/p1794600000000100", f"WAITING {state.pr_url(KEY)} to merge: DONE it soaked twice on staging"),
-        ("Has this been tested on staging? It's approved once it is", "j5420 live: repro/j5420.sh exits 0 on no plugin of this Mac", f"WAITING {state.pr_url(KEY)} to merge: then it soaks on staging"),
+        ("Has this been tested on staging? It's approved once it is", f"{state.pr_url(KEY)} live: repro/j5420.sh exits 0 on long-running@skills 1.0.3", f"WAITING {state.pr_url(KEY)} to merge: DONE its proof answered him"),
     ],
-    ids=["its staging test part holds its tester's proof", "a proof delivered his question part"],
+    ids=["its staging test part holds its tester's proof", "its tester's proof delivered his question part"],
 )
 def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_delivered_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str, posted: str, said: str
@@ -7861,7 +7879,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     enqueue_exiting(tmp_path, demo, 0)
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
-        data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": posted, "posted_by": "j5420" if state.STAGING_PART.fullmatch(part) else None}
+        data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": posted, "posted_by": "j5420"}
         data["orders"]["o1"]["jobs"].append("j5420")
         data["jobs"]["j5420"] = job(goal="soak #42 on staging", parts=[part], builds_nothing=True, state="waiting", said=said)
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": [f"o1:{part}"]}
