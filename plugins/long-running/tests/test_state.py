@@ -1376,6 +1376,34 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
         assert drive["open_dones_held"] is True
 
 
+def test_a_drive_saved_with_live_readers_holding_prs_hands_each_to_the_builder_on_its_part_and_sets_each_reader_done_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["reader_prs_handed"]
+    created = "2026-11-15T10:00:00-08:00"
+    handed, done, alone = (f"https://github.com/yasyf/cc-skills/pull/{number}" for number in (5470, 5471, 5472))
+    data["orders"] = {
+        "o1": state.new_order("stop the relaunch", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"stop it": state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2", "j3"]},
+        "o2": state.new_order("answer it", "slack:D123/1794600000.000200", ("D123", "1794600000.000200"), {"answer it": state.new_part()}, created) | {"kind": "build", "jobs": ["j4"]},
+    }
+    data["jobs"] = {
+        "j1": state.new_job("o1", "reader", "research: the relaunch", ["stop it"], created) | {"state": "waiting", "said": f"PUSHED {handed}", "waits": [state.pr_key(handed)], "prs": [handed]},
+        "j2": state.new_job("o1", "builder", "stop it", ["stop it"], created) | {"state": "running"},
+        "j3": state.new_job("o1", "reader", "research: the relaunch", ["stop it"], created) | {"state": "done", "said": f"PUSHED {done}", "prs": [done]},
+        "j4": state.new_job("o2", "reader", "answer it", ["answer it"], created) | {"state": "running", "said": f"PUSHED {alone}", "prs": [alone]},
+    }
+    data["prs"] = {state.pr_key(url): state.new_pr(url, job_id, order_id) | {"state": "merged"} for url, job_id, order_id in ((handed, "j1", "o1"), (done, "j3", "o1"), (alone, "j4", "o2"))}
+    state.create(data)
+    data = state.load("demo")
+    jobs = data["jobs"]
+    assert (
+        [data["prs"][state.pr_key(url)]["job"] for url in (handed, done, alone)],
+        jobs["j2"]["prs"],
+        [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["said"]) for job_id in ("j1", "j4")],
+        data["reader_prs_handed"],
+    ) == (["j2", "j3", "j4"], [handed], [("done", [], f"PUSHED {handed}"), ("done", [], f"PUSHED {alone}")], True)
+
+
 STAGING, PROOF = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
 
 

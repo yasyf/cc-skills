@@ -174,6 +174,7 @@ them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a 
 |---|---|
 | `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered only once they merge and `drive job prove` runs its proof file and sees it exit 0, never before it lands |
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
+| `READY`, `PUSHED` or `BUILT` from a reader | refused, naming the builder on its part, which opens the PR: a reader ships no change, and the watch proves only a builder's merged PR live |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
 | `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his holding its work as the lander reads it, none whose `Holds:` line reads none; each holds a PR of the job only as the lander reads that card |
@@ -229,9 +230,11 @@ session makes its parts `ORPHAN`s.
    and a launch run one after the other start the lane on a brief missing the refused call's lines.
    Words holding quotes, such as his words in a `--handoff`, go in as `--handoff "$(cat <<'EOF'`,
    the words, then `EOF` and `)"`. A local job no agent holds launches the same way.
-2. It starts the builder through the `orca` skill's launcher as an Orca worker on a Sprite, on an
+2. It starts the job through the `orca` skill's launcher as an Orca worker on a Sprite, on an
    Orca Run of its own that only this drive's watch reads, and its notification says where it
-   started or why it could not.
+   started or why it could not. The worker runs the agent its kind starts as, a reader's or
+   designer's with the builder's On a Sprite and Waits and reads sections for how a lane reads,
+   waits and reports.
 3. A first try on a fresh Sprite that started no worker, its prepare failing or its Sprite refusing
    the tools a worker needs, launches once more. When no worker started on that try either, start
    the job here with the Agent tool on its brief and say so in the order's next report, never

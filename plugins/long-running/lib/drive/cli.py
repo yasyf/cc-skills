@@ -3412,7 +3412,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
             state.hold_text(job, text, state.held_sender(data))
     kept.parent.mkdir(exist_ok=True)
     try:
-        receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, written, job["route"]), root, holder and str(holder.path), None)
+        receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, job["kind"], written, job["route"]), root, holder and str(holder.path), None)
     except orca.Unstarted:
         record_start(name, job_id, None, None)
         raise
@@ -3637,7 +3637,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     briefed = rebriefed(name, args.id)
     carried = [given["words"] for given in state.unreturned(job, "\n\n".join(filter(None, [briefed, message])))]
     handoff = orca.handoff(briefed, ended, branches, job, state.report_text(name, args.id, every=False), message, end, continued, carried, stage.holds_now(data, args.id), here, unsaved, holder)
-    brief = orca.vm_brief(name, args.id, handoff, route)
+    brief = orca.vm_brief(name, args.id, job["kind"], handoff, route)
     was = orca.place(job)
     if same:
         kept.write_text(brief)
@@ -3900,12 +3900,14 @@ def pr_add(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
+    if find((data := state.load(name))["jobs"], args.job, "job")["kind"] == "reader":
+        raise DriveError(f"{key}: refused, nothing added: {state.unshipped(data, args.job)}")
     if args.no_tap and not args.why:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
     if args.no_tap and state.guarded(key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
     lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
-    kept = state.load(name)["prs"].get(key, {}).get("lead")
+    kept = data["prs"].get(key, {}).get("lead")
     pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
     drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key)])

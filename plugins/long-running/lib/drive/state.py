@@ -693,6 +693,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         CARDS_NOTED: True,
         "finished_texts_dropped": True,
         "messages_kept_once": True,
+        "reader_prs_handed": True,
     }
 
 
@@ -1015,7 +1016,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1087,6 +1088,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         drop_finished_texts(data)
     if not data.get("messages_kept_once"):
         keep_messages_once(data)
+    if not data.get("reader_prs_handed"):
+        hand_reader_prs(data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1280,6 +1283,18 @@ def name_builder_goals(data: dict) -> None:
             if job.get("brief") and (path := Path(job["brief"])).exists() and copied in (text := path.read_text()):
                 path.write_text(text.replace(copied, f"\nGoal: {job['goal']}\n", 1))
     data["builder_goals_named"] = True
+
+
+def hand_reader_prs(data: dict) -> None:
+    """Hand each PR a live reader holds to the builder on its part, by take_pr as drive pr add --job moves one, and set that reader done on the research its report keeps, since an older install briefed a reader's Orca lane as a builder, whose PUSHED of a merged PR freed it at once to push it again; a reader with no builder on its part keeps its PR, done all the same; marked so this runs once."""
+    for job_id, job in data["jobs"].items():
+        if job["kind"] != "reader" or job["state"] in FINISHED_JOB_STATES or not (held := [key for key, pr in data["prs"].items() if pr["job"] == job_id]):
+            continue
+        for builder in parts_builders(data, job)[:1]:
+            for key in held:
+                take_pr(data, builder, key)
+        job.update(state="done", waits=[], updated=stamp())
+    data["reader_prs_handed"] = True
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -1747,12 +1762,14 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
     from drive import install, place, view
 
     job = data["jobs"][job_id]
     if not result_state(job, line):
         return "its first line sets no state: it opens DONE, READY, PUSHED, `BUILT <branch>, waits on <cards>`, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
+    if job["kind"] == "reader" and (REPORTED_LINE.match(line) or BUILT_LINE.match(line)):
+        return unshipped(data, job_id)
     if job["kind"] == "builder" and REPORTED_LINE.match(line) and (merging := [pr_key(found[0]) for found in PR_URL.finditer(line) if merges_untapped(pr_key(found[0]))]):
         repro = job.get("repro")
         why = unrunnable(repro) if repro else None
@@ -2473,6 +2490,18 @@ def standing_part(data: dict, job: dict) -> tuple[str, str] | None:
 def part_builders(data: dict, order_id: str, part: str) -> list[str]:
     """Each builder or codex job that builds a part of an order: on it and neither failed nor stopped, as design_builder reads its builder, since a job that ended so builds nothing; one done or built counts, so a design read again builds no change twice."""
     return [job_id for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] not in ENDED_JOB_STATES]
+
+
+def parts_builders(data: dict, job: dict) -> list[str]:
+    """Each builder or codex job building a part the job holds, on its own order or one it carries, by part_builders."""
+    return list(dict.fromkeys(builder for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) for builder in part_builders(data, order_id, part)))
+
+
+def unshipped(data: dict, job_id: str) -> str:
+    """Why a reader ships no change, naming any builder on its part, which does: result_refusal refuses a reader's READY, PUSHED or BUILT and drive pr add a reader as a PR's job, since the watch proves only a builder's merged PR live."""
+    builders = parts_builders(data, data["jobs"][job_id])
+    named = f", and {', '.join(builders)}, the builder on its part, opens the PR, which the watch proves live once it merges" if builders else ""
+    return f"{job_id} is a reader, which answers its question and ships no change: it returns DONE on its research, or DESIGN on a choice for him{named}"
 
 
 def work(data: dict, order_id: str, part: str) -> bool:
