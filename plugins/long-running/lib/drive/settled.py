@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
@@ -273,6 +273,11 @@ ILLUSTRATES = Noul(
     no="It is trivial: a value flipped, such as write = 0 becoming write = 1, an argument or list item added or dropped, a name or path changed, or one declaration, which a sentence says as well.",
 )
 UNORDERED = "Jev does not read it as approving this release"
+TESTED = (
+    "a staging release marked --for-production goes through every staging freeze, a teammate's included, so it starts only on his"
+    " exception for the production release it tests, `{release}`, and {why}"
+)
+UNTESTED = "and that release runs on no production place"
 ORDERED = (
     "drive job ask: his answer {id}, {asked}, orders the recommended option's `{release}`, so his card offers his words as its"
     ' Already answered tap: his one tap settles the card on them, and `drive job add --release "{release} --order {id}"` starts that'
@@ -283,6 +288,7 @@ UNCHANGED = frozenset({"env", "without", "from", "order"})
 SOAKED = frozenset({"targets", "only"})
 STARTS = frozenset({"emergency", "manual", "rollback"})
 PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
+FOR_PRODUCTION = "for-production"
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
@@ -814,26 +820,36 @@ def asks_page(words: str) -> bool:
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: each release read by shipped(), his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share, by ordered_by(). A staging release marked --for-production, which go/ci starts on every staging env through every staging freeze, a teammate's included, is ordered only by an answer ordering the production release it tests, by tests(), never by his words to test on staging or his standing yes to soak there."""
+    from drive import brief
+
+    [flags] = map(shipped, brief.started(release))
+    if FOR_PRODUCTION not in flags:
+        return ordered_by(answer, release, flags, placed, data)
+    tested = brief.tested_release(release)
+    return (why := ordered_by(answer, tested, flags, tests, data)) and TESTED.format(release=tested, why=why)
+
+
+def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
+    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
     asked = answered_card(data, answer)
-    [flags] = map(shipped, brief.started(release))
     cwd = data["roles"]["coordinator"]["cwd"]
     if asked and (pick := picked_option(asked, said)):
         number, rest = pick
         option = asked.options[number - 1]
         words = f"{option}\n{asked.hints.get(option, '')}"
         if commands := brief.card_releases(words):
-            whys = [placed(flags, shipped(brief.started(command)[0]), rest, cwd) for command in commands]
+            whys = [matches(flags, shipped(brief.started(command)[0]), rest, cwd) for command in commands]
             if None in whys:
                 return None
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
         if named(flags, words, rest, cwd):
             return None
     card = {"card": card_text(asked)} if asked else {}
-    read = jev({"action": f"start this release on {runs_on(flags, cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
+    read = jev({"action": f"start this release on {runs_on(shipped(brief.started(release)[0]), cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:
         return None
@@ -923,6 +939,15 @@ def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
     if unnamed := sorted(place for place in added if not any(f" {plain(name)} " in words for name in (place, *team_names(place, cwd)))):
         return f"and this release also runs on {', '.join(unnamed)}, which his words past its number do not name"
     return None
+
+
+def tests(release: dict, option: dict, rest: str, cwd: str) -> str | None:
+    """Why a staging release marked --for-production does not test the production release a card option's release ships, each read by shipped(); None when it does: the option's release runs on a production place, by off_production(), and placed() reads the staging release shipping its change wherever it runs, every flag the same but --for-production and the places, its --env and each place its --without names by an infra/envs file, which it takes from the option."""
+    if off_production(option, cwd):
+        return UNTESTED
+    left = sorted({*(name for name in release.get("without", ()) if not env_file(name, cwd)), *(name for name in option.get("without", ()) if env_file(name, cwd))})
+    change = {name: values for name, values in release.items() if name not in (FOR_PRODUCTION, "env", "without")}
+    return placed(change | {name: values for name, values in (("env", option.get("env")), ("without", tuple(left))) if values}, option, rest, cwd)
 
 
 def named(release: dict, words: str, rest: str, cwd: str) -> bool:

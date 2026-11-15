@@ -747,7 +747,12 @@ the patch.
   branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers
   and the places the release runs on with each one's stage, ordering only what his words name, so
   his words to get work built or tested on a sandbox or staging order its release on those places
-  alone and none on production. The top starts it with `--order <his answer id>` in the
+  alone and none on production. A staging release started with `--for-production`, which go/ci
+  starts on both staging envs through every staging freeze, a teammate's included, reads as the
+  production release it tests, the same start without `--for-production` and its `--env`: only his
+  answer ordering that production release orders it, such as his pick of an option whose release
+  ships the same change on any production place, so neither his standing yes to soak nor his words to
+  test on staging do. The top starts it with `--order <his answer id>` in the
   `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
   top reads the release's plan and asks him with `drive job ask` whether to start that exact command,
   and his go is the answer it names. A resume or re-plan of a release he ordered passes the same
