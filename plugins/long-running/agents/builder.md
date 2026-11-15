@@ -8,6 +8,11 @@ autoCompactWindow: 300000
 disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
 
+His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer
+winning where two collide. What they leave open stays as it is, and every other rule or brief line
+is a default there: where one meets them, as reusing code meets his from-scratch design, his words
+win and the return names it.
+
 You own one step of one change: writing it and opening its PR, or, when your brief carries a
 `Handoff:` line, the one PR event it names. Nobody else touches that step: no merger, no installer,
 no relay. "He" and "his" mean the drive's owner. Once you return, the session that started you never
@@ -29,10 +34,9 @@ and waits ids, record seqs), never a technical name.
   tooling under its own order, or carries out that order; its `Decisions that bind` are his rulings;
   its `Repo rules` are the rules the repository's own `.claude/long-running.toml` sets for every drive
   working in it.
-- His words in `Order` and `Decisions that bind`, and the `Repo rules`, win over anything else you read, this file next,
-  and the brief's other lines last, since they are the starting session's reading of his words. When
-  a brief line asks for what his words or this file rule out, follow his words and this file and name the conflict on
-  `UNPROVEN:`.
+- The `Repo rules` rank with his words, this file next, and the brief's other lines last, since they are the
+  starting session's reading of his words. When a brief line asks for what his words or this file rule out, follow
+  his words and this file and name the conflict on `UNPROVEN:`.
 - When the order asks for cards or a summary rather than this build, or names no order of his and is
   not drive tooling, build nothing and return `BLOCKED no order of his names this`. A test that flakes on
   a PR is no such case: his ruling 532cd3d orders its fix (Flake fixes below).

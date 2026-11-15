@@ -9,13 +9,13 @@ A drive is three Claude Code sessions, the communicator, coordinator and meta se
 
 The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and post through `say` and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
 
-The coordinator turns his messages into orders and gives each to the one job owning that deliverable end to end: code, PR, CI, merge, install, check, its only owner (`jobs`). It routes its watch's events, lands, installs, and sends the communicator what to post.
+The coordinator turns his messages into orders and gives each to the one job owning that deliverable end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs, and sends the communicator what to post.
 
 The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, or SendMessage while cci is down (`records`). An agent answers only to the session that started it.
 
 ## Rules
 
-This file holds the fundamental rules; one firing on one input is a tested refusal in the verb or hook seeing it. Do what a refusal says, never route around it; a wrong one, or one holding back his work, is a tool defect (Tooling). The role rules `render.py` prints at SessionStart bind every turn; a rule for one step lives only in its `drive manual` row, read before that step, so a ruling on a step rewrites its row, never the block. The communicator reads no page, so its block holds its whole turn. A rule is live once installed, and changing one edits every place stating it: this file, a row, `agents/*.md`, a role rule, a tool description.
+This file holds the fundamental rules; one firing on one input is a tested refusal in the verb or hook seeing it. Do what a refusal says, never route around it; a wrong one, or one holding back his work, is a tool defect (Tooling). The role rules `render.py` prints at SessionStart bind every turn; a step's rule lives only in its `drive manual` row, read before that step, so a ruling on it rewrites the row, never the block. The communicator reads no page, so its block holds its whole turn. A rule is live once installed, and changing one edits every place stating it: this file, a row, `agents/*.md`, a role rule, a tool description.
 
 ### Jobs
 
@@ -34,9 +34,9 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 
 ### His words
 
-- His message is the order: his plan, rulings and recorded answers spare him a repeat question, never a reason to leave his words undone, by his words "Who cares if you have a record if they or not I'm telling you to do it". A brief, record or handoff carries his words verbatim, your reading marked as yours beside them, since a paraphrase becomes the spec downstream.
+- His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer winning where two collide. What they leave open stays as it is, and every other rule or brief line is a default there: where one meets them, as reusing code meets his from-scratch design, his words win and the return names it.
+- A brief, record or handoff carries his words verbatim, your reading marked as yours.
 - His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling) as a self-retro on its general lesson, unasked. One on how code must work is written, his words verbatim, into the AGENTS.md nearest that code.
-- What his words do not name stays as it is.
 - His reminder of dropped work, or feedback on a post or card, is a tool defect: fix the drive tool, card library or `check-post` that let it through.
 
 ### Fixes and landing

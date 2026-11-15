@@ -1961,7 +1961,9 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     cards = {} if any(other == job_id for other, _ in asking(data, asked.title)) else {question["waits"]: question["title"] for question in repeating(data, job_id, asked.title, redraws)}
     for answer, release in ordered:
         print(settled.ORDERED.format(id=answer["answer"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
-    words = [*settled.order_words(data, job["order"]), *settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data)]
+    spec = brief.spec(name, data, job)
+    words = [*brief.judging(spec), *settled.order_words(data, job["order"])]
+    words += [word for word in settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data) if word["id"] not in {entry["id"] for entry in [*spec, *words]}]
     lines = settled.line_answers([asked.title, *asked.options], data, frozenset(answer["id"][:7] for answer in heard))
     broken, repeated, answered = settled.judged(case, asked, words, heard, cards, frozenset(answer["answer"] for answer in tapped), lines)
     if answered:
@@ -2855,17 +2857,15 @@ def rebriefed(name: str, job_id: str) -> str:
 
 
 def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tuple[str, dict] | None:
-    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, where its order came from, such as the record or his message `drive order add --from` names, each Slack message they link by linked_messages, each answer of his binding it, by brief.bound, as its recorded words above the drive's notes, the earlier jobs' transcripts, and the lines its flags name; none, writing nothing, when the job's flags are no longer over, the ones this write replaces, since another brief write saved its own as this one ran."""
+    """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, where its order came from, such as the record or his message `drive order add --from` names, each Slack message they link by linked_messages, his spec on its feature newest first before its Goal, by brief.spec, each of his words whole and each he replaced named by the newer answers replacing it, the earlier jobs' transcripts, and the lines its flags name; none, writing nothing, when the job's flags are no longer over, the ones this write replaces, since another brief write saved its own as this one ran."""
     data = state.load(name)
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
-    checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
     earlier = [line for other in order["jobs"] if other != job_id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
     answers = job["kind"] == "reader" and all(order["kind"] == "answer" or order["parts"][part]["answer"] for part in job["parts"])
     found = brief.research(name, data, job["order"], job["parts"], job_id) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
-    ids, heard = brief.bound(name, data, job | {"brief_flags": flags})
-    rulings = [*dict.fromkeys(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
+    rulings = brief.spec_lines(brief.spec(name, data, job | {"brief_flags": flags}))
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
@@ -2874,6 +2874,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "From": order["from"],
         "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],
+        "Decisions that bind": rulings or "none named; search his answers on the area",
         "Goal": job["goal"],
         "Done when": flags["done_when"],
         "Where": flags["where"],
@@ -2884,7 +2885,6 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Mac": flags["mac"] or staged and STAGING_MAC,
         "After install": flags["after"],
         "Handoff": flags["handoff"],
-        "Decisions that bind": rulings or "none named; search his answers on the area",
         "Repo rules": state.repo_rules(data),
         "Research": planned and job["kind"] == "reader" and not answers and READER_RESEARCH,
         "Researched": found and found[0],
@@ -2959,11 +2959,6 @@ def incident_line(data: dict, job_id: str, given: str | None) -> str | None:
 def release_rule() -> str:
     """The rule incidents.md states for every release a drive job starts, read from the page so the brief and the page share one text."""
     return " ".join(page_parts((PAGES / "incidents.md").read_text(), "Every release a drive job starts")[0].split()).removeprefix("- ")
-
-
-def ruling_words(answer_id: str, checkout_dir: Path) -> str:
-    answer = settled.shown(answer_id, str(checkout_dir))
-    return f"{answer['title']} ({answer['id'][:7]})\n{textwrap.indent(settled.his(answer['body']), '  ')}"
 
 
 def transcript_line(job_id: str, job: dict) -> str | None:
@@ -3980,7 +3975,7 @@ def pr_set(args: argparse.Namespace) -> int:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
         raise DriveError(f"{key}: refused, nothing set: {refused}")
-    if args.serves and (reads := {member: served.change(member) for member in land.landing_stacks(known).get(key, (key,))}) and (unwritten := served.unwritten(key, served.owed(known, key, served.coded(known, key, brief.bound(name, known, known["jobs"][before["job"]])[0], reads), reads))):
+    if args.serves and (reads := {member: served.change(member) for member in land.landing_stacks(known).get(key, (key,))}) and (unwritten := served.unwritten(key, served.owed(known, key, served.coded(known, key, brief.bound(name, known, known["jobs"][before["job"]]), reads), reads))):
         raise DriveError(f"{key}: refused, nothing set: {unwritten}; push and set it again")
     answered = served.answers(known, [args.design], view.live_cards(name)) if args.design else None
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
@@ -4378,7 +4373,7 @@ def pr_check(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, and close on GitHub an open PR superseded outright; each order and part of an open order the answer lists stays listed and markable until it is marked, whatever a builder's DONE or relaunch makes state.delivered read, and any other card, part or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, close on GitHub an open PR superseded outright, and, unmarked, on its first record or any run after, mark in cc-notes each standing answer of his on the features it reaches that Jev reads it replacing, by replaced; each order and part of an open order the answer lists stays listed and markable until it is marked, whatever a builder's DONE or relaunch makes state.delivered read, and any other card, part or PR still asking him may be marked too."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -4410,6 +4405,7 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
+    done: list[str] = []
     if args.id not in data["answers"]:
         if marking or not args.link:
             raise DriveError(
@@ -4424,11 +4420,11 @@ def answer(args: argparse.Namespace) -> int:
         bound = superseded.binding(data, args.link[0], asked, cwd)
         with state.edit(name) as data:
             superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp())
-    done = []
     if not marking:
+        done += replaced(name, args.id, asked, cwd)
         with state.edit(name) as data:
             ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
-        done = superseded.follow(name, ended) + superseded.supersede_taps(name, ended)
+        done += superseded.follow(name, ended) + superseded.supersede_taps(name, ended)
     kept = data["answers"][args.id]
     asked = superseded.listed(data, kept, asked)
     open_keys = superseded.unmarked(kept, asked)
@@ -4525,6 +4521,34 @@ def answer(args: argparse.Namespace) -> int:
     if heard:
         line += f"; {heard.count('sent')} waiting {'job' if heard.count('sent') == 1 else 'jobs'} sent his words, {heard.count('untouched')} untouched"
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
+
+
+def replaced(name: str, answer_id: str, asked: dict[str, dict], cwd: str) -> list[str]:
+    """Mark in cc-notes each standing answer of his recorded before his answer, on the feature of each order it reaches, by brief.spec, that Jev reads his answer's words as replacing, at settled.YES or more, in as many requests as settled.batched needs, so every brief's Decisions that bind and every judge reads it as replaced, as his order to design something from scratch replaces his rulings on the design it starts over; one read in the band between is said on stderr with the command marking it, and no reading leaves each standing, said on stderr."""
+    data = state.load(name)
+    kept = data["answers"][answer_id]
+    orders = {entry["order"] for key in kept["cards"] if (entry := asked.get(key)) and entry["order"]} | {data["jobs"][job_id]["order"] for job_id in kept["jobs"]}
+    features = {tuple(state.job_feature(data, {"order": order_id, "carries": []})): order_id for order_id in sorted(orders)}
+    new = settled.shown(answer_id, cwd)
+    words = {entry["id"]: entry for order_id in features.values() for entry in brief.unreplaced(brief.spec(name, data, {"order": order_id, "carries": []})) if entry["id"] and entry["id"] not in data["orders"] and state.parse_time(entry["at"]) < state.parse_time(new["created_at"])}
+    if not words or not kept["words"]:
+        return []
+    slots = {word_id: f"w{number}" for number, word_id in enumerate(words, 1)}
+    items = (({"words": {slots[word_id]: {"asked": entry["asked"], "said": entry["said"]}}}, {f"replaces.{word_id}": settled.asking(settled.REPLACES, slot=slots[word_id])}) for word_id, entry in words.items())
+    try:
+        read = settled.jev_all(settled.batched({"answer": {"asked": new["title"], "said": kept["words"]}, "words": {}}, {}, items))
+    except settled.Unheard as failure:
+        print(f"drive answer: Jev did not read which of his standing answers {answer_id} replaces, so each stands: {failure}", file=sys.stderr)
+        return []
+    done = []
+    for key, sure in read.items():
+        old = words[key.partition(".")[2]]
+        if (found := settled.reading(sure)) is None:
+            print(f'drive answer: Jev is unsure whether {answer_id} replaces his answer {old["id"]} to "{render.cut(old["asked"], 200)}"; when it does, run ccn answer supersede {old["id"]} --by {answer_id}', file=sys.stderr)
+        if found:
+            settled.supersede(old["id"], answer_id, cwd)
+            done.append(f'his answer {old["id"]} to "{render.cut(old["asked"], 200)}" is superseded by {answer_id} in cc-notes, as Jev reads his new words replacing it, so each brief written from now and each judge reads it as replaced')
+    return done
 
 
 def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str | None, how: str) -> list[str]:

@@ -1007,7 +1007,7 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_ruling_the_
     code, out = run("job", "report", "j1", "-")
     jobs = state.load(demo)["jobs"]
     assert (code, out.splitlines()[2], jobs["j2"]["brief_flags"]["ruling"]) == (0, "his words from o1, rulings: 1, earlier jobs: 0", [recorded.shown["73060f0"]["id"]])
-    assert f"\nDecisions that bind:\n- {title} (73060f0)\n  Owner verdict: approved.\n" in Path(jobs["j2"]["brief"]).read_text()
+    assert f"\nDecisions that bind:\n- {title} (73060f0, 2026-11-12T11:33:00Z)\n  Owner verdict: approved.\n" in Path(jobs["j2"]["brief"]).read_text()
     assert run("job", "brief", "j4")[1].splitlines()[1] == "his words from o2, rulings: 0, earlier jobs: 0"
 
 
@@ -1029,8 +1029,8 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_answer_its_
     assert (code, out.splitlines()[2], jobs["j1"].get("brief")) == (0, "his words from o1, rulings: 2, earlier jobs: 0", None)
     brief = Path(jobs["j2"]["brief"]).read_text()
     assert (
-        "\nDecisions that bind:\n- How should the drive stop this morning's stalls? (c7db7ab)\n  1+2\n"
-        "- How should the release tooling evolve in general? (badce22)\n  in geernal keeps implifying all this tuff\n"
+        "\nDecisions that bind:\n- How should the drive stop this morning's stalls? (c7db7ab, 2026-11-12T11:33:00Z)\n  1+2\n"
+        "- How should the release tooling evolve in general? (badce22, 2026-11-12T11:33:00Z)\n  in geernal keeps implifying all this tuff\n"
     ) in brief
     assert "5e0c41a8" not in brief
 
@@ -1779,7 +1779,7 @@ def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "Ship it now")[0] == 0
     brief = orca.brief_of(launched["brief"])
-    assert "Decisions that bind:\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n" in brief
+    assert "Decisions that bind:\n- Partition strategies (bc0da25, 2026-11-12T11:33:00Z)\n  time, hash by key and spill all ship\nGoal: " in brief
     assert (f"\n\n{taken}\n\n## Taking over from a lane that died\n\n" in brief, brief.count(state.HOLDS_NOW)) == (True, 1)
     assert unheld(brief).endswith("which you act on now:\n\nShip it now")
 
@@ -1806,7 +1806,7 @@ def test_a_dead_lane_briefed_before_the_release_and_mac_flags_relaunches_on_its_
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "PR #7 review: answer the bot's warning")[0] == 0
     brief = orca.brief_of(launched["brief"])
-    assert "Serves: his order\nGoal: remote builders\nDone when: merged\nWhere: Forge-AI/monorepo dev\n" in brief
+    assert "Serves: his order\nDecisions that bind: none named; search his answers on the area\nGoal: remote builders\nDone when: merged\nWhere: Forge-AI/monorepo dev\n" in brief
     assert unheld(brief).endswith("which you act on now:\n\nPR #7 review: answer the bot's warning")
     flags = state.load(remote)["jobs"]["j1"]["brief_flags"]
     assert (flags["release"], flags["mac"], flags["where"]) == (None, None, "Forge-AI/monorepo dev")

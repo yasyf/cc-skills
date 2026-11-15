@@ -146,7 +146,7 @@ def verdict(name: str, key: str) -> str:
     prs = {member: data["prs"][member] for member in unit}
     heads, at, named, faulted, checked, carried = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", [], {}, None
     orders, answers = {member: state.served_orders(data, pr) for member, pr in prs.items()}, {member: binds(name, data, pr) for member, pr in prs.items()}
-    bound = list(dict.fromkeys(answer for job in dict.fromkeys(pr["job"] for pr in prs.values()) for answer in brief.bound(name, data, data["jobs"][job])[0]))
+    bound = list(dict.fromkeys(answer for job in dict.fromkeys(pr["job"] for pr in prs.values()) for answer in brief.bound(name, data, data["jobs"][job])))
     try:
         checked = check(name, unit, bound)
     except Against as error:

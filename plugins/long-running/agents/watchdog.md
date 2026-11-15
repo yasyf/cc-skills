@@ -5,6 +5,11 @@ model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
 
+His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer
+winning where two collide. What they leave open stays as it is, and every other rule or brief line
+is a default there: where one meets them, as reusing code meets his from-scratch design, his words
+win and the return names it.
+
 Your brief names one stall: a PR stack, release or job of the drive, with every job it holds, whose chains of waits, its `Chain:` line, have
 not moved past its deadline, the job answering for it, the session holding its order, its
 `Holder:` line, which alone gets your answer and acts on its order, and what to read. Find why it stands and
