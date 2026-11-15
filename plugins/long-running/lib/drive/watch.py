@@ -33,6 +33,11 @@ HANDOFF_FACT = "handoff"
 FREED_AGAIN = timedelta(minutes=30)
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
+SWEEP_EVERY = timedelta(days=1)
+ANSWER_WAIT = timedelta(minutes=2)
+OWED_WAIT = timedelta(minutes=10)
+CARD_WAIT = timedelta(hours=48)
+APPROVED_WAIT = timedelta(hours=24)
 WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
@@ -3797,6 +3802,58 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
     return seq
 
 
+def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Once a day, on the drive's own watch, file a drive tooling order for each bar the Slack back-and-forth with him crossed, by `crossed`, its measure the order's note, so work he assumes done never sits unseen (his 6cd6aa2): an order still open on a bar holds its words, so that bar crossed again takes the new measure in place of a second order. A sweep waits for a pass that read his cards, and one whose read or filing fails is said as a failed read is and tried again next pass."""
+    from drive import cli
+
+    data = state.load(watcher.name)
+    swept = data["slack"]["swept"]
+    if watcher.project or watcher.cards is None or swept and moment - state.parse_time(swept["at"]) < SWEEP_EVERY:
+        return []
+    try:
+        bars, offset = crossed(watcher, data, swept["offset"] if swept else state.events_end(watcher.name), moment)
+        filed = {cli.added_order(cli.parser().parse_args(["order", "add", words, "--title", title, "--drive", watcher.name]))[0]: note for words, title, note in bars}
+    except (slack.SlackError, state.DriveError) as error:
+        return failed(watcher, "sweep", "daily Slack sweep", error, moment)
+    watcher.failures.pop("sweep", None)
+    with state.edit(watcher.name) as data:
+        for order_id, note in filed.items():
+            data["orders"][order_id]["note"] = note
+        data["slack"]["swept"] = {"at": state.stamp(moment), "offset": offset}
+    return []
+
+
+def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tuple[list[tuple[str, str, str]], int]:
+    """The words, title and note of an order for each bar the sweep finds crossed, and the events offset it read to: the 90th percentile of his answers since the last sweep over ANSWER_WAIT, each message's first post answering it; a message of his cc-slack still owes an answer past OWED_WAIT; a re-ask posted at a channel's root rather than in its card's thread; a card of his open past CARD_WAIT; a PR open past APPROVED_WAIT after his Approve."""
+    from drive import talk
+
+    waits, reasks = {}, []
+    for event, offset in state.read_events(watcher.name, offset):
+        if event["kind"] != "said" or event["edited"]:
+            continue
+        for ts in event.get("answers", []):
+            waits.setdefault(ts, (state.parse_time(event["at"]) - slack.sent_at({"ts": ts}), event["url"]))
+        if event["text"].startswith(talk.ASKING_AGAIN) and (message := state.slack_message(event["url"])) and message[1] == message[2]:
+            reasks.append(event["url"])
+    owed = sorted((reply for reply in slack.owed() if moment - slack.sent_at(reply) > OWED_WAIT), key=lambda reply: float(reply["ts"]))
+    cards = sorted((card for card in [*watcher.cards["questions"], *watcher.cards["pr_cards"]] if moment - state.parse_time(card["asked"]) > CARD_WAIT), key=lambda card: state.parse_time(card["asked"]))
+    approved = [key for key, pr in data["prs"].items() if pr["state"] == "open" and (tap := pr["tap"]) and tap["label"] == "Approve" and moment - state.parse_time(tap["at"]) > APPROVED_WAIT]
+    found = f"{state.TOOLING} the daily Slack sweep found"
+    bars = []
+    if waits and (p90 := sorted(wait for wait, _ in waits.values())[int(0.9 * (len(waits) - 1))]) > ANSWER_WAIT:
+        slowest, link = max(waits.values())
+        bars.append((f"{found} more than 1 in 10 answers to your messages taking over 2 minutes", "Answers slower than 2 minutes", f"{len(waits)} answers, 90th percentile {p90.total_seconds() / 60:.1f} min, slowest {minutes(slowest)} min: {link}"))
+    if owed:
+        bars.append((f"{found} a message of yours still unanswered after 10 minutes", "Message unanswered past 10 minutes", f"{len(owed)} owed, the oldest since {when(slack.sent_at(owed[0]).isoformat())}: {owed[0]['permalink']}"))
+    if reasks:
+        bars.append((f"{found} a card asked again in a new top-level post instead of its own thread", "Card asked again at a channel's top level", f"{len(reasks)} re-asks, the first {reasks[0]}"))
+    if cards:
+        bars.append((f"{found} a card of yours open for over 48 hours", "Card open past 48 hours", f"{len(cards)} cards, the oldest asked {when(cards[0]['asked'])}: {cards[0]['url']}"))
+    if approved:
+        bars.append((f"{found} a pull request you approved still open after 24 hours", "Approved pull request open past 24 hours", f"{len(approved)} PRs: {cut(', '.join(approved), 300)}"))
+    return bars, offset
+
+
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     """One pass's lines for the coordinator, every stage's together, as a proof runs its passes in-process."""
     return [line for lines in passed(watcher, moment) for line in lines]
@@ -3812,7 +3869,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield read_lines(watcher, moment)
     yield event_lines(watcher)
@@ -3868,6 +3925,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     if "github" not in watcher.failures:
         yield github_lines(watcher, moment)
     yield catch_up_lines(watcher, moment)
+    yield sweep_lines(watcher, moment)
     yield claim_reply_lines(watcher, moment)
     yield claim_lines(watcher, moment)
     yield quiet_lines(watcher, moment)

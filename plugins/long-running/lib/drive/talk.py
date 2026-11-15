@@ -20,6 +20,8 @@ TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket
 EDIT_TAKES = {"edit", "text", "asked", "claims", "dry_run", *TICKET_FLAGS}
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
+ASKING_AGAIN = "Asking again, since it fixes"
+BARE_TS = re.compile(r"\d{10}\.\d{6}")
 
 
 def say(name: str, post: dict) -> str:
@@ -456,7 +458,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict, order: str | None = None) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -499,6 +501,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
         visuals=visuals,
         prs=stack,
         edited=bool(post.get("edit")),
+        answers=answered_ts(data, post),
     )
     if drawn:
         view.refresh_cards(name)
@@ -513,6 +516,15 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
+
+
+def answered_ts(data: dict, post: dict) -> list[str]:
+    """The ts of each message of his a post answers, by its asked, which the watch's daily sweep times his answers by: a ts or a permalink names its own message, and words name the message the posting handler holds; an edit answers none."""
+    asked = [] if post.get("edit") else slack.messages(post.get("asked") or "")
+    named = [entry if BARE_TS.fullmatch(entry) else message and message[1] for entry in asked for message in [state.slack_message(entry)]]
+    handler = state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    held = handler and (data["handlers"][handler]["holds"] or {}).get("message")
+    return list(dict.fromkeys(filter(None, (ts or held for ts in named))))
 
 
 def keep_line(name: str, thread: str, link: str, sent: str) -> None:
@@ -670,7 +682,7 @@ def draw(name: str, keys: list[str], again: bool = False) -> str:
 def waits_line(data: dict, keys: list[str], titles: list[str]) -> str:
     """The line the drive posts when it asks his tap again on PRs that fix a live bug, in the card's thread, with no link, so Slack draws no other card: why it asks, the open incident or reported bug they fix, and what the PRs on it do, by their titles."""
     incident = any(data["orders"][order_id]["incident"] for key in keys for order_id in state.served_orders(data, data["prs"][key]))
-    return f"Asking again, since it fixes {'an open incident' if incident else 'a reported bug'}: {'; '.join(titles)}"
+    return f"{ASKING_AGAIN} {'an open incident' if incident else 'a reported bug'}: {'; '.join(titles)}"
 
 
 def plain(line: str) -> None:

@@ -934,6 +934,12 @@ def send_message(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..
 
 
 @pytest.fixture(autouse=True)
+def unswept(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No watch pass runs the daily Slack sweep, whose bars a drive dated days before the run would cross: a test of the sweep calls the real one."""
+    monkeypatch.setattr(watch, "sweep_lines", lambda watcher, moment: [])
+
+
+@pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(watch, "codex_gap", lambda job_id, job: None)

@@ -97,7 +97,15 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_names
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--channel", "C777", "--answers", "1794200000.000300", "--", "The fix is up."),
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--", "The fix is in."),
     ]
-    assert [event["channel"] for event in said(demo)] == ["C777", None]
+    assert [(event["channel"], event["answers"]) for event in said(demo)] == [("C777", ["1794200000.000300"]), (None, [])]
+
+
+def test_a_post_answering_his_words_names_the_message_its_handler_holds_and_an_edit_names_none(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["handlers"]["h1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {"message": "1794200000.000400"}, "handed": [], "posted": []}
+    talk.posted(demo, {"text": "It is up.", "asked": ["is it up?", "https://acme.slack.com/archives/D123/p1794200000000500"]})
+    talk.posted(demo, {"edit": POSTED, "text": "It is in.", "asked": ["is it up?"]})
+    assert [event["answers"] for event in said(demo)] == [["1794200000.000400", "1794200000.000500"], []]
 
 
 def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, posts: list[tuple[str, ...]]) -> None:
