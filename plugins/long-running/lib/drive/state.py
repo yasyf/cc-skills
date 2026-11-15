@@ -813,6 +813,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("orphan_gap", None)
             part.setdefault("standing", None)
             part.setdefault("posted_by", None)
+            part.setdefault("soak", None)
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
@@ -901,6 +902,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         pr.setdefault("lead", None)
+        if pr["stage"]:
+            pr["stage"].setdefault("staging", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:
@@ -1587,6 +1590,9 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for key in job["waited"]["owed"]:
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *(wait for wait in job["waited"]["waits"] if not card_wait(data, wait))])
     job["waits"] = unlooped(data, job_id, job["waits"])
+    if soak := next((wait for wait in job["waits"] if STAGING_WAIT.fullmatch(wait)), None):
+        for order_id, part in staging_parts(data, job):
+            data["orders"][order_id]["parts"][part]["soak"] = soak
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *named_parts(data, waiting["cards"])])
@@ -2200,7 +2206,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered and not standing: a standing part holds the goal each pass of it runs on, which drive order set --standing keeps."""
-    return {"posted": None, "posted_by": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None}
+    return {"posted": None, "posted_by": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "soak": None}
 
 
 def reporter(link: str) -> dict:

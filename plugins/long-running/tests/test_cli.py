@@ -5962,6 +5962,8 @@ def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_neve
     assert keep(monkeypatch, capsys, "j3", f"WAITING {state.pr_url(keys[2])} waits on {soak}\n") == (0, "")
     tester = state.load(demo)["jobs"]["j3"]
     assert (tester["state"], tester["waits"], tester["waited"]["waits"]) == ("waiting", [soak], [soak])
+    assert state.load(demo)["orders"]["o3"]["parts"][staging]["soak"] == soak
+    assert view.staging(state.load(demo), "Forge-AI/monorepo#54680") == "Not on staging yet: waiting for plat-usw2-staging to run 044e855"
 
 
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
