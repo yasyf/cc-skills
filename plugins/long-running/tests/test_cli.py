@@ -5763,6 +5763,30 @@ def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_o
     assert (code, "\nResearched: j1\n" in written, '\nPlan: j2\'s return, change "retry each stalled copy": drive job report j2\n' in written) == (0, True, True)
 
 
+def test_j5896_a_follow_up_builder_split_off_work_a_readers_open_card_holds_is_held_by_that_card_whose_kept_holds_words_name_it_through_a_re_ask(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: the copy"))
+    assert run("job", "ask", "j1", str(block))[0] == 0
+    [card] = view.open_cards(state.load("demo")["jobs"]["j1"])
+    run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT j2-copy, waits on {card}\nUNBUILT: retry each stalled copy\n"))
+    assert cli.main(["job", "report", "j2", "-"]) == 0
+    assert f'j3 builder on "retry each stalled copy": start its agent now, building his recommended option with no PR until he answers {card}' in capsys.readouterr().out.splitlines()
+    held = "the copy; retry each stalled copy, which j3 builds"
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["questions"][-1]["holds"], state.part_cards(data, "j3"), land.ship_held(data, "j3")) == (held, [card], [card])
+    assert run("job", "ask", "j1", str(block))[0] == 0
+    data = state.load("demo")
+    [card] = view.open_cards(data["jobs"]["j1"])
+    assert (data["jobs"]["j1"]["questions"][-1]["holds"], land.ship_held(data, "j3")) == (held, [card])
+
+
 def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_make_no_part_and_an_unbuilt_line_on_work_a_sibling_part_or_another_jobs_pr_holds_is_refused(
     run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -89,6 +89,8 @@ CHANGE_LINE = re.compile(rf"^Change:{LISTED_CHANGE}", re.MULTILINE)
 NO_CHANGE = re.compile(r"[ \t]*(?i:none|nothing|n/a|nil)\b")
 UNBUILT_LINE = re.compile(rf"^UNBUILT:(?!{NO_CHANGE.pattern}){LISTED_CHANGE}", re.MULTILINE)
 CHANGE_WAITS = re.compile(r"\bchange (\d+)")
+BUILDER_HELD = "{part}, which {builder} builds"
+BUILDER_HOLD = re.compile(r"[^;]+, which j\d+ builds")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 FLAKE_FIX = "flake fix"
 MAIN_FIX = "main fix"
@@ -1988,7 +1990,7 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
         drop_part(data, job["order"], part, f"its design {job_id} no longer lists it")
     for change, _ in found if len(found) > 1 else []:
         order["parts"].setdefault(change, new_part()).update(design=job_id)
-    added = change_builders(data, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])])
+    added = change_builders(data, job_id, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])])
     if len(found) > 1 or added:
         order["updated"] = stamp()
         end_carried_designs(data, job["order"], order["updated"])
@@ -2056,7 +2058,7 @@ def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]
     if not design:
         share_research(data, builder["order"], set(builder["parts"]), [change for change, _ in found])
     order["updated"] = stamp()
-    return change_builders(data, design or builder_id, [([change], waits) for change, waits in found])
+    return change_builders(data, design or builder_id, builder_id, [([change], waits) for change, waits in found])
 
 
 def change_lines(kind: str, text: str) -> list[re.Match]:
@@ -2064,11 +2066,15 @@ def change_lines(kind: str, text: str) -> list[re.Match]:
     return list((UNBUILT_LINE if kind == "builder" else CHANGE_LINE).finditer(text))
 
 
-def change_builders(data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards on the design join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by part_cards, while its builder builds his recommended option meanwhile."""
+def change_builders(data: dict, design_id: str, source_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
+    """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by part_cards, while its builder builds his recommended option meanwhile, so each change added goes, with its builder's id, onto the kept Holds words of every open card part_cards finds holding the work of source_id, the job whose return listed it, but a design's own cards, whose Holds lines in that same return already name the changes each holds, by his pick "Each question names the changes it holds, kept with it"; a card kept with no Holds line already holds every change."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
+    source = data["jobs"][source_id]
+    own = view.open_cards(source) if source["kind"] == "design" else []
+    cards = [card for card in part_cards(data, source_id) if card not in own]
+    held = [question for _, question in view.drawn_on(data, *cards) if question["closed"] is None and question["holds"]] if cards else []
     created = stamp()
     added = []
     for parts, numbers in changes:
@@ -2088,7 +2094,16 @@ def change_builders(data: dict, design_id: str, changes: list[tuple[list[str], l
         hold_unstarted(builder)
         data["orders"][order_id]["jobs"].append(builder_id)
         added.append(builder_id)
+        for question in held:
+            question["holds"] = "; ".join([question["holds"], *(BUILDER_HELD.format(part=part, builder=builder_id) for part in uncarried)])
     return added
+
+
+def kept_builders(holds: str | None, before: str | None) -> str | None:
+    """A question's `Holds:` words asked again, with each change change_builders wrote onto the words of the question it takes the place of beside the builder building it, so a re-ask keeps holding that builder's PR; words reading none, or kept with no Holds line, stay as they are."""
+    if not holds:
+        return holds
+    return "; ".join([holds, *(said for said in (before or "").split("; ") if BUILDER_HOLD.fullmatch(said) and said not in holds)])
 
 
 def cite_designs(data: dict, job_id: str, line: str, report: str) -> None:
