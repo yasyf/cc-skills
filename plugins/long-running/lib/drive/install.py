@@ -52,6 +52,7 @@ HELPER_OPTIONS = f"{INSTALL_NOW} (recommended), {EVERY_INSTALL} and Not now"
 PROVEN = "proven live by drive job prove"
 PROOF_FAILED = "drive job prove failed"
 PROOF_WAITS = "drive job prove waits on his next word"
+PROVER_WAIT = "or on its WAIT line keeps you waiting and runs it again once he is next heard, never a process of your own waiting for the change to show itself"
 PROOF_DEADLINE_ENV = "CLAUDE_LONG_RUNNING_PROOF_DEADLINE"
 SAID_CHARS = 300
 NO_JOB = "j0"
@@ -951,7 +952,7 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
     builder_id = state.next_id(data["jobs"], "j")
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(keys)} live", own, state.stamp()) | {
         "session": job.get("session"),
-        "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff, "done_when": f"drive job prove {builder_id} runs your proof file and keeps its passing output as reports/{builder_id}.proof.txt"},
+        "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff, "done_when": f"drive job prove {builder_id} runs your proof file and keeps its passing output as reports/{builder_id}.proof.txt, {PROVER_WAIT}"},
         "builds_nothing": True,
     }
     data["orders"][order_id]["jobs"].append(builder_id)
@@ -1105,7 +1106,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
             ran, stopped = after_steps(name, steps, path, timeout)
             output += ran
             code, tail = stopped or (code, tail)
-        versions = versions if untapped else f"{LONG_RUNNING} {state.VERSION}"
+        versions = versions if untapped else shipped(job) if merges else f"{LONG_RUNNING} {state.VERSION}"
         line = (
             f"DONE {urls} live: {job['repro']} exits 0 on {versions}"
             if code == 0
@@ -1128,6 +1129,12 @@ def after_steps(name: str, steps: list[str], path: str, timeout: int) -> tuple[s
             lines = [line.strip() for line in said.splitlines() if line.strip()]
             return printed, (f"0, then its After install: {step} exits {ran.returncode}", lines[-1] if lines else "it printed nothing")
     return printed, None
+
+
+def shipped(job: dict) -> str:
+    """The releases a prover's shipped list holds, each carrying one of its merges outside yasyf/*, which its proof ran on, else its merge commits."""
+    releases = [f"the {found['service']} release of {found['pr']}" for found in map(state.RELEASE_WAIT.fullmatch, job["shipped"])]
+    return ", ".join(releases) or "its merge commits"
 
 
 def quoted(output: str) -> str:
@@ -1180,7 +1187,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
             change = f"{PROOF_WAITS}: {line.removeprefix('BLOCKED ')}"
         else:
             seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
-            post, facts = (f"is live in {versions}", f"Live: {versions}\n") if any(map(state.merges_untapped, keys)) else ("is live" if keys else "is fixed", "")
+            post, facts = (f"is live in {versions}", f"Live: {versions}\n") if keys else ("is fixed", "")
             closes = finish(name, data, job_id, line, [str(kept), *seen], post, f"{facts}Proof: {proven}\n")
             change = proven
             if code:

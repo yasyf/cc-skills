@@ -1488,8 +1488,8 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
-    from drive import view
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
+    from drive import install, view
 
     job = data["jobs"][job_id]
     if not result_state(job, line):
@@ -1503,6 +1503,15 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
                 f" keeps none it can run{f', as {why}' if why else ''}: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
+    if re.match(r"WAITING\b", line) and pid_waits(line) and (proving := install.handed_prs(data, job_id)):
+        repro = job.get("repro")
+        why = unrunnable(repro) if repro else None
+        keep = f"keep an executable proof file with drive job set {job_id} --repro <file>{f', as {why}' if why else ''}, then " if not repro or why else ""
+        return (
+            f"{job_id} proves {', '.join(proving)} live and waits on nothing, so no process of its own waits for the change to show itself:"
+            f" stop the one its WAITING names, {keep}run drive job prove {job_id}, which runs its proof file now and, on its WAIT line, keeps {job_id} waiting"
+            f" and runs it again once he is next heard, then end the turn on the first line drive job report {job_id} prints"
+        )
     if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, unlooped(data, job_id, job["waits"]), None) or result_waits(data, job_id, line)):
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
