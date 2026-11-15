@@ -148,6 +148,7 @@ APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
 CASE_LINE = re.compile(r"^CASE[ \t]+[^:\n]+:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 SLOT_WAIT = "builder-slot"
+HOLDS_NOW = "## Holds now"
 PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -1428,15 +1429,30 @@ def hold_text(job: dict, text: str, sender: str | None) -> None:
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
-    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox a worker's turn ended on, matched by their words: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts held that the job did not hold already."""
+    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox a worker's turn ended on, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts held that the job did not hold already."""
     senders = {sent_by(sender): sender for sender in [HIM, *SENDER_NAMES]}
-    unread = {message["body"]: senders.get(message["subject"]) for message in box if hold and not message["read"]}
-    settled = {message["body"] for message in box if message["read"]} | set(unread)
+    unread = {unheld(message["body"]): senders.get(message["subject"]) for message in box if hold and not message["read"]}
+    settled = {unheld(message["body"]) for message in box if hold or message["read"]}
     held = [text for text in unread if all(kept["words"] != text for kept in job["undelivered"])]
     for text in held:
         hold_text(job, text, unread[text])
     job["queued"] = [sent for sent in job["queued"] if sent["words"] not in settled]
     return held
+
+
+def unheld(sent: str) -> str:
+    """A text as the drive held it, less the Holds now block cli.messaged ended it with when it sent it."""
+    return sent.split(f"\n\n{HOLDS_NOW}\n", 1)[0]
+
+
+def handed_texts(job: dict, text: str | None) -> list[str]:
+    """The texts a start of the job's next worker hands it, each once: those the job holds, oldest first, then the text given."""
+    return list(dict.fromkeys([*(kept["words"] for kept in job["undelivered"]), *filter(None, [text])]))
+
+
+def unreturned(job: dict, handed: str) -> list[dict]:
+    """Each text the job's workers were given since its last return, by a start's brief or handoff or a send to a live worker, that handed, the text a start hands its next worker, lacks: the work a worker that never returned its line leaves its next one, whose handoff carries it and whose start keeps it."""
+    return [given for given in job["given"] if (not job["returned"] or parse_time(given["at"]) > parse_time(job["returned"])) and given["words"] not in handed]
 
 
 def parts_goal(parts: list[str]) -> str:
@@ -2436,6 +2452,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "turn_open": False,
         "undelivered": [],
         "queued": [],
+        "given": [],
         "state": "running",
         "said": None,
         "due": None,

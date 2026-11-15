@@ -248,6 +248,24 @@ def held(data: dict, pr: dict) -> str:
     return ""
 
 
+def holds_now(data: dict, job_id: str) -> str:
+    """The block that ends every handoff, resume brief and resume text a job's worker gets: the drive's one read, as that worker starts or hears it, of each wait of the job still holding by view.holding, the cards its own open questions are drawn on among them, each card of his by its question and link, and what of his holds each of its open PRs by held(), so no worker takes an older line, report or message for what holds them now."""
+    job = data["jobs"][job_id]
+    waits = view.holding(data, view.stored_waits(data, [*job["waits"], *view.open_cards(job)]), None)
+    lines = [f"- It waits on {waited_on(data, wait)}." for wait in waits if wait != state.SLOT_WAIT]
+    lines += [f"- {pr['url']}: {held(data, pr) or 'nothing of his holds it'}." for pr in data["prs"].values() if pr["url"] in job["prs"] and pr["state"] == "open"]
+    return f"{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n" + ("\n".join(lines) or "- Nothing: it waits on nothing and has no open PR.") + "\n"
+
+
+def waited_on(data: dict, wait: str) -> str:
+    if not state.card_wait(data, wait):
+        return wait
+    asked = [question for _, question in view.drawn_on(data, wait)]
+    title = next((question["title"] for question in asked if question["title"]), None)
+    link = next((question["card"] for question in asked if question["card"]), wait)
+    return f'his question card "{title}", {link}' if title else f"his question card {link}"
+
+
 def red(data: dict, key: str) -> str:
     """What its builder must fix at its head: failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     pr = data["prs"][key]

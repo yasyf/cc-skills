@@ -59,6 +59,7 @@ ON_MAC = "on this Mac"
 PUSH_FIRST = "Commit and push before any long build."
 UNPUSHED = f"work it had not committed and pushed is not carried over. {PUSH_FIRST}"
 CONTINUED = "You continue the job in the checkout that holds its PR branch, as it stands, uncommitted edits included."
+UNFINISHED = "What its workers were given since the job's last return, which none of them returned a line on, so you carry it on:"
 RELOAD = "/reload-plugins"
 EXIT = "/exit"
 MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
@@ -423,8 +424,8 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None, holder: Holder | None = None) -> str:
-    """The brief of a lane taking over from one that died, finished or a `drive job end` ended: the job's brief, then what that lane left, its report as the job's history keeps it, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from. Holder, the worktree on this Mac that pr_holder found holding the job's PR branch, is where a lane here continues in place of a fresh worktree, its branch the one the handoff names, by held_by."""
+def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, text: str | None, end: LaneEnd, since: str | None, carried: list[str], holds: str, here: bool = False, unsaved: str | None = None, holder: Holder | None = None) -> str:
+    """The brief of a lane taking over from one that died, finished or a `drive job end` ended: the job's brief, then what that lane left, its report as the job's history keeps it, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, the texts its workers were given since the job's last return, the message it never read, when a resume brought one, and the drive's read of what holds the job and its PRs now. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from. Holder, the worktree on this Mac that pr_holder found holding the job's PR branch, is where a lane here continues in place of a fresh worktree, its branch the one the handoff names, by held_by."""
     local = here or state.on_mac(job)
     how = "finished" if end.worktree or end.live else "ended" if end.ended else "died"
     mac = f"in the worktree that holds its PR branch {ON_MAC}" if holder else f"in a fresh worktree {ON_MAC}"
@@ -454,16 +455,16 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, t
     if holder:
         where = f"{where} {held_by(holder)}"
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. {where}"
-    return taking_over(brief, f"a lane that {how}", held, holder.branch if holder else end.branch, job, report, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, f"a lane that {how}", held, holder.branch if holder else end.branch, job, report, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n", carried, holds)
 
 
-def agent_handoff(brief: str, job: dict, report: str, text: str | None, died: str | None, holder: Holder | None = None) -> str:
-    """The brief of an agent or lane taking over a job from an Agent on this Mac that stopped, or from one of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read; a lane on this Mac continues in the worktree pr_holder found holding the job's PR branch, when one does."""
+def agent_handoff(brief: str, job: dict, report: str, text: str | None, died: str | None, carried: list[str], holds: str, holder: Holder | None = None) -> str:
+    """The brief of an agent or lane taking over a job from an Agent on this Mac that stopped, or from one of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left, the texts its workers were given since the job's last return, the message, when one came, that it never read, and the drive's read of what holds the job and its PRs now; a lane on this Mac continues in the worktree pr_holder found holding the job's PR branch, when one does."""
     where = f"stopped, so it takes no message: {died}" if died else "runs where this session cannot message it"
     took = f"{CONTINUED} {held_by(holder)}" if holder else f"You take the job over from its pushed branches; {UNPUSHED}"
     held = f"The agent that held this job, {job['agent']} of session {job['session']}, {where}. {took}"
     taker = "an agent that stopped" if died else "an agent of another session"
-    return taking_over(brief, taker, held, holder.branch if holder else None, job, report, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, taker, held, holder.branch if holder else None, job, report, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n", carried, holds)
 
 
 def held_by(holder: Holder) -> str:
@@ -484,7 +485,7 @@ def pr_holder(data: dict, job: dict, clone: str) -> Holder | None:
     return None
 
 
-def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, report: str, message: str | None) -> str:
+def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, report: str, message: str | None, carried: list[str], holds: str) -> str:
     prs = ", ".join(job["prs"]) or "none yet"
     return (
         f"{brief.strip()}\n\n"
@@ -494,7 +495,9 @@ def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dic
         f"Its last line: {job['said'] or 'nothing yet'}\n"
         f"Its PRs: {prs}\n\n"
         f"Its last report:\n\n{(report or 'none').strip()}\n"
+        + (f"\n{UNFINISHED}\n\n" + "\n\n".join(text.strip() for text in carried) + "\n" if carried else "")
         + (f"\n{message}" if message else "")
+        + f"\n{holds}"
     )
 
 
@@ -941,13 +944,14 @@ def session_of(workspace: str, dispatch: str) -> str | None:
     return found if SESSION_ID.fullmatch(found) else None
 
 
-def resumed(ended: dict, text: str | None) -> str:
-    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, with the cause line read off its Sprite, what it resumes on, the dispatch it reports on now, and the messages it never read, when any came, naming no sender, since they can be his answers as well as the coordinator's."""
+def resumed(ended: dict, text: str | None, holds: str) -> str:
+    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, with the cause line read off its Sprite, what it resumes on, the dispatch it reports on now, the messages it never read, when any came, naming no sender, since they can be his answers as well as the coordinator's, and the drive's read of what holds the job and its PRs now."""
     return (
         f"Your lane died at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
         " you left, so a tool call that was running then never finished. Read its git status and log, then carry the job on. Report on the task and dispatch"
         " the Orca preamble above this brief names, never on your earlier ones.\n"
         + (f"\nThe messages you never read, which you act on now:\n\n{text.strip()}\n" if text else "")
+        + f"\n{holds}"
     )
 
 

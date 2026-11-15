@@ -390,7 +390,8 @@ before it sends or starts.
   a lane on a Sprite, or on this Mac with `drive job launch <j> --local` or when its brief declares
   a step only this Mac runs, on a handoff carrying the job's brief, branch, last line, report, PRs
   and the message.
-- A live worker gets the message: the answer to its open question, or a new message to its Dispatch
+- A live worker gets the message, ending with the Holds now block below, read at its first try so a
+  retry under its request id sends the same words: the answer to its open question, or a new message to its Dispatch
   when it asked none or Orca already holds another answer to it, which the output says is queued in that Dispatch for its live worker, read at its next check, and carried by the job's next worker if this one ends with it unread. A live Sprite lane no start this
   drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
   hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
@@ -425,13 +426,19 @@ before it sends or starts.
   watch and `drive answer` read before either says the job has not heard them.
 - Either new worker gets a handoff carrying the job's brief, rebuilt from its `drive job brief`
   call so it holds the rulings and carried orders the drive holds now, branch, last line, report,
-  PRs and the message, and the output says which ran.
+  PRs and the message, and the output says which ran. It also carries each text the job's workers
+  were given since its last return that the brief lacks, so a worker that died before its line
+  leaves its next one the texts it was started on.
+- Every handoff, resumed session's brief and message to a live worker ends with one `## Holds now`
+  block, the drive's read as it sends it. It names each wait of the job still holding, each card of
+  his by its question and link, and what of his holds each of the job's open PRs: his Hold, the hold
+  label or his open cards on its work. A worker reads it over any older line, report or message.
 - A dead lane whose Sprite answers with the Claude session its worker ran there, found by the
   dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead,
   unless that Sprite faulted, as below:
   `cc-remote orca prepare --existing --resume <session>` starts that session again in the
-  checkout it left, with a short brief saying why it died, which dispatch it reports on now and
-  the message, and nothing is saved, moved or destroyed. A resume that starts no worker falls back
+  checkout it left, with a short brief saying why it died, which dispatch it reports on now, the
+  message and the Holds now block, and nothing is saved, moved or destroyed. A resume that starts no worker falls back
   to the relaunch below, its why naming the refusal.
 - First, a running job's resume reads one cause line from the logs it copied off the dead lane's
   Sprite: the kernel's lines at error level or worse since it started init, `memory.high` when the
