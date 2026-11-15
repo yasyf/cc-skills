@@ -35,7 +35,10 @@ for its repository says, then return `DONE <proof>`.
   PR the same way, by his ruling 0048b14. While any order's `staging test of #N before it lands` part
   has a job on it, or the PR waits on it, and is not delivered, the PR reads waiting on that run, and
   red, owed by its builder, while no tester runs it. `drive pr add`, `drive pr set` and the lander put
-  each PR waiting on his tap whose paths reach a component, counting no path on go/ci's dev list, `tools/ci` and `go/ci`, whose code only its caller runs, whatever its exempt class, on that part. `drive pr land` and the hook
+  each PR waiting on his tap whose paths reach a component, counting no path on go/ci's dev list, `tools/ci` and `go/ci`, whose code only its caller runs, whatever its exempt class, on that part,
+  but never one whose part `drive order set --drop-part` or his answer took off, which merges first
+  and gets its after-merge staging pass, by his answer 2eb7e76, "Safe ones merge now: the
+  staging-only infrastructure change and the app secret change merge, then get tested". `drive pr land` and the hook
   refuse it on this Mac and on a Sprite lane. The watch stops a lander that queued a PR before any
   wait of it came on, this one included. An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
@@ -620,7 +623,10 @@ PR checks that everyone hits".
   and the lander put each PR waiting on his tap whose paths reach a component `tools/ci release select
   --pr` lists on that part and its wait, whatever its exempt class, by his pick bb9cf91: its `releases`,
   reached through paths off go/ci's dev list, so a PR changing only `tools/ci` and `go/ci`, whose code its
-  caller runs from a checkout and no release deploys, gets none. The watch's first pass after the install
+  caller runs from a checkout and no release deploys, gets none, nor a PR whose part `drive order set
+  --drop-part` or his answer took off: that drop ends the PR's wait on it at every head, its card saying
+  it merges first and is tested on staging after its merge, by 2eb7e76, whatever its builder's `STAGING:` line
+  says. The watch's first pass after the install
   that brought this reads the reach of each open PR an older reach put on its test and takes each that
   now gets none off it, the part, its wait and each tester left with nothing else, whoever took it up,
   since 0048b14 binds a high-risk change's started test, so his Approve on it stands. A builder's later

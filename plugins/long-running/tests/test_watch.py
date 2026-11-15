@@ -7314,6 +7314,32 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
     assert (now.name, now.owner, now.why) == ("red", stage.BUILDER, f"it waits on {part}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
 
 
+def test_a_pr_whose_staging_test_part_drive_order_set_drops_lands_on_his_approve_at_every_head_whatever_its_builders_staging_line_says(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+        data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
+    enqueue_exiting(tmp_path, demo, 0)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]} for key in keys})
+    part = state.STAGING_TEST.format(number=42)
+    held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
+    assert land.run(demo, [KEY]) == held
+    assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 0
+    assert land.run(demo, [KEY]) == land.QUEUED
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "ccccccc333"
+    assert land.run(demo, [KEY]) == land.QUEUED
+    data = state.load(demo)
+    assert (data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], part in data["orders"]["o1"]["parts"], state.markable(data, KEY, "ccccccc333")) == ([], False, False, False)
+    assert view.staging(data, KEY) == "Not on staging before it merges: drive order set --drop-part took its staging test off its order, so it is tested on staging after its merge"
+    with state.edit(demo) as data:
+        tested = state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: #42 deploy the api to staging and run its smoke\n")
+        state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: none: it changes only the docs\n")
+    assert (tested, land.run(demo, [KEY]), state.load(demo)["prs"][KEY]["waits"]) == ([], land.QUEUED, [])
+
+
 @pytest.mark.parametrize("code", [0, 3])
 def test_a_landers_outcome_is_said_on_its_prs_line_waking_no_one_and_a_failure_reads_unlanded_which_wakes_the_session_holding_its_order(
     demo: str, tmp_path: Path, code: int
