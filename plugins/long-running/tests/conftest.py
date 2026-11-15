@@ -197,6 +197,21 @@ def explained(block: str) -> str:
     return "".join(lines)
 
 
+def unheld(text: str) -> str:
+    """The text a worker got, less the Holds now block stage.holds_now ends it with."""
+    return text.split(f"\n{state.HOLDS_NOW}")[0].rstrip()
+
+
+@dataclass(eq=False)
+class Unheld:
+    """Equal to a text sent to a worker whose words before its Holds now block are these."""
+
+    words: str
+
+    def __eq__(self, sent: object) -> bool:
+        return isinstance(sent, str) and unheld(sent) == self.words
+
+
 def kept_brief(text: str, name: str = "demo") -> str:
     """The `Read your brief first:` line of the text kept as a brief in the drive's jobs folder, where the drive writes every brief, its Drive line naming a job the drive holds none of when the text names none."""
     path = state.drive_dir(name) / "jobs" / f"typed-{next(KEPT_BRIEFS)}.brief.md"

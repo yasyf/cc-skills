@@ -29,11 +29,13 @@ from conftest import (
     SPRITE_CONFIG,
     Answers,
     Drawing,
+    Unheld,
     cloned,
     drawn_card,
     git_in,
     said_lines,
     staged,
+    unheld,
 )
 from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, watch
 
@@ -462,7 +464,7 @@ def test_job_set_agent_records_the_run_task_terminal_and_lane_orca_shows_for_the
     sent = []
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
     assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(SPRITE_DISPATCH)}")
-    assert sent == [("send", "--to", f"dispatch:{SPRITE_DISPATCH}", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request", ANY)]
+    assert sent == [("send", "--to", f"dispatch:{SPRITE_DISPATCH}", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY)]
 
 
 def test_launch_composes_the_vm_brief_and_records_the_lane(
@@ -1228,7 +1230,7 @@ def test_a_job_whose_agent_on_this_mac_stopped_on_a_refusal_relaunches_on_a_spri
         "Order (his words): fix the red check\nResearched: j0\nDrive: demo, order o1, job j1\n\n## Taking over from an agent that stopped\n\n"
         f"The agent that held this job, a1 of session session-under-test, stopped, so it takes no message: {stop}."
     )
-    assert brief.endswith(f"The message it never read, which you act on now:\n\n{message}") if message else "which you act on now" not in brief
+    assert unheld(brief).endswith(f"The message it never read, which you act on now:\n\n{message}") if message else "which you act on now" not in brief
     job = state.load(demo)["jobs"]["j1"]
     assert {field: job[field] for field in ("agent", "session", "where", "route", "dispatch", "state", "waits")} == {
         "agent": None,
@@ -1286,7 +1288,7 @@ def test_a_resume_of_an_agent_here_whose_turn_ended_while_eight_builders_hold_th
     assert out[len(said) :].startswith(
         ", taking over from its agent a1 on this Mac, which takes no message: its turn ended and 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at "
     )
-    assert orca.brief_of(launched[0]).endswith("The message it never read, which you act on now:\n\nPR #54870: checks failed")
+    assert unheld(orca.brief_of(launched[0])).endswith("The message it never read, which you act on now:\n\nPR #54870: checks failed")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["where"], job["route"], job["dispatch"]) == (None, "remote", None, "dispatch-2")
 
@@ -1525,9 +1527,9 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
         ("run-use", "--id", RUN),
-        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "TAP Approve", "--retry-request", ANY),
+        ("reply", "--id", "msg_q1", "--run", RUN, "--body", Unheld("TAP Approve"), "--retry-request", ANY),
         ("check", "--run", RUN),
-        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request", ANY),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY),
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
@@ -1543,8 +1545,8 @@ def test_resume_sends_to_the_dispatch_when_orca_already_holds_another_answer_to_
     assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(DISPATCH)}")
     assert calls == [
         ("run-use", "--id", RUN),
-        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "PR checks failed", "--retry-request", ANY),
-        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request", ANY),
+        ("reply", "--id", "msg_q1", "--run", RUN, "--body", Unheld("PR checks failed"), "--retry-request", ANY),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY),
     ]
     assert calls[1][-1] != calls[2][-1]
     job = state.load(remote)["jobs"]["j1"]
@@ -1594,7 +1596,7 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
     assert brief.startswith("Order (his words): ship it\nDrive: demo, order o1, job j1\n\n## Taking over from a lane that died")
     assert "Commit and push before any long build." in brief
     assert "Its last line: ASK which npm name?\nIts PRs: https://github.com/Forge-AI/monorepo/pull/7\n" in brief
-    assert brief.endswith("which you act on now:\n\nUse @poeticapps/poetic")
+    assert unheld(brief).endswith("which you act on now:\n\nUse @poeticapps/poetic")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["run"], job["dispatch"], job["workspace"], job["state"], job["ask"], job["brief"]) == (
         FRESH_RUN,
@@ -1617,7 +1619,7 @@ def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each
     recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Partition strategies", "body": "time, hash by key and spill all ship", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
     taken = "## Taking over from a lane that died\n\nThe message it never read, which you act on now:\n\nUse @poeticapps/poetic"
     earlier = tmp_path / "earlier.md"
-    earlier.write_text(orca.vm_brief(remote, "j1", f"{Path(state.load(remote)['jobs']['j1']['brief']).read_text()}\n{taken}", None))
+    earlier.write_text(orca.vm_brief(remote, "j1", f"{Path(state.load(remote)['jobs']['j1']['brief']).read_text()}\n{taken}\n\n{state.HOLDS_NOW}\n\n- https://github.com/Forge-AI/monorepo/pull/7: held by his Hold.\n", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(earlier), workspace="sprite-old", ask="msg_q1", state="waiting", said="ASK which npm name?")
         data["jobs"]["j1"]["brief_flags"]["ruling"] = ["bc0da25"]
@@ -1635,8 +1637,8 @@ def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each
     assert run("job", "resume", "j1", "Ship it now")[0] == 0
     brief = orca.brief_of(launched["brief"])
     assert "Decisions that bind:\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n" in brief
-    assert f"\n\n{taken}\n\n## Taking over from a lane that died\n\n" in brief
-    assert brief.endswith("which you act on now:\n\nShip it now")
+    assert (f"\n\n{taken}\n\n## Taking over from a lane that died\n\n" in brief, brief.count(state.HOLDS_NOW)) == (True, 1)
+    assert unheld(brief).endswith("which you act on now:\n\nShip it now")
 
 
 def test_a_dead_lane_briefed_before_the_release_and_mac_flags_relaunches_on_its_brief_rebuilt_with_them_blank(
@@ -1662,7 +1664,7 @@ def test_a_dead_lane_briefed_before_the_release_and_mac_flags_relaunches_on_its_
     assert run("job", "resume", "j1", "PR #7 review: answer the bot's warning")[0] == 0
     brief = orca.brief_of(launched["brief"])
     assert "Serves: his order\nGoal: remote builders\nDone when: merged\nWhere: Forge-AI/monorepo dev\n" in brief
-    assert brief.endswith("which you act on now:\n\nPR #7 review: answer the bot's warning")
+    assert unheld(brief).endswith("which you act on now:\n\nPR #7 review: answer the bot's warning")
     flags = state.load(remote)["jobs"]["j1"]["brief_flags"]
     assert (flags["release"], flags["mac"], flags["where"]) == (None, None, "Forge-AI/monorepo dev")
 
@@ -1703,8 +1705,8 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
     )
     (prepared, kept, first_run), (relaunched, again, second_run) = launched
     assert (relaunched, first_run, second_run) == (prepared, "run_try1", "run_try2")
-    assert orca.brief_of(kept).endswith("which you act on now:\n\nPR #12 merged: prove it live")
-    assert orca.brief_of(again).endswith("which you act on now:\n\nPR #12 merged: prove it live\n\nPR #12 merged at abc123: prove it live")
+    assert unheld(orca.brief_of(kept)).endswith("which you act on now:\n\nPR #12 merged: prove it live")
+    assert unheld(orca.brief_of(again)).endswith("which you act on now:\n\nPR #12 merged: prove it live\n\nPR #12 merged at abc123: prove it live")
     assert sent == []
     job = state.load(remote)["jobs"]["j1"]
     assert (job["run"], job["dispatch"], [death["dispatch"] for death in job["deaths"]]) == ("run_try2", "dispatch-2", [DISPATCH])
@@ -1973,7 +1975,7 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
     )
     brief = launched[0][1]
     assert f": its worker exited; {HIGH_CAUSE}. This is your own Claude session, resumed on Sprite {workspace} in the checkout you left" in brief
-    assert brief.endswith("which you act on now:\n\nBuild #4412 failed: fix the lint\n")
+    assert unheld(brief).endswith("which you act on now:\n\nBuild #4412 failed: fix the lint")
     assert cli.main(["job", "resume", "j1", "carry on"]) == 2
     job = state.load(remote)["jobs"]["j1"]
     first, second = job["deaths"]
@@ -2283,7 +2285,7 @@ def test_a_lane_orca_could_not_reach_restarts_on_its_own_sprite_once_the_wake_re
     assert (wakes, [launched["workspace"] for launched in launches]) == ([("--wake", workspace)], [workspace])
     brief = orca.brief_of(launches[0]["brief"])
     assert "You continue the job on the same Sprite, in the checkout it left as it was, since Orca could not reach that Sprite." in brief
-    assert brief.endswith(f"which you act on now:\n\n{watch.UNREACHED}")
+    assert unheld(brief).endswith(f"which you act on now:\n\n{watch.UNREACHED}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == ("dispatch-2", workspace, [(dispatch, workspace)])
 
@@ -2298,7 +2300,7 @@ def test_a_lane_orca_could_not_reach_resumes_its_own_claude_session_on_its_sprit
     code, out = run("job", "resume", "j1", watch.UNREACHED)
     assert (code, out.startswith(f"j1: the message went to the job's worker, which resumed its own Claude session {sessions[workspace]} on Sprite {workspace}")) == (0, True)
     assert (wakes, [(launched["workspace"], launched["session"]) for launched in launches]) == ([("--wake", workspace)], [(workspace, sessions[workspace])])
-    assert launches[0]["brief"].rstrip().endswith(watch.UNREACHED)
+    assert unheld(launches[0]["brief"]).endswith(watch.UNREACHED)
 
 
 @pytest.mark.parametrize("lane", [J1409_LANES["j489"], J1409_LANES["j414"], J1409_LANES["j601"], J2504_LANE])
@@ -2319,7 +2321,7 @@ def test_a_pushed_job_whose_sprite_will_not_wake_restarts_on_a_fresh_sprite_from
     assert (wakes, [launched["workspace"] for launched in launches]) == ([("--wake", workspace)], [workspace, None])
     brief = orca.brief_of(launches[-1]["brief"])
     assert f"You take the job over on a fresh Sprite from its pushed branches; {orca.UNPUSHED}" in brief
-    assert "Its branch: durable-agents-j2504/sandsql-two-redo-volumes\n" in brief and brief.endswith(f"which you act on now:\n\n{held}")
+    assert "Its branch: durable-agents-j2504/sandsql-two-redo-volumes\n" in brief and unheld(brief).endswith(f"which you act on now:\n\n{held}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], job["undelivered"], [death["workspace"] for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [workspace])
 
@@ -2332,7 +2334,7 @@ def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_noth
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
     assert run("job", "resume", "j1", watch.UNREACHED) == (0, f"j1: {queued(DISPATCH)}")
     assert (wakes, launches) == ([("--wake", "pool-ochwykolpjebecve")], [])
-    assert sent == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", watch.UNREACHED, "--retry-request", ANY)]
+    assert sent == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld(watch.UNREACHED), "--retry-request", ANY)]
 
 
 @pytest.mark.parametrize("saved", [SAVED, None], ids=["saved", "unsaveable"])
@@ -2363,7 +2365,7 @@ def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_o
     assert f"was dead ({unreachable(port)}, and its wake read {unreachable(port).removeprefix('Orca could not reach its Sprite: ')}, and its Sprite has nothing listening on the port Orca's runtime serves on there)" in out
     assert out.endswith(f"what {workspace} held on no remote is saved on GitHub as {ON_GITHUB}; destroyed {workspace}" if saved else f"{workspace} is kept, since what it holds on no remote could not be saved: {UNREAD}")
     assert (wakes, [(launched["workspace"], launched["session"]) for launched in launches], released) == ([("--wake", workspace)], [(None, None)], [workspace] if saved else [])
-    assert orca.brief_of(launches[0]["brief"]).endswith(f"which you act on now:\n\n{held}\n\n{watch.UNREACHED}")
+    assert unheld(orca.brief_of(launches[0]["brief"])).endswith(f"which you act on now:\n\n{held}\n\n{watch.UNREACHED}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["workspace"], death.get("saved")) for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [(workspace, saved)])
 
@@ -2447,7 +2449,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     assert "You continue the job on the same Sprite, in the checkout it left as it was." in brief
     assert "Its branch: ci-mac-box-prove\nIts last line: WAITING security review of #7\n" in brief
     assert "Its last report:\n\nWAITING security review of #7\nPR: https://github.com/Forge-AI/monorepo/pull/7\n" in brief
-    assert brief.endswith("which you act on now:\n\nThe review: one medium finding, fix it")
+    assert unheld(brief).endswith("which you act on now:\n\nThe review: one medium finding, fix it")
     job = state.load(remote)["jobs"]["j1"]
     assert {field: job[field] for field in ("run", "dispatch", "task", "terminal", "workspace", "environment", "sprite_config", "lane", "state", "report", "reads")} == {
         "run": FRESH_RUN,
@@ -2494,7 +2496,7 @@ def test_resume_to_a_finished_worker_on_this_mac_whose_terminal_orca_no_longer_f
     assert (launched["lane"], launched["run"], launched["route"], launched["workspace"]) == ("demo-j1-2", FRESH_RUN, state.LOCAL_ROUTE, None)
     brief = orca.brief_of(launched["brief"])
     assert "## Taking over from a lane that died" in brief
-    assert brief.endswith("which you act on now:\n\nThe review: one medium finding, fix it")
+    assert unheld(brief).endswith("which you act on now:\n\nThe review: one medium finding, fix it")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["route"], [death["dispatch"] for death in job["deaths"]]) == ("dispatch-2", state.LOCAL_ROUTE, [DISPATCH])
 
@@ -2980,7 +2982,7 @@ def test_a_launch_local_of_a_job_whose_sprite_does_not_answer_moves_it_to_this_m
     assert (wakes, [(started["workspace"], started["session"]) for started in launches], marks) == ([], [(None, None)], [str(os.getpid())])
     assert not (state.drive_dir(remote) / "jobs" / "j1.launch").exists()
     brief = orca.brief_of(launches[0]["brief"])
-    assert brief.endswith(f"which you act on now:\n\n{held}")
+    assert unheld(brief).endswith(f"which you act on now:\n\n{held}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], job["undelivered"], [(death["dispatch"], death["workspace"]) for death in job["deaths"]]) == (state.LOCAL_ROUTE, "dispatch-2", [], [(dispatch, workspace)])
     if released:
@@ -3359,8 +3361,8 @@ def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_i
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")
     assert out[1] == f"j1: {queued('dispatch-2')}"
-    assert len(launches) == 1 and orca.brief_of(launches[0]).endswith("which you act on now:\n\nPR #12: checks failed")
-    assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "TAP Approve #12", "--retry-request", ANY)]
+    assert len(launches) == 1 and unheld(orca.brief_of(launches[0])).endswith("which you act on now:\n\nPR #12: checks failed")
+    assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", Unheld("TAP Approve #12"), "--retry-request", ANY)]
 
 
 def orca_refuses(monkeypatch: pytest.MonkeyPatch, refusal: str) -> None:
@@ -3444,7 +3446,7 @@ def test_resume_sends_to_a_lane_on_this_mac_orca_cannot_tell_is_live_and_types_i
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(ON_THIS_MAC)
     assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(DISPATCH, ', and typed into its terminal term_lane that it has mail')}")
-    assert ([args[:10] for args in sent], sends) == ([("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed", "--retry-request")], typed_into(orca.MAIL))
+    assert ([args[:10] for args in sent], sends) == ([("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request")], typed_into(orca.MAIL))
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
 
 
@@ -3461,9 +3463,35 @@ def test_a_held_text_goes_once_under_its_request_id_when_a_bare_resume_finds_the
     assert run("job", "resume", "j1") == (0, f"j1: {queued(DISPATCH)}")
     assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
     assert sent == [
-        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "ship it, he said", "--retry-request", str(uuid.uuid5(uuid.UUID(kept["request"]), "send")))
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("ship it, he said"), "--retry-request", str(uuid.uuid5(uuid.UUID(kept["request"]), "send")))
     ]
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
+
+
+def test_a_live_send_ends_on_what_holds_now_and_its_retry_sends_the_block_its_first_try_sent(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pr = "https://github.com/Forge-AI/monorepo/pull/7"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["prs"] = [pr]
+        data["prs"][state.pr_key(pr)] = state.new_pr(pr, "j1", "o1") | {"hold_label": True}
+    sent = []
+
+    def unanswered(*args: str) -> dict:
+        sent.append(args)
+        if args[0] == "send":
+            raise orca.OrcaError("Orca never answered")
+        return {}
+
+    monkeypatch.setattr(orca, "call", unanswered)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    assert run("job", "resume", "j1", "PR checks failed")[0] == 0
+    with state.edit(remote) as data:
+        data["prs"][state.pr_key(pr)]["hold_label"] = False
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    assert run("job", "resume", "j1") == (0, f"j1: {queued(DISPATCH)}")
+    held = f"PR checks failed\n\n{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n- {pr}: held by the hold label on GitHub.\n"
+    assert [args[8] for args in sent if args[0] == "send"] == [held, held]
 
 
 def test_a_held_answer_of_his_reaches_a_live_lane_as_his_answer_and_a_coordinators_text_as_from_the_coordinator(
@@ -3479,7 +3507,7 @@ def test_a_held_answer_of_his_reaches_a_live_lane_as_his_answer_and_a_coordinato
             {"seq": None, "words": logs, "sender": "coordinator", "at": state.stamp(), "said": None, "request": str(uuid.uuid4())},
         ]
     assert run("job", "resume", "j1")[0] == 0
-    assert [(args[6], args[8]) for args in sent if args[0] == "send"] == [("His answer", ring), ("From the coordinator", logs)]
+    assert [(args[6], args[8]) for args in sent if args[0] == "send"] == [("His answer", Unheld(ring)), ("From the coordinator", Unheld(logs))]
 
 
 def test_a_relaunch_carries_each_held_text_in_its_handoff_ahead_of_its_own(
@@ -3504,8 +3532,40 @@ def test_a_relaunch_carries_each_held_text_in_its_handoff_ahead_of_its_own(
     )
     assert run("job", "resume", "j1", watch.CARRY_ON)[0] == 0
     [brief] = launched
-    assert orca.brief_of(brief).endswith(f"which you act on now:\n\nTAP Approve #12\n\n{watch.CARRY_ON}")
+    assert unheld(orca.brief_of(brief)).endswith(f"which you act on now:\n\nTAP Approve #12\n\n{watch.CARRY_ON}")
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
+
+
+def test_a_death_relaunch_carries_the_texts_its_dead_worker_was_started_on_and_ends_on_what_holds_now(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    pr, card = "https://github.com/Forge-AI/monorepo/pull/7", "https://acme.slack.com/archives/D123/p1763190000000100"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", prs=[pr], returned=state.stamp(state.now() - timedelta(hours=1)))
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "May a builder touch a held PR?", state.stamp(), card=card) | {"waits": "demo:j1-7"})
+        data["prs"][state.pr_key(pr)] = state.new_pr(pr, "j1", "o1") | {"hold_label": True}
+    launched = []
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a dead lane is sent nothing: {args}"))
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(
+        orca,
+        "launch",
+        lambda drive, lane, brief, checkout, run_id, route, workspace, session: launched.append(orca.brief_of(brief.read_text()))
+        or {field: f"{field}-{len(launched) + 1}" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")},
+    )
+    started_on = "Leave PR #7 alone until he answers his card"
+    assert run("job", "resume", "j1", started_on)[0] == 0
+    assert run("job", "resume", "j1", watch.CARRY_ON)[0] == 0
+    holds = (
+        f"{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n"
+        f'- It waits on his question card "May a builder touch a held PR?", {card}.\n- {pr}: held by the hold label on GitHub.'
+    )
+    assert launched[1].endswith(f"{orca.UNFINISHED}\n\n{started_on}\n\nThe messages it never read, which you act on now:\n\n{watch.CARRY_ON}\n\n{holds}")
 
 
 def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handoff(
@@ -3532,7 +3592,7 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
     code, out = run("pr", "wake", url, "--text", "PR #7 is red: fix it")
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2")) == (0, True)
     [brief] = launched
-    assert orca.brief_of(brief).endswith("which you act on now:\n\nPR #7 is red: fix it")
+    assert unheld(orca.brief_of(brief)).endswith("which you act on now:\n\nPR #7 is red: fix it")
 
 
 def test_a_pr_wake_goes_to_the_job_its_row_names_alone_while_a_newer_live_builder_lists_its_url(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3795,7 +3855,7 @@ def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_wait
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")
     assert out[1] == f"{key}: j1 {queued('dispatch-2')}"
-    assert len(launches) == 1 and orca.brief_of(launches[0]).endswith(f"which you act on now:\n\n{verdicts[0]}")
+    assert len(launches) == 1 and unheld(orca.brief_of(launches[0])).endswith(f"which you act on now:\n\n{verdicts[0]}")
     assert sent == [("send", "--to", "dispatch:dispatch-2", "--run", FRESH_RUN, "--subject", f"{key}: its next step is yours", "--body", verdicts[1])]
 
 
@@ -3829,7 +3889,7 @@ def test_a_pr_wake_to_a_finished_lane_prepares_its_sprite_again_and_starts_its_j
     assert launched == [("demo-j1-2", "pool-one")]
     brief = orca.brief_of((state.drive_dir(remote) / "jobs" / "j1-2.md").read_text())
     assert f"Its last line: {ready}\n" in brief
-    assert brief.endswith(f"which you act on now:\n\n{line}")
+    assert unheld(brief).endswith(f"which you act on now:\n\n{line}")
     assert {field: state.load(remote)["jobs"]["j1"][field] for field in ("run", "dispatch", "terminal", "workspace", "state")} == {
         "run": FRESH_RUN,
         "dispatch": "dispatch-2",
@@ -4670,7 +4730,7 @@ def test_resume_or_launch_after_end_reads_the_end_never_orca_or_the_destroyed_sp
     assert f": ended by drive job end. You take the job over on a fresh Sprite from its pushed branches; {nothing}. Commit and push before any long build." in brief
     assert f"Its last line: WAITING CI on {url}\nIts PRs: {url}\n" in brief
     if words:
-        assert brief.endswith(f"which you act on now:\n\n{words}")
+        assert unheld(brief).endswith(f"which you act on now:\n\n{words}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], job["state"]) == ("dispatch-2", "workspace-2", "running")
     assert [(death["dispatch"], death["why"]) for death in job["deaths"]] == [(DISPATCH, "ended by drive job end")]

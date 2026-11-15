@@ -19,7 +19,7 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -694,7 +694,7 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_ended_agent_hands_the
     handoff = state.drive_dir("demo") / "jobs" / "j1.handoff.md"
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")
     assert "## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session meta-before-restart," in handoff.read_text()
-    assert handoff.read_text().endswith("The message it never read, which you act on now:\n\nTAP Approve\n")
+    assert unheld(handoff.read_text()).endswith("The message it never read, which you act on now:\n\nTAP Approve")
     assert state.load("demo")["jobs"]["j1"]["agent"] == "a-1"
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, out.splitlines()[0], session="meta-session")))
     job = state.load("demo")["jobs"]["j1"]
@@ -716,7 +716,7 @@ def test_resume_hands_a_job_saved_before_jobs_recorded_where_they_run_and_their_
     code, out = run("job", "resume", "j1", "PR checks failed")
     handoff = state.drive_dir(demo) / "jobs" / "j1.handoff.md"
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")
-    assert handoff.read_text().endswith("The message it never read, which you act on now:\n\nPR checks failed\n")
+    assert unheld(handoff.read_text()).endswith("The message it never read, which you act on now:\n\nPR checks failed")
 
 
 def test_an_agent_that_stops_before_any_step_is_recorded_and_sent_back_to_keep_its_line(
