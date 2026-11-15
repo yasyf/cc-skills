@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, carrying
-from drive import card, github, install, reads, render, served, settled, stage, state
+from drive import card, cli, github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -1558,7 +1558,8 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     assert "16301 deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no mac-box-approve step of a Mac box proof" in unsigned
     assert none.endswith(
         "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
-        " or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
+        " or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, or, for a PR changing only tools/ci and go/ci, the GitHub commit link of the head its checkout ran,"
+        " heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
         " such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
     assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j2", "16302"), done("j1", "16203")] == [None, None, None, None]
@@ -1581,6 +1582,53 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     data["jobs"]["j2"]["parts"] = [part]
     data["jobs"]["j2"]["goal"] = "read the layout's key ranges"
     assert done("j2", "16203") is None
+
+
+def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_check_linking_a_commit_carrying_its_head_as_j212s_pass_of_56826_was_not(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone = tmp_path / "monorepo"
+    subprocess.run(["git", "init", "-q", "-b", "dev", str(clone)], check=True)
+    git_head(clone, "commit", "-q", "--allow-empty", "-m", "base")
+    heads = []
+    for path, subject in (("inside.go", "the dialer pod pins amd64"), ("ci", "tools/ci fetches the linux-amd64 ci")):
+        (clone / path).write_text(f"{subject}\n")
+        git_head(clone, "add", path)
+        heads.append(git_head(clone, "commit", "-q", "-m", subject))
+    older, head = heads
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\nexit 0\n")
+    proof.chmod(0o755)
+    data = state.new_drive("demo", "coordinator", None, str(clone))
+    state.create(data)
+    data = state.load("demo")
+    created, part = "2026-11-15T12:00:00-08:00", "the staging smoke runs from an Apple Silicon Mac"
+    data["orders"] = {"o1": state.new_order("smoke staging from a Mac", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {part: state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "pin the dialer pod to amd64", [part], created) | {"state": "waiting", "repro": str(proof)},
+        "j2": state.new_job("o1", "builder", "run the staging smoke from this Mac at the PR's head", [part], created) | {"state": "running", "builds_nothing": True, "repro": str(proof)},
+    }
+    key = f"{MONOREPO}#56826"
+    data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/56826", "j1", "o1") | {"head": head, "waits": ["j2"]}}
+    reach = {key: {"components": ["api", "platy"], "touched": ["platy"], "dev": ["go/ci/internal/tenantsmoke/inside.go", "tools/ci"], "releases": []}}
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {each: reach[each] for each in keys if each in reach})
+
+    def done(*proofs: str) -> str | None:
+        report = "DONE #56826's staging smoke passed from this Mac\n" + "".join(f"CHECK: {proof}\n" for proof in proofs) + "CASE the dialer pod runs on an amd64 node: pass\n"
+        return state.result_refusal(data, "j2", report.splitlines()[0], report)
+
+    def commit(sha: str, repo: str = MONOREPO) -> str:
+        return f"https://github.com/{repo}/commit/{sha}"
+
+    assert [done(commit(head)), done(str(tmp_path / "staging-test-56826.txt"), commit(head[:12]))] == [None, None]
+    lacking = f"{key} changes only tools/ci and go/ci, code its caller runs from a checkout, and no CHECK: line heading its cases links a commit carrying its head {head[:12]}"
+    for refused in (done(commit(older)), done(commit(head, "Forge-AI/other")), done(str(tmp_path / "staging-test-56826.txt"))):
+        assert refused.startswith(f"j2's DONE frees {key} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed")
+        assert lacking in refused
+    for released in ({key: reach[key] | {"releases": ["api"]}}, {}):
+        reach = released
+        refused = done(commit(head))
+        assert refused.startswith(f"j2's DONE frees {key} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed a commit carrying it to staging: they name no Buildkite build.")
 
 
 def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(state_root: Path) -> None:

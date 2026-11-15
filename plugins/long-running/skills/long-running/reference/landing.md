@@ -35,7 +35,7 @@ for its repository says, then return `DONE <proof>`.
   PR the same way, by his ruling 0048b14. While any order's `staging test of #N before it lands` part
   has a job on it, or the PR waits on it, and is not delivered, the PR reads waiting on that run, and
   red, owed by its builder, while no tester runs it. `drive pr add`, `drive pr set` and the lander put
-  each PR waiting on his tap whose paths reach a component, whatever its exempt class, on that part. `drive pr land` and the hook
+  each PR waiting on his tap whose paths reach a component, counting no path on go/ci's dev list, `tools/ci` and `go/ci`, whose code only its caller runs, whatever its exempt class, on that part. `drive pr land` and the hook
   refuse it on this Mac and on a Sprite lane. The watch stops a lander that queued a PR before any
   wait of it came on, this one included. An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
@@ -618,7 +618,12 @@ PR checks that everyone hits".
   leaving out test files and its `[skip]` globs, and give a PR that changes one the same part, wait and
   tester, its goal naming each class and file, before his card draws. And `drive pr add`, `drive pr set`
   and the lander put each PR waiting on his tap whose paths reach a component `tools/ci release select
-  --pr` lists on that part and its wait, whatever its exempt class, by his pick bb9cf91. A builder's later
+  --pr` lists on that part and its wait, whatever its exempt class, by his pick bb9cf91: its `releases`,
+  reached through paths off go/ci's dev list, so a PR changing only `tools/ci` and `go/ci`, whose code its
+  caller runs from a checkout and no release deploys, gets none. The watch's first pass after the install
+  that brought this reads the reach of each open PR an older reach put on its test and takes each that
+  now gets none off it, the part, its wait and each tester left with nothing else, whoever took it up,
+  since 0048b14 binds a high-risk change's started test, so his Approve on it stands. A builder's later
   `STAGING: #N` line reaches that tester as a held text, and its `STAGING: none: <why>` lifts a test no
   job took up and the release reach did not give, its why shown on his card, while a test a job took up runs to its end, by 0048b14. It is never a wait
   on the testing job: the lander lands it once that tester's `DONE` keeps the test's proof as its first
