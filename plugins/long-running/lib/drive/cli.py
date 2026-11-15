@@ -3986,9 +3986,9 @@ def pr_add(args: argparse.Namespace) -> int:
     kept = data["prs"].get(key, {}).get("lead")
     pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
-    drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key)])
+    drawn = state.after_save(name, lambda: [f"{key}{said}"] if (said := (releaded(pr) if pr["lead"] != kept else "") if shown else drawn_card(name, key)) else [])
     data = state.load(name)
-    return emit(args, "\n".join([f"{key}{''.join(drawn)}", *render.builder_lines(name, data, testers)]), {"key": key, **data["prs"][key]})
+    return emit(args, "\n".join([*(drawn or [key]), *render.builder_lines(name, data, testers)]), {"key": key, **data["prs"][key]})
 
 
 def drawn_card(name: str, key: str) -> str:
@@ -4248,7 +4248,7 @@ def pr_set(args: argparse.Namespace) -> int:
     found = found if source == "live" else None
     now = state.load(name)
     stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
-    line = render.pr_line(now, key, view.pr_card_words(found, source, now["prs"][key])) + serving + untapped + "".join(told)
+    line = render.pr_line(now, key, view.pr_card_words(found, source, now["prs"][key])) + serving + untapped + "".join(f"\n{said}" for said in told)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -4262,7 +4262,7 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
             withdrawn += slack.withdraw_pr_card(url, why)
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
-    return [f"\nwithdrew his card {card}: {why}" for card in withdrawn]
+    return [f"withdrew his card {card}: {why}" for card in withdrawn]
 
 
 def shipped(data: dict, job_id: str, order_id: str, parts: list[str]) -> str:

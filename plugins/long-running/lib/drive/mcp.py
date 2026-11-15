@@ -327,7 +327,7 @@ def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
                 out, err = child.communicate(timeout=CALL_SECONDS)
             except subprocess.TimeoutExpired:
                 child.kill()
-                out, err = "", f"drive tool {tool} did not finish in {CALL_SECONDS} seconds"
+                out, err = "", unfinished(tool, "".join(child.communicate()))
     if CALLS.pop(request_id, None) is None:
         return None
     said = out + err if child.returncode else out
@@ -352,11 +352,17 @@ def warm_call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
     if CALLS.pop(request_id, None) is None:
         return None
     if run.timed_out:
-        return {"content": [{"type": "text", "text": f"{out}{err}drive tool {tool} did not finish in {CALL_SECONDS} seconds".strip()}], "isError": True}
+        return {"content": [{"type": "text", "text": unfinished(tool, f"{out}{err}")}], "isError": True}
     if run.code is None:
         return {"content": [{"type": "text", "text": f"{out}{err}drive tool {tool}: the drive's warm process ended before the call did".strip()}], "isError": True}
     said = out + err if run.code else out
     return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(run.code)}
+
+
+def unfinished(tool: str, said: str) -> str:
+    """What a call killed past CALL_SECONDS answers: what it printed, then that it ran out of time, and for a tool whose ops share one save, whether that save kept them, which it prints as it lands."""
+    unkept = ", and it kept none of its ops, since its one save of the drive never landed" if tool in tools.ONE_SAVE and tools.KEPT not in said else ""
+    return f"{said}drive tool {tool} did not finish in {CALL_SECONDS} seconds{unkept}".strip()
 
 
 class WarmCall:
