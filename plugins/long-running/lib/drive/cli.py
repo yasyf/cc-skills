@@ -3094,7 +3094,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
                 hold(name, args.id, text, state.held_sender(data))
                 return deliver(args, name)
             local = args.local and not state.on_mac(job)
-            step = declared_step(name, args.id, job)
+            step = declared_step(job)
             try:
                 end = orca.lane_end(name, job, wake=not (local or step))
             except orca.OrcaError as error:
@@ -3174,7 +3174,7 @@ def deliver(args: argparse.Namespace, name: str) -> int:
     if not held:
         return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
     yield_to_launch(name, args.id)
-    step = declared_step(name, args.id, job)
+    step = declared_step(job)
     try:
         end = orca.lane_end(name, job, wake=step is None)
     except orca.OrcaError as error:
@@ -3188,12 +3188,11 @@ def deliver(args: argparse.Namespace, name: str) -> int:
         return unsent(args, state.load(name)["jobs"][args.id], held, error)
 
 
-def declared_step(name: str, job_id: str, job: dict, text: str | None = None) -> str | None:
-    """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line of its brief, when a launch recorded one rather than a lane recorded by hand, its last report as its history keeps it and its handoff shows it, a text it holds or the text given, by place.mac_step: the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything; None for a job on this Mac or one declaring none."""
-    if state.on_mac(job):
+def declared_step(job: dict) -> str | None:
+    """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line of its brief, when a launch recorded one rather than a lane recorded by hand, by place.mac_step: the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything, never its report, a text it holds or the text given, since a return's Mac: line places the prover install.add_prover hands its merge to; None for a job on this Mac or one declaring none."""
+    if state.on_mac(job) or not job.get("brief"):
         return None
-    brief = orca.brief_of(Path(job["brief"]).read_text()) if job.get("brief") else None
-    return place.mac_step("\n\n".join(filter(None, [brief, state.report_text(name, job_id, every=False), *(kept["words"] for kept in job["undelivered"]), text])))
+    return place.mac_step(Path(job["brief"]).read_text())
 
 
 def live_end(job: dict) -> orca.LaneEnd:
@@ -3263,7 +3262,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job runs, stamped as launching, its line no longer naming the waits that ended, so the watch reads a builder whose reader finished before its FREE line as starting, never as waiting on nothing."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job runs, stamped as launching, its line no longer naming the waits that ended, so the watch reads a builder whose reader finished before its FREE line as starting, never as waiting on nothing."""
     from drive import stage, view
 
     data = state.load(name)
@@ -3279,7 +3278,9 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         data = state.load(name)
         job = data["jobs"][job_id]
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    briefed = answers_since(data, job_id, rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file"))
+    own = rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file")
+    step = place.mac_step(own)
+    briefed = answers_since(data, job_id, own)
 
     def handed(holder: orca.Holder | None = None) -> str:
         if not (taker or died):
@@ -3288,7 +3289,6 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         return orca.agent_handoff(orca.brief_of(briefed), job, state.report_text(name, job_id, every=False), text, died, carried, stage.holds_now(data, job_id), holder)
 
     written = handed()
-    step = place.mac_step(written)
     local = local or bool(died and step)
     if holder := (orca.pr_holder(data, job, str(root)) if local else None):
         written = handed(holder)
@@ -3296,7 +3296,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
         or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and step else None)
-        or (crowded_here(name, data, job_id, step) if local else None)
+        or (crowded_here(name, data, job_id, step, text) if local else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     with state.edit(name) as data:
@@ -3325,19 +3325,22 @@ def answers_since(data: dict, job_id: str, written: str) -> str:
     return written
 
 
-def crowded_here(name: str, data: dict, job_id: str, step: str | None) -> str | None:
-    """Why a builder's lane starts in no worktree on this Mac now, by place.crowded, the rule every builder start here goes through: one declaring no step only this Mac runs starts on a Sprite at once, and one declaring the step waits its turn for a slot on builder-slot, a first lane that no agent or lane runs and nothing else holds, and a move from its Sprite whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts it holds kept for its handoff, which the watch's turn starts itself with drive job launch <j> --local."""
+def crowded_here(name: str, data: dict, job_id: str, step: str | None, text: str | None = None) -> str | None:
+    """Why a builder's lane starts in no worktree on this Mac now, by place.crowded, the rule every builder start here goes through: one declaring no step only this Mac runs starts on a Sprite at once, and one declaring the step waits its turn for a slot on builder-slot, a first lane that no agent or lane runs and nothing else holds, and a move from its Sprite or a takeover from its agent on this Mac whatever its worker, waits or PRs, the text given held on the job beside those it holds for its handoff, its Sprite lane running on meanwhile, which the watch's turn starts itself with drive job launch <j> --local."""
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or not (why := place.crowded(data, job_id, state.now())):
         return None
     if not step:
         return f"{why}, so it starts on a Sprite at once: drive job launch {job_id}, with no --local"
-    moving = place.on_sprite(job)
+    moving = place.on_sprite(job) or bool(job.get("agent"))
     if not (moving or place.queueable(data, job_id)):
         return f"{why}, so this one waits: launch it here once a slot opens with no builder waiting its turn"
     with state.edit(name) as data:
+        if text:
+            state.hold_text(data["jobs"][job_id], text, state.held_sender(data))
         place.queue(data["jobs"][job_id], state.now())
-    turn = f"the watch moves it here from its Sprite with drive job launch {job_id} --local as its turn comes, its handoff carrying the texts the job holds" if moving else "the watch's FREE line names it as a slot opens"
+    move = "moves it here from its Sprite" if place.on_sprite(job) else f"hands it from its agent {job['agent']} to a lane here"
+    turn = f"the watch {move} with drive job launch {job_id} --local as its turn comes, its handoff carrying the texts the job holds" if moving else "the watch's FREE line names it as a slot opens"
     return f"{why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, and {turn}"
 
 
@@ -3444,7 +3447,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     job = data["jobs"][args.id]
     message = "\n\n".join(state.handed_texts(job, text)) or None
     here = here or declared is not None
-    if here and (crowd := crowded_here(name, data, args.id, declared)):
+    if here and (crowd := crowded_here(name, data, args.id, declared, text)):
         raise DriveError(f"{args.id}: refused, no worker started: {crowd}")
     read = fault = own = None
     if not (end.live or end.ended or state.on_mac(job) or (end.worktree and here)):
@@ -3561,7 +3564,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         if not left and started["workspace"] != ended["workspace"] and (released := release_sprite(name, args.id, {**job, "workspace": ended["workspace"]}, root)):
             line += f"; {released}"
         if declared:
-            line += f"; it moved to this Mac, since its brief, its last report or the message declares {declared}, a step only this Mac runs"
+            line += f"; it moved to this Mac, since its brief declares {declared}, a step only this Mac runs"
     how = f"started {orca.ON_MAC}" if same else "relaunched"
     return emit(args, "\n".join(filter(None, [stopped, line])), {"id": args.id, "how": how, "ended": ended, "branches": branches, "handoff": str(kept), **started})
 
@@ -3800,7 +3803,7 @@ def pr_wake(args: argparse.Namespace) -> int:
             data = state.load(name)
             job = data["jobs"][job_id]
             if job["state"] != "stopped":
-                step = declared_step(name, job_id, job, text)
+                step = declared_step(job)
                 if (end := orca.lane_end(name, job, wake=step is None)) or step:
                     return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end or live_end(job), text, declared=step)
                 how = orca.send(name, job, f"{key}: its next step is yours", text)

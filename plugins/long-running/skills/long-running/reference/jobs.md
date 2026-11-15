@@ -51,14 +51,14 @@ Contents:
   turn the same way, unless a wait, a card of his or an open PR of its still holds it.
   Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
   `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite or
-  waits its turn the same way; a move from a Sprite, below, which waits its turn on `builder-slot`
-  whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
+  waits its turn the same way; a move from a Sprite, below, or a takeover from an agent here whose
+  brief declares such a step, which waits its turn on `builder-slot` whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
   kept for the handoff, until the watch's turn stamps its slot and starts the move itself with
   `drive job launch <j> --local`, a refusal of that launch reaching the coordinator as its
   `relaunch_refused` event; and a SendMessage that would wake an agent here
   whose turn ended, which the `communicator_calls` hook refuses while the slots are full, and after
   which `drive job resume <j> "<the message>"` hands the job to a lane on a Sprite with the message
-  in its handoff.
+  in its handoff, or holds the message for that takeover when its brief declares such a step.
 - A Forge-AI/monorepo builder is placed when it starts, from the step its brief declares, by his pick
   "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
   check". `drive job add` never refuses one for load. The brief's writer names the step only this
@@ -78,13 +78,14 @@ Contents:
   builder started with the Agent tool while this Mac's CPU is at or over its load gate's limit, the
   `remote` that `drive place` prints, unless its brief declares such a step. Every later start of
   a Sprite job reads the same lines once, by the same `place.mac_step`, before it sends or starts
-  anything: `drive job resume`, `drive job launch` and `drive pr wake` read its brief, its builder's
-  last report, where a `Mac:` line names the step its `PROVE:` needs, each text the job holds and
-  the resume's text, and a job declaring one moves to a fresh worktree here, as `--local` moves one,
+  anything: `drive job resume`, `drive job launch` and `drive pr wake` read its brief alone, never its
+  report, a text it holds, the resume's text or a takeover section a handoff added, and a job declaring one moves to a fresh worktree here, as `--local` moves one,
   whatever its Sprite worker is doing and never in the Sprite's own Claude session: a worker still
   at work or still taking messages is stopped by `orca.reclaim`, as `drive job end` stops one, and
   gets nothing, and every text the job holds goes in the handoff. A builder that builds nothing
-  moves at once past the cap. Such a brief starts here
+  moves at once past the cap. A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto
+  the brief of the prover added at its merge, so that prover starts here while a red check on the
+  job's own PR reaches its Sprite lane. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
   the Agent tool or with `--local`. A brief whose writer left its `Mac:` line out starts on a Sprite,
   which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`,
@@ -393,7 +394,7 @@ before it sends or starts.
   the drive last read. A fresh worktree is cut only when no worktree holds that branch.
 - A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
   message; one whose worker takes messages is refused, naming the resume that sends it one. With
-  `--local`, or a step only this Mac runs that its brief, last report or held texts declare, a job
+  `--local`, or a step only this Mac runs that its brief declares, a job
   on a Sprite moves here: its worker, when it still works or takes messages, is stopped by
   `orca.reclaim`, what its Sprite holds on no remote is saved to GitHub, its next worker starts in
   a fresh worktree on this Mac whether the last one finished, died, does not answer, returned its
