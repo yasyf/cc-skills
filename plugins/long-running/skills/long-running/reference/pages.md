@@ -9,7 +9,7 @@ When Jev reads the words of his order as naming a goal or asking where a project
 1. Write strict user stories and acceptance criteria before implementation.
 2. Build the page using `/kit/kit.js`, `/kit/kit.css`, and the shared kit renderers.
 3. Run `drive page add <slug> --order <order> --dir <folder>`, which runs the screenshot gate and registers the page only if the gate passes.
-4. Inspect the gate screenshots and click through every user story on the installed live dashboard, verifying that input values, focus, and open state survive stream updates and checking `prefers-reduced-motion`.
+4. Inspect the gate screenshots and click through every user story on the installed live dashboard, verifying that input values, focus, and open state survive stream updates and checking `prefers-reduced-motion`. The dashboard refuses every answer, tap, Undo and typed word from an automated browser, one whose `navigator.webdriver` is true as `agent-browser`'s is, so an answer button there ends on its `Not sent` toast and no card of his changes.
 5. Report the slug and `/pages/<slug>/` link in `DONE` so the coordinator can return them to the original thread.
 
 Running `drive page add` again with the same slug replaces the page whole; a failed gate leaves the previously installed page intact.

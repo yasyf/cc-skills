@@ -359,6 +359,10 @@ async function drawFigures(root) {
   }
 }
 
+function posted(body) {
+  return { method: 'POST', headers: { 'Content-Type': 'application/json', Webdriver: String(navigator.webdriver) }, body: JSON.stringify(body) };
+}
+
 async function ask(url, options) {
   try {
     const reply = await fetch(url, options);
@@ -2455,7 +2459,7 @@ async function answer(card, label) {
   render();
   try {
     const [path, body] = tapped ? ['/api/tap', { pr: tapped.key, label, head: tapped.head }] : ['/api/answer', { card, label }];
-    const reply = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const reply = await fetch(path, posted(body));
     const said = await reply.json();
     if (!reply.ok) throw new Error(said.error);
     answers.set(card, { ...about, label: said.label || label, at: said.at || new Date().toISOString(), done: true, undoUntil: said.undo_until });
@@ -2487,7 +2491,7 @@ async function undo(card, about = toasts.get(card) ?? answers.get(card)) {
     return toast(card, kept.length ? { ...about, state: 'late', error: `${counted(kept.length, 'answer')} could not be taken back` } : { ...about, state: 'restored' });
   }
   toast(card, { ...about, state: 'undoing' });
-  const said = await ask('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
+  const said = await ask('/api/undo', posted({ card }));
   if (!said.ok) return toast(card, { ...about, state: 'late', error: said.error });
   answers.delete(card);
   restored.add(card);
@@ -2544,7 +2548,7 @@ async function say(key, under, words, about, thread) {
   sent.set(key, { busy: true });
   render();
   try {
-    const reply = await fetch('/api/say', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: about ? `${about}: ${words.trim()}` : words.trim(), under }) });
+    const reply = await fetch('/api/say', posted({ text: about ? `${about}: ${words.trim()}` : words.trim(), under }));
     const said = await reply.json();
     if (!reply.ok) throw new Error(said.error);
     drafts.delete(key);
