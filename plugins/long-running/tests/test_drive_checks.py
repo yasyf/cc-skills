@@ -102,7 +102,11 @@ def test_a_finding_holds_at_yes_unless_his_words_lift_it_and_jev_reads_his_words
     assert (jev.asked[-1]["state"]["findings"], jev.asked[-1]["state"]["his_words"], list(jev.asked[-1]["questions"])) == ({"f1": FINDING}, {"w1": "land the first PR"}, ["f1.holds", "f1.lifted"])
     jev.picks("f1", 0.9)
     jev.ruled = {}
-    assert settled.post_verdict(output, "") == {"verdict": "warn", "note": "message_limits: Jev read no finding's rule as holding against this post, so it goes out as written."}
+    stands = {"verdict": "warn", "note": "message_limits: Jev read no finding's rule as holding against this post, so it goes out as written."}
+    assert settled.post_verdict(output, "") == stands
+    jev.picks("lifted", 0.5)
+    jev.breaks("f1", "holds", 0.1)
+    assert settled.post_verdict(output, "") == stands
 
 
 def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides(jev: Jev) -> None:

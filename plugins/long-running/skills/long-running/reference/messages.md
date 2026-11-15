@@ -86,7 +86,9 @@ his words "your messages need to be way shorter rewrite this for a human".
   in `say`'s text, which `say` links under words that name it. A line naming a PR or quoting an
   error one of his open question cards already asks about names that card too: `say`'s hook refuses
   a handler's post without it, naming the card, so a failure he was already told about reads as
-  that card's news. Slack then draws the card with its buttons under the line, so he answers it
+  that card's news. The match is on the card's subject, what it asks him to decide, the PR its
+  question names or the error its root cause quotes: a file, path or name both texts mention is no
+  shared subject, and the rule Jev weighs the finding by says so, so Jev passes a post sharing only one. Slack then draws the card with its buttons under the line, so he answers it
   where it sits. In that card's own thread `say` writes it
   as the words after its `|` or as "this card", with no link, and cc-slack writes any link to a
   thread's own parent as its words, since he is already under the card. His words: "why are you
@@ -373,8 +375,12 @@ When it is answered, replaced or redone:
   included, which X answers: the card closes showing them, and the work goes ahead on them. Only a
   question asking for facts or options is answered in its thread while the card waits. `drive job card` refuses to redraw that card with another question, so put a question his
   words leave open on a new card.
-- When an answer or ruling he gave elsewhere decides a card, `drive answer` lists it, Jev reading
-  his answer against every open card in one call, and `--settled` shows his words and a link to them
+- When an answer or ruling he gave elsewhere decides a card, `drive answer` lists it. Jev reads
+  his answer against his open cards in one request of at most 10,000 characters, one yes-or-no
+  question a card, the cards sharing the most rare words with his answer going in first and each
+  whole; a card Jev answers yes at 0.7 or more is listed, and so is one in the band between 0.3 and
+  0.7, since a card listed wrongly costs one `--stands` mark and one missed keeps asking him what he
+  already decided. `--settled` shows his words and a link to them
   in place where its buttons were, so a late tap records nothing. A card it decides only in part is
   redrawn under its `waits` id to the ASK its job keeps asking only what is left, linking his answer,
   by `drive job ask <j> <file> --redraws <key>`, then marked with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
@@ -430,8 +436,8 @@ When it is answered, replaced or redone:
   each PR does>`. While its PRs wait on him and fix a bug hurting someone now, the watch asks again
   every 30 minutes, once per card, under `Asking again, since it fixes a reported bug: <what each PR
   does>`, or `an open incident`. A flake fix's line adds that it fixes a flaking test at its cause,
-  quoting his ruling. Before it posts, `cc-slack check-post` reads the line, and Jev judges anything
-  it finds by the plain-words rule in one call. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
+  quoting his ruling. Before it posts, `cc-slack check-post` reads the line, and Jev judges what it
+  finds by the plain-words rule in one request, one yes-or-no question a finding. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
   line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
@@ -711,18 +717,21 @@ restating it.
   words name with its whole result, each call once, so a narrower call made later and named stands in for a wider one,
   and each record the post cites or a claim names, the report it carries
   among them, as the handler's newest call naming its seq, never the record's whole body; each claim names its read by
-  that read's id, so claims sharing a read add only their own words. Jev's prompt takes at most 10,000
-  characters, by his words "jev should be getting like 10k chars at most for any call": of his words it gets only those the
-  post answers, so a long thread refuses no post, and of the rules only those the post can trip, the findings' only beside a
-  finding, each with its own rule, and the reads', records' and ancestry reads' only beside such a read, while each of his
-  words is cut to what fits beside the rules, the post and its reads, those the post answers, quotes or links first, then
-  his prompts, each newest first, so his own length never refuses a post; a post whose reads push it past that is refused
-  before say runs, naming each
-  read's size, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and names those; a post whose
-  rules and own words alone pass it is refused too, naming a `DEFECT` line. Jev holds
+  that read's id, so claims sharing a read add only their own words. Each request to Jev is at most 10,000
+  characters, by his words "jev should be getting like 10k chars at most for any call", filled by whole items: the post
+  and its sentences, then each claim beside its read, each finding beside its rule, and of his words only those the
+  post answers, the checks' own picks first, then each newest first, so a long thread refuses no post. An item with no
+  room is left out whole, never cut, and a later smaller one still goes in. A word of his with no room is only left
+  out, while a claim whose read has no room refuses the post before say runs, naming each such read beside the size of
+  its own call, never a second read of the same call, and the handler makes narrower calls, such as a grep, a jq filter
+  or a line range, and names those. Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
-  checks each claim against that read, whole, and holds only unbacked claims". The fix is that read,
+  checks each claim against that read, whole, and holds only unbacked claims". Jev answers one
+  yes-or-no question a claim, whether its read backs it, and one a line no claim covers, whether it
+  states a fact that stands only on a read, each as a probability of yes, and code decides: a claim
+  Jev answers under 0.3 holds the post, a line answered 0.7 or more holds it, and an answer in the
+  band between only warns, naming the claim or line. The fix is that read,
   or the line cut to what the reads show, never a line posted marked unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` refuses an `ASK`, and the post hook a post, that names such a thing with no
@@ -885,25 +894,29 @@ GET 2 page ranges
   stands for, in this skill's and cc-slack's words, and the words of his it answers: his messages in
   the thread it went to since the bot's last post there, his answers on the card that thread is under,
   each message of his its asked links, each older word of his there its asked or a quote in it holds,
-  and his words on the order it is on, read from the drive, beside the session's recent turns. A handler's brief, the record it reads in and every prompt of a handler's
+  and his words on the order it is on, read from the drive; no session's transcript is read for them.
+  A handler's brief, the record it reads in and every prompt of a handler's
   own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
-  quote. Jev judges only the line each finding names, by its rule: the post stands when no finding's
-  rule holds against its line, or his words lift it, and is held with Jev's reason when one does,
-  never for saying more than his message asked, and never as unpermitted, since no post in his DM or
+  quote. Jev judges only the line each finding names, by its rule, in one request of at most 10,000
+  characters filled by whole items as above, with two yes-or-no questions a finding: whether its rule
+  holds against its line, and whether his words lift it. Code decides on each probability of yes: a
+  finding answered 0.7 or more whose lift is under 0.3 holds the post, with the finding and its rule
+  as Jev's reason; a finding under 0.3, or one his words lift at 0.7 or more, lets it stand; and an
+  answer in the band between only warns, naming the finding. No post is held for saying more than
+  his message asked, nor as unpermitted, since no post in his DM or
   its threads needs words of his permitting it and cc-slack's Slack permission hook judges each post
   anywhere else: an allow rests on the reads and rules it cites as fully as on his words. A held post
   stays in his DM as written, and the
   session that posted it hears Jev's reason, rewords it in place with `say(edit=<its permalink>,
   text=…)`, which Jev checks again, and ends its turn only once Jev passes the new words. His pick:
   "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until
-  its handler edits it". A handler's session gives Jev up to Claude Code's own 600-second hook
-  timeout, and every other session the deadline capt-hook's request leaves.
+  its handler edits it". Jev gets 20 seconds on a post, or what is left of capt-hook's deadline
+  when that is less, and 3 seconds on a drive check's refusal of a call.
 - A post with a finding a count or a mark decides, the post's word count, his reading as away or a
   line out of turn in the thread a bug report or question came from, and a dry run, Jev judges before
   `say` runs, since an edit takes back neither the buzz on his phone nor a line a reporter already
   read: it goes out only when Jev lifts that finding, and when Jev cannot finish, because it errs,
-  times out, or reads the transcript past capt-hook's deadline, it still refuses, since no judgment
-  lifts it. On any other post a Jev that cannot finish leaves each finding as a warning: the post
+  times out or declines a question, it still refuses, since no judgment lifts it. On any other post a Jev that cannot finish leaves each finding as a warning: the post
   stays as written, and the session that posted it hears every finding beside it and rewords the post
   in place when one holds. His pick: "Refusals only warn when the judge cannot finish: no post ever
   waits, but it goes out unchecked, as twice this morning". A session's account of its own act or

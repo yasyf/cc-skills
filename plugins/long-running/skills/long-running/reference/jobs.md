@@ -66,10 +66,9 @@ Contents:
   break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, or a
   devbox (`ci devbox`). A drive tooling builder whose Goal names a step to take once its change is
   installed, such as redrawing a card or resuming a job, declares it there too, since a `yasyf/*`
-  merge reaches no lane and the proof file `drive job prove` runs here after the install takes it:
-  `brief_refusal` refuses its launch while Jev reads its Goal so and no `Mac:` line names it, and
-  `drive job prove` takes no `DONE` while Jev reads its proof file and output as leaving that step
-  undone or unread. A `Release:` line declares one too, since its
+  merge reaches no lane and the proof file `drive job prove` runs here after the install takes it.
+  No Jev reading decides whether a Goal names such a step or a proof file takes it, by his pick
+  43f4d82 "drive job prove runs the step itself: no reading decides". A `Release:` line declares one too, since its
   agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word

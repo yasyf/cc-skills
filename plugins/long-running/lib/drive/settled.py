@@ -797,7 +797,7 @@ def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> di
             unsure.append(f"finding {finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters")
         elif reading(holds) and lifted < NO:
             held.append(f"{finding['found']}, by its rule: {finding['rule']}")
-        elif reading(holds) is None or reading(lifted) is None:
+        elif (rule := reading(holds)) is None or rule and reading(lifted) is None:
             unsure.append(f"finding {finding['found']}")
     for index in uncovered:
         if (fact := reading(read.get(f"s{index}.fact", 0.0))) is True:
