@@ -2792,12 +2792,15 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
     assert posted(transcript, text="The fix merged.") is None
 
 
-def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_a_line_whose_only_time_promises_the_next_line_waits(run: Run, talker: str, transcript: Path) -> None:
+def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_a_line_whose_only_time_promises_the_next_line_waits(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    heard = state.now() - timedelta(hours=2)
+    monkeypatch.setattr(state, "now", lambda: WRITTEN_AT)
+    heard = WRITTEN_AT - timedelta(hours=2)
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(heard), "away": state.stamp(heard + state.AWAY_AFTER)}
-    soon = message_limits.render.clock(state.now() + timedelta(minutes=20))
+    soon = message_limits.render.clock(WRITTEN_AT + timedelta(minutes=20))
     assert posted(transcript, text=f"The release freeze ends at {soon}.") is None
     reason = posted(transcript, text=f"The fix merged; next line by {soon}.")
     assert reason.startswith(
