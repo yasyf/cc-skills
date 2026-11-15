@@ -218,8 +218,15 @@ def deliver(monkeypatch: pytest.MonkeyPatch, *batches: list[dict]) -> list[int |
 
 @pytest.fixture(autouse=True)
 def reads_inline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Each read the watch starts runs to its end before the pass goes on, as a reader process that ended before the next pass."""
-    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: watch.answer_read(name, job_id, message_id) and ENDED_READER)
+    """Each read the watch starts runs to its end before the pass goes on, the moment its lane asked it, as a reader process that ended before the next pass."""
+    monkeypatch.setattr(
+        watch, "spawn_reader", lambda name, job_id, message_id: watch.answer_read(name, job_id, message_id, state.parse_time(watch.kept_question(name, job_id, message_id)["created_at"]))
+    )
+
+
+def unsent(name: str) -> list[str]:
+    """The questions whose kept answer no reply took yet, by the unsent marks in the drive's answers folder."""
+    return sorted(mark.stem for mark in (state.drive_dir(name) / watch.ANSWERS).glob("*.unsent"))
 
 
 @pytest.mark.parametrize(
@@ -2728,7 +2735,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     assert "Its last report:\n\nWAITING security review of #7\nPR: https://github.com/Forge-AI/monorepo/pull/7\n" in brief
     assert unheld(brief).endswith("which you act on now:\n\nThe review: one medium finding, fix it")
     job = state.load(remote)["jobs"]["j1"]
-    assert {field: job[field] for field in ("run", "dispatch", "task", "terminal", "workspace", "environment", "sprite_config", "lane", "state", "report", "reads")} == {
+    assert {field: job[field] for field in ("run", "dispatch", "task", "terminal", "workspace", "environment", "sprite_config", "lane", "state", "report")} == {
         "run": FRESH_RUN,
         "dispatch": "ctx_lane0002",
         "task": "task_2",
@@ -2739,7 +2746,6 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
         "lane": "demo-j1-2",
         "state": "running",
         "report": None,
-        "reads": {},
     }
     assert [(ended["dispatch"], ended["workspace"]) for ended in job["deaths"]] == [(DISPATCH, "pool-one")]
 
@@ -5565,7 +5571,7 @@ def test_the_relay_answers_a_read_from_orcas_newest_mail_beside_the_passes_and_l
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(seconds=5)) == []
     assert asked == ["READ cci show 2065"]
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065 the field facts")]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert unsent(remote) == []
 
 
 def test_a_read_the_relay_takes_while_lane_mail_reads_the_same_question_runs_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5585,7 +5591,7 @@ def test_a_read_the_relay_takes_while_lane_mail_reads_the_same_question_runs_onc
     monkeypatch.setattr(watch, "kept_asks", relayed_meanwhile)
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     assert asked == ["READ cci show 2065"]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert unsent(remote) == []
 
 
 @pytest.mark.parametrize(("lanes", "mail_reads"), [(0, 0), (1, 1), (100, 1)])
@@ -5602,24 +5608,22 @@ def test_a_relay_pass_reads_orcas_mail_once_however_many_sprite_lanes_are_live_a
     assert len(read) == mail_reads
 
 
-def test_every_answer_kept_on_a_run_goes_in_a_reply_of_its_own_with_no_bind_and_leaves_its_queue_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(
-            reads={"relay_one": "READ cci show 1", "relay_two": "READ cci show 2"},
-            read_answers={"relay_one": ["m1", None], "relay_two": ["m2", None]},
-            readers={"relay_one": ENDED_READER, "relay_two": ENDED_READER},
-        )
+def test_each_answer_a_dead_reader_left_unsent_goes_in_a_relay_reply_of_its_own_with_no_bind_and_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    for message_id, answer in (("relay_one", "m1"), ("relay_two", "m2")):
+        state.keep_reply(remote, "j1", message("question", f"READ cci show {answer[1]}", id=message_id))
+        watch.answer_file(remote, message_id).parent.mkdir(exist_ok=True)
+        watch.answer_file(remote, message_id).write_text(json.dumps({"job": "j1", "reader": ENDED_READER, "answer": answer, "why": None}))
+        watch.answer_file(remote, message_id).with_suffix(".unsent").touch()
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
-    assert watch.send_answers(remote, RUN) == [("j1", None), ("j1", None)]
-    assert calls == [
+    monkeypatch.setattr(orca, "newest_mail", list)
+    relaying = watch.Watcher(remote, offset=state.events_end(remote))
+    assert [watch.relay_pass(relaying, T0 + timedelta(seconds=s)) for s in (0, 2)] == [[], []]
+    assert [args for args in calls if args[0] == "reply"] == [
         ("reply", "--id", "relay_one", "--run", RUN, "--body", "m1"),
         ("reply", "--id", "relay_two", "--run", RUN, "--body", "m2"),
     ]
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job["read_answers"], job["readers"]) == ({}, {}, {})
-    assert watch.send_answers(remote, RUN) == []
-    assert len(calls) == 2
+    assert unsent(remote) == []
 
 
 def test_a_log_question_a_lane_on_the_old_builder_rules_asks_gets_the_rule_back_with_no_job_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5633,7 +5637,7 @@ def test_a_log_question_a_lane_on_the_old_builder_rules_asks_gets_the_rule_back_
     assert [args[:5] for args in replies if args[0] == "reply"] == [("reply", "--id", "msg_log", "--run", RUN)]
     assert "tools/ci bk log <pipeline> <build> <job>" in next(args[-1] for args in replies if args[0] == "reply")
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["state"], job["said"], job["reads"]) == (None, "running", None, {})
+    assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
 
 def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5653,49 +5657,32 @@ def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: s
     assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
 
 
-def test_a_read_answer_orca_refuses_its_reader_is_retried_by_the_watch_until_it_goes_through_and_said_from_the_watchs_third_refusal(
+def test_a_read_answer_orca_refuses_its_reader_is_sent_again_by_the_relay_until_it_goes_through_and_said_from_the_relays_third_refusal(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="msg_read")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
+    monkeypatch.setattr(orca, "newest_mail", list)
     replies, refusals = [], iter(range(4))
 
-    def busy_three_times(*args: str) -> dict:
+    def busy_four_times(*args: str) -> dict:
         if args[0] == "reply" and next(refusals, None) is not None:
             raise orca.OrcaError("orca orchestration reply: runtime_busy: Orca is busy", "runtime_busy")
         replies.append(args)
         return {}
 
-    monkeypatch.setattr(orca, "call", busy_three_times)
-    watching = watch.Watcher(remote, offset=state.events_end(remote))
-    passes = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)]
-    assert passes == [
+    monkeypatch.setattr(orca, "call", busy_four_times)
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    relaying = watch.Watcher(remote, offset=state.events_end(remote))
+    assert [watch.relay_pass(relaying, T0 + timedelta(seconds=s)) for s in (2, 4, 6)] == [
+        [],
         [],
         ["WATCH the answer to j1's read failed 3 times in a row: orca orchestration reply: runtime_busy: Orca is busy"],
     ]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {"msg_read": "READ cci show 2065"}
-    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
+    assert unsent(remote) == ["msg_read"]
+    assert watch.relay_pass(relaying, T0 + timedelta(seconds=8)) == []
     assert replies[-1:] == [("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065")]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
-
-
-def test_a_kept_answer_goes_at_the_start_of_the_pass_before_any_lane_mail_is_read_so_a_pass_crashing_mid_sweep_holds_it_back_no_longer(
-    remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(reads={"relay_kept": "READ cci show 2065"}, read_answers={"relay_kept": ["m2065", None]}, readers={"relay_kept": ENDED_READER})
-    calls = []
-    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
-
-    def crashes(after: int | None) -> list[dict]:
-        calls.append(("inbox", after))
-        raise RuntimeError("the pass crashed")
-
-    monkeypatch.setattr(orca, "mail", crashes)
-    with pytest.raises(RuntimeError):
-        watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
-    assert [args for args in calls if args[0] in ("reply", "inbox")] == [("reply", "--id", "relay_kept", "--run", RUN, "--body", "m2065"), ("inbox", None)]
-    assert state.stored(remote)["jobs"]["j1"]["reads"] == {}
+    assert unsent(remote) == []
 
 
 def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5705,20 +5692,20 @@ def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, mo
     monkeypatch.setattr(orca, "call", answered_elsewhere(replies))
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == []
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert unsent(remote) == []
     assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
     assert [args for args in replies if args[0] == "reply"] == [
         ("reply", "--id", "relay_6779eb1e29a6", "--run", RUN, "--body", "x")
     ]
 
 
-def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_line_and_its_answer_never_sent(
+def test_a_read_whose_lane_job_end_ended_before_its_reader_ran_never_runs_and_sends_nothing(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, remote)
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="relay_4d6bfb09372e")])
-    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
-    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: None)
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"ran {question}"))
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote))
@@ -5727,10 +5714,9 @@ def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_lin
         data["jobs"]["j1"].update(state="done", workspace="pool-one")
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays done")
-    watch.answer_read(remote, "j1", "relay_4d6bfb09372e")
+    assert watch.answer_read(remote, "j1", "relay_4d6bfb09372e", T0) == (None, "j1's worker no longer waits on relay_4d6bfb09372e, asked 2026-11-10T03:30:00Z, so it is not run")
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (5, 10, 70)] == [[], [], []]
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job["read_answers"], [args for args in replies if args[0] == "reply"]) == ({}, {}, [])
+    assert (watch.answer_file(remote, "relay_4d6bfb09372e").exists(), [args for args in replies if args[0] == "reply"]) == (False, [])
 
 
 @pytest.mark.parametrize("ended", [True, False], ids=["its lane drive job end ended", "its job moved to another worker"])
@@ -5751,9 +5737,7 @@ def test_a_read_its_jobs_live_worker_did_not_ask_never_runs_once_its_job_is_live
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job.get("read_answers", {}), job.get("readers", {})) == ({}, {}, {})
-    assert [args for args in replies if args[0] == "reply"] == []
+    assert (watch.answer_file(remote, "relay_5da19d2eca2c").exists(), [args for args in replies if args[0] == "reply"]) == (False, [])
 
 
 LONG_READ = 'DRIVE job replies j1\n{"files": {}}'
@@ -5807,7 +5791,7 @@ def test_an_answer_past_one_relay_message_its_lanes_sprite_cannot_take_tells_its
         ("put", "relay_long.txt"),
         ("reply", "--id", "relay_long", "--run", RUN, "--body", f"drive exited 0\n{why}"),
     ]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert unsent(remote) == []
 
 
 @pytest.mark.parametrize(
@@ -5835,7 +5819,7 @@ def test_a_slack_read_a_sprite_lane_asks_runs_this_macs_cc_slack_and_reaches_its
     assert placed == ([("pool-one", printed.encode())] if filed else [])
     kept = f"{orca.KEPT_ANSWER}/home/sprite/{orca.SPRITE_ANSWERS}/relay_slack.txt ({size} bytes, SHA-256 {hashlib.sha256(printed.encode()).hexdigest()}); read it in full\n"
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_slack", "--run", RUN, "--body", kept if filed else printed)]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert unsent(remote) == []
 
 
 def test_the_six_eleven_burst_replayed_after_an_orca_prune_and_a_watch_restart_says_each_dead_job_orphan_and_dropped_answer_once(
@@ -5878,7 +5862,7 @@ def test_the_six_eleven_burst_replayed_after_an_orca_prune_and_a_watch_restart_s
     assert [*passes, told(restarted, 64)] == [[], [f'ORPHAN o{n} "ship tool {n}": j{n} failed' for n in merged], [], [], []]
     data = state.load(remote)
     assert {data["jobs"][f"j{n}"]["state"] for n in merged} == {"failed"}
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["reads"], [death["dispatch"] for death in data["jobs"]["j1"]["deaths"]], relaunches) == ("waiting", {}, [DISPATCH], [])
+    assert (data["jobs"]["j1"]["state"], unsent(remote), [death["dispatch"] for death in data["jobs"]["j1"]["deaths"]], relaunches) == ("waiting", [], [DISPATCH], [])
     assert data["orders"]["o1"]["parts"]["Short title"]["orphan_said"] == said_before
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_closed", "--run", RUN, "--body", "log")]
 
@@ -5906,17 +5890,18 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     replies = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"the next watch ran {question} again"))
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(minutes=5)) == [
+    monkeypatch.setattr(orca, "newest_mail", list)
+    assert watch.answer_read(remote, "j1", "relay_read", T0) == (None, "another reader took j1's relay_read")
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert watch.relay_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(minutes=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [
         f"JOB j1 o1 READ unanswered, its lane was told why: {watch.CUT_OFF}"
     ]
     assert ("reply", "--id", "relay_read", "--run", RUN, "--body", sent) in replies
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job["read_answers"]) == ({}, {})
+    assert unsent(remote) == []
 
 
-def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_reader_sends_its_answer_the_moment_it_is_kept(
-    remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_read_still_running_starts_no_second_reader_and_its_reader_sends_its_answer_the_moment_it_ends(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch, [message("question", "DRIVE job report j1 -\n{\"stdin\": \"READY x\"}", id="relay_drive")])
     started, replies = [], []
 
@@ -5925,52 +5910,35 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_r
             state.take_result(data, job_id, "PUSHED x", "PUSHED x")
         return "drive exited 0\njobs/j1.replies.jsonl"
 
-    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: started.append(message_id) or os.getpid())
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: started.append(message_id))
     monkeypatch.setattr(reads, "answer", report)
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], []]
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
     sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\njobs/j1.replies.jsonl")]
-    watch.answer_read(remote, "j1", "relay_drive")
+    watch.answer_read(remote, "j1", "relay_drive", T0)
     assert [args for args in replies if args[0] == "reply"] == sent
     assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=10)) == []
-    assert [args for args in replies if args[0] == "reply"] == sent
-    job = state.load(remote)["jobs"]["j1"]
-    assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_drive"], {}, {}, {})
+    assert (started, [args for args in replies if args[0] == "reply"], unsent(remote)) == (["relay_drive"], sent, [])
 
 
-@pytest.mark.parametrize("cut_off_kept", [True, False])
-def test_a_reader_that_finishes_as_the_watch_checks_it_starts_no_second_reader_and_its_final_answer_goes(
-    cut_off_kept: bool, remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_second_reader_started_while_the_first_still_runs_exits_and_the_read_runs_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     question = "READ ccn answer search repro cut"
-    deliver(monkeypatch, [message("question", question, id="relay_read")])
-    reader, started, replies = 4242, [], []
+    state.keep_reply(remote, "j1", message("question", question, id="relay_read"))
+    ran, second, replies = [], [], []
 
-    def start(name: str, job_id: str, message_id: str) -> int:
-        started.append(message_id)
-        if cut_off_kept:
-            watch.keep_answer(name, job_id, message_id, [f"{question}: {watch.CUT_OFF}", watch.CUT_OFF])
-        return reader
+    def answered_as_a_second_reader_starts(question: str, root: Path, drive: str, job_id: str) -> str:
+        ran.append(question)
+        second.append(watch.answer_read(drive, job_id, "relay_read", T0))
+        return "m2065 the field facts"
 
-    def finishes_as_checked(pid: int) -> bool:
-        if pid == reader:
-            watch.keep_answer(remote, "j1", "relay_read", [f"{question}: empty, the read printed nothing", None])
-        return False
-
-    monkeypatch.setattr(watch, "spawn_reader", start)
+    monkeypatch.setattr(reads, "answer", answered_as_a_second_reader_starts)
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    monkeypatch.setattr(state, "alive", lambda pid: pid == reader)
-    watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert staged(watch.lane_lines, watching, T0) == []
-    monkeypatch.setattr(state, "alive", finishes_as_checked)
-    assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=5)) == []
-    assert [args for args in replies if args[0] == "reply"] == [
-        ("reply", "--id", "relay_read", "--run", RUN, "--body", f"{question}: empty, the read printed nothing")
-    ]
-    job = state.load(remote)["jobs"]["j1"]
-    assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_read"], {}, {}, {})
+    assert watch.answer_read(remote, "j1", "relay_read", T0) == ("m2065 the field facts", None)
+    assert (ran, second) == ([question], [(None, "another reader took j1's relay_read")])
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_read", "--run", RUN, "--body", "m2065 the field facts")]
+    assert unsent(remote) == []
 
 
 @pytest.mark.parametrize(
@@ -5982,75 +5950,50 @@ def test_a_reader_that_finishes_as_the_watch_checks_it_starts_no_second_reader_a
     ],
     ids=["a stopped lane's pr add never runs", "a failed lane's report never runs", "a done lane still waiting gets its read"],
 )
-def test_a_read_queued_by_a_lane_that_left_the_live_states_runs_only_while_its_workers_turn_is_open(
+def test_a_read_a_lane_asked_before_its_job_left_the_live_states_runs_only_while_its_workers_turn_is_open(
     ended: str, turn_open: bool, question: str, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    state.keep_reply(remote, "j1", message("question", question, id="relay_left"))
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state=ended, turn_open=turn_open, reads={"relay_left": question})
+        data["jobs"]["j1"].update(state=ended, turn_open=turn_open)
     ran, replies = [], []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: ran.append(question) or "drive exited 0\nDONE the report")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    deliver(monkeypatch)
-    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    answered = watch.answer_read(remote, "j1", "relay_left", T0)
     sent = [("reply", "--id", "relay_left", "--run", RUN, "--body", "drive exited 0\nDONE the report")]
     assert (ran, [args for args in replies if args[0] == "reply"]) == (([question], sent) if turn_open else ([], []))
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job.get("read_answers", {}), job.get("readers", {})) == ({}, {}, {})
+    assert answered[0] == ("drive exited 0\nDONE the report" if turn_open else None)
+    assert unsent(remote) == []
 
 
-@pytest.mark.parametrize(
-    ("asked_before", "alive", "held"),
-    [
-        (timedelta(minutes=20), False, None),
-        (timedelta(minutes=40), False, "no reader runs on it, and drive job read j1 relay_slow runs and answers it here"),
-        (timedelta(minutes=40), True, "its reader still runs"),
-    ],
-    ids=["asked 20 minutes ago", "asked 40 minutes ago with no reader", "asked 40 minutes ago with its reader running"],
-)
-def test_a_running_lane_waiting_30_minutes_on_a_read_it_queued_leaves_its_part_with_no_one_saying_what_holds_the_read(
-    asked_before: timedelta, alive: bool, held: str | None, remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    state.keep_reply(remote, "j1", message("question", "READ cci show 2065", id="relay_slow", created_at=state.stamp(T0 - asked_before)))
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="running", updated=state.stamp(T0 - timedelta(hours=1)), reads={"relay_slow": "READ cci show 2065"}, readers={"relay_slow": ENDED_READER})
-    monkeypatch.setattr(state, "alive", lambda pid: alive)
-    data = state.load(remote)
-    gap = watch.job_gap(watch.Watcher(remote, offset=state.events_end(remote)), "j1", data["jobs"]["j1"], data, "o1", "Short title", T0)
-    minutes = int(asked_before.total_seconds() // 60)
-    assert gap == (held and f'j1\'s lane asked "READ cci show 2065" {minutes} minutes ago and no answer reached it: {held}, each reader\'s output in the drive\'s {watch.READS_LOG}')
+@pytest.mark.parametrize("asked_before", [timedelta(seconds=watch.LANE_WAIT.total_seconds() + 1), timedelta(minutes=47)], ids=["just past the Sprite's give-up", "47 minutes ago"])
+def test_a_question_asked_past_the_sprite_drives_give_up_never_runs_and_no_answer_to_it_is_sent_again(asked_before: timedelta, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    state.keep_reply(remote, "j1", message("question", "DRIVE pr add https://github.com/Forge-AI/monorepo/pull/7 --job j1\n{\"files\": {}}", id="relay_late", created_at=state.stamp(T0)))
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"ran {question}"))
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    monkeypatch.setattr(orca, "newest_mail", list)
+    assert watch.answer_read(remote, "j1", "relay_late", T0 + asked_before) == (None, f"j1's worker no longer waits on relay_late, asked {state.stamp(T0)}, so it is not run")
+    watch.answer_file(remote, "relay_late").parent.mkdir(exist_ok=True)
+    watch.answer_file(remote, "relay_late").write_text(json.dumps({"job": "j1", "reader": None, "answer": "drive exited 0\nyasyf/demo#7", "why": None}))
+    watch.answer_file(remote, "relay_late").with_suffix(".unsent").touch()
+    assert watch.relay_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + asked_before) == []
+    assert ([args for args in replies if args[0] == "reply"], unsent(remote)) == ([], [])
 
 
-@pytest.mark.parametrize(
-    ("taken", "asker"),
-    [("waiting", DISPATCH), ("built", DISPATCH), ("running", "ctx_replaced0001")],
-    ids=["a waiting job holding its wait", "a built job holding its wait", "a running job whose read another worker asked"],
-)
-def test_a_read_queued_40_minutes_ago_leaves_its_part_with_someone_unless_a_running_jobs_live_worker_asked_it(
-    taken: str, asker: str, remote: str
-) -> None:
-    state.keep_reply(remote, "j1", message("question", "READ cci show 2065", id="relay_slow", payload=json.dumps({"dispatchId": asker}), created_at=state.stamp(T0 - timedelta(minutes=40))))
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(
-            state=taken, turn_open=True, branch="lane/built", waits=["https://github.com/Forge-AI/monorepo/pull/7"], updated=state.stamp(T0 - timedelta(hours=1)), reads={"relay_slow": "READ cci show 2065"}
-        )
-    data = state.load(remote)
-    assert watch.job_gap(watch.Watcher(remote, offset=state.events_end(remote)), "j1", data["jobs"]["j1"], data, "o1", "Short title", T0) is None
-
-
-def test_a_reader_the_watch_saved_no_pid_for_reads_as_running_from_the_pid_it_kept_so_only_its_final_answer_goes(
-    remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_relay_pass_while_a_reader_runs_sends_nothing_so_only_its_final_answer_goes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     question = "READ ccn answer search repro cut"
     deliver(monkeypatch, [message("question", question, id="relay_read")])
     ran, replies = [], []
-    restarted = watch.Watcher(remote, offset=state.events_end(remote))
+    monkeypatch.setattr(orca, "newest_mail", list)
+    relaying = watch.Watcher(remote, offset=state.events_end(remote))
 
-    def answered_as_the_watch_restarts(question: str, root: Path, drive: str, job_id: str) -> str:
+    def answered_as_the_relay_passes(question: str, root: Path, drive: str, job_id: str) -> str:
         ran.append(question)
-        assert staged(watch.lane_lines, restarted, T0 + timedelta(seconds=5)) == []
+        assert (watch.relay_pass(relaying, T0 + timedelta(seconds=2)), unsent(remote)) == ([], ["relay_read"])
         return "m2065 the field facts"
 
-    monkeypatch.setattr(reads, "answer", answered_as_the_watch_restarts)
+    monkeypatch.setattr(reads, "answer", answered_as_the_relay_passes)
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     assert (ran, [args for args in replies if args[0] == "reply"]) == (
@@ -6063,6 +6006,7 @@ def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_r
     deliver(monkeypatch, [message("question", BREAK_GLASS_READ, id="msg_glass")])
     ran = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: ran.append(question) or "DROP TABLE")
+    monkeypatch.setattr(orca, "newest_mail", list)
     replies, refusals = [], iter(range(2))
 
     def refused_twice(*args: str) -> dict:
@@ -6072,14 +6016,13 @@ def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_r
         return {}
 
     monkeypatch.setattr(orca, "call", refused_twice)
-    watching = watch.Watcher(remote, offset=state.events_end(remote))
-    watch.run_pass(watching, T0)
-    assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"msg_glass": ["DROP TABLE", None]}
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert (json.loads(watch.answer_file(remote, "msg_glass").read_text()), unsent(remote)) == ({"job": "j1", "reader": None, "answer": "DROP TABLE", "why": None}, ["msg_glass"])
+    relaying = watch.Watcher(remote, offset=state.events_end(remote))
+    assert [watch.relay_pass(relaying, T0 + timedelta(seconds=s)) for s in (2, 4)] == [[], []]
     assert ran == [BREAK_GLASS_READ]
     assert ("reply", "--id", "msg_glass", "--run", RUN, "--body", "DROP TABLE") in replies
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job["read_answers"]) == ({}, {})
+    assert unsent(remote) == []
 
 
 @pytest.mark.parametrize("said", ["READ ccn answer show 5299250c9a85", "LOG https://buildkite.com/forge/test/builds/129091"])
@@ -6087,6 +6030,7 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     said: str, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch)
+    state.keep_reply(remote, "j1", message("question", f"{said}\n#53313's two reds are fixed at 29d4d04e", id="relay_kept"))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(ask="relay_kept", state="waiting", said=said, report=f"{said}\n#53313's two reds are fixed at 29d4d04e")
     asked, replies = [], []
@@ -6096,7 +6040,7 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     assert asked == [said]
     assert ("reply", "--id", "relay_kept", "--run", RUN, "--body", "FAIL hold_test.go:41") in replies
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["state"], job["reads"]) == (None, "running", {})
+    assert (job["ask"], job["state"], unsent(remote)) == (None, "running", [])
 
 
 def test_an_ask_naming_the_block_drive_job_ask_kept_and_drew_wakes_the_coordinator_with_its_file(

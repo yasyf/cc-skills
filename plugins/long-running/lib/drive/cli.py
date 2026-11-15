@@ -3553,7 +3553,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
         else:
             fresh = state.handed_texts(job, text)
             given = [*state.unreturned(job, "\n\n".join(fresh)), *({"words": words, "at": state.stamp()} for words in fresh)]
-            job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=True)
+            job.update(started, handoff=handoff, given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=True)
             state.start(job)
             superseded.hear_start(data, job_id)
     return job
@@ -3791,9 +3791,9 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
 
 
 def job_read(args: argparse.Namespace) -> int:
-    """Answer one question a remote lane queued, as the watch's reader."""
+    """Answer one question a remote lane asked, as the watch's reader."""
     name = state.resolve(args.drive)
-    said, why = watch.answer_read(name, args.id, args.message)
+    said, why = watch.answer_read(name, args.id, args.message, state.now())
     return emit(args, why or said, {"id": args.id, "message": args.message, "answer": said, "why": why})
 
 
@@ -6176,7 +6176,7 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "read",
         parents=both,
-        help="what the watch starts on a remote lane's READ, LOG or DRIVE question: answer it here, keeping first the answer its own end leaves so it never runs twice, then the one the watch sends",
+        help=f"what the watch starts on a remote lane's READ, LOG or DRIVE question: claim it by creating its answer file, run it here unless asked over {reads.DRIVE_SECONDS} s ago, and send the answer",
     )
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")

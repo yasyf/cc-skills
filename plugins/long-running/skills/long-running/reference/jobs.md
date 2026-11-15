@@ -291,7 +291,7 @@ session makes its parts `ORPHAN`s.
 **Drive verbs.** A lane types the drive's verbs as a job on this Mac does. Its `drive`, which
 `drive job launch` has the `orca` skill's launcher place in the Sprite's `~/.local/bin`, asks each
 as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
-word names, and the watch's relay queues it as a read within seconds. `drive job read` runs it in the coordinator's
+word names, and the watch's relay starts its reader within seconds. `drive job read` runs it in the coordinator's
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
 which the lane's `drive` prints and exits with. While no answer comes, that `drive` says so on
@@ -347,18 +347,21 @@ lane reads those, and Slack, through this Mac with a blocking question.
   refuses there.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a thread
   of the watch process, reads Orca's newest 100 messages in one call every 2 s while a Sprite lane is
-  live and queues each new read one asked, so no GitHub read, landing or install a pass runs holds it,
-  and lane mail each minute queues any the newest 100 passed over. `drive job read`,
-  which the relay starts as a process of its own, runs `cci`, `ccn` or the drive's own cc-slack launcher in
+  live and starts `drive job read` as a process of its own on each new read one asked, taking no drive
+  lock, so no GitHub read, landing or install a pass runs holds it, and lane mail each minute starts
+  one on any the newest 100 passed over. The reader claims its question by creating the question's
+  file in the drive's `answers/` folder, so a second reader started on it exits, and runs nothing on a
+  question asked over 540 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
+  `cci`, `ccn` or the drive's own cc-slack launcher in
   the directory the coordinator started the drive from, or reads the drive files, and replies with
   the output the moment it ends, a command's cut to 12,000 characters but for a `cc-slack thread`
   or `history` read, which goes whole, an answer past the 64 KiB one Orca relay message carries
   written onto the lane's Sprite before the reply, within a minute, and named in it, in one Orca
   reply of its own from the drive's terminal, which coordinates every lane's Run from its
   `run-create` and binds none, so a read that runs for minutes holds up no pass and no answer
-  waits for a pass or for another answer. The reader keeps first the answer its own end leaves, then the one it finishes
-  with, under its question's message id, so the watch sends again an answer Orca refused, and a
-  read stopped mid-run is answered as stopped, never run twice. A read that fails, such as a command off that list, a tool that exits
+  waits for a pass or for another answer. The reader writes into that file first the answer its own end leaves, then
+  the one it finishes with, so the relay sends again an answer Orca refused, and a read stopped
+  mid-run is answered as stopped, never run twice. A read that fails, such as a command off that list, a tool that exits
   non-zero or a long answer its lane's Sprite could not take, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer, its first line, whose record carries the whole question as its body, which cci's read
@@ -367,11 +370,11 @@ lane reads those, and Slack, through this Mac with a blocking question.
   the job has, since a card drawn before the question asks him something else; when he answered
   its card since, the line leads with his answer and the `drive job resume` that carries it.
 - A question kept for you that reads as a `READ`, such as one kept before the watch read it
-  that way, the watch queues on its next read of lane mail, its relay answers, and the lane runs again.
-- A lane whose wait ends waits again on the same question, so the watch keeps each question queued
-  until the answer goes through, its relay sending each kept answer every 2 s, and each pass at its
-  start, before it reads any lane's mail, past a refused reply or a watch restart, or until Orca says it
-  already holds another answer or that the question's dispatch closed, which drops it with no line. Its
+  that way, gets its reader at the watch's next read of lane mail, and the lane runs again.
+- A lane whose wait ends waits again on the same question, so the relay sends again every 2 s each
+  answer its file still marks unsent once its reader ended, past a refused reply or a watch restart,
+  until the answer goes through, Orca says it already holds another answer or that the question's
+  dispatch closed, or 540 s pass since the lane asked, which drops it with no line. Its
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
 
 **What the watch reads each minute.**
