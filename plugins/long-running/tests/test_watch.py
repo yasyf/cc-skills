@@ -33,7 +33,7 @@ REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 BOX_GOAL = "test runs on the new tree on the devbox under key o2-codex-box, round after round"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so wake it to pipe its return there"
-WOKEN_BY_ITS_SESSION = ": SendMessage it this line verbatim from root@demo, the session session-under-test that started its agent a1"
+WOKEN_BY_ITS_SESSION = ": drive job resume j1 with this line verbatim"
 CHECKED = {"head": "aaaaaaa111", "read": "aaaaaaa111", "orders": ["o1"], "lines": {}}
 REAL_PASS = watch.run_pass
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
@@ -2531,7 +2531,7 @@ def test_a_text_held_on_a_lane_is_said_undelivered_ten_minutes_on_and_every_ten_
     assert watch.undelivered_lines(watching, T0 + timedelta(minutes=20)) == [line]
 
 
-def test_a_text_held_on_an_agent_on_this_mac_names_its_sessions_sendmessage_and_none_is_said_on_a_builder_its_launch_carries_it_to(demo: str) -> None:
+def test_a_text_held_on_an_agent_on_this_mac_names_its_resume_and_none_is_said_on_a_builder_its_launch_carries_it_to(demo: str) -> None:
     held = [{"seq": "699075", "words": "drift only in a window you pick", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
@@ -2540,8 +2540,7 @@ def test_a_text_held_on_an_agent_on_this_mac_names_its_sessions_sendmessage_and_
         data["jobs"]["j3"] = job(state="waiting", waits=["demo:j1-7", "j2"], undelivered=held)
     assert watch.undelivered_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
         f'ANSWER undelivered j1: "drift only in a window you pick", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
-        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it; SendMessage it his words verbatim from"
-        " root@demo, the session session-under-test that started its agent agent-j1 [o1 j1]"
+        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it; drive job resume j1 with his words verbatim [o1 j1]"
     ]
 
 
@@ -8406,7 +8405,7 @@ def test_a_stall_whose_report_another_live_watch_claimed_posts_nothing_and_one_w
     assert (state.load(demo)["stalls"][KEY]["told"], state.load(demo)["stalls"][KEY]["claim"]) == (state.stamp(T0 + timedelta(minutes=99)), None)
 
 
-def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_its_watchdog_reads_it_and_wakes_its_agent_by_its_sendmessage(
+def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_its_watchdog_reads_it_and_wakes_its_agent_by_its_resume(
     demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
 ) -> None:
     watching = stalling(demo)
@@ -8420,7 +8419,7 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
     lines = brief.splitlines()
     assert (
         "Holder: the meta session, session meta-session; j1 runs on this Mac as agent agent-j1 of session meta-session; to wake it:"
-        " SendMessage it the message verbatim from meta@demo, the session meta-session that started its agent agent-j1"
+        " drive job resume j1 with the message verbatim"
     ) in lines
     assert f"- cc-transcript {watch.session_transcript(state.load(demo)['roles']['meta'])}, from {watch.when(state.stamp(T0))} on" in lines
     assert "session-under-test" not in brief

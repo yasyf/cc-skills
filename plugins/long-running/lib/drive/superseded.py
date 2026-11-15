@@ -17,6 +17,8 @@ GENERIC_TITLES = 10
 PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 FRESH_STATES = ("built", "done")
 GIVEN_TEXT = re.compile(r"(j\d+)(?:-\d+(?:\.resume)?|\.handoff|\.sent-[\w-]+)?\.md")
+POINTER = "Read cci record {} whole and act on it"
+POINTED = re.compile(POINTER.format(r"(\d+)"))
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -398,13 +400,9 @@ def unheard(data: dict, kept: dict) -> list[str]:
 
 
 def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his words") -> str:
-    """The one step by which the session holding the job gets this text to its worker, which every watch line names and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; a SendMessage when that session started the job's agent on this Mac and place.woken leaves the agent a turn, which the drive reads from that agent's transcript; drive job resume for a job any other worker runs or ran, which sends the text to its lane, posts it as a handoff record to the session that started a live agent and still holds it, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
-    from drive import place
-
+    """The one step by which the session holding the job gets this text to its worker, which every watch line names and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
     if fresh := fresh_builder(data, job_id, job, text, what):
         return fresh
-    if (lane := state.agent_lane(data, job)) and not place.woken(data, job_id, state.now()):
-        return f"SendMessage it {what} verbatim from {lane}@{data['name']}, the session {job['session']} that started its agent {job['agent']}"
     if job.get("agent") or job.get("dispatch"):
         return f"drive job resume {job_id} with {what} verbatim"
     return f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
@@ -420,6 +418,11 @@ def fresh_builder(data: dict, job_id: str, job: dict, text: str, what: str) -> s
         f" re-reads everything it ever did on every event: run `drive job add builder` for order {job['order']} and its parts, {takes}, and brief it"
         f" with a `Handoff:` line naming {what} and {job_id}'s transcript under `Transcripts:`"
     )
+
+
+def pointed(data: dict, job_id: str, text: str) -> bool:
+    """Whether the text points the job's agent at a resume text drive job resume posted to that agent's cci address and kept on the job, by the record's seq, so the SendMessage carrying the pointer delivers a text fresh_builder already let through."""
+    return bool((seq := POINTED.search(text)) and (state.drive_dir(data["name"]) / "jobs" / f"{job_id}.sent-{seq[1]}.md").exists())
 
 
 def delivered(data: dict, job_id: str, text: str, written: datetime) -> tuple[list[dict], list[dict]]:

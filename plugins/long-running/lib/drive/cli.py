@@ -2558,10 +2558,12 @@ def other_sessions_agent(data: dict, job: dict) -> str | None:
     return session if session and job["where"] == "local" and job["agent"] and job["session"] != session and state.session_role(data, job["session"]) is None else None
 
 
-def starters_lane(data: dict, job: dict) -> str | None:
-    """The cci lane of the session of the drive that started the Agent running the job, when that is not this session and its agent still takes messages, since only that session's SendMessage reaches it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; None for any other job."""
+def starters_lane(data: dict, job_id: str, job: dict, text: str | None) -> str | None:
+    """The cci lane of the session of the drive that started the Agent running the job, when its agent still takes messages, since only that session's SendMessage reaches it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once": another session's, and this session's own for a resume's text while place.woken leaves the agent a turn; None for any other job."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not (session and job["where"] == "local" and job["agent"] and job["session"] != session):
+    if not (session and job["where"] == "local" and job["agent"]):
+        return None
+    if job["session"] == session and (text is None or place.woken(data, job_id, state.now())):
         return None
     lane = state.session_lane(data, job["session"])
     return lane if lane and not watch.agent_death(job, data) else None
@@ -2859,17 +2861,17 @@ def unstopped(job_id: str, job: dict) -> None:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent another session of the drive started and still holds gets a resume's text through that session by to_starter and refuses a launch, an agent whose session ended hands the job to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, and a job with no worker yet starts its first."""
     with state.launch_waits(name, args.id) if text is None and args.local else nullcontext(), state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
         if text is not None:
             unstopped(args.id, job)
-        if lane := starters_lane(data, job):
+        if lane := starters_lane(data, args.id, job, text):
             if text is None:
                 raise DriveError(
                     f"{args.id}: refused, not launched: it runs as agent {job['agent']} of session {job['session']}, which still holds it and whose SendMessage"
-                    f' alone reaches it, so the agent finishes its job: drive job resume {args.id} "<the event>" posts the event to {lane}@{name}'
+                    f' alone reaches it, so the agent finishes its job: drive job resume {args.id} "<the event>" posts the event to the agent\'s cci address and {lane}@{name} the SendMessage pointing it there'
                 )
             return to_starter(args, name, job, lane)
         taker = other_sessions_agent(data, job)
@@ -2907,17 +2909,21 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
 
 
 def to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
-    """Post a resume's text verbatim, at once, as one handoff record to the lane of the session that started the job's agent and still holds it, whose SendMessage alone reaches that agent, so it finishes its job with the text, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; nothing held, handed over or started."""
+    """Give a resume's text to an agent on this Mac that a session of the drive started and still holds, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", once superseded.fresh_builder sends no PR event to a builder that returned: posted whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept so each answer of his it carries reads sent, then one line under 120 characters to the starter's lane naming the SendMessage that points the agent at that record, since only the starter's SendMessage reaches the agent and a starter that may not read cci, such as the communicator, relays that line as it stands; a starter resuming its own agent gets the line as this verb's output. Nothing held, handed over or started."""
     from drive import tools
 
-    record = {
-        "kind": "handoff",
-        "to": [f"{lane}@{name}"],
-        "attr": {"order": job["order"], "job": args.id},
-        "text": f"{args.id} runs as agent {job['agent']} of your session {job['session']}, whose SendMessage alone reaches it: send it this text verbatim\n\n{args.text}",
-    }
-    [seq] = tools.sent(name, args.id, [limits.shortened(record) or record])
-    line = f"{args.id}: posted to {lane}@{name} as handoff record {seq}, since agent {job['agent']} takes SendMessage only from session {job['session']}, which started it"
+    data = state.load(name)
+    if step := superseded.fresh_builder(data, args.id, job, args.text, "this text"):
+        raise DriveError(f"{args.id}: refused, nothing posted: {step}")
+    sender = state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or args.id
+    attrs = {"order": job["order"], "job": args.id}
+    record = {"kind": "handoff", "to": [f"peer:{job['session']}/{job['agent']}"], "attr": attrs, "text": args.text}
+    [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
+    sent_kept(name, args.id, {"words": args.text, "request": seq, "at": state.stamp(), "ask": job.get("ask")})
+    line = f'{args.id}: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
+    if lane != sender:
+        tools.sent(name, sender, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": line}])
+        line = f"{args.id}: posted to agent {job['agent']}'s cci address as handoff record {seq}, and to {lane}@{name}, whose SendMessage alone reaches it: {line}"
     return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seq": seq})
 
 
