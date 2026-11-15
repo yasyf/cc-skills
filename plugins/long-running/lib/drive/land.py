@@ -17,6 +17,7 @@ ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LOG = "landings.log"
 LANDINGS = "landing"
+MISE_TRUST = "MISE_TRUSTED_CONFIG_PATHS"
 CHECKOUT_SECONDS = 600
 CLONE_SECONDS = 3600
 LANE_HELD_SECONDS = 540
@@ -529,9 +530,10 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
         branch = github.default_branch(repo)
         with fresh(name, coordinator, repo, branch) as (checkout, sha):
             script = str(checkout / ENQUEUE)
+            trusted = os.environ | {MISE_TRUST: str(checkout)}
             print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
             try:
-                checked = subprocess.run([script, "--check", *flags, *numbers], cwd=checkout, capture_output=True, text=True)
+                checked = subprocess.run([script, "--check", *flags, *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
             except OSError as error:
                 return f"not landed: {script} did not start: {error}"
             print(checked.stdout + checked.stderr, flush=True)
@@ -549,10 +551,10 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
                     return refused
                 asked[key] = line["head"]
             try:
-                done = subprocess.run([script, "--watch", *flags, *numbers], cwd=checkout, capture_output=True, text=True)
+                done = subprocess.run([script, "--watch", *flags, *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
             except Halted:
                 for number in numbers:
-                    subprocess.run([script, "--dequeue", number], cwd=checkout)
+                    subprocess.run([script, "--dequeue", number], cwd=checkout, env=trusted)
                 raise
     except github.GithubError as error:
         return f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
@@ -571,7 +573,7 @@ def unfinished(name: str, mode: str, keys: list[str], done: subprocess.Completed
 
 @contextmanager
 def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tuple[Path, str]]:
-    """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter and checks out no files of its own, so neither its checkout nor stack-enqueue's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as origin may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, and each fetches branch into its refs/remotes/origin/<branch>, which stack-enqueue reads as the default branch it knows, both under the clone's lock, since landings run at once and each moves that one ref. Its LFS files check out as their pointers, since no landing step reads one and smudging it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+    """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter and checks out no files of its own, so neither its checkout nor stack-enqueue's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as origin may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, and each fetches branch into its refs/remotes/origin/<branch>, which stack-enqueue reads as the default branch it knows, both under the clone's lock, since landings run at once and each moves that one ref. Its LFS files check out as their pointers, since no landing step reads one and smudging it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched; enqueued() runs them with MISE_TRUST naming the worktree, since a mise shim on the lander's PATH, such as the uv of stack-enqueue's shebang, refuses the worktree's untrusted mise configs and this Mac's mise trusts no path under the drive's folder. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
     clone = state.root() / CLONES / repo
     git = ["git", "-C", str(clone)]
     with state.flocked(clone.with_name(f"{clone.name}.lock")):

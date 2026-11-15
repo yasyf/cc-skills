@@ -6222,6 +6222,18 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
     assert (len(git_in(clone, "worktree", "list").splitlines()), len(git_in(landings, "worktree", "list").splitlines()), checkout.exists()) == (1, 1, False)
 
 
+def test_a_landing_runs_stack_enqueue_trusting_the_mise_configs_of_the_worktree_it_made_so_a_mise_shim_starting_its_interpreter_never_refuses_them(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv(land.MISE_TRUST, raising=False)
+    approve(demo, KEY)
+    shim = f'[ -n "${land.MISE_TRUST}" ] && [ "$(cd "${land.MISE_TRUST}" && pwd -P)" = "$(pwd -P)" ] || {{ echo "mise ERROR Config files in $(pwd -P)/mise.toml are not trusted." >&2; exit 1; }}'
+    on_main(tmp_path, demo, f'#!/bin/sh\n{shim}\necho "main said $*"\n')
+    assert land.run(demo, [KEY]) == land.QUEUED
+    said = capsys.readouterr().out
+    assert ("main said --check 42" in said, "main said --watch 42" in said, "not trusted" in said) == (True, True, False)
+
+
 def test_a_landing_checks_out_from_this_macs_clone_with_no_blob_filter_so_a_blob_origin_withholds_from_a_fetch_by_id_never_stops_it_and_a_failed_fetch_lands_again_at_the_next_pass(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
