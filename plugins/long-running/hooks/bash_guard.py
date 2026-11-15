@@ -106,8 +106,7 @@ TEAM_DATA = (
     "refused: this reads or writes `{location}` where the job runs, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE + " {route}"
     + " It holds a team's data, as its key is under `iris/teams/` or Forge-AI/monorepo's `release/team-buckets.generated.json`"
     " at origin/dev, which infra writes from each bucket's grants and rows, lists it or its folder. A box's binary goes"
-    " under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, which that list leaves out, and the box fetches"
-    " it through a presigned URL"
+    " under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, which that list leaves out"
 )
 UNLISTED = (
     "refused: this reads or writes `{location}` where the job runs, and `{folder}`, the folder its session runs in, holds no"
