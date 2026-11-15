@@ -102,6 +102,17 @@ def test_a_sentence_one_claim_holds_in_part_is_asked_as_a_fact_until_the_claims_
     assert list(jev.asked[-1]["questions"]) == ["c1.backed", "c2.backed"]
 
 
+def test_a_sentence_no_claim_holds_whole_goes_to_jev_beside_every_claim_so_a_lead_line_summing_them_up_is_weighed_against_them(jev: Jev) -> None:
+    text = f"*Live: the inbox reader skips the cache.*\n{CLAIM['claim']}"
+    settled.post_verdict(handled(text, [READ | {"quote": 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'}]))
+    assert jev.asked == [
+        {
+            "state": {"post": {"text": text, "written": text, "sentences": {"0": "*Live: the inbox reader skips the cache.*"}}, "claims": {"c1": {"claim": CLAIM["claim"]}}},
+            "questions": {"s0.fact": settled.asking(settled.FACT, index=0)},
+        }
+    ]
+
+
 def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_read_reads_one_member_and_holds_at_yes(jev: Jev) -> None:
     only = {"claim": "Only the cloud's inbox reader queries Postgres straight.", "read": "read:1"}
     output = handled(only["claim"], claims=[only])

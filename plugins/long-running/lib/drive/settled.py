@@ -995,9 +995,9 @@ BACKED_LINES = Noul(
     no="These lines do not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
 )
 SPANS = Noul(
-    "Does `claims.{claim}.claim` say only, every, all, no, nobody or never of a set, such as the routes minting a key or the callers of a function, while `reads.{read}.call` reads one file's lines or one function rather than searching for every member of that set?",
-    yes="The claim speaks for a whole set, and the call reads one member, such as a sed of one file's line range, so nothing in it shows the other members.",
-    no="The claim speaks of the one thing the call reads; or the call lists or searches every member, such as a grep across the code, a database query's rows or a status listing; or its words of a set quote a title, an order or a name rather than speak for that set.",
+    "Does `claims.{claim}.claim` say only, every, all, no, nobody or never of a set, such as the routes minting a key or the callers of a function, while `reads.{read}.call` reads one member of that set rather than what decides every member?",
+    yes="The claim speaks for a whole set, and the call reads one member, such as a sed of one route's lines, so nothing in it shows the other members.",
+    no="The claim speaks of the one thing the call reads; or the call lists or searches every member, such as a grep across the code, a database query's rows or a status listing; or the call reads the rule every member follows, its own words naming that set, such as a manual's rule for each kind of post; or its words of a set quote a title, an order or a name rather than speak for that set.",
 )
 HOLDS = Noul(
     "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in the post, `post.text` as Slack gets it and `post.written` as its writer typed it?",
@@ -1006,8 +1006,8 @@ HOLDS = Noul(
 )
 LIFTED = Noul("Do `his_words` permit what `findings.{finding}.found` names: his own words quoted back or restated, a term he used himself, or words of his asking for it?")
 FACT = Noul(
-    "Does `post.sentences.{index}` state a fact about code, a number or a state of work, which stands only on a read?",
-    no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists.",
+    "Does `post.sentences.{index}` state a fact about code, a number or a state of work, which stands only on a read, beyond what `claims` say, such as an only, every or never no claim says?",
+    no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists; or each fact in it is one `claims` say, such as a lead line summing up the claims under it.",
 )
 CARD = Noul(
     "He asked `card.asked` under the card for `card.title`, and `post.text` answers him. Does answering him take what `card.title` names, its mechanism or a coined name for it, while `post.text` leaves a term of it with no clause saying what it is and why the change needs it?",
@@ -1046,7 +1046,7 @@ def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member at YES, a sentence no claim holds whole that states a fact at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1094,7 +1094,7 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
-    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside one Noul whether it states a fact standing only on a read, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
+    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     words = output.get("his_words") or []
@@ -1110,7 +1110,10 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
             for read, items in shared.items()
             for part in parted(base, together(items))
         ),
-        *((f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}}}, {f"s{index}.fact": asking(FACT, index=index)})) for index, sentence in uncovered(output)),
+        *(
+            (f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}}, "claims": {f"c{number}": {"claim": claim["claim"]} for number, claim in enumerate(post.get("claims") or [], 1)}}, {f"s{index}.fact": asking(FACT, index=index)}))
+            for index, sentence in uncovered(output)
+        ),
         *((f'the card "{card["title"]}" his question is under', ({"card": card}, {"card": CARD})) for card in [output.get("thread_card")] if card),
     ]
     rest = [
