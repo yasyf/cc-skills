@@ -7,7 +7,8 @@ import shlex
 import signal
 import subprocess
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -6217,10 +6218,11 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
     assert f"{KEY}: stack-enqueue from {checkout}, a fresh worktree of Forge-AI/monorepo's main at {head}" in said
     assert ("main said --check 42" in said, "main said --watch 42" in said, "the checkout said" in said) == (True, True, False)
     assert (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain")) == untouched
-    assert (len(git_in(clone, "worktree", "list").splitlines()), checkout.exists()) == (1, False)
+    landings = state.root() / land.CLONES / "Forge-AI/monorepo"
+    assert (len(git_in(clone, "worktree", "list").splitlines()), len(git_in(landings, "worktree", "list").splitlines()), checkout.exists()) == (1, 1, False)
 
 
-def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_to_the_meta_session_as_the_landers_defect_and_tried_again_with_no_new_tap_until_a_good_worktree_queues_it(
+def test_a_landing_checks_out_from_this_macs_clone_with_no_blob_filter_so_a_blob_origin_withholds_from_a_fetch_by_id_never_stops_it_and_a_failed_fetch_lands_again_at_the_next_pass(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
@@ -6228,36 +6230,37 @@ def test_a_landing_whose_worktree_checkout_could_not_fetch_a_blob_is_said_once_t
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
-    origin, blobless = tmp_path / "origin", tmp_path / "blobless"
+    origin, blobless, away = tmp_path / "origin", tmp_path / "blobless", tmp_path / "away"
     git_in(origin, "config", "uploadpack.allowFilter", "true")
+    git_in(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
     git_in(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin}", str(blobless))
-    git_in(blobless, "config", "remote.origin.uploadpack", "git-upload-pack 2>/dev/null")
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(blobless)
-    commit_files(origin, "admin", {"admin.rs": "fn admin() {}\n"})
-    blob = git_in(origin, "rev-parse", "HEAD:admin.rs")
-    loose = origin / ".git" / "objects" / blob[:2] / blob[2:]
-    withheld = loose.read_bytes()
-    loose.unlink()
-    watching = watcher(demo)
-    failed = land.run(demo, [KEY])
-    sha = git_in(origin, "rev-parse", "HEAD")
-    assert failed.startswith(f"{land.NO_WORKTREE} Forge-AI/monorepo's default branch to queue {KEY} from: git worktree add at {sha[:12]} failed: ")
-    assert f"could not fetch {blob} from promisor remote" in failed
-    assert (len(git_in(blobless, "worktree", "list").splitlines()), (state.drive_dir(demo) / land.LANDINGS / str(os.getpid())).exists()) == (1, False)
+    admin = "rust/crates/sandsql-server/src/admin.rs"
+    head = commit_files(origin, "admin", {admin: "fn admin() {}\n" * 18186})
+    blob = git_in(origin, "rev-parse", f"HEAD:{admin}")
+    asked, withhold, config = tmp_path / "asked", tmp_path / "withhold", tmp_path / "gitconfig"
+    withhold.write_text(f'#!/bin/sh\ntee -a {asked} | grep -v "^{blob}$" | "$@"\n')
+    withhold.chmod(0o755)
+    config.write_text(f"[uploadpack]\n\tpackObjectsHook = {withhold}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    origin.rename(away)
+    assert land.run(demo, [KEY]).startswith(f"{land.UNREAD}: ")
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
-    assert land.run(demo, [KEY]) == failed
-    loose.write_bytes(withheld)
-    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    away.rename(origin)
     assert land.run(demo, [KEY]) == land.QUEUED
-    assert land.start(demo, [KEY], NO_CARDS) == []
-    assert landers == [(KEY,), (KEY,)]
-    lines = watch.event_lines(watching)
-    assert lines == [f"{watch.LANDER}{failed}", f"PR {KEY}: {land.QUEUED} [o1 j1]"]
-    assert [watch.wakes(line, state.load(demo), NO_CARDS) for line in lines] == [False, False]
-    sent = posts(monkeypatch)
-    assert watch.handed(watching, lines, T0) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
-    assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
+    clone = state.root() / land.CLONES / "Forge-AI/monorepo"
+    made = clone.stat().st_ino
+    newer = commit_files(origin, "newer admin", {admin: "fn newer() {}\n" * 18186})
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert (clone.stat().st_ino, git_in(clone, "rev-parse", "refs/remotes/origin/main")) == (made, newer)
+    assert [git_in(clone, "cat-file", "-t", f"{sha}:{admin}") for sha in (head, newer)] == ["blob", "blob"]
+    assert "promisor" not in git_in(clone, "config", "--local", "--list")
+    assert blob not in asked.read_text().split()
+    assert landers == [(KEY,)]
+    git_in(blobless, "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main")
+    coordinators = subprocess.run(["git", "-C", str(blobless), "worktree", "add", "-q", "--detach", str(tmp_path / "from-blobless"), head], capture_output=True, text=True)
+    assert f"could not fetch {blob} from promisor remote" in coordinators.stderr
 
 
 @pytest.mark.parametrize("mode", ["--check", "--watch"])
@@ -6406,11 +6409,13 @@ def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_la
     approve(demo, KEY)
     calls = enqueue_checking(tmp_path, monkeypatch, demo, "#42 BLOCKED 34087d1264 awaiting approval on head from forge-pr-reviewer[bot] (approved 316c682c69, on an older head)")
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
-    fetched = github.fetched
+    made = land.fresh
 
-    def installed_while_checking(clone: str, branch: str) -> str:
-        state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
-        return fetched(clone, branch)
+    @contextmanager
+    def installed_while_checking(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tuple[Path, str]]:
+        with made(name, coordinator, repo, branch) as worktree:
+            state.store(demo, state.stored(demo) | {"saved_by": "9.9.9"})
+            yield worktree
 
     class Execed(Exception):
         pass
@@ -6418,7 +6423,7 @@ def test_an_install_that_saves_the_drive_while_the_lander_checks_a_pr_ends_no_la
     def execv(drive: Path, argv: list[str]) -> None:
         raise Execed(drive, argv)
 
-    monkeypatch.setattr(github, "fetched", installed_while_checking)
+    monkeypatch.setattr(land, "fresh", installed_while_checking)
     monkeypatch.setattr(install, "upgraded", lambda: newer)
     monkeypatch.setattr(install.os, "execv", execv)
     with pytest.raises(Execed) as execed:

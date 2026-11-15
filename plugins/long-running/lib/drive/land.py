@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -17,6 +18,7 @@ DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LOG = "landings.log"
 LANDINGS = "landing"
 CHECKOUT_SECONDS = 600
+CLONE_SECONDS = 3600
 LANE_HELD_SECONDS = 540
 SAID_CHARS = 400
 SAID_LINES = 4
@@ -37,7 +39,6 @@ MERGE = ("gh", "pr", "merge")
 # TODO: delete with its case in stage.unlanded once no lander of an install that refused mid-check still runs: its record() reopens on this install with this outcome.
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
 OWN_FAILURE = "the lander could not"
-NO_WORKTREE = f"{OWN_FAILURE} check out"
 NO_ENQUEUE = f"{OWN_FAILURE} finish stack-enqueue"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
@@ -485,7 +486,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str], asked: dict[str, str]) -> str:
-    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing that again could make no worktree, and on each PR asked names the head its lander asked forge-pr-reviewer to review, so none is asked twice; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander worked."""
+    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing whose stack-enqueue again failed on its own, and on each PR asked names the head its lander asked forge-pr-reviewer to review, so none is asked twice; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander worked."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key)), *(flag for key, head in asked.items() for flag in ("--asked", key, head))])
     with state.edit(name) as data:
         for key, head in asked.items():
@@ -518,15 +519,15 @@ def said(output: str) -> str:
     return cut("; ".join([line for line in output.splitlines() if line.strip()][-SAID_LINES:]), SAID_CHARS)
 
 
-def enqueued(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines name each head approved only on an older one, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue and the BLOCKED lines it read; then forge-pr-reviewer is asked to review each such head that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch, which alone tells a wait from a fix, such as GitHub still computing mergeability from a conflict, waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on Trunk never ends the landing."""
+def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of this Mac's landing clone and never from the coordinator's checkout, with --flake when a PR of it requeues() at the head Trunk ejected it at: --check first, whose exit of ENQUEUE_FAILED ends the landing as the lander's own failure, by unfinished(), as the same exit of --watch does, and whose BLOCKED lines name each head approved only on an older one, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue and the BLOCKED lines it read; then forge-pr-reviewer is asked to review each such head that prs, the drive's PRs as the lander read them at its start, records no ask of, each head it asks added to asked for record() to keep, and --watch, which alone tells a wait from a fix, such as GitHub still computing mergeability from a conflict, waits until Trunk holds every PR of it or one needs a fix rather than a wait, unless halt() ends it first, which dequeues each PR of it; what came of it, a GitHub read that failed before anything queued, the landing clone's fetch included, not landed by UNREAD's rule. It reads and writes no drive state, so an install that saves the drive while it makes the worktree, runs --check or waits on Trunk never ends the landing."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     flags = ["--flake"] if flake else []
     signal.signal(signal.SIGTERM, halted)
     try:
         branch = github.default_branch(repo)
-        with fresh(name, clone, branch) as (checkout, sha):
+        with fresh(name, coordinator, repo, branch) as (checkout, sha):
             script = str(checkout / ENQUEUE)
             print(f"{', '.join(keys)}: stack-enqueue from {checkout}, a fresh worktree of {repo}'s {branch} at {sha}", flush=True)
             try:
@@ -554,7 +555,7 @@ def enqueued(name: str, clone: Path, keys: list[str], prs: dict, asked: dict[str
                     subprocess.run([script, "--dequeue", number], cwd=checkout)
                 raise
     except github.GithubError as error:
-        return f"{NO_WORKTREE} {repo}'s default branch to queue {', '.join(keys)} from: {cut(str(error), SAID_CHARS)}"
+        return f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
     print(done.stdout + done.stderr, flush=True)
     if done.returncode == 0:
         return QUEUED
@@ -569,15 +570,21 @@ def unfinished(name: str, mode: str, keys: list[str], done: subprocess.Completed
 
 
 @contextmanager
-def fresh(name: str, clone: Path, branch: str) -> Iterator[tuple[Path, str]]:
-    """A worktree of the clone's repository at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tuple[Path, str]]:
+    """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter and checks out no files of its own, so neither its checkout nor stack-enqueue's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as origin may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, and each fetches branch into its refs/remotes/origin/<branch>, which stack-enqueue reads as the default branch it knows, both under the clone's lock, since landings run at once and each moves that one ref. Its LFS files check out as their pointers, since no landing step reads one and smudging it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+    clone = state.root() / CLONES / repo
     git = ["git", "-C", str(clone)]
-    sha = github.fetched(str(clone), branch)
+    with state.flocked(clone.with_name(f"{clone.name}.lock")):
+        if not clone.exists():
+            making = clone.with_name(f"{clone.name}.making")
+            shutil.rmtree(making, ignore_errors=True)
+            origin = github.run(["git", "-C", str(coordinator), "remote", "get-url", "origin"]).strip()
+            github.run(["git", "clone", "-q", "--no-checkout", "--no-tags", "--single-branch", "--branch", branch, origin, str(making)], timeout=CLONE_SECONDS)
+            making.rename(clone)
+        github.run([*git, "fetch", "-q", "--no-tags", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"], timeout=CHECKOUT_SECONDS)
+        sha = github.run([*git, "rev-parse", f"refs/remotes/origin/{branch}"]).strip()
     checkout = state.drive_dir(name) / LANDINGS / str(os.getpid())
-    try:
-        github.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], timeout=CHECKOUT_SECONDS)
-    except github.GithubError as error:
-        raise github.GithubError(f"git worktree add at {sha[:12]} failed: {error}") from None
+    subprocess.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], env=os.environ | {"GIT_LFS_SKIP_SMUDGE": "1"}, check=True, timeout=CHECKOUT_SECONDS)
     try:
         yield checkout, sha
     finally:

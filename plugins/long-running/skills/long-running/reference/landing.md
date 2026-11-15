@@ -350,7 +350,12 @@ carry out one decision of his into one first, so he gets one card.
 lander, a process of its own, enqueues it into the Trunk merge queue with the script as the head of
 the repository's default branch holds it, run from a fresh worktree of that head made for the landing
 and removed after it, never from the coordinator checkout, whose commit and uncommitted files it leaves
-as they are. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
+as they are. The worktree comes from the one clone of the repository this Mac keeps for landings in the
+state folder's `clones/`, which the first landing makes, holding every file with no blob filter, so
+neither its checkout nor `stack-enqueue`'s merge checks ask GitHub for a file by its id, which GitHub
+may answer without the file. Each landing fetches the default branch into that clone's
+`refs/remotes/origin/<branch>` under the clone's lock, and its LFS files check out as their pointers,
+since no landing step reads one. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
 the next landing at once:
 
     .agents/skills/submit-pr/scripts/stack-enqueue --check <PR>...
@@ -386,15 +391,12 @@ card keeps Approve and draws the objection whole under Where it stands, and its 
 line goes to the builder answering for the PR through `drive pr wake`, once a head, only until he approves it: on a
 PR he approved it wakes nobody, so no builder changes what he approved. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
-the PR: one that could make no fresh worktree of the default branch, such as when GitHub did not send a blob its
-checkout fetched, or whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a
-GitHub read that timed out. The watch says it once to the meta session
+the PR: one whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a GitHub read that
+timed out. The watch says it once to the meta session
 as the lander's own `LANDER the lander could not …` defect, never as the PR's not landed line, and the lander tries
 again at the watch's next pass with no new tap. So does a try that ended on a failed GitHub read before it
-queued or merged anything, such as a TLS handshake timeout on its diff read, said on the PR's line and named by
-its `ready` stage until a try lands it. The lander reads the default branch's head with `git ls-remote` and
-fetches that commit by its sha, writing no ref, since every worktree of the clone and every lander share
-`refs/remotes/origin/<branch>`. A try that
+queued or merged anything, such as a TLS handshake timeout on its diff read or on the landing clone's fetch of the
+default branch, said on the PR's line and named by its `ready` stage until a try lands it. A try that
 comes to what the one before it on that head did is said once. A try stands only while what let it run does: once `drive pr set <url> --no-exempt --tap`
 puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:
