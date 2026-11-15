@@ -656,6 +656,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "held": {},
         "carried": {},
         "mains": {},
+        "dropped_waits": {},
         "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
@@ -988,6 +989,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("carried", {})
+    data.setdefault("dropped_waits", {})
     data["owner"].setdefault("absence", None)
     if isinstance(away := data["owner"]["away"], bool):
         data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))
@@ -1127,12 +1129,12 @@ def own_staging_proofs(name: str, data: dict) -> None:
 
 
 def unwait_change_builders(data: dict) -> None:
-    """Drop his cards from the waits of each builder change_builders added that no agent or lane took, which an older install filled with every open card on its design, since a wait now says only when a job starts and each card holds its PR by part_cards; one whose line is still the waits line that install gave it reads not started, so the watch's ORPHAN line starts its agent once nothing holds it; marked so this runs once."""
-    for job in data["jobs"].values():
+    """End his cards on the waits of each builder change_builders added that no agent or lane took, which an older install filled with every open card on its design, since a wait now says only when a job starts and each card holds its PR by part_cards, by drop_waits, so the watch's FREE line says why each ended; one waiting whose line is still none or the waits line that install gave it reads not started, its state as saved; marked so this runs once."""
+    for job_id, job in data["jobs"].items():
         if job["kind"] == "builder" and untaken(job) and CHANGE_BUILDER_GOAL.match(job["goal"]):
-            if job["said"] in (None, f"waits on {', '.join(job['waits'])}"):
-                job.update(state="waiting", said=NOT_STARTED)
-            job["waits"] = [wait for wait in job["waits"] if not card_wait(data, wait)]
+            if job["state"] == "waiting" and job["said"] in (None, f"waits on {', '.join(job['waits'])}"):
+                job["said"] = NOT_STARTED
+            drop_waits(data, job_id, {wait: f"{wait} holds only the PR its Holds: line names, never a change builder's start" for wait in job["waits"] if card_wait(data, wait)})
     data["change_builders_unwaited"] = True
 
 
@@ -1173,6 +1175,12 @@ def undo_finished_replacers(name: str, data: dict) -> None:
                     del into["carries"][order_id]
         job.update(state="failed", said=next((opening(reply["body"]) for reply in returns(name, job_id)), job["said"]), updated=stamp())
     data["finished_replacers_undone"] = True
+
+
+def drop_waits(data: dict, job_id: str, why: dict[str, str]) -> None:
+    """Hand watch.waits_lines each wait of a job a once-only pass of shaped ends, with why it ended, which its next pass ends by released, saying FREE with that reason once nothing else holds the job, and forgets under its own edit; the pass leaves the job's waits and state as saved, since shaping runs on every load until a save and makes no line."""
+    if why:
+        data["dropped_waits"][job_id] = data["dropped_waits"].get(job_id, {}) | why
 
 
 def cite_returned_designs(name: str, data: dict) -> None:
@@ -2140,7 +2148,7 @@ def change_lines(kind: str, text: str) -> list[re.Match]:
 
 
 def change_builders(data: dict, design_id: str, source_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
-    """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by part_cards, while its builder builds his recommended option meanwhile, so each change added goes, with its builder's id, onto the kept Holds words of every open card part_cards finds holding the work of source_id, the job whose return listed it, but a design's own cards, whose Holds lines in that same return already name the changes each holds, by his pick "Each question names the changes it holds, kept with it"; a card kept with no Holds line already holds every change."""
+    """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, and, for a change a builder's return left unbuilt, that builder's report and what to stack on, by stack_on, so every brief written for it, the watch's launch included, carries the design and its parent as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by part_cards, while its builder builds his recommended option meanwhile, so each change added goes, with its builder's id, onto the kept Holds words of every open card part_cards finds holding the work of source_id, the job whose return listed it, but a design's own cards, whose Holds lines in that same return already name the changes each holds, by his pick "Each question names the changes it holds, kept with it"; a card kept with no Holds line already holds every change."""
     from drive import brief, view
 
     order_id = data["jobs"][design_id]["order"]
@@ -2162,7 +2170,7 @@ def change_builders(data: dict, design_id: str, source_id: str, changes: list[tu
         change = "; ".join(uncarried)
         data["jobs"][builder_id] = new_job(order_id, "builder", f"build {design_id}'s change: {change}", uncarried, created) | {
             "waits": waits,
-            "brief_flags": {"plan": f'{design_id}\'s {"design" if data["jobs"][design_id]["kind"] == "design" else "return"}, change "{change}": drive job report {design_id}'},
+            "brief_flags": {"plan": f'{design_id}\'s {"design" if data["jobs"][design_id]["kind"] == "design" else "return"}, change "{change}": drive job report {design_id}{stack_on(data, design_id, source_id)}'},
         }
         data["orders"][order_id]["jobs"].append(builder_id)
         added.append(builder_id)
@@ -2176,6 +2184,18 @@ def kept_builders(holds: str | None, before: str | None) -> str | None:
     if not holds:
         return holds
     return "; ".join([holds, *(said for said in (before or "").split("; ") if BUILDER_HOLD.fullmatch(said) and said not in holds)])
+
+
+def stack_on(data: dict, design_id: str, source_id: str) -> str:
+    """What a builder added for a change another builder's return left unbuilt starts from, beside its design: that builder's report, unless it is the design the plan already names, and the branch, PR and head of its newest PR not yet landed, by change_wait, else its own branch, which the change stacks on; nothing for a design's change."""
+    if data["jobs"][source_id]["kind"] != "builder":
+        return ""
+    report = "" if source_id == design_id else f"; {source_id} left it unbuilt: drive job report {source_id}"
+    if (key := change_wait(data, source_id)) not in data["prs"]:
+        branch = data["jobs"][source_id]["branch"]
+        return f"{report}; stack on {source_id}'s branch {branch}" if branch else report
+    pr = data["prs"][key]
+    return f"{report}; stack on {source_id}'s PR {pr['url']}" + (f", branch {pr['branch']}" if pr["branch"] else "") + (f", head {pr['head']} as it returned" if pr["head"] else "")
 
 
 def cite_designs(data: dict, job_id: str, line: str, report: str) -> None:

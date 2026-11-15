@@ -457,7 +457,7 @@ def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_an
     assert state.load("demo")["jobs"]["j1"]["questions"] == [answered | {"refused": None}, other]
 
 
-def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_waits_keeps_only_its_waits_on_earlier_changes(state_root: Path) -> None:
+def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_waits_hands_each_card_to_the_watch_with_why_it_ended_and_sets_no_state(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
     del data["change_builders_unwaited"]
@@ -473,12 +473,13 @@ def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_wait
     state.create(data)
     drive = state.load("demo")
     assert {job_id: (job["state"], job["waits"], job["said"]) for job_id, job in drive["jobs"].items() if job_id != "j1"} == {
-        "j2": ("waiting", ["j3"], "waits on them"),
-        "j3": ("waiting", [], state.NOT_STARTED),
+        "j2": ("waiting", [*cards, "j3"], "waits on them"),
+        "j3": ("waiting", cards, state.NOT_STARTED),
         "j4": ("built", cards, None),
         "j5": ("waiting", cards, state.NOT_STARTED),
     }
-    assert drive["change_builders_unwaited"] is True
+    ended = {card: f"{card} holds only the PR its Holds: line names, never a change builder's start" for card in cards}
+    assert (drive["dropped_waits"], drive["change_builders_unwaited"]) == ({"j2": ended, "j3": ended}, True)
 
 
 def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_id_and_folds_one_kept_twice(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

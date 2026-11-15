@@ -5896,7 +5896,7 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     assert (data["orders"]["o1"]["parts"]["the moved-table index"]["design"], data["jobs"]["j7"]["parts"]) == ("j3", ["the moved-table index"])
     code, out = run("job", "brief", "j7", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
-    assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3\n' in written) == (0, True, True)
+    assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3; j4 left it unbuilt: drive job report j4\n' in written) == (0, True, True)
 
 
 def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_order_is_read_by_its_parts_reader_so_its_builder_starts_on_that_research(
@@ -5942,6 +5942,27 @@ def test_j5896_a_follow_up_builder_split_off_work_a_readers_open_card_holds_is_h
     data = state.load("demo")
     [card] = view.open_cards(data["jobs"]["j1"])
     assert (data["jobs"]["j1"]["questions"][-1]["holds"], land.ship_held(data, "j3")) == (held, [card])
+
+
+def test_j135_a_builder_added_for_a_piece_another_builder_left_unbuilt_plans_on_that_builders_report_and_the_branch_and_head_of_its_open_pr_to_stack_on(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    url = "https://github.com/yasyf/cc-skills/pull/77"
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#77"] = state.new_pr(url, "j2", "o1") | {"head": "71de42aa7967150dbbac2b152c7c28c041403478", "branch": "j2-copy-one-store"}
+        data["jobs"]["j2"]["prs"].append(url)
+    returned = "DONE the copy runs\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\nUNPROVEN: retrying each stalled copy is left for a follow-up\nUNBUILT: retry each stalled copy\n"
+    kept_proof(tmp_path, "j2")
+    monkeypatch.setattr("sys.stdin", io.StringIO(returned))
+    assert cli.main(["job", "report", "j2", "-"]) == 0
+    capsys.readouterr()
+    code, out = run("job", "brief", "j3", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    plan = f'\nPlan: j2\'s return, change "retry each stalled copy": drive job report j2; stack on j2\'s PR {url}, branch j2-copy-one-store, head 71de42aa7967150dbbac2b152c7c28c041403478 as it returned\n'
+    assert (code, plan in written) == (0, True)
 
 
 def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_make_no_part_and_an_unbuilt_line_on_work_a_sibling_part_or_another_jobs_pr_holds_is_refused(
