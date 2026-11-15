@@ -261,11 +261,11 @@ session makes its parts `ORPHAN`s.
    `drive.db` keeps under `terminal`, so Orca types no "You have N orchestration messages" line into your
    session; the watch turns lane mail into `JOB` events. Leave any `orca orchestration check` such
    a line names unrun.
-6. A remote job that is not running holds no Sprite once its worker's turn is over: two minutes
-   after a lane returns its line, once its job is done, failed or stopped, or once the worker of a
-   waiting or built job ends its turn with a `worker_done` or Orca's escalation, or dies, the watch
-   runs `drive job end <j>` on it in a process of its own, ahead of any reclaim, its output in the
-   drive's `relaunches.log`, so no session runs it. A worker waiting inside its own question, to
+6. A remote job that is not running holds no Sprite once its worker's turn is over: in the pass
+   that reads its worker's `worker_done` or Orca's escalation, or its death, or two minutes after a
+   done, failed or stopped job returns its line while its worker's turn is still open, the watch
+   runs `drive job end <j>` on it in a process of its own, every due job's in that pass, ahead of
+   any reclaim, its output in the drive's `relaunches.log`, so no session runs it. A worker waiting inside its own question, to
    you or as his `ASK`, or on a read it asked after its line, keeps its turn open, so its Sprite
    and session stay until the answer `drive job resume` or its reader sends reaches it there. The job
    keeps the state its line set, with its waits, PRs and carried parts: a `WAITING` job stays

@@ -659,7 +659,7 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
 
 
 def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
-    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it."""
+    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
     state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy, for at most {RECLAIM_SECONDS} s")
     return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job))
 

@@ -3856,7 +3856,7 @@ def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None
     if not orca.holds_sprite(job):
         return None
     try:
-        return orca.release(drive, job_id, job, root) or None
+        return orca.release(drive, job_id, job, root)
     except orca.OrcaError as error:
         return f"{job['workspace']} is kept: {error}"
 
