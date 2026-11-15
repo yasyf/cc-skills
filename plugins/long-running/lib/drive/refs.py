@@ -154,7 +154,7 @@ def subject(data: dict, order_id: str | None) -> set[str]:
     """What a post or report on an order reports on, as named writes it: the orders of its incident, or the order alone, and each PR of theirs, but a drive tooling order's, whose PRs are the tool changes preventing what it tells."""
     if order_id is None:
         return set()
-    orders = [each for each in state.incident_orders(data, order_id) if not data["orders"][each]["text"].startswith(state.TOOLING)]
+    orders = [each for each in state.feature_orders(data, order_id) if not data["orders"][each]["text"].startswith(state.TOOLING)]
     return {*orders, *(f"#{key.rsplit('#', 1)[1]}" for key, pr in data["prs"].items() if state.order_served(pr) in orders)}
 
 

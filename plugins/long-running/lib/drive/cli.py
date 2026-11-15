@@ -203,7 +203,7 @@ def lane_posted(name: str, lane: str) -> bool:
 
 
 def order_add(args: argparse.Namespace) -> int:
-    """Record his order, refusing a --parts name a part cannot hold, by state.unquotable_part; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a "Drive tooling:" order whose words Jev reads as asking what an open tooling order asks joins that order, every job on that order carrying it, so one fault keeps one job and one card; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
+    """Record his order, refusing a --parts name a part cannot hold, by state.unquotable_part; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; an order whose words Jev reads as on the feature an open build order of its side holds, drive tooling's or his work's, joins that order under its project and workstream, each unfinished job on the feature carrying it and holding his words, so one feature keeps one coordinator, one set of rulings and its jobs; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
     refuse_unreworkable(state.load(name), args.rework)
     order_id, order, started, incidents = added_order(args)
@@ -283,12 +283,12 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
     tooling = args.words.startswith(state.TOOLING)
     if held := held_order(state.load(name), args.words, args.owner):
         return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
-    project, workstream = (None, None) if unfiled else filing(state.load(name), args.words, args.project, args.workstream)
     title = titled(args.title)
     if tooling:
         check_tooling_words(name, args.words)
-    if tooling and not (args.joins or args.incident):
-        args.joins = settled.repeats(state.load(name), args.words)
+    if not (args.joins or args.incident or args.options_only or unfiled or args.kind == "answer"):
+        args.joins = settled.repeats(state.load(name), args.words, tooling)
+    project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
@@ -308,6 +308,9 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             raise DriveError(
                 f"--joins {args.joins}: name an open order, an open incident order for --incident; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}"
             )
+        if joined:
+            head = data["orders"][joined["joins"] or args.joins]
+            project, workstream = head["project"], head["workstream"]
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
         parts = {part: state.new_part() for part in args.parts or [title]}
@@ -334,13 +337,14 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
         started += [state.INCIDENT_BRIEF] if started else []
         repeats = joined and not state.hurts_now(data, order)
-        group = [other for other in state.incident_orders(data, order_id) if other != order_id] if repeats else []
+        group = [other for other in state.feature_orders(data, order_id) if other != order_id] if repeats else []
         carriers = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] not in state.FINISHED_JOB_STATES]
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
+            state.hold_text(data["jobs"][job_id], f'His words, kept as {order_id} on the feature of {order["joins"]} this job carries: "{args.words}"', state.HIM)
     if joined:
         carried = (
-            f"carried by {', '.join(carriers)}, so no job starts on it"
+            f"carried by {', '.join(carriers)}, each holding these words for its worker, so no job starts on it"
             if carriers
             else f"no unfinished job on {', '.join(group)} carries it, so its jobs are added on {order_id}"
             if repeats
@@ -2635,7 +2639,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     if named.get("after") == [""]:
         named = named | {"after": ""}
     data = state.load(name)
@@ -2644,7 +2648,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     earlier_flags = job.get("brief_flags") or {}
     kept = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and (flag == "ruling" or named.get(flag) is None)]
     dropped = [flag for flag in state.BRIEF_FLAGS if earlier_flags.get(flag) and named.get(flag) == ""]
-    bound = [answer_id for other in order["jobs"] for answer_id in (data["jobs"][other].get("brief_flags") or {}).get("ruling") or []]
+    bound = [answer_id for other in state.orders_jobs(data, state.job_feature(data, job)).values() for answer_id in (other.get("brief_flags") or {}).get("ruling") or []]
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
     flags = {flag: earlier_flags.get(flag) if named.get(flag) is None else named[flag] or None for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
     flags["serves"] = flags["serves"] or ("drive tooling" if tooling(order) else "his order")
