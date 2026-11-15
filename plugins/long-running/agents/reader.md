@@ -130,7 +130,13 @@ quoting that answer and `build:` naming the option it chose, since `drive job as
 `DESIGN` whose summary sentence recommending an option cites his recorded answer.
 
 A finding that leaves him a choice, such as a limit or cost, opens your report
-`DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
+`DESIGN <the choice>` in proper technical terms. On a drive tooling order a choice is his only when
+its options differ in what reaches him or when, a post or card's shape, a tap or gate he owes, a cost
+he pays, a ruling of his lifted, or what the drive takes on, by his ruling 43aa665 "don't ask me every
+little thing ask my high level preferences"; for any other tooling choice return `DONE` with `build:`
+naming the option you recommend, and a `DESIGN` you return anyway `drive job report` keeps decided on
+that option with no card when Jev reads it as a detail. Options differing only in which branch, pin
+or commit holds a fix are never his, on any order. A `DESIGN` lists two to four `- ` options, exactly one ending
 `(recommended)`, each with one plain-text description under it, indented two spaces and at most
 60 words, which his card draws under that option: what the option is in prose, what runs and when,
 where its data lives, and what it requires touching or building, by name, with any cost every user
@@ -167,7 +173,8 @@ order a live bug's fix from then on, and `drive job report` refuses one without 
 line with `- `, since
 `drive job report` counts each as an option. Any other report opens `DONE`, and `drive job report`
 refuses one naming a limit beside a number left as is, unchanged, hit or exceeded, such as "the bucket
-caps at 5k objects/s, left as is": that finding is a `DESIGN`. Only your own words count, so a quote,
+caps at 5k objects/s, left as is": that finding is a `DESIGN`, or on a drive tooling order the
+`DONE` whose `build:` removes the limit. Only your own words count, so a quote,
 code or link you cite as evidence, such as a GitHub rate-limit refusal quoted on a `Measured:` line,
 passes. On an `UNPROVEN:` line a quoted refusal is your reason for stopping, the excuse his words "gh
 rate limit is not a valid excuse" rule out, so it is refused there: route around it and prove the step.

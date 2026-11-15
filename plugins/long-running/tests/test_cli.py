@@ -3479,6 +3479,41 @@ def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_th
     ]
 
 
+def test_a_tooling_question_jev_reads_as_only_a_detail_is_kept_decided_on_its_recommended_option_with_no_card_and_a_preference_draws_his_card(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK Where should")))
+    run("job", "ask", "j1", "-")
+    assert jev.details == []
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: lay out the run files")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    run("job", "add", "builder", "--order", "o2", "--goal", "lay them out")
+    jev.detail = 0.95
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    kept = str(state.drive_dir("demo") / "asks" / f"j2-{state.ask_hash(SHORT_ASK)}.md")
+    option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    assert run("job", "ask", "j2", "-") == (0, settled.DECIDED_LINE.format(file=kept, job="j2", option=option, ruling="43aa665"))
+    [question] = state.load("demo")["jobs"]["j2"]["questions"]
+    assert (question["card"], question["waits"], question["closed"]["how"], question["closed"]["ruling"], question["closed"]["words"]) == (
+        None,
+        None,
+        "answered",
+        "43aa665",
+        f"{option}: decided without you under your ruling on tooling details",
+    )
+    assert state.load("demo")["jobs"]["j2"]["state"] == "running"
+    jev.detail = 0.5
+    preference = SHORT_ASK.replace("ASK How should", "ASK When should")
+    monkeypatch.setattr("sys.stdin", io.StringIO(preference))
+    run("job", "ask", "j2", "-")
+    asked = state.load("demo")["jobs"]["j2"]["questions"][-1]
+    assert (asked["closed"], bool(asked["waits"]), len(jev.details)) == (None, True, 2)
+
+
 def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_order_redraws_under_its_waits_id_leaving_its_own_job_and_folding_into_the_other(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -6150,6 +6185,14 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     assert keep(monkeypatch, capsys, "j1", design) == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
     assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy the cards")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    run("job", "add", "builder", "--order", "o2", "--goal", "copy them", "--agent", "a3")
+    code, err = keep(monkeypatch, capsys, "j3", f"DONE the bucket caps at 5k objects/s, left as is\n{check}")
+    assert code == 2
+    assert "On a drive tooling order the job decides it, by his ruling 43aa665: build the option that removes it and report that" in err
+    assert "A limit or capacity finding is his choice" not in err
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
     for evidence in (
@@ -10862,7 +10905,7 @@ def test_settled_shows_his_answer_on_a_card_it_decides_settles_its_jobs_question
     capsys.readouterr()
     assert cli.main(["answer", "a1", "--stands", designing, "--settled", "demo:j3-9"]) == 2
     told = capsys.readouterr().err
-    assert f"demo:j3-9: its card {LAYOUT_CARD} now shows his answer a1 with no buttons, settling j3's question, so j3 builds on his words" in told
+    assert f"demo:j3-9: its card {LAYOUT_CARD} now shows his answer a1 with no buttons, settling j3's question; j3 builds on his words" in told
     assert "  j3 waits on o2 and has not heard a1: drive job resume j3 with his words verbatim, or mark it untouched" in told
     send_message("demo", "j3", WORDS, waiting=True)
     assert run("answer", "a1") == (
@@ -10888,11 +10931,29 @@ def test_an_answer_lists_a_question_kept_with_no_card_drawn_yet_and_settling_it_
         0,
         [
             "his answer a1 recorded: 1 standing, 1 settled, 0 superseded, 0 reopened by it",
-            "demo:j2-8: no card draws for it, his answer a1 ending its question, settling j2's question, so j2 builds on his words",
+            "demo:j2-8: no card draws for it, his answer a1 ending its question, settling j2's question; j1 and j2 build on his words",
         ],
     )
     [journal] = [question for question in state.load("demo")["jobs"]["j2"]["questions"] if question["waits"] == "demo:j2-8"]
     assert (journal["card"], journal["closed"]["how"], journal["closed"]["answer"], settled) == (None, "answered", "a1", [ANSWERED])
+
+
+def test_settling_a_card_no_live_job_builds_on_names_the_orphaned_part_and_the_builder_to_start_on_the_branch_built_there(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    cards_asking(monkeypatch, PR)
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"].append(state.new_question("/tmp/j2-journal.md", "Which journal?", state.stamp()) | {"waits": "demo:j2-8"})
+        data["jobs"]["j1"]["state"] = "stopped"
+        data["jobs"]["j2"].update(state="done", branch="j2-journal")
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    capsys.readouterr()
+    code, out = run("answer", "a1", "--stands", designing, "--settled", "demo:j2-8")
+    assert (code, out.splitlines()[1]) == (
+        0,
+        "demo:j2-8: no card draws for it, his answer a1 ending its question, settling j2's question; ORPHAN o1 \"land it\": no live job builds it;"
+        " start one now with drive job add builder --order o1 --part 'land it' --goal '<what it builds>' --branch j2-journal",
+    )
 
 
 def test_settled_redraws_a_card_it_decides_in_part_to_the_ask_its_job_keeps_for_what_is_left_and_refuses_one_unkept_or_not_linking_his_answer(

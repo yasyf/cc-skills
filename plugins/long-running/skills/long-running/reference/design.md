@@ -14,6 +14,9 @@ fundamentally right way for the target tree, never copied from the old PR's stor
 "port his visuals but always do it the fundamentally right way when it comes to modelng the data".
 So does a lock, queue, scheduler or other coordination, a public or Sand-facing API shape, or a new
 background process. When you cannot tell, it counts, because a wrong shape costs PRs he never saw.
+On a drive tooling order a fork goes to him only when it is his high-level preference, by
+[scope](scope.md#what-you-do-without-asking); the designer decides every other fork, and its
+builder builds that option.
 A visual design, how a page, card or post he sees lays out its information, is no designer's and no
 codex job's: its builder, briefed with the surface on `--native` and his user stories on
 `--interactions`, asks `codex-ask` for the layout inside its own run, keeps each fork codex finds as
@@ -71,7 +74,7 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
      `drive job ask` refuses an option with no description or with fields such as `Does:` in place of one, a mechanism such as polling left a bare word, a block out of shape, a
      `Root cause:` line missing, or its `First principles:` option missing or not recommended, a `Simplest:` line missing or naming no option, and a question a recorded answer of his may
      settle; each refusal names its fix.
-2. **He is asked before any PR.** Each fork goes to him as its own question card, by the
+2. **He is asked before any PR.** Each fork of his goes to him as its own question card, by the
    `DESIGN <part>` row in [The coordinator](coordinator.md). The card holds the design fleshed out
    above its options, each option's plain-text description under it, and names each function, file, table,
    flag or service by its proper term. A wall
@@ -81,8 +84,8 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
      `drive job ask` prints each option Jev reads as left unworked, naming it. Beyond that it shows
      only what the words cannot: "show a sinippet when it makews sense". It counts toward no word
      limit, so it is never cut; the visual rules are in [Messages](messages.md).
-   - Nothing his words settle is asked. `drive job ask` settles only on his answer to the same
-     question, and Jev reads each card against his order, its thread and the recorded answers of
+   - Nothing his words settle is asked. `drive job ask` settles on his answer to the same
+     question, or on a drive tooling order on Jev's reading that the fork is a detail, and Jev reads each card against his order, its thread and the recorded answers of
      his `ccn answer match` ranks nearest to the block, so also read his answers on the area.
    - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
      branch, because he wants work to go on while he decides. When his words on the order ask for
@@ -138,7 +141,8 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
    ruling the `rulings:` line of each carried order's reader names, his answer to each question
    that reader asked, and each carried order's words, so no brief reads `none named` over a ruling
    on its area; a lane that takes over or restarts the job starts on the brief rebuilt this way. A builder
-   that meets a new fork mid-build stops and returns `ASK` with it, because only he picks a fork.
+   that meets a new fork mid-build stops and returns `ASK` with it, because only he picks a fork; on a
+drive tooling order it decides a detail itself and builds on, and asks only a preference of his.
 6. **No card for a design he never saw.** A `READY` whose PR makes a design decision he never
    answered goes back as a design question, not onto a PR card. `drive pr set --serves` refuses
    without `--design asked:<his answer id or card permalink>` or `--design none`, and its check

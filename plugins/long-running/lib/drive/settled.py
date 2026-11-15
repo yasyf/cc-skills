@@ -115,6 +115,27 @@ ANSWERED = (
     ' cited answer as a tap on the card: one tap settles it, nothing skipped unseen", and build on his words meanwhile.'
 )
 MARKED = "Jev reads {option} as breaking it"
+TOOLING_SAID = (
+    "This is getting too in the weeds for me use your fucking Brain and act like a frontier model when it comes to Meta tooling"
+    " don't ask me every little thing ask my high level preferences (different than non-tooling changes); apply this everywhere now"
+)
+DETAIL = Noul(
+    "Does `card.text`, asked on a drive tooling order, ask him only a detail of how the tooling does its work, such as which file,"
+    " function, store, hook, verb, flag, check, judge, process or wait does it, or which branch, pin or commit holds a change, so by"
+    " `ruling.said` its job decides it and builds the option it recommends?",
+    no="Its options differ in what he gets: whether, where or when a post or card reaches him or what it looks like, a tap, gate or"
+    " presence he owes, a cost he pays in money or in waiting on his work, a ruling of his the recommended option lifts, or the scope"
+    " of work the drive takes on.",
+)
+DECIDED = "{option}: decided without you under your ruling on tooling details"
+DECIDED_LINE = (
+    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: Jev reads it as asking only a detail'
+    " of drive tooling, which his ruling {ruling} leaves to the job, so build that option and open its PR as for work no card holds"
+)
+DECIDES = (
+    'drive job ask: Jev reads this card as asking only a detail of drive tooling, which his ruling {ruling} leaves to the job, so asking'
+    ' it keeps it decided on its recommended option, "{option}", with no card'
+)
 JEV_MARK = re.compile(re.escape(MARKED).replace(re.escape("{option}"), ".+") + r"\Z")
 UNSETTLED = (
     'drive job ask: kept the card unsettled as "{unsettled}", asking him to lift {id}, {asked}, so it holds its PR from landing'
@@ -670,6 +691,23 @@ def deciding(asked: limits.Question, answers: list[dict]) -> list[dict]:
         print(f"drive: Jev gave no reading of which recorded answers of his decide this question, so its card draws no {limits.ALREADY_ANSWERED} option: {failure}", file=sys.stderr)
         return []
     return [answer for answer in answers if reading(read.get(f"decides.{answer['answer']}", 0.0))]
+
+
+def detail(case: str, words: list[dict]) -> bool:
+    """Whether a card on a drive tooling order asks him only a detail its job decides, by his ruling state.TOOLING_DETAILS_RULING, as Jev reads it at YES or more in one request holding the card, the ruling and, filled by whole items, his words; one Jev reads in the band between NO and YES, or gives no reading of, goes to him, the latter said on stderr."""
+    items = (({"words": {f"w{number}": {field: word[field] for field in ("asked", "said", "rule") if field in word}}}, {}) for number, word in enumerate(words, 1))
+    request, questions, _ = fill({"card": {"text": case}, "ruling": {"id": state.TOOLING_DETAILS_RULING, "said": TOOLING_SAID}}, {"detail": DETAIL}, items)
+    try:
+        read = jev(request, questions)
+    except Unheard as failure:
+        print(f"drive job ask: Jev gave no reading of whether this tooling card asks him only a detail, so it goes to him: {failure}", file=sys.stderr)
+        return False
+    return reading(read["detail"]) is True
+
+
+def tooling_decided(option: str, link: str | None) -> dict:
+    """How a drive tooling job's question ends when its job decides it by his ruling state.TOOLING_DETAILS_RULING: answered by that ruling on its recommended option."""
+    return state.new_close("answered", DECIDED.format(option=option), link, ruling=state.TOOLING_DETAILS_RULING)
 
 
 def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:

@@ -779,6 +779,12 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             " first, which keeps a copy where drive status lists it, then keep this report"
         )
     if opening not in CHOICE_OPENINGS and (finding := limit_finding(lines)):
+        if order["text"].startswith(state.TOOLING):
+            return (
+                f'it reports a limit as a finding left standing: "{finding}". On a drive tooling order the job decides it, by his ruling'
+                f" {state.TOOLING_DETAILS_RULING}: build the option that removes it and report that, or return ASK or DESIGN with two to four"
+                " options, one recommended, which drive job ask decides with no card unless its options differ in what he gets"
+            )
         return (
             f'it reports a limit as a finding left standing: "{finding}". A limit or capacity finding is his'
             " choice, so return ASK or DESIGN with two to four options for it, one recommended, in place of this report"
