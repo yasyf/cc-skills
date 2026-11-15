@@ -157,6 +157,8 @@ def landing_why(pr: dict) -> str:
         flaky = pr["flaky"] if pr["flaky"] and pr["flaky"]["requeued"] and pr["flaky"]["head"] == lander["head"] else None
         requeued = f", requeued once {flaky['fix']}, the fix of its flaky test {flaky['test']}, merged" if flaky else ""
         return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}"
+    if lander["outcome"]:
+        return f"its lander's try at {lander['head'][:7]}, started {lander['at']}, {lander['outcome']}"
     return f"lander pid {lander['pid']} lands {lander['head'][:7]}, started {lander['at']}"
 
 
