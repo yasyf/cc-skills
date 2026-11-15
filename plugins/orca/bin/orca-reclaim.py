@@ -802,6 +802,7 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
     lines += [f"git update-ref {shlex.quote('refs/heads/' + (name if name.startswith(prefix) else prefix + name))} {tip}" for name, tip in refs.items()]
     for tree in map(shlex.quote, trees):
         lines += [
+            f'pgrep -x git >/dev/null || rm -f "$(git -C {tree} rev-parse --path-format=absolute --git-path index.lock)"',
             f"git -C {tree} add -A",
             f"git -C {tree} -c core.hooksPath=/dev/null commit -q --no-verify -m {shlex.quote(message)}",
             f'git update-ref "refs/heads/{prefix}$(git -C {tree} symbolic-ref --short -q HEAD || git -C {tree} rev-parse --short=10 HEAD)" "$(git -C {tree} rev-parse HEAD)"',

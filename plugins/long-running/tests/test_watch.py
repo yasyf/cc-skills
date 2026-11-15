@@ -658,15 +658,15 @@ def test_the_watch_hooks_each_repository_of_a_pr_it_hears_and_reads_its_prs_sinc
     assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY]])
 
 
-def test_a_repository_this_account_does_not_administer_is_asked_once_with_no_timed_read_and_a_hook_that_fails_is_said_without_holding_back_the_next(
+def test_a_repository_this_account_does_not_administer_is_asked_once_and_a_hook_that_fails_is_said_without_holding_back_the_next_while_each_open_pr_no_hook_delivers_is_read_each_minute(
     demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
 ) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
-    broken, upstream = "Forge-AI/litestream#3", "stablyai/orca#7"
+    broken, upstream, shut = "Forge-AI/litestream#3", "stablyai/orca#7", "stablyai/orca#8"
     with state.edit(demo) as data:
-        for key in (broken, upstream):
+        for key in (broken, upstream, shut):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
-    calls = serve(monkeypatch, {key: read() for key in (KEY, broken, upstream)})
+    calls = serve(monkeypatch, {key: read() for key in (KEY, broken, upstream)} | {shut: read(state="CLOSED")})
     refusal = "gh api 'repos/Forge-AI/litestream/hooks?per_page=100': gh: Not Found (HTTP 404)"
     receiving.unhooked |= {"Forge-AI/litestream", "Forge-AI/monorepo", "stablyai/orca"}
     receiving.unadministered.add("stablyai/orca")
@@ -677,7 +677,29 @@ def test_a_repository_this_account_does_not_administer_is_asked_once_with_no_tim
         [f"WATCH upkeep of the receiver failed 3 times in a row: {refusal}"],
         ["Forge-AI/litestream", "Forge-AI/monorepo", "stablyai/orca", "Forge-AI/litestream", "Forge-AI/litestream"],
         ["Forge-AI/monorepo"],
-        [[KEY, broken, upstream], [KEY]],
+        [[KEY, broken, upstream, shut], [KEY, broken, upstream], [broken, upstream], [broken, upstream]],
+    )
+
+
+def test_a_pr_on_a_repository_no_hook_delivers_from_says_its_checks_passed_within_a_minute_of_github_reading_them_green(
+    demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    docs = "Forge-AI/design-docs#366"
+    with state.edit(demo) as data:
+        data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
+    reads = {KEY: read(), docs: read()}
+    serve(monkeypatch, reads)
+    receiving.unhooked.add("Forge-AI/design-docs")
+    receiving.unadministered.add("Forge-AI/design-docs")
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    reads[docs] = read(checks=GREEN)
+    quiet = watch.run_pass(watching, T0 + timedelta(seconds=5))
+    said = watch.run_pass(watching, T0 + timedelta(seconds=60))
+    assert ([line for line in [*quiet, *said] if line.startswith("PR ")], state.load(demo)["prs"][docs]["required"]["read"]) == (
+        [f"PR {docs}: checks passed [o1 j1]"],
+        state.stamp(T0 + timedelta(seconds=60)),
     )
 
 
