@@ -869,8 +869,8 @@ def head_failures(repo: str, head: str) -> dict[str, dict]:
 
 
 def main_failures(repo: str, workflow: int, created: str) -> list[str] | None:
-    """The tests failed by the newest completed run not cancelled of a workflow on repo's default branch among those created in a GitHub date range, such as <2026-11-13T13:05:55Z: none when it passed, and None when no such run finished or its failure names no test, as a timeout's does, so it says nothing of any test."""
-    jq = '[.workflow_runs[] | select(.conclusion != "cancelled") | {id, conclusion}] | first'
+    """The tests failed by the newest completed run not cancelled of a workflow on repo's default branch among those created in a GitHub date range, such as <2026-11-13T13:05:55Z: none when it passed, and None when no such run finished or its failure names no test, as a timeout's does, so it says nothing of any test. The filter ends in tojson because gh's --jq prints a null result as an empty line, never as null."""
+    jq = '[.workflow_runs[] | select(.conclusion != "cancelled") | {id, conclusion}] | first | tojson'
     query = f"branch={github.default_branch(repo)}&status=completed&created={created}&per_page=100"
     run = json.loads(github.read(f"{repo}'s runs of workflow {workflow} created {created}", ["gh", "api", f"repos/{repo}/actions/workflows/{workflow}/runs?{query}", "--jq", jq]))
     if run is None:
