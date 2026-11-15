@@ -127,6 +127,7 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 where its data lives, and what it requires touching or building, by name, with any cost every user
 pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
 "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
+Its question and each option say what each code name they hold is or does the first time, as "runtime-api type-checks a run's arguments" does, since `drive job ask` refuses one naming code such as check-run-args that Jev reads that line as never saying in plain words, by his ruling e405d69, "Explain what this is what do you mean check".
 Its `Show me:` works each option out to what it will look like once built, its real calls, the rows
 it writes, its flow or what a caller gets, as a `compare` panel named with the option's words or a
 picture captioned with its number, never only its files and cost, by his words "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; `drive job ask`
