@@ -590,6 +590,30 @@ def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> 
     assert statuses == {"drawn.png": (200, b"png"), "other.png": (404, b"")}
 
 
+def test_each_option_owns_the_show_me_pictures_its_number_captions_and_its_panel_of_each_compare() -> None:
+    compare = {"options": [{"name": "Raise it", "points": ["+ one setting"]}, {"name": "Shard it", "points": ["+ 16 prefixes"]}]}
+    body = limits.card_body(
+        ["Where should the journal write?", "![1 · Raise it](/summary.png)"],
+        [
+            "![1 · Raise it, as the bucket shows it](/raise.png)",
+            "![2 · Shard it](/drive/pictures/a/show-me.png)",
+            "![Show me](/both.png)",
+            "![3 · Neither](/neither.png)",
+            "What each path writes",
+            "```compare",
+            json.dumps(compare),
+            "```",
+        ],
+    )
+    drawn = {"/drive/pictures/a/show-me.png": {"kind": "mermaid", "source": "flowchart TD\n  run --> shard"}, "/raise.png": {"kind": "image", "source": "https://x.test/raise.png"}}
+    panels = [{"kind": "compare", "source": json.dumps({"options": [each]}), "caption": "What each path writes"} for each in compare["options"]]
+    assert dashboard.option_pictures({"body": body, "options": ["Raise it", "Shard it"]}, drawn) == [
+        [{"kind": "image", "source": "/raise.png", "caption": "Raise it, as the bucket shows it"}, panels[0]],
+        [{"kind": "mermaid", "source": "flowchart TD\n  run --> shard", "caption": "Shard it"}, panels[1]],
+    ]
+    assert dashboard.option_pictures({"body": body, "options": ["Raise it", "Shard it", "Neither", "Wait"]}, drawn)[2:] == [[{"kind": "image", "source": "/neither.png", "caption": "Neither"}], []]
+
+
 def test_a_recording_is_served_by_the_byte_range_a_video_asks_so_it_seeks(tmp_path: Path) -> None:
     recording = tmp_path / "after.mov"
     recording.write_bytes(b"0123456789")
@@ -1454,6 +1478,34 @@ done({ first, after: said(), focused: document.activeElement.dataset.storyPick, 
     assert hints["Raise it"] in seen["first"]
     assert hints["Shard it"] in seen["after"]
     assert (seen["focused"], seen["title"]) == ("1", "Raise the limit?")
+
+
+def test_the_outcome_draws_the_previewed_paths_own_show_me_pictures_from_the_first_and_no_frame_for_a_path_with_none(tmp_path: Path) -> None:
+    asked = ["Where should the journal write?"]
+    body = limits.card_body(asked, ["![1 · Raise it](/raise.png)", "![1 · Raise it, raised](/raised.png)", "![2 · Shard it](/shard.png)", "![2 · Shard it, sharded](/sharded.png)"])
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+const strip = () => document.querySelector('#main .story-outcome .story-outcome-media');
+const shots = () => [...strip().querySelectorAll('[data-shot]')].map((shot) => [shot.dataset.shot, shot.dataset.caption]);
+await until(() => strip());
+const first = shots();
+strip().scrollLeft = strip().scrollWidth;
+const scrolled = strip().scrollLeft > 0;
+const paths = () => [...document.querySelectorAll('#main [data-story-pick]')];
+paths()[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+const hovered = [shots(), strip().scrollLeft];
+paths()[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', queue: MODEL.queue.map((item) => ({ ...item, card: { ...item.card, body: BODY } })) });
+await until(() => !strip());
+done({ first, scrolled, hovered, unpictured: [document.querySelector('#main .story-outcome h3').textContent, document.querySelectorAll('#main .story-outcome-media').length] });
+""".replace("BODY", json.dumps(limits.card_body(asked, ["![2 · Shard it](/shard.png)"]))), board(queue=[QUESTION | {"card": QUESTION["card"] | {"body": body}}]))
+    assert seen == {
+        "first": [["/api/picture?path=%2Fraise.png", "Raise it"], ["/api/picture?path=%2Fraised.png", "Raise it, raised"]],
+        "scrolled": True,
+        "hovered": [[["/api/picture?path=%2Fshard.png", "Shard it"], ["/api/picture?path=%2Fsharded.png", "Shard it, sharded"]], 0],
+        "unpictured": ["Raise it", 0],
+    }
 
 
 def test_the_outcome_previews_the_path_he_hovers_or_focuses_and_returns_to_his_pick_when_he_leaves_it(tmp_path: Path) -> None:

@@ -31,6 +31,7 @@ from drive import (
     github,
     install,
     launchd,
+    limits,
     pages,
     picture,
     review,
@@ -188,6 +189,23 @@ def card_pictures(card: dict) -> set[str]:
     """Each picture a card draws: those its body shows by path, its own and those of each PR it carries."""
     drawn = {match[1] for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
     return drawn | {*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])}
+
+
+def option_pictures(card: dict, drawn: dict[str, dict]) -> list[list[dict]]:
+    """Each option's own pictures in the question card's Show me, in the card's option order, each by its kind, source and caption: each picture whose caption opens with the number the card gives that option, as `2 · …`, captioned without that number, and that option's panel of each compare drawing one panel per option; a picture the drive drew from a fence is that fence, as its source.json in drawn keeps it."""
+    count = len(card["options"])
+    owned: list[list[dict]] = [[] for _ in range(count)]
+    _, *show_me = limits.SHOWN.split(card.get("body") or "", maxsplit=1)
+    for kind, source, caption in picture.sources("".join(show_me)):
+        if kind == "image" and (fence := drawn.get(source)) and fence["kind"] != "image":
+            kind, source = fence["kind"], fence["source"]
+        caption = "" if limits.NAMELESS_CAPTION.fullmatch(caption) else caption
+        if (number := limits.OPTION_CAPTION.match(caption)) and int(number[1]) <= count:
+            owned[int(number[1]) - 1].append({"kind": kind, "source": source, "caption": caption[number.end() - 1 :]})
+        elif kind == "compare" and len(panels := json.loads(source)["options"]) == count:
+            for pictures, panel in zip(owned, panels, strict=True):
+                pictures.append({"kind": kind, "source": json.dumps({"options": [panel]}), "caption": caption})
+    return owned
 
 
 def changes(name: str) -> Iterator[None]:
@@ -517,7 +535,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(404, {"error": GONE})
                 return
             drawn = {path: json.loads(source.read_text()) for path in card_pictures(found["card"]) if (source := Path(path).with_name("source.json")).is_file()}
-            self.answered(200, {"card": found["card"], "rail": found.get("rail"), "told": found.get("told"), "visuals": drawn})
+            self.answered(200, {"card": found["card"], "rail": found.get("rail"), "told": found.get("told"), "visuals": drawn, "option_pictures": option_pictures(found["card"], drawn) if found["kind"] == "question" else []})
 
         def told(self, key: str) -> None:
             found = next((entry for entry in board.model["review"] if entry["key"] == key), None)

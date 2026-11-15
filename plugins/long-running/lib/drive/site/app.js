@@ -386,7 +386,7 @@ function slice(url) {
 
 function opened(item) {
   const read = item.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
-  return read?.ok ? { ...item, card: read.card, rail: read.rail, told: read.told } : item;
+  return read?.ok ? { ...item, card: read.card, rail: read.rail, told: read.told, option_pictures: read.option_pictures } : item;
 }
 
 function notRead(read) {
@@ -559,7 +559,9 @@ function decisionCard(item, at, total) {
   const recommended = option.label === item.card.recommended;
   const cause = decisionCause(item.card.body);
   const metrics = option.metrics.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
-  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
+  const pictured = item.option_pictures[showing].map((each) => (each.kind === 'image' ? shot(each.source, each.caption) : visual(each.kind, each.source, each.caption)));
+  const media = pictured.length ? `<div class="story-outcome-media" data-option="${showing}"${pictured.length > 1 ? ` tabindex="0" aria-label="${pictured.length} pictures of this path"` : ''}>${pictured.join('')}</div>` : '';
+  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${media}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
   const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
@@ -2382,6 +2384,7 @@ function morph(old, made) {
   }
   if (old.matches('.visual-host.drawn') && old.dataset.visual === made.dataset.visual && old.dataset.source === made.dataset.source) return;
   if (old.matches('figure.recording') && old.dataset.recording === made.dataset.recording) return;
+  if (old.matches('.story-outcome-media') && old.dataset.option !== made.dataset.option) old.scrollLeft = 0;
   if (old.matches('.packets')) return;
   for (const { name } of [...old.attributes]) if (!made.hasAttribute(name) && !(name === 'open' && old.matches('details'))) old.removeAttribute(name);
   for (const { name, value } of made.attributes) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
