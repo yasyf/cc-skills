@@ -91,7 +91,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
             return blocked(data, key, step, waits, cards)
         return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, key, step, cards) or Stage("red", BUILDER, step)
     if built := state.built_base(data, pr):
-        found = [end for end in ends(data, [built], cards, {key}) if end != built]
+        found = [end for end, _ in ends(data, [built], cards, {key}) if end != built]
         holds = f"waits on {', '.join(fix_words(data, end, cards) for end in found)}" if found else f"is {data['jobs'][built]['state']}"
         return Stage("behind", mover(data, key, [built], cards), f"it sits on {pr['base']}, the branch of {built}, which {holds} and has opened no PR there yet; it lands with that PR once it opens")
     if holds := held(data, pr):
@@ -142,19 +142,20 @@ def pr_waits(data: dict, pr: dict) -> list[str]:
 
 def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[str]:
     """Each end of the PR's waits, by ends(), that only he moves."""
-    return [end for end in ends(data, waits, cards, {key}) if his(data, end, cards)]
+    return [end for end, _ in ends(data, waits, cards, {key}) if his(data, end, cards)]
 
 
-def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> list[str]:
-    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job, each part of an order and each PR not waiting on his Approve to what holds it by onward(), to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere."""
+def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str], holder: str | None = None) -> list[tuple[str, str | None]]:
+    """Where the waits that still hold lead, walked as stall.chain walks a chain: each job, each part of an order and each PR not waiting on his Approve to what holds it by onward(), to each wait holding on nothing further, never back to a PR walked, the one the walk starts from included, or to a release of one, which comes only once that PR lands, so waits that only come back to the PR end nowhere; each end beside the first job the walk passed on its way there, the end itself when it is that job, as the tester a staging test part leads to, or None when it passed none."""
     found = []
     for wait in view.holding(data, waits, cards):
         release = state.RELEASE_WAIT.fullmatch(wait)
         if wait in seen or release and release["pr"] in seen:
             continue
         seen.add(wait)
+        job = holder or (wait if wait in data["jobs"] else None)
         held = onward(data, wait, cards) if wait in data["jobs"] or state.part_wait(data, wait) or wait in data["prs"] and not his(data, wait, cards) else []
-        found += ends(data, held, cards, seen) if held else [wait]
+        found += ends(data, held, cards, seen, job) if held else [(wait, job)]
     return found
 
 
@@ -171,14 +172,16 @@ def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
 
 
 def mover(data: dict, key: str, waits: list[str], cards: dict | None) -> str:
-    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); else, at the first, the job at work there, a PR standing for the job answering for it, by owner_job(), so the stage's deadline wakes that job's lane; the watch for a builder slot on this Mac, which it gives; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
+    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); the watch for a builder slot on this Mac, which it gives; else, at the first, a job or PR, the first job the walk to it passed, the one the PR's waits name or carrying the part they name, as a staging test part's tester, never a job that job's own waits lead to, which a stale wait of its names as readily as a live one and whose own stage wakes it, else the job answering for that PR, by owner_job(), so the stage's deadline wakes that job's lane; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
     found = ends(data, waits, cards, {key})
-    if any(his(data, end, cards) for end in found):
+    if any(his(data, end, cards) for end, _ in found):
         return HIM
-    end = owner_job(data, found[0]) if found and found[0] in data["prs"] else next(iter(found), None)
-    if end in data["jobs"]:
-        return end
-    return WATCH if end == state.SLOT_WAIT else ORDER
+    end, holder = next(iter(found), (None, None))
+    if end == state.SLOT_WAIT:
+        return WATCH
+    if end in data["prs"]:
+        return holder or owner_job(data, end) or ORDER
+    return holder if end in data["jobs"] else ORDER
 
 
 def his(data: dict, wait: str, cards: dict | None) -> bool:
