@@ -1571,6 +1571,7 @@ def job_set(args: argparse.Namespace) -> int:
             job.update(where="local", session=os.environ.get("CLAUDE_CODE_SESSION_ID"))
             if args.agent != known["jobs"][args.id]["agent"]:
                 state.start(job)
+                hear_opening(data, args.id)
             superseded.hear_start(data, args.id)
         if args.repro:
             job["repro"] = keep_repro(name, args.id, job["kind"], args.repro)
@@ -1590,6 +1591,16 @@ def job_set(args: argparse.Namespace) -> int:
         for line in rework_named_prs(name, order_id, reworks, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>=<his permalink>")
     ]
     return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
+
+
+def hear_opening(data: dict, job_id: str) -> None:
+    """Hear the prompt that started the job's new agent on this Mac, read from its transcript beside the session recording it, as agents.hold hears it at that agent's first step, so a prompt quoting a text the job holds, such as the question its last lane asked, leaves nothing held, and one lacking it leaves the text for the watch's ANSWER undelivered line to the agent's starter; nothing when no session bound to the drive records it or its transcript is not written yet."""
+    job = data["jobs"][job_id]
+    if (holder := watch.session_of(job, data)) is None:
+        return
+    path = watch.agent_transcript(holder, job, data)
+    if prompt := agents.opened(path):
+        superseded.hear(data, job_id, prompt, state.parse_time(agents.opening_row(path)["timestamp"]))
 
 
 def fix_kept(data: dict, job_id: str) -> None:
@@ -3324,7 +3335,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
 
 
 def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:
-    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
+    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         if started is None:
@@ -3332,7 +3343,7 @@ def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | Non
         elif job.get("dispatch") != started["dispatch"]:
             fresh = state.handed_texts(job, text)
             given = [*state.unreturned(job, "\n\n".join(fresh)), *({"words": words, "at": state.stamp()} for words in fresh)]
-            job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), given=given, undelivered=[], ask=None, report=None, tools_on=started["workspace"], turn_open=True)
+            job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), given=given, undelivered=[], report=None, tools_on=started["workspace"], turn_open=True)
             state.start(job)
             superseded.hear_start(data, job_id)
     return job
