@@ -9799,6 +9799,26 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands, which waits on your Approve on {view.link('its card', CARD)}"
 
 
+def test_a_pr_left_uncarded_by_an_older_install_is_redrawn_in_place_once_past_the_uncarded_deadline_and_wakes_no_session(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, woken: list[tuple[str, str]]
+) -> None:
+    url = state.pr_url(KEY)
+    shut = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "✓ *Approve* · answered 2:59am", "replaced_by": "", "card": pr_card(KEY)["card"]}
+    shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
+    monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
+        stage.stamp(data["prs"][KEY], stage.of(data, KEY, shown), T0)
+    asked: list[str] = []
+    monkeypatch.setattr(watch.slack, "redraw_pr_cards", lambda pr: asked.append(pr) or shown.update(closed=[], pr_cards=[pr_card(KEY)]) or 1)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0 + timedelta(minutes=29))
+    assert asked == []
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("STAGE ")] == []
+    assert (asked, draws.keys, woken, stage.of(state.load(demo), KEY, shown).name) == ([url], [], [], "card")
+
+
 def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_builders_ready(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
