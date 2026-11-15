@@ -5016,6 +5016,20 @@ def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no
     assert started == [["job", "reclaim", "j1", "ctx_mac"]]
 
 
+def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed_the_least_recently_asked_first(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    quiet = state.stamp(T0 - watch.QUIET_LANE)
+    earlier = [{"dispatch": dispatch, "workspace": None, "why": "its worker succeeded, and Orca sends nothing to a finished worker on this Mac", "at": quiet} for dispatch in ("ctx_first", "ctx_second")]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="stopped", **state.local_lane("ctx_last"), run="run_mac", updated=quiet, deaths=earlier)
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + watch.RECLAIM)
+    assert started == [["job", "reclaim", "j1", "ctx_first"], ["job", "reclaim", "j1", "ctx_last"], ["job", "reclaim", "j1", "ctx_second"], ["job", "reclaim", "j1", "ctx_first"]]
+    assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == ["ctx_first", "ctx_second", "ctx_last"]
+
+
 def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_watch_asks_for_it_again(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
