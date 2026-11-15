@@ -7677,6 +7677,31 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     assert stage.of(state.load(demo), EJECTED, NO_CARDS).name == "ready"
 
 
+def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_posts_delivery_of_its_staging_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    part = state.STAGING_TEST.format(number=42)
+    monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
+    enqueue_exiting(tmp_path, demo, 0)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": "https://poetic.slack.com/archives/C0STAGING/p1794600000000100", "posted_by": "j5420"}
+        data["orders"]["o1"]["jobs"].append("j5420")
+        data["jobs"]["j5420"] = job(goal="soak #42 on staging", parts=[part], builds_nothing=True, state="waiting", said=f"WAITING {state.pr_url(KEY)} to merge: DONE it soaked twice on staging")
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": [f"o1:{part}"]}
+    approve(demo, KEY)
+    away = T0 + timedelta(minutes=20)
+    monkeypatch.setattr(state, "now", lambda: away)
+    data = state.load(demo)
+    assert (state.delivered(data, "o1", part), land.staged(data, data["prs"][KEY]), stage.of(data, KEY, NO_CARDS).name) == (True, [], "ready")
+    held = f"{land.AWAY}: {land.unattended(data, KEY, away)}"
+    assert land.run(demo, [KEY]) == held
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {held}")
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(away)
+    assert land.run(demo, [KEY]) == land.QUEUED
+
+
 def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_queued_again_at_the_same_commit_once_that_tests_fix_merges_and_only_once(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
 ) -> None:
