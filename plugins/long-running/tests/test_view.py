@@ -53,7 +53,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
 
 def job(order_id: str, job_state: str, said: str | None = None, updated: int = -30, **overrides: object) -> dict:
     base = {"order": order_id, "kind": "builder", "goal": "g", "prs": [], "state": job_state, "said": said, "updated": at(updated)}
-    return base | {"branch": None, "waits": [], "questions": [], "parts": [], "carries": {}} | overrides
+    return base | {"branch": None, "waits": [], "waited": None, "questions": [], "parts": [], "carries": {}} | overrides
 
 
 def asked_on(*cards: str) -> list[dict]:
