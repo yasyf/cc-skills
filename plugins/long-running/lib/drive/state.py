@@ -3547,6 +3547,19 @@ def claim(data: dict, order: dict, where: tuple[str, str], link: str, until: str
     holder["claims"][where[1]] = held | {"until": until, "since": ts, "said": None}
 
 
+def others_claims(name: str, moment: datetime) -> list[dict]:
+    """Each claim every other drive on this Mac holds now, read from its saved orders alone: a post at a channel's root naming its end, as each drive's staging claim and the freeze beside it the repository's staging-claim rule names, that no drive post in its thread closed yet and whose end is still to come, with that drive and order, latest end first; an order an install before claims saved holds none."""
+    held = [
+        {"drive": other, "order": order_id, "link": kept["link"], "until": kept["until"]}
+        for other in names()
+        if other != name
+        for order_id, order in stored(other, ("orders",))["orders"].items()
+        for kept in order.get("claims", {}).values()
+        if parse_time(kept["until"]) > moment
+    ]
+    return sorted(held, key=lambda kept: parse_time(kept["until"]), reverse=True)
+
+
 def join_card(data: dict, job_id: str, card: str) -> None:
     """Join the thread of a card the job asks on to each order the job works on, so his answer under the card is in each one's threads."""
     if where := link_thread(card):
