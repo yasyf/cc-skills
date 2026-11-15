@@ -1336,7 +1336,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, state.load(name)))
+    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name)) or brief.away_refusal("start", args.release, known, state.now()))
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -3688,15 +3688,16 @@ def job_held(args: argparse.Namespace) -> int:
     find(data["jobs"], job_id, "job")
     if args.release:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        refused = hold and brief.hold_refusal(args.release, data, hold)
+        refused = hold and brief.hold_refusal(args.release, data, hold) or args.verb and brief.away_refusal(args.verb, args.release, data, state.now())
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     if args.pr:
         tracked = {stored.casefold(): pr for stored, pr in data["prs"].items()}
         prs = {key: tracked.get(key.casefold()) for key in args.pr}
         held = {key: land.pr_cards(data, pr) if pr else [] for key, pr in prs.items()}
         testing = {key: land.staged(data, pr) if pr else [] for key, pr in prs.items()}
-        line = "\n".join([*(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards), *(f"{key}: its staging test {', '.join(runs)} has not passed" for key, runs in testing.items() if runs)])
-        return emit(args, line or f"no open card of his or staging test holds {', '.join(held)}", {"id": job_id, "prs": held, "staged": testing})
+        away = {key: why for key, pr in prs.items() if pr and (why := land.unattended(data, state.pr_key(pr["url"]), state.now()))}
+        line = "\n".join([*(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards), *(f"{key}: its staging test {', '.join(runs)} has not passed" for key, runs in testing.items() if runs), *(f"{key}: {why}" for key, why in away.items())])
+        return emit(args, line or f"no open card of his or staging test holds {', '.join(held)}", {"id": job_id, "prs": held, "staged": testing, "away": away})
     cards = land.ship_held(data, job_id, args.exempt)
     return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
 
@@ -5978,6 +5979,7 @@ def parser() -> argparse.ArgumentParser:
         "--release",
         help="instead, why his hold on every release refuses this release, a `ci release start` or `hotfix` as the job runs it, or a release verb naming none; the landing_guard hook on a Sprite lane asks it before the lane starts, resumes, approves, reruns or rolls back a release",
     )
+    verb.add_argument("--verb", help="with --release, the release verb the lane runs, such as resume, refused as well while he is not present when it starts, resumes or approves a dangerous release")
     verb.set_defaults(run=job_held)
     verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, or hold it for a codex job's run that goes, which hears it at its next Bash call, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
     verb.add_argument("id", help="the job")

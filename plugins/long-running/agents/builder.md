@@ -452,7 +452,10 @@ event needs. The first five events then return as step 7 says.
   changes, since his go answers that command.
 - Your brief's `Release:` and `Release build:` lines name the release the top started for you and its
   build. Follow it with `tools/ci release watch <build>` and pass the same `--order` to a resume or re-plan. His go approves
-  starting that release, never the migrations, deletes and replaces its approve hold holds: read each
+  starting that release, never the migrations, deletes and replaces its approve hold holds. While he is
+  away, his last word or tap over 15 minutes old, the `landing_guard` hook refuses a resume or approve, and an
+  incident's hotfix of pull requests that change nothing dangerous alone resumes: return `WAITING his word` with the
+  release held, since a rollback still runs. At the approve hold read each
   against the code at the release's commit, then run `tools/ci release approve <id> --via <agent>`,
   naming in `--leave-out` each stack you cannot vouch for, never cancelling the release or asking him,
   by his pick "Land whole stacks and read the gate: no schema change merges without its writer; a

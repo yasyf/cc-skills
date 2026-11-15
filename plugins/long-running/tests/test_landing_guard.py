@@ -2,12 +2,13 @@ import json
 import os
 import subprocess
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import landing_guard
 import pytest
 from conftest import LEAD, SESSION, SHORT_ASK, Answers
-from drive import agents, brief, land, limits, render, settled, shell, stage, state, view
+from drive import agents, brief, github, land, limits, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -223,12 +224,36 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
     recorded.listed = [HOLD]
     refused = brief.RELEASE_HELD.format(said=HOLD["body"], where="15c4de1", hold="15c4de1", release=RESUME, why="it names no `--order`, and neither does a `Release:` line of its job's brief")
     assert landing_guard.deny_reason(lane) == refused
-    assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}"]] * 2
+    assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}", "--verb=resume"]] * 2
     assert run("job", "held", "--release", RESUME) == (0, refused)
     start = "tools/ci release start sandsql --order 8b2e4f7"
     assert landing_guard.deny_reason(bash(start, session_id="sprite")) == landing_guard.RELEASE_BY_HAND.format(command=start)
     assert landing_guard.deny_reason(bash("tools/ci release cancel dazzling-kools", session_id="sprite")) == landing_guard.RELEASE_CANCEL
     assert len(sprite) == 2
+
+
+def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_and_an_incidents_harmless_hotfix_run(
+    run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
+    refused = landing_guard.deny_reason(bash(RESUME, session_id="sprite"))
+    assert refused and refused.startswith("refused: he last wrote or tapped 20 minutes ago, and while he is not present a production release starts or resumes only as an incident's hotfix")
+    assert landing_guard.deny_reason(bash("tools/ci release rollback sandsql", session_id="sprite")) is None
+    recorded.shown["8b2e4f7"] = {"id": "8b2e4f7", "title": "SandSQL writes fail", "body": "fix it", "tags": [settled.INCIDENT], "created_at": "2026-11-14T09:00:00Z"}
+    monkeypatch.setattr(github, "files", {"Forge-AI/monorepo#56101": ["api/src/routes/health.ts"], "Forge-AI/monorepo#56102": ["api/migrations/1794-add-column.ts"]}.__getitem__)
+    hotfix = "tools/ci release hotfix sandsql 56101 --order 8b2e4f7"
+    data = state.load(demo)
+    assert brief.away_refusal("start", hotfix, data, state.now()) is None
+    assert brief.away_refusal("resume", hotfix, data, state.now()) is None
+    assert brief.away_refusal("approve", hotfix, data, state.now()) == refused
+    assert brief.away_refusal("start", hotfix.replace("56101", "56102"), data, state.now()) == refused
+    assert brief.away_refusal("start", "tools/ci release start sandsql --order 8b2e4f7", data, state.now()) == refused
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
+    assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None
 
 
 def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_not_answer(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:

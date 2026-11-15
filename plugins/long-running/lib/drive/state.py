@@ -182,6 +182,8 @@ DAY = r"(?:yesterday|today|tonight|tomorrow|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|S
 DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
+PRESENT_WITHIN = timedelta(minutes=15)
+PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
 STANDING_EVERY = timedelta(minutes=30)
 PART_CHARS = 80
 SHEBANG_BYTES = 512
@@ -3858,6 +3860,16 @@ def owner_away(data: dict, moment: datetime) -> bool:
     """Whether he is away at moment, from the moment the owner row's away holds: when he said so, else an hour after he was last heard; a drive that never heard him counts him present."""
     away = (data.get("owner") or {}).get("away")
     return bool(away) and moment >= parse_time(away)
+
+
+def absence(data: dict, moment: datetime) -> str | None:
+    """How he is not present, for a refusal to say, by the root AGENTS.md's rule that present means he told you to go or answered just before you act: he said he is away, or his last word or tap is PRESENT_WITHIN old or older; None while he is, or the drive never heard him."""
+    owner = data.get("owner") or {}
+    if owner.get("away"):
+        return "he said he is away"
+    if not (heard := owner.get("heard")) or (quiet := moment - parse_time(heard)) < PRESENT_WITHIN:
+        return None
+    return f"he last wrote or tapped {int(quiet.total_seconds() // 60)} minutes ago"
 
 
 def present(data: dict, since: datetime, moment: datetime) -> timedelta:

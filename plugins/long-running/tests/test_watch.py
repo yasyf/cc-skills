@@ -7623,6 +7623,32 @@ def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert stage.of(state.load(name), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue")
 
 
+def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_while_he_is_away_and_one_changing_only_its_tests_lands(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    files = {EJECTED: ["go/sand/internal/sandsql/write.go", "go/sand/internal/sandsql/write_test.go"], FLAKE_FIX: ["go/sand/internal/sandsql/write_test.go"]}
+    monkeypatch.setattr(github, "files", files.__getitem__)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED), state.pr_url(FLAKE_FIX)]
+        data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
+        data["prs"][FLAKE_FIX] = state.new_pr(state.pr_url(FLAKE_FIX), "j1", "o1") | {"head": "9a882a9000", "checks": "pass", "review": "approved", "exempt": "test-only", "wants_tap": False}
+    away = T0 + timedelta(minutes=20)
+    refused = land.unattended(state.load(demo), EJECTED, away)
+    assert refused == (
+        "he last wrote or tapped 20 minutes ago, and it changes go/sand/internal/sandsql/write.go, which can break FDE or customer runs or lose their data,"
+        f" so it lands only while he is present, his word or tap within 15 minutes, at his next word, by his words {state.PRESENCE_WORDS}"
+    )
+    assert land.unattended(state.load(demo), FLAKE_FIX, away) is None
+    assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=10)) is None
+    monkeypatch.setattr(state, "now", lambda: away)
+    with state.edit(demo) as data:
+        data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at bb28d68 ended {land.AWAY}: {refused}")
+    assert stage.of(state.load(demo), FLAKE_FIX, NO_CARDS).name == "ready"
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(away)
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS).name == "ready"
+
+
 def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_queued_again_at_the_same_commit_once_that_tests_fix_merges_and_only_once(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
 ) -> None:

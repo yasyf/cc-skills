@@ -90,7 +90,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
 
 1. `answer_add` his words verbatim, or the alert's text when the drive caused it, with labels
    `drive:<name>` and `incident`. That answer approves the incident's own release and rollback, so
-   no card goes to him for either.
+   no card goes to him for either. While he is away, his last word or tap over 15 minutes old, a rollback
+   starts at once and so does a hotfix of fix PRs that change nothing dangerous; a dangerous fix merges and
+   releases at his next word, by [landing.md](landing.md#forge-aimonorepo).
 2. Read the open incident orders on the dashboard's top strip. One on the same failing service
    makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
    starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
@@ -410,7 +412,8 @@ check's verdict, or from the order when none ran.
   `tools/ci release start --manual sand-next --env core-usw2-auto --commit <sha> --emergency`, since
   Platy refuses a commit off `dev`. `drive job brief` prints this rule on each incident builder's
   `Incident:` line, so each names the cut it returns in `WAITING release` this way.
-- The incident order's words approve starting its own release and its rollback, never the migrations,
+- The incident order's words approve starting its own release, while he is away only as a hotfix of fix
+  PRs that change nothing dangerous, and its rollback at any hour, never the migrations,
   deletes and replaces its approve hold holds. Its start passes `--order <the answer id>`, and the
   job it starts on reads that hold as [landing.md](landing.md#after-merge) says. His own order approves
   starting any other release he ordered, the same way. While he holds every release, an incident's

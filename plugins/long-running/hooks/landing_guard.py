@@ -400,6 +400,8 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     may_land, why = tap_verdict(data, pr)
     if not may_land:
         return f"{key}: {why}. {TAP_HINT}"
+    if away := land.unattended(state.load(name), key, state.now()):
+        return f"{key}: refused: {away}"
     if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX:
         return QUEUE_REASON.format(key=key)
     return None
@@ -453,18 +455,19 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
 
 
 def lane_reason(keys: list[str]) -> str | None:
-    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards or a started staging test holding one, as pr_reason() reads them there, or the Mac did not answer."""
+    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards or a started staging test holding one, as pr_reason() reads them there, or one land.unattended() holds while he is not present, or the Mac did not answer."""
     try:
         held = land.lane_held(*(f"--pr={key}" for key in keys))
     except state.DriveError as error:
         return UNASKED.format(keys=", ".join(keys), error=error)
     if testing := next(((key, runs) for key, runs in held["staged"].items() if runs), None):
         return STAGED_REASON.format(key=testing[0], runs=", ".join(testing[1]))
-    return next((CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held["prs"].items() if cards), None)
+    carded = (CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held["prs"].items() if cards)
+    return next(carded, None) or next((f"{key}: refused: {why}" for key, why in held["away"].items()), None)
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job; and while he is not present, a start, resume or approve that brief.away_refusal() reads as dangerous waits for his next word."""
     if READS_ONLY & set(words):
         return None
     try:
@@ -493,13 +496,14 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     if verb in brief.RELEASE_STARTS and (shell.driving or job):
         return RELEASE_BY_HAND.format(command=" ".join(words))
     if lane:
-        return lane_release_reason(release_of(words, agents.brief(shell.caller)))
+        return lane_release_reason(release_of(words, agents.brief(shell.caller)), verb)
     if not (drives := [os.environ[state.DRIVE_ENV]] if codex else names):
         return None
     data = state.load(drives[0])
+    release = release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller))
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        return hold and brief.hold_refusal(release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)), data, hold)
+        return hold and brief.hold_refusal(release, data, hold) or brief.away_refusal(verb, release, data, state.now())
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
@@ -532,10 +536,10 @@ def release_cut(number: str | None) -> bool:
     return not (number and number.isdigit()) or bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
 
 
-def lane_release_reason(release: str) -> str | None:
-    """Why a Sprite lane, which holds no drive, may not run a release verb: `drive job held --release` on the coordinator's Mac refuses the release it runs under his hold, as hold_refusal() reads it there, or the Mac did not answer."""
+def lane_release_reason(release: str, verb: str) -> str | None:
+    """Why a Sprite lane, which holds no drive, may not run a release verb: `drive job held --release` on the coordinator's Mac refuses the release it runs under his hold, as hold_refusal() reads it there, or while he is not present, as away_refusal() reads its verb there, or the Mac did not answer."""
     try:
-        return land.lane_held(f"--release={release}")["release"]
+        return land.lane_held(f"--release={release}", f"--verb={verb}")["release"]
     except state.DriveError as error:
         return RELEASE_UNASKED.format(release=release, error=error)
 
