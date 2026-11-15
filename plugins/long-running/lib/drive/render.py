@@ -383,9 +383,9 @@ def pr_line(key: str, pr: dict, card: str | None) -> str:
 
 
 def design_words(pr: dict) -> str:
-    """The answers of his the check reads for the PR's design, each by its id or link, or what the PR cites while the check has read none of it."""
+    """The answers of his the PR cites for its design, as the check reads them, each by its id or link, or what the PR cites while the check has read none of it; never one cc-notes only ranked near the words of a card it cites."""
     if pr.get("answers"):
-        return f", design answers {', '.join(answer.partition(', ')[0] for answer in pr['answers'])}"
+        return f", design answers {', '.join(answer.partition(', ')[0] for answer in pr['answers']['cited'])}"
     return f", design {cut(' '.join(pr['design'].split()), 80)}" if pr.get("design") else ""
 
 

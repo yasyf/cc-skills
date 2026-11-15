@@ -5622,7 +5622,7 @@ def test_pr_set_design_replaces_what_a_returns_design_line_cited_and_the_check_r
     code, out = run("pr", "set", PR, "--design", "asked:953a8c8")
     assert (code, ", design answers 953a8c8" in out.splitlines()[0], "his answer its design cites, kept: 953a8c8, " in out) == (0, True, True)
     pr = state.load("demo")["prs"][with_pr]
-    assert (pr["design"], [answer.partition(", ")[0] for answer in pr["answers"]], pr["checker"]) == ("asked:953a8c8", ["953a8c8"], None)
+    assert (pr["design"], [answer.partition(", ")[0] for answer in pr["answers"]["cited"]], pr["checker"]) == ("asked:953a8c8", ["953a8c8"], None)
     monkeypatch.setattr(settled, "shown", lambda answer_id, cwd: pytest.fail(f"read {answer_id} again"))
     monkeypatch.setattr(settled, "heard", lambda link, found, data: pytest.fail(f"read {link}"))
     judge.against = [{"order": "o1", "words": "land it", "change": "api/run.ts keeps the staff flag", "file": "api/run.ts"}]

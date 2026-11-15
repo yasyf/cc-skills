@@ -91,6 +91,7 @@ FLAKE_FIX = "flake fix"
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", FLAKE_FIX, "incident fix")
 FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
+SUBJECT_LABEL = ', recorded on the subject of "'
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 POST_FEEDBACK = f"{TOOLING} post feedback:"
@@ -617,6 +618,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "answers_keyed": True,
         "taps_dated": True,
         "holds_owed": True,
+        "near_answers_apart": True,
         "builder_goals_named": True,
         "members_kept": True,
         "open_dones_held": True,
@@ -918,7 +920,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -962,6 +964,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         date_taps(data)
     if not data.get("holds_owed"):
         owe_holds(data)
+    if not data.get("near_answers_apart"):
+        part_near_answers(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     if not data.get("members_kept"):
@@ -1181,6 +1185,16 @@ def owe_holds(data: dict) -> None:
             if mark:
                 superseded.unhold(data["jobs"][job_id], answer["words"])
     data["holds_owed"] = True
+
+
+def part_near_answers(data: dict) -> None:
+    """Keep apart on each PR the answers of his it cites from those cc-notes ranks near the words of the cards they answer, as served.answers reads them now: each open PR's kept answers dropped, so its next check reads both again, each near one labelled with the card it was ranked near, and on each other PR only those it cites kept, since an older install kept both in one list, each near one labelled as recorded on that card's subject; each open PR's verdict naming words of his it goes against dropped too, so the check judges it again with a near answer binding only where it speaks to the change; marked so this runs once, after date_taps reads the lists an older install kept."""
+    for pr in data["prs"].values():
+        if pr["answers"] is not None:
+            pr["answers"] = None if pr["state"] == "open" else {"cited": [line for line in pr["answers"] if SUBJECT_LABEL not in line.partition(', asked "')[0]], "near": []}
+        if pr["state"] == "open" and pr["checker"] and pr["checker"]["against"]:
+            pr["checker"] = None
+    data["near_answers_apart"] = True
 
 
 def folded(one: dict, other: dict) -> dict:
@@ -1741,8 +1755,8 @@ def design_lines(report: str) -> str:
     return "\n".join(line for line in report.splitlines() if line.startswith("DESIGN:"))
 
 
-def cite(pr: dict, design: str, answered: list[str] | None = None) -> None:
-    """Keep on the PR the citation of his answers for the design it makes, the one list the check reads, with those answers as read, or None until the check reads them once, and drop its check so it runs on them; citing what it already cites, read nowhere, keeps the answers read before, which outlive cc-slack dropping a card."""
+def cite(pr: dict, design: str, answered: dict[str, list[str]] | None = None) -> None:
+    """Keep on the PR the citation of his answers for the design it makes, the one citation the check reads, with those answers as read, the ones it cites apart from those cc-notes ranked near its cards' words, or None until the check reads them once, and drop its check so it runs on them; citing what it already cites, read nowhere, keeps the answers read before, which outlive cc-slack dropping a card."""
     if design == pr["design"] and answered is None:
         return
     pr.update(design=design, answers=answered, checker=None)
