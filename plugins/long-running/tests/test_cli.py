@@ -10002,6 +10002,21 @@ def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
     assert "in_use" not in json.loads(run("heard", "--json")[1])
 
 
+def test_heard_last_takes_back_a_tap_that_was_not_his_so_he_reads_away_an_hour_after_his_last_word(run: Run, demo: str) -> None:
+    assert run("heard") == (0, "heard")
+    taken = state.load(demo)["owner"]["heard"]
+    last = state.stamp(state.parse_time(taken) - timedelta(minutes=75))
+    assert cli.main(["heard", "--last", last]) == 2
+    assert run("heard", "--last", last, "--why", "a page job's click-through tapped Hold on his cards") == (0, "unheard")
+    owner = state.load(demo)["owner"]
+    assert (owner["heard"], owner["away"]) == (last, state.stamp(state.parse_time(last) + state.AWAY_AFTER))
+    assert state.absence(state.load(demo), state.now()) == "he last wrote or tapped 75 minutes ago"
+    [event] = [event for event, _ in state.read_events(demo) if event["kind"] == "unheard"]
+    assert (event["heard"], event["taken"]) == (last, taken)
+    assert cli.main(["heard", "--last", taken, "--why", "again"]) == 2
+    assert state.load(demo)["owner"]["heard"] == last
+
+
 def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unheard(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))

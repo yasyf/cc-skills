@@ -4823,6 +4823,10 @@ def reopened_mark(text: str) -> tuple[str, str]:
 
 def heard(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
+    if args.last:
+        if not args.why or args.away or args.repeats or args.part:
+            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --away, --repeats or --part")
+        return emit(args, "unheard", watch.unhear(name, args.last, args.why))
     if args.repeats or args.part:
         refuse_an_unheld_repeat(name, state.load(name), args.repeats, args.part)
     return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
@@ -6415,7 +6419,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it, adding the orders that changed while he was away to the catch-up the drive owes him, which the watch posts at his DM root; prints heard, or away, and nothing to act on",
+        help="he wrote: record it, adding the orders that changed while he was away to the catch-up the drive owes him, which the watch posts at his DM root; prints heard, away, or unheard for --last, and nothing to act on",
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(
@@ -6424,6 +6428,13 @@ def parser() -> argparse.ArgumentParser:
         help="the open order a part of which his words repeat, such as asking where it is; refused while no running, waiting or built job carries that part and no card of his a done job asked on is still open",
     )
     verb.add_argument("--part", action="append", default=[], help="the part of the --repeats order his words repeat; default: its only part")
+    verb.add_argument(
+        "--last",
+        type=state.parse_time,
+        metavar="TIME",
+        help="when his last word or tap was, as an ISO time: what the drive heard after it was not his, such as a job's test tap, so he reads heard then and away an hour later; refused when the drive heard nothing after it",
+    )
+    verb.add_argument("--why", help="with --last, whose the taps or words heard after it were, kept in the drive's events")
     verb.set_defaults(run=heard)
     verb = verbs.add_parser(
         "page-owner",

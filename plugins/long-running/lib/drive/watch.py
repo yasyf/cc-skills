@@ -3737,6 +3737,17 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
     return {"away": away, "back": back, "since": since, "catch_up": owed and owed["orders"], "held": held}
 
 
+def unhear(name: str, last: datetime, why: str) -> dict:
+    """Take back what the drive heard of him after last, his last word or tap, such as a job's tap kept as his: the owner row reads him heard at last and away an hour after it, its absence kept, and the moment taken back is kept with why in the drive's events; refused when the drive heard nothing of him after last."""
+    with state.edit(name) as data:
+        taken = data["owner"]["heard"]
+        if not taken or last >= state.parse_time(taken):
+            raise state.DriveError(f"refused, nothing changed: the drive last heard him at {taken}, so it heard nothing after {state.stamp(last)} to take back")
+        data["owner"] |= {"heard": state.stamp(last), "away": state.stamp(last + state.AWAY_AFTER)}
+    state.append_event(name, "unheard", heard=state.stamp(last), taken=taken, why=why)
+    return {"heard": state.stamp(last), "taken": taken}
+
+
 def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it that its writer did not withdraw, with each correction cci holds re one, and each order with news, for a handler the watch starts to post at his DM root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
