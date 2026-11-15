@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from itertools import zip_longest
 from pathlib import Path
@@ -856,6 +857,20 @@ def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, di
             continue
         state, questions = merged, questions | asked
     return state, questions, left
+
+
+def jev_whole(state: dict, items: list[tuple[dict, dict[str, Noul]]]) -> tuple[dict[str, float], list[tuple[dict, dict[str, Noul]]]]:
+    """Jev's probability of yes for each question of every item, by question id, for a check whose items no one request holds, such as the drive's release notes, which grow with every note kept: fill packs the state given and the items into as many requests as they need, each within REQUEST_CHARS, and Jev reads them at once, each request on a thread of its own, as spawnllm's own decide runs decide_sync; beside it, the items too large for any request alone. Unheard when any request went unanswered."""
+    requests = []
+    while items:
+        told, questions, left = fill(state, {}, items)
+        if len(left) == len(items):
+            break
+        requests.append((told, questions))
+        items = left
+    with ThreadPoolExecutor() as pool:
+        reads = list(pool.map(lambda request: jev(*request), requests))
+    return {key: sure for read in reads for key, sure in read.items()}, items
 
 
 def joined(state: dict, part: dict) -> dict:

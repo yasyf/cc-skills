@@ -1416,6 +1416,30 @@ def test_the_release_gate_reads_a_start_against_the_drive_release_notes_at_its_d
     ]
 
 
+def test_the_release_gate_reads_every_release_note_however_many_one_jev_request_could_hold_naming_only_a_note_too_large_for_any(
+    demo: str, tmp_path: Path, jev: Jev, release_noted: list[dict], pr_reads: dict[str, dict]
+) -> None:
+    merge = cloned(tmp_path, "demo", {"catalog.rs": "the catalog change"})
+    head = cloned(tmp_path, "demo", {"other.rs": "a later change"})
+    data = state.load("demo")
+    pr_reads[f"{github.checkout_repo(data['roles']['coordinator']['cwd'])}#55980"] = {"state": "MERGED", "mergeCommit": merge, "base_pr": None}
+    newer = [
+        {"id": f"{number:07d}" + "0" * 33, "title": f"Release-order hazard {number}: no cloudrunner cut before its fix ships", "body": "Why the cut waits on its fix. " * 48, "tags": ["drive:demo", "release-order"]}
+        for number in range(1, 14)
+    ]
+    huge = {"id": "9" * 40, "title": "Release-order hazard: the longest note", "body": "Why. " * 2400, "tags": ["drive:demo", "release-order"]}
+    release_noted.extend([*newer, huge, SANDSQL_NOTE])
+    jev.speaks = {note["id"][:7]: 0.9 for note in release_noted}
+    start = "tools/ci release start --targets sandsql --order 5d0c4a1"
+    [unread, *lines] = brief.release_notes([start], data)
+    assert unread.startswith(f"the drive's release notes were not read against `{start}` (no room in a Jev request for {huge['id'][:7]})")
+    assert [line.partition(",")[0] for line in lines] == [f"Jev reads release note {note['id'][:7]}" for note in [*newer, SANDSQL_NOTE]]
+    assert f"(at main's head {head[:12]}: holds #55980 ({merge[:12]}))" in lines[-1]
+    assert len(jev.asked) > 1
+    assert all(settled.size(asked["state"], asked["questions"]) <= settled.REQUEST_CHARS for asked in jev.asked)
+    assert sorted(note["id"] for asked in jev.asked for note in asked["state"]["notes"].values()) == sorted(note["id"][:7] for note in [*newer, SANDSQL_NOTE])
+
+
 RELEASE_HOLD = {
     "id": "15c4de1" + "0" * 33,
     "title": "Are releases frozen now that a teammate set a freeze in #releases?",

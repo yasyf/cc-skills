@@ -280,7 +280,7 @@ def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str
 
 
 def release_notes(releases: list[str], data: dict) -> list[str]:
-    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in one request of SPEAKS_TO_START Nouls, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming the notes one request had no room for. It refuses nothing."""
+    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in SPEAKS_TO_START Nouls, in as many requests as settled.jev_whole packs them into, so no note goes unread however many the drive keeps, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming each note too large for any request alone. It refuses nothing."""
     from drive import github
 
     if not releases:
@@ -294,16 +294,15 @@ def release_notes(releases: list[str], data: dict) -> list[str]:
         return []
     starts = {f"s{number}": release for number, release in enumerate(releases, 1)}
     slots = {note["id"]: f"n{number}" for number, note in enumerate(notes, 1)}
-    items = (
+    items = [
         ({"notes": {slots[note["id"]]: {"id": note["id"][:7], "title": note["title"], "body": note["body"]}}}, {f"speaks.{slots[note['id']]}.{start}": settled.asking(settled.SPEAKS_TO_START, note=slots[note["id"]], start=start) for start in starts})
         for note in notes
-    )
-    told, questions, left = settled.fill({"starts": starts, "notes": {}}, {}, items)
-    skipped = [UNNOTED.format(starts=named, why="no room in one Jev request for " + ", ".join(note["id"] for part, _ in left for note in part["notes"].values()), name=data["name"])] if left else []
+    ]
     try:
-        read = settled.jev(told, questions)
+        read, left = settled.jev_whole({"starts": starts, "notes": {}}, items)
     except settled.Unheard as failure:
         return [UNNOTED.format(starts=named, why=f"Jev gave no reading: {failure}", name=data["name"])]
+    skipped = [UNNOTED.format(starts=named, why="no room in a Jev request for " + ", ".join(note["id"] for part, _ in left for note in part["notes"].values()), name=data["name"])] if left else []
     speaking: dict[str, list[str]] = {}
     for note in notes:
         for start, release in starts.items():
