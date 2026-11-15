@@ -2699,6 +2699,11 @@ def staging_parts(data: dict, job: dict) -> list[tuple[str, str]]:
     return [(order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) if STAGING_PART.fullmatch(part) and part in data["orders"][order_id]["parts"]]
 
 
+def tested_prs(data: dict, job: dict) -> list[str]:
+    """The key of the Forge-AI/monorepo PR each staging test part of a job's tests, by staging_parts, its own order's first."""
+    return [f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}" for _, part in staging_parts(data, job)]
+
+
 def part_testers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     """The jobs on a staging test part that test it, by staging_parts, oldest first, so a job following a release it started is never the part's staging run."""
     return [(job_id, job) for job_id, job in part_jobs(data, order_id, part) if not starts_cut(job)]

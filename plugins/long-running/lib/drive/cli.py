@@ -79,6 +79,7 @@ STAGING_MAC_BOX = (
     " `tools/ci mac-box prove <box> --commit {live}`, the commit of sand-next's newest passed release on core-usw2-auto, then `tools/ci mac-box open <box>` and"
     " `tools/ci mac-box record <box>` for each case, by the test-mac skill's Prove a desktop change"
 )
+STAGING_APPROVED = ", which waits behind this test: a full pass keeps it, so it lands the PR once the test passes (e5e4f7b), while the lander holds a dangerous change until he is present, his word or tap within 15 minutes (27ea387)"
 STAGING_OWN_SAND = "; {tested} changes sand-next too, so run them again after `tools/ci mac-box prove <box> --commit <its head's full sha>`"
 LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
 MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
@@ -922,7 +923,7 @@ def order_set(args: argparse.Namespace) -> int:
     reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *render.builder_lines(name, data, added), *reworked]), {"id": args.id, **order})
 
 
 def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:
@@ -1436,7 +1437,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         named = state.named_prs(data, args.order, args.goal)
         history = {key: state.pr_orders(data, key, args.order) for key in named}
     waiting = [f"{job_id} waits on {', '.join(job['waits'])}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
-    waiting += render.builder_lines(data, [builder_id] if builder_id else [])
+    waiting += render.builder_lines(name, data, [builder_id] if builder_id else [])
     if crowd:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
@@ -2773,7 +2774,7 @@ def job_report(args: argparse.Namespace) -> int:
         for key in state.untracked_fixes(data, args.id, line, whole):
             try:
                 pr, testers = add_pr(name, key, args.id, github_pr(key))
-                fixes += [f"FIX kept, {key}: tracked under {pr['order']}", *render.builder_lines(state.load(name), testers)]
+                fixes += [f"FIX kept, {key}: tracked under {pr['order']}", *render.builder_lines(name, state.load(name), testers)]
             except DriveError as error:
                 fixes.append(f"FIX kept, {error}")
         with state.edit(name) as data:
@@ -2786,7 +2787,7 @@ def job_report(args: argparse.Namespace) -> int:
         withdrawn = [*superseded.follow(name, moved_on, "that its work went on without it"), *redraws(data, moved_on)] if moved_on else []
         briefed = [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed]
         told = state.load(name)
-        started = render.builder_lines(data, added)
+        started = render.builder_lines(name, data, added)
         if (taken := told["jobs"][args.id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
             state.returned(name, told, args.id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
         elif started:
@@ -2813,7 +2814,7 @@ def register_named(name: str, job_id: str, line: str) -> list[str]:
         if key.casefold() in tracked:
             continue
         _, testers = add_pr(name, key, job_id, github_pr(key), lead={})
-        added += [f"{key}: registered on {job_id}{drawn_card(name, key)}", *render.builder_lines(state.load(name), testers)]
+        added += [f"{key}: registered on {job_id}{drawn_card(name, key)}", *render.builder_lines(name, state.load(name), testers)]
     return added
 
 
@@ -2920,7 +2921,7 @@ def briefed(name: str, job_id: str, job: dict, build: str | None, named: dict) -
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line, when neither names one, each `port of #N` part the job takes, else drive tooling on a tooling order and his order on any other; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line, when neither names one, each `port of #N` part the job takes, else drive tooling on a tooling order and his order on any other, and its mac flag, when neither names one, the step the newest return of the builder of a PR its staging test parts test names on its Mac: line, by brief.returned_mac, which mac_lines then gives before STAGING_MAC; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     if named.get("after") == [""]:
         named = named | {"after": ""}
     data = state.load(name)
@@ -2933,6 +2934,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
     flags = {flag: earlier_flags.get(flag) if named.get(flag) is None else named[flag] or None for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
     flags["serves"] = flags["serves"] or " and ".join(part for part in job["parts"] if state.PORT_PART.fullmatch(part)) or ("drive tooling" if state.tooling(order) else "his order")
+    flags["mac"] = flags["mac"] or next((mac for key in state.tested_prs(data, job) if key in data["prs"] and (mac := brief.returned_mac(name, data["prs"][key]["job"]))), None)
     if state.adopted_pr_job(data, job) and not named.get("handoff"):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
@@ -3008,7 +3010,8 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Staging": staged
         and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
-        + staging_mac_box(name, data, job),
+        + staging_mac_box(name, data, job)
+        + staging_taps(data, job),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
@@ -3334,7 +3337,7 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
 
 
 def mac_lines(job: dict, flags: dict) -> tuple[str | None, str | None]:
-    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, else STAGING_MAC when a part of its is a staging test, and its release flag."""
+    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else STAGING_MAC when a part of its is a staging test, and its release flag."""
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
     return flags["mac"] or (STAGING_MAC if staged else None), flags["release"]
 
@@ -3959,7 +3962,7 @@ def pr_add(args: argparse.Namespace) -> int:
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
     drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key)])
     data = state.load(name)
-    return emit(args, "\n".join([f"{key}{''.join(drawn)}", *render.builder_lines(data, testers)]), {"key": key, **data["prs"][key]})
+    return emit(args, "\n".join([f"{key}{''.join(drawn)}", *render.builder_lines(name, data, testers)]), {"key": key, **data["prs"][key]})
 
 
 def drawn_card(name: str, key: str) -> str:
@@ -4204,12 +4207,11 @@ def pr_set(args: argparse.Namespace) -> int:
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
         if staged:
             state.reach_staging(data, key)
-        if args.staging and (tester_id := state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))):
-            serving += "".join(f"\n{line}" for line in render.builder_lines(data, [tester_id]))
-        if args.part:
-            serving += f"\ndelivers {'; '.join(pr['parts'])}"
+        testers = [tester_id] if args.staging and (tester_id := state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))) else []
+        delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
         if args.part and delivers:
-            serving += shipped(data, pr["job"], order, args.part)
+            delivering += shipped(data, pr["job"], order, args.part)
+    serving += "".join(f"\n{line}" for line in render.builder_lines(name, data, testers)) + delivering
     untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}" if args.no_tapped else ""
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
@@ -4351,13 +4353,22 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
     """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again on its own head's sand-next when its paths reach sand-next too, so a control calling a route the released sand-next lacks fails on staging rather than for him; nothing when none reaches the dashboard."""
-    keys = [f"{state.MONOREPO}#{state.STAGING_PART.fullmatch(part)['number']}" for _, part in state.staging_parts(data, job)]
+    keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
     if not (dashboard := [key for key in keys if key in reach and "dashboard" in reach[key]["touched"]]):
         return ""
     live = live_sand_next(orca.checkout(name, data["roles"]["coordinator"]["cwd"]))
     own = [key for key in dashboard if "sand-next" in reach[key]["touched"]]
     return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + (STAGING_OWN_SAND.format(tested=", ".join(own)) if own else "")
+
+
+def staging_taps(data: dict, job: dict) -> str:
+    """What a staging tester's Staging line adds for each PR it tests, by state.tested_prs, whose record holds his tap: what he tapped, when and on which head, and, for an Approve, that it waits behind the test and lands the PR once the test passes; nothing when none holds one."""
+    return "".join(
+        f"; he tapped {tap['label']} on {key} at {render.when(tap['at'])}, head {tap['head'][:12]}" + (STAGING_APPROVED if tap["label"] == "Approve" else "")
+        for key in state.tested_prs(data, job)
+        if key in data["prs"] and (tap := data["prs"][key]["tap"])
+    )
 
 
 def live_sand_next(checkout: Path) -> str:
