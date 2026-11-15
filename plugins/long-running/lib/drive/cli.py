@@ -2794,8 +2794,12 @@ def codex_resume(args: argparse.Namespace, name: str) -> int:
     return emit(args, f"{args.id}: the message went to its next codex-ask run, started in {folder}, under {under}", {"id": args.id, "how": "launched", "codex_run": str(folder)})
 
 
+class StoodDown(DriveError):
+    """A launch or resume that started, sent and held nothing since another drive verb acts on its job now, so nothing is left to fix: one state.detach started writes no relaunch_refused event."""
+
+
 def unqueued(name: str, job_id: str) -> None:
-    """Refuse a resume, sending and holding nothing, rather than queue for the job's lock while another verb holds it and Orca cannot reach the job's lane on its Sprite, as when another resume wakes that Sprite for up to five minutes, so the watch's resumes of a lane that does not answer never pile up on its lock."""
+    """Stand a resume down, sending and holding nothing, rather than queue for the job's lock while another verb holds it and Orca cannot reach the job's lane on its Sprite, as when another resume wakes that Sprite for up to five minutes, so resumes of a lane that does not answer never pile up on its lock; the refusal names that verb by state.holders."""
     job = find(state.load(name)["jobs"], job_id, "job")
     if not (job.get("where") == "remote" and job.get("dispatch") and state.job_lock_held(name, job_id)):
         return
@@ -2803,16 +2807,16 @@ def unqueued(name: str, job_id: str) -> None:
         orca.worker(job["dispatch"])
     except orca.OrcaError as error:
         if orca.out_of_reach(error):
-            raise DriveError(
-                f"{job_id}: refused, nothing sent or held: another drive verb holds its lock while Orca cannot reach its lane on its Sprite ({error});"
-                f" drive job launch {job_id} --local moves it to this Mac"
+            raise StoodDown(
+                f"{job_id}: refused, nothing sent or held: another drive verb holds its lock ({state.holders(state.job_lock_path(name, job_id))}) while Orca cannot reach"
+                f" its lane on its Sprite ({error}); run it again once that verb ends"
             ) from None
 
 
 def yield_to_launch(name: str, job_id: str) -> None:
     """Stand a resume holding the job's lock down, before it wakes, messages or starts anything, while a drive job launch --local waits for that lock to move the job to this Mac; the texts the job holds stay on it for that launch's handoff."""
     if pid := state.launch_waiting(name, job_id):
-        raise DriveError(f"{job_id}: stood down, nothing sent or started: drive job launch {job_id} --local, pid {pid}, waits for its lock to move it to this Mac, and its handoff carries the texts the job holds")
+        raise StoodDown(f"{job_id}: stood down, nothing sent or started: drive job launch {job_id} --local, pid {pid}, waits for its lock to move it to this Mac, and its handoff carries the texts the job holds")
 
 
 def unrun(data: dict, job_id: str) -> dict:
@@ -6009,7 +6013,7 @@ def parsed(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A verb a newer install's save refused before this process changed anything, a drive row, a post or any command but a read, by state.WROTE, and a launch or resume refused whatever it changed, by relaunching, runs again on the newest install with the stdin it read, its lane's mark and the mark of the process state.detach started; one run inside another verb, as an MCP call's ops are, raises for that call to run again whole while it changed nothing. A refusal that remains exits 2 by refused, which a launch or resume state.detach started also writes on the drive's events for the watch."""
+    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A verb a newer install's save refused before this process changed anything, a drive row, a post or any command but a read, by state.WROTE, and a launch or resume refused whatever it changed, by relaunching, runs again on the newest install with the stdin it read, its lane's mark and the mark of the process state.detach started; one run inside another verb, as an MCP call's ops are, raises for that call to run again whole while it changed nothing. A refusal that remains exits 2 by refused, which a launch or resume state.detach started also writes on the drive's events for the watch, but for a stand-down."""
     if argv is None:
         install.reopen(sys.argv[1:])
     args = parsed(argv)
@@ -6072,9 +6076,9 @@ def relaunching(args: argparse.Namespace) -> bool:
 
 
 def refused(args: argparse.Namespace, error: Exception, detached: str | None) -> int:
-    """Print the verb's refusal and exit 2. A launch or resume state.detach started, which only the watch runs, also writes the refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
+    """Print the verb's refusal and exit 2. A launch or resume state.detach started, which only the watch runs, also writes the refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines, unless it stood down for another verb acting on its job; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
     print(f"drive: {error}", file=sys.stderr)
-    if detached and relaunching(args):
+    if detached and relaunching(args) and not isinstance(error, StoodDown):
         name = state.resolve(args.drive)
         order = state.saved_row(name, "jobs", args.id)["order"]
         heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)

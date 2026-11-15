@@ -2336,11 +2336,17 @@ def binding(name: str) -> AbstractContextManager[None]:
     return flocked(drive_dir(name) / ".binding.lock")
 
 
+def job_lock_path(name: str, job_id: str) -> Path:
+    """The file whose flock is the job's own lock, which holders names the holders of."""
+    path = drive_dir(name) / "jobs" / f"{job_id}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 @contextmanager
 def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
     """Hold the job's own lock while one launch, resume or PR wake reads its last worker and starts or messages the next, waiting up to seconds for another doing so, so a second one acts on the worker the first started; refused naming who holds it past that. A newer install's save meanwhile refuses this one's first load."""
-    path = drive_dir(name) / "jobs" / f"{job_id}.lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = job_lock_path(name, job_id)
     with open(path, "a") as handle:
         if not taken(handle, seconds):
             raise DriveError(f"{job_id}'s lock is still held after {seconds:g}s, so nothing was started or sent: {holders(path)}")
@@ -2349,9 +2355,7 @@ def job_locked(name: str, job_id: str, seconds: float) -> Iterator[None]:
 
 def job_lock_held(name: str, job_id: str) -> bool:
     """Whether another process holds the job's own lock now, by one try that keeps nothing it takes."""
-    path = drive_dir(name) / "jobs" / f"{job_id}.lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as handle:
+    with open(job_lock_path(name, job_id), "a") as handle:
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:

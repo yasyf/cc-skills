@@ -21,7 +21,7 @@ other verb or MCP call refused that way before it changed anything, a drive row,
 send or any command but a read, runs again whole on the newest install, given the stdin it read; one
 that changed something prints the refusal and exits 2. A `say` or record hook refused that way before it changed anything
 hands its payload to the newest install's copy of the hook, whose answer is its own. A launch or resume the watch ran as a process
-of its own that still refuses, for any reason, also says it in the watch's `EVENT relaunch_refused …`
+of its own that still refuses, for any reason but standing down for another drive verb acting on its job, also says it in the watch's `EVENT relaunch_refused …`
 line, beside its output in the drive's `relaunches.log`. A write waits up to five minutes for the drive's own
 lock, then refuses and changes nothing, naming the process that holds it. A `drive` started from an older install than the
 newest, such as a launch's bind prefix, hands itself to the newest install's `drive` before any verb

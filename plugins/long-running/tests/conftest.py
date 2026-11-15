@@ -778,7 +778,7 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
 def relaunches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Each job whose dead lane the watch relaunched, as a drive job resume that still runs."""
     started: list[str] = []
-    monkeypatch.setattr(watch, "relaunch", lambda name, job_id: started.append(job_id) or os.getpid())
+    monkeypatch.setattr(watch, "relaunch", lambda watcher, job_id, moment: started.append(job_id) or os.getpid())
     return started
 
 

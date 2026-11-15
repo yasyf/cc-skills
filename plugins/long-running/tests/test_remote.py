@@ -2678,22 +2678,22 @@ def test_a_launch_local_of_a_job_whose_sprite_does_not_answer_moves_it_to_this_m
     ) in brief
 
 
-def test_a_resume_refuses_at_once_rather_than_queue_on_the_lock_another_verb_holds_while_orca_cannot_reach_the_lane(
+def test_a_resume_refuses_at_once_rather_than_queue_on_the_lock_another_verb_holds_while_orca_cannot_reach_the_lane_naming_that_verb_and_writing_no_event_when_the_watch_ran_it(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
     monkeypatch.setattr(state, "job_locked", lambda *args: pytest.fail("a resume refused before the lock never waits for it"))
-    lock = state.drive_dir(remote) / "jobs" / "j1.lock"
-    lock.parent.mkdir(exist_ok=True)
-    with open(lock, "a") as holder:
+    monkeypatch.setattr(state, "holders", lambda path: f"pid 45134 drive job resume j1 on {path.name}")
+    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
+    events = state.events_end(remote)
+    with open(state.job_lock_path(remote, "j1"), "a") as holder:
         fcntl.flock(holder, fcntl.LOCK_EX)
         assert cli.main(["job", "resume", "j1", watch.UNREACHED]) == 2
     assert capsys.readouterr().err == (
-        "drive: j1: refused, nothing sent or held: another drive verb holds its lock while Orca cannot reach its lane on its Sprite"
-        f" (orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{J2504_LANE[2]});"
-        " drive job launch j1 --local moves it to this Mac\n"
+        "drive: j1: refused, nothing sent or held: another drive verb holds its lock (pid 45134 drive job resume j1 on j1.lock) while Orca cannot reach its lane on its Sprite"
+        f" (orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{J2504_LANE[2]}); run it again once that verb ends\n"
     )
-    assert (wakes, launches, state.load(remote)["jobs"]["j1"]["undelivered"]) == ([], [], [])
+    assert (wakes, launches, state.load(remote)["jobs"]["j1"]["undelivered"], state.events_end(remote)) == ([], [], [], events)
 
 
 def test_a_resume_holding_the_lock_stands_down_before_it_wakes_or_starts_anything_while_a_launch_local_waits_for_it(
@@ -2704,7 +2704,10 @@ def test_a_resume_holding_the_lock_stands_down_before_it_wakes_or_starts_anythin
     waiting = os.getppid()
     (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
     (state.drive_dir(remote) / "jobs" / "j1.launch").write_text(f"{waiting}\n")
+    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
+    events = state.events_end(remote)
     assert cli.main(["job", "resume", "j1", watch.UNREACHED]) == 2
+    assert state.events_end(remote) == events
     assert capsys.readouterr().err == (
         f"drive: j1: stood down, nothing sent or started: drive job launch j1 --local, pid {waiting}, waits for its lock to move it to this Mac,"
         " and its handoff carries the texts the job holds\n"
@@ -2877,7 +2880,7 @@ def test_the_watchs_turn_for_a_sprite_job_waiting_to_move_here_stamps_its_slot_k
     assert watch.waits_lines(watching, moment) == []
     data = state.load(remote)
     job = data["jobs"]["j1"]
-    assert (detached, job["waits"], job["slot"], watching.sending["j1"]) == ([["job", "launch", "j1", "--local"]], ["j2"], state.stamp(moment), os.getpid())
+    assert (detached, job["waits"], job["slot"], watching.started) == ([["job", "launch", "j1", "--local"]], ["j2"], state.stamp(moment), {"j1": moment})
     assert place.local_builders(data, moment)["j1"] == f"j1 on o1, its turn to move here from its Sprite came at {render.when(state.stamp(moment), seconds=True)}, its lane here not started yet"
     assert (place.local_builders(data, moment + watch.RELAUNCH), place.waiting_builders(data)) == ({}, [])
     assert watch.waits_lines(watching, moment) == [] and detached == [["job", "launch", "j1", "--local"]]
@@ -3340,9 +3343,28 @@ def test_the_watch_records_the_death_of_a_lane_whose_job_stopped_since_its_pass_
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="stopped", workspace="pool-txgdh6qfdwhn72iy")
     monkeypatch.setattr(state, "detach", lambda *args: pytest.fail(f"the watch starts nothing for a stopped job: {args}"))
-    assert watch.death_lines(remote, {"j1": (DISPATCH, GONE_SPRITE)}, T0) == []
+    assert watch.death_lines(watch.Watcher(remote, offset=state.events_end(remote)), {"j1": (DISPATCH, GONE_SPRITE)}, T0) == []
     [death] = state.load(remote)["jobs"]["j1"]["deaths"]
     assert (death["dispatch"], death["why"], "relaunch" in death) == (DISPATCH, GONE_SPRITE, False)
+
+
+def test_the_watch_neither_records_nor_relaunches_a_lane_death_while_another_drive_verb_holds_the_jobs_lock_and_relaunches_it_the_pass_after_that_verb_ends(
+    remote: str, relaunches: list[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="running", workspace="pool-txgdh6qfdwhn72iy", said="building the tallies")
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    with open(state.job_lock_path(remote, "j1"), "a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        assert watch.death_lines(watching, {"j1": (DISPATCH, GONE_SPRITE)}, T0) == []
+    assert (relaunches, state.load(remote)["jobs"]["j1"].get("deaths", [])) == ([], [])
+    [line] = watch.death_lines(watching, {"j1": (DISPATCH, GONE_SPRITE)}, T0 + timedelta(minutes=1))
+    [death] = state.load(remote)["jobs"]["j1"]["deaths"]
+    assert (line.startswith(f"LANE j1 o1 died on Sprite pool-txgdh6qfdwhn72iy: {GONE_SPRITE}"), relaunches, death["relaunch"]) == (
+        True,
+        ["j1"],
+        {"pid": os.getpid(), "at": state.stamp(T0 + timedelta(minutes=1))},
+    )
 
 
 def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session_that_started_it_by_sendmessage_else_to_the_session_holding_its_order_by_a_resume(
@@ -3473,10 +3495,17 @@ def test_a_pr_wake_to_a_finished_lane_prepares_its_sprite_again_and_starts_its_j
     }
 
 
-def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive_and_never_again_while_that_send_holds_the_jobs_lock(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch)
-    senders = []
-    monkeypatch.setattr(watch, "send_held", lambda name, job_id: senders.append(job_id) or os.getpid())
+    senders, locks = [], []
+
+    def detach(name: str, args: list[str], log: str) -> int:
+        senders.append(args[2])
+        locks.append(held := open(state.job_lock_path(name, args[2]), "a"))
+        fcntl.flock(held, fcntl.LOCK_EX)
+        return os.getpid()
+
+    monkeypatch.setattr(state, "detach", detach)
     with state.edit(remote) as data:
         data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": "TAP Approve #12", "at": state.stamp(T0), "said": None, "request": "req-held"}]
 
@@ -3489,8 +3518,10 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive(remote
     assert senders == []
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
     watch.run_pass(watching, T0 + timedelta(minutes=1))
-    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(minutes=2))
     assert senders == ["j1"]
+    for held in locks:
+        held.close()
 
 
 def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach_three_reads_running(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3500,7 +3531,7 @@ def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach
         data["jobs"]["j1"].update(dispatch=dispatch, workspace=workspace, state="running", said="building the tallies")
     reads, woken = [], []
     monkeypatch.setattr(orca, "worker", lambda shown: reads.append(shown) or refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(shown))
-    monkeypatch.setattr(watch, "wake", lambda name, job_id: woken.append((name, job_id)) or os.getpid())
+    monkeypatch.setattr(watch, "wake", lambda watcher, job_id, moment: woken.append((watcher.name, job_id)) or os.getpid())
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     said = (
         f"LANE j1 o1 unreachable on Sprite {workspace}: orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime"
@@ -3510,6 +3541,46 @@ def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach
     assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said], []]
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
     assert (len(reads), woken) == (4, [(remote, "j1")])
+
+
+def test_a_watch_restarted_while_the_wake_its_last_process_started_holds_the_jobs_lock_starts_no_second_wake_and_says_nothing_of_that_lane(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch)
+    workspace, dispatch, port = J1409_LANES["j242"]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(dispatch=dispatch, workspace=workspace, state="running", said="building the tallies")
+    monkeypatch.setattr(orca, "worker", refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"))
+    resumes, locks = [], []
+
+    def detach(name: str, args: list[str], log: str) -> int:
+        if args[:2] == ["job", "resume"]:
+            resumes.append(args)
+            locks.append(held := open(state.job_lock_path(name, args[2]), "a"))
+            fcntl.flock(held, fcntl.LOCK_EX)
+        return os.getpid()
+
+    monkeypatch.setattr(state, "detach", detach)
+    first = watch.Watcher(remote, offset=state.events_end(remote))
+    assert [line.split(" ")[0] for s in (0, 5, 10) for line in watch.run_pass(first, T0 + timedelta(seconds=s))] == ["LANE"]
+    restarted = watch.Watcher(remote, offset=state.events_end(remote))
+    said = [line for s in (200, 205, 210, 215) for line in watch.run_pass(restarted, T0 + timedelta(seconds=s))]
+    assert (resumes, said, restarted.failures.get("lane of j1")) == ([["job", "resume", "j1", watch.UNREACHED]], [], None)
+    for held in locks:
+        held.close()
+
+
+def test_the_watch_starts_one_verb_on_a_job_a_pass_and_none_while_another_drive_verb_holds_its_lock(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or os.getpid())
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert watch.busy(watching, "j1", T0) is False
+    watch.send_held(watching, "j1", T0)
+    assert (watch.busy(watching, "j1", T0), watch.busy(watching, "j1", T0 + timedelta(minutes=1))) == (True, False)
+    with open(state.job_lock_path(remote, "j1"), "a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        assert watch.busy(watching, "j1", T0 + timedelta(minutes=1)) is True
+    assert detached == [["job", "resume", "j1"]]
 
 
 def test_a_held_text_no_send_took_is_said_as_the_watchs_to_carry(remote: str) -> None:
@@ -4122,7 +4193,7 @@ def test_a_lane_drive_job_end_is_destroying_is_never_read_as_dead_or_ended_a_sec
 
     def destroy(run_id: str, dispatch: str, root: Path) -> str:
         watching = watch.Watcher(remote, offset=state.events_end(remote))
-        watched.append(staged(watch.agent_lines, watching, T0) + watch.death_lines(remote, {"j1": (DISPATCH, GONE_SPRITE)}, T0))
+        watched.append(staged(watch.agent_lines, watching, T0) + watch.death_lines(watching, {"j1": (DISPATCH, GONE_SPRITE)}, T0))
         return "destroyed pool-4yf2z2cdrlsrofv5 dispatch ctx_lane0001"
 
     monkeypatch.setattr(orca, "reclaim", destroy)
@@ -5239,7 +5310,7 @@ def test_the_watch_holds_the_mail_a_finished_sprite_worker_never_read_once_and_r
     unread_mail.append(message("message", sent, id="relay_eb719c146649", subject=state.sent_by("coordinator"), from_handle="term_root", to_handle=f"dispatch:{SPRITE_DISPATCH}"))
     read, senders = [], []
     monkeypatch.setattr(orca, "unread", lambda job: read.append((job["dispatch"], job["environment"])) or unread_mail)
-    monkeypatch.setattr(watch, "send_held", lambda name, job_id: senders.append(job_id) or os.getpid())
+    monkeypatch.setattr(watch, "send_held", lambda watcher, job_id, moment: senders.append(job_id) or os.getpid())
     finished = {**FINISHED_WORKER, "dispatch": {**FINISHED_WORKER["dispatch"], "completedAt": state.stamp(T0)}}
     monkeypatch.setattr(orca, "worker", lambda dispatch: finished)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
