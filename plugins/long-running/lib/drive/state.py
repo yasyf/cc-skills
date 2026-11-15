@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import IO, NamedTuple
 
 from drive import github, picture, procs
+from drive.pr_graph import PrGraph
 
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
@@ -4729,7 +4730,7 @@ def served_orders(data: dict, pr: dict) -> list[str]:
 
 
 class Index(NamedTuple):
-    """What one pass over a drive's jobs, PRs and orders finds, for a read-only projection of it: the jobs listing each PR by its URL; each job's question by its waits id and by its card's Slack message, numbered in the order a scan of the jobs meets them; the open PRs waiting on each wait, by key, and each job's open PRs by their row's job, in the drive's order; the orders holding each part; and land.unders and land.landing_stacks of the drive."""
+    """What one pass over a drive's jobs, PRs and orders finds, for a read-only projection of it: the jobs listing each PR by its URL; each job's question by its waits id and by its card's Slack message, numbered in the order a scan of the jobs meets them; the open PRs waiting on each wait, by key, and each job's open PRs by their row's job, in the drive's order; the orders holding each part; land.unders and land.landing_stacks of the drive; and its immutable PR topology."""
 
     jobs: dict
     pr_jobs: dict[str, list[str]]
@@ -4740,11 +4741,12 @@ class Index(NamedTuple):
     part_orders: dict[str, list[str]]
     under: dict[str, str | None]
     stacks: dict[str, tuple[str, ...]]
+    graph: PrGraph
 
 
 @contextmanager
 def indexed(data: dict) -> Iterator[None]:
-    """Index the drive once for a read-only projection of it, such as the dashboard's model, so pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders and land.landing_stacks read it without scanning every job, PR or order. Jobs, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
+    """Index the drive once for a read-only projection of it, such as the dashboard's model, so pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders, land.landing_stacks and pr_graph read it without scanning every job, PR or order. Jobs, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
     from drive import land, view
 
     pr_jobs: dict[str, list[str]] = {}
@@ -4771,7 +4773,7 @@ def indexed(data: dict) -> Iterator[None]:
         for part in order["parts"]:
             part_orders.setdefault(part, []).append(order_id)
     under = land.unders(data)
-    token = INDEX.set(Index(data["jobs"], pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under)))
+    token = INDEX.set(Index(data["jobs"], pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under), PrGraph.read(data["prs"])))
     try:
         yield
     finally:
@@ -4781,6 +4783,11 @@ def indexed(data: dict) -> Iterator[None]:
 def index_of(data: dict) -> Index | None:
     """The index of the projection this thread is building of this drive, read by its very jobs, so a copy of the drive that changes only what the index never reads, as view.approve_waits gives one PR a tap it has not got, reads it too; None outside one."""
     return index if (index := INDEX.get()) is not None and index.jobs is data["jobs"] else None
+
+
+def pr_graph(data: dict) -> PrGraph:
+    """The projection's immutable topology, shared when only approval fields change, or a fresh standalone read."""
+    return index.graph if (index := index_of(data)) else PrGraph.read(data["prs"])
 
 
 def waiting_prs(data: dict, wait: str) -> list[str]:
@@ -4851,11 +4858,9 @@ def asks_tap(data: dict, pr: dict) -> bool:
     return tap_refused(data, pr) is None
 
 
-def reworked_under(prs: dict[str, dict], key: str) -> str | None:
-    """The lowest open PR at or below the PR in its stack, its native GitHub stack or else its chain by base branch by card.stack_of, being reworked to his words, the PR itself included, which with every PR above it owes no tap and draws no card until its builder's READY says how they are met; None when none is."""
-    from drive import card
-
-    stack = [mate for mate in card.stack_of(prs, key) if mate in prs and prs[mate]["state"] == "open"]
+def reworked_under(prs: dict[str, dict], key: str, graph: PrGraph) -> str | None:
+    """The lowest open PR at or below the PR in its stack, its native GitHub stack or else its chain by base branch by PrGraph.stack, being reworked to his words, the PR itself included, which with every PR above it owes no tap and draws no card until its builder's READY says how they are met; None when none is."""
+    stack = [mate for mate in graph.stack(key) if mate in prs and prs[mate]["state"] == "open"]
     return next((mate for mate in (stack[: stack.index(key) + 1] if key in stack else [key]) if prs[mate]["rework"]), None)
 
 

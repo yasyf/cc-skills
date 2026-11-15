@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK
-from drive import land, limits, page, pages, render, slack, stage, state, view, watch
+from drive import land, limits, page, pages, pr_graph, render, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -148,6 +148,27 @@ def test_bulk_stages_build_the_stack_graph_once(monkeypatch: pytest.MonkeyPatch)
     data["prs"][keys[1]]["base"] = "main"
     stage.shown(data, found(), keys)
     assert scans == 2
+
+
+def test_board_builds_pr_topology_once_for_all_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = drive_of(
+        {f"o{n}": order(f"Ship feature {n}", [f"j{n}"]) for n in range(1, 65)},
+        {f"j{n}": job(f"o{n}", "waiting") for n in range(1, 65)},
+        [pr(n, f"o{n}", job=f"j{n}", branch=f"change/{n}", base=f"change/{n-1}", checks="pending") for n in range(1, 65)],
+    )
+    expected = view.board(data, found(), "live", [], T0, set(), {})
+    chains = pr_graph.chains
+    scans = 0
+
+    def counted(keys: list[str], branches: dict[str, tuple[str, str]]) -> list[list[str]]:
+        nonlocal scans
+        scans += 1
+        return chains(keys, branches)
+
+    monkeypatch.setattr(pr_graph, "chains", counted)
+    with state.indexed(data):
+        assert view.board(data, found(), "live", [], T0, set(), {}) == expected
+    assert scans == 1
 
 
 def test_the_projection_index_preserves_the_complete_board() -> None:

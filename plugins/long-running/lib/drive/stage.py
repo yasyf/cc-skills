@@ -54,7 +54,7 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 def own(data: dict, key: str, cards: dict | None) -> Stage:
     """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while neither it nor a PR below it in its stack, native or chained by base branch, is being reworked to his words, by state.reworked_under, since drive card draws none of them, and state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, or the one open on it leaves off a PR of its stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
-    if not state.reworked_under(data["prs"], key) and cards is not None and state.asks_tap(data, pr) and (not view.tap_card(data, pr, cards) or view.apart(data, key, cards["pr_cards"])):
+    if not state.reworked_under(data["prs"], key, state.pr_graph(data)) and cards is not None and state.asks_tap(data, pr) and (not view.tap_card(data, pr, cards) or view.apart(data, key, cards["pr_cards"])):
         return Stage("uncarded", WATCH, uncarded(data, key, cards))
     return alone(data, key, cards)
 
@@ -366,7 +366,7 @@ def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str |
     under = land.unders(data) if under is None else under
     stacks = land.landing_stacks(data, under) if stacks is None else stacks
     below = land.chain(under, key)
-    reworked = now.name == "card" and state.reworked_under(data["prs"], key)
+    reworked = now.name == "card" and state.reworked_under(data["prs"], key, state.pr_graph(data))
     for member in land.landed_with(data, under, stacks, key):
         conflicts = member in below and data["prs"][member]["conflict"]
         if member != key and (conflicts or now.name == "ready" or member == reworked) and (other := own(data, member, cards)).name != "ready":

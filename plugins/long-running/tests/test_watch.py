@@ -5616,8 +5616,8 @@ def test_replayed_56774_his_words_reworking_the_middle_pr_of_a_three_pr_stack_dr
     assert draws.keys == [[KEY]]
     assert [line for line in lines if "draw of his card" in line] == []
     assert (prs[THIRD]["stage"]["name"], prs[THIRD]["stage"]["owner"], prs[THIRD]["stage"]["why"]) == ("behind", stage.BUILDER, f'{OTHER} below it in its stack, rework: being reworked to his words "Refuse past 256 MiB"')
-    assert limits.tap_owed_not(prs, THIRD) == f'{OTHER} below it in its stack is being reworked to his words "Refuse past 256 MiB" until its builder\'s READY says how they are met'
-    assert limits.tap_owed_not(prs, KEY) == ""
+    assert limits.tap_owed_not(prs, THIRD, state.PrGraph.read(prs)) == f'{OTHER} below it in its stack is being reworked to his words "Refuse past 256 MiB" until its builder\'s READY says how they are met'
+    assert limits.tap_owed_not(prs, KEY, state.PrGraph.read(prs)) == ""
 
 
 @pytest.mark.parametrize("native", [True, False])
