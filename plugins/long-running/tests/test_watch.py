@@ -25,6 +25,7 @@ REPLAYED_5547 = "yasyf/cc-skills#5547"
 REPLAYED_5442 = "yasyf/cc-skills#5442"
 HEAD_5547 = "0106ac2aaa"
 BASE_5547 = "j5396-unstarted-jobs"
+LEGACY = "ssql-litestream-legacy"
 BASE_MOVED = "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)"
 DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cleanly created."
 MERGE_CONFLICTS = "GraphQL: Pull Request has merge conflicts (mergePullRequest)"
@@ -178,6 +179,7 @@ def read(**overrides: object) -> dict:
         "merge_method": "squash",
         "permission": "ADMIN",
         "default": "main",
+        "landing_bases": [],
         "under": None,
         "base_pr": None,
     }
@@ -648,7 +650,7 @@ def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_sa
 
 PULLED = re.compile(r"p(\d+): pullRequest\(number: \d+\)")
 NAMED_REPOSITORY = re.compile(r'repository\(owner: "([^"]+)", name: "([^"]+)"\)')
-MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN", "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
+MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN", "landing": None, "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
 
 
 def pull_node(head: str) -> dict:
@@ -9498,6 +9500,22 @@ def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_buil
     with state.edit(demo) as data:
         data["jobs"]["j6258"]["state"] = "done"
     assert stage.red(state.load(demo), REPLAYED_56907) == f"it sits on {RUNNING_J6258}, which no open PR heads, so restack it onto dev"
+
+
+def test_a_pr_on_a_release_line_its_repository_names_a_landing_base_wakes_no_builder_and_its_lander_lands_it_there_as_litestream_36_on_its_legacy_line_did_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["prs"][REPLAYED_5547] = state.new_pr(state.pr_url(REPLAYED_5547), "j1", "o1") | {"wants_tap": False}
+    pushed(demo, REPLAYED_5547)
+    serve(monkeypatch, {KEY: read(), REPLAYED_5547: read(headRefOid=HEAD_5547, baseRefName=LEGACY, landing_bases=[LEGACY], checks=GREEN)})
+    watch.run_pass(watcher(demo), T0)
+    assert (state.load(demo)["prs"][REPLAYED_5547]["lander"]["base"], landers, woken) == (LEGACY, [(REPLAYED_5547,)], [])
+    assert (land.unmergeable(read(baseRefName=LEGACY, landing_bases=[LEGACY])), land.unmergeable(read(baseRefName=LEGACY))) == (
+        None,
+        f"it sits on {LEGACY}, not main or a landing base its .claude/long-running.toml names",
+    )
 
 
 REPLAYED_4745_4756 = {"yasyf/cc-skills#4745": ("aa8d008", "FAILURE"), "yasyf/cc-skills#4756": ("ed25f62", "FAILURE"), "yasyf/cc-skills#4755": ("1120acd", None)}
