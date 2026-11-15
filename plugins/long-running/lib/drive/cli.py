@@ -56,6 +56,7 @@ UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "u
 WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
+CARGO_LOCK = "rust/Cargo.lock"
 GO_CI_BUILT = Path("go", "ci", ".build", "ci.dev")
 LIVE_SAND_NEXT_SECONDS = 60
 CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
@@ -4390,7 +4391,7 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which a checkout of dev runs, and releases, those the paths reach through reads off that list; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
+    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes, and on its head when they change rust/Cargo.lock, so go/ci reads a lockfile line as reaching only the crates that link its package: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which a checkout of dev runs, and releases, those the paths reach through reads off that list; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
     clone = data["roles"]["coordinator"]["cwd"]
     if not (keys and (Path(clone) / GO_CI).is_file()):
         return {}
@@ -4404,7 +4405,10 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
         if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
             reach[key] = {"components": [], "touched": [], "dev": [], "releases": [], "tested": True}
             continue
-        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": paths})))
+        request = {"body": "", "paths": paths}
+        if CARGO_LOCK in paths:
+            request["head"] = github.paths([key])[key][0]
+        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps(request)))
     return reach
 
 
