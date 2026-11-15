@@ -5856,7 +5856,7 @@ def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a
         cli.write_brief("demo", builder_id, {})
         written = Path(state.load("demo")["jobs"][builder_id]["brief"]).read_text()
         assert f'\nPlan: j1\'s design, change "{change}": drive job report j1\n' in written
-        assert DESIGNED_IN_CHANGES not in orca.vm_brief("demo", builder_id, written, None)
+        assert DESIGNED_IN_CHANGES not in orca.vm_brief("demo", builder_id, "builder", written, None)
     assert run("job", "brief", "j2", "--plan", "the store copy section")[0] == 0
     assert "\nPlan: the store copy section\n" in Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
 
@@ -6251,6 +6251,28 @@ def test_a_research_readers_report_carries_its_filled_researched_block(
     ) in err
     assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("open: none\n", "open:\n"))[1].endswith("it lacks open:\n")
     assert keep(monkeypatch, capsys, "j1", RESEARCH) == (0, "")
+
+
+def test_a_readers_pushed_and_a_pr_added_on_it_are_refused_naming_the_builder_on_its_part_which_takes_the_pr(
+    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
+    run("job", "add", "reader", "--order", "o1", "--goal", "answer him")
+    unshipped = "is a reader, which answers its question and ships no change: it returns DONE on its research, or DESIGN on a choice for him"
+    code, err = keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n")
+    assert (code, err.strip()) == (2, f"drive: j1: refused, nothing kept: j1 {unshipped}")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("job", "add", "reader", "--order", "o2", "--goal", "answer it")
+    [reader, builder] = [next(job_id for job_id, job in state.load("demo")["jobs"].items() if (job["order"], job["kind"]) == ("o2", kind)) for kind in ("reader", "builder")]
+    named = f"{reader} {unshipped}, and {builder}, the builder on its part, opens the PR, which the watch proves live once it merges"
+    for line in (f"PUSHED {PR}", f"READY {PR}", "BUILT drive-demo, waits on PR #42"):
+        code, err = keep(monkeypatch, capsys, reader, f"{line}\n")
+        assert (code, err.strip()) == (2, f"drive: {reader}: refused, nothing kept: {named}")
+    assert cli.main(["pr", "add", PR, "--job", reader, *LEAD]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: Forge-AI/monorepo#42: refused, nothing added: {named}"
+    assert state.load("demo")["prs"] == {}
+    assert run("pr", "add", PR, "--job", builder, *LEAD)[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["job"] == builder
 
 
 def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options(

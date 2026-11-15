@@ -573,6 +573,13 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
+def test_a_readers_lane_runs_the_reader_with_the_builders_sprite_and_waits_sections_and_no_landing_or_return_of_a_builder(demo: str) -> None:
+    composed = orca.vm_brief(demo, "j2", "reader", "Drive: demo, order o1, job j2\n", state.LOCAL_ROUTE)
+    assert composed.startswith("Remote lane: drive demo, job j2. You are the long-running reader below")
+    assert [heading in composed for heading in ("Answer the one question your brief asks", "## On a Sprite", "## Waits and reads", "# Land a change", "## Return\n", "## Build\n")] == [True, True, True, False, False, False]
+    assert orca.brief_of(composed) == "Drive: demo, order o1, job j2"
+
+
 def test_a_first_launch_marks_its_job_sent_the_answer_its_brief_carries_and_carries_the_one_it_lacks_under_his_answers_since(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -750,7 +757,7 @@ def test_a_sprite_brief_copies_in_no_drive_file_it_names_and_a_read_of_its_words
         f"Scratch: {folder}/scratch/j4\nTranscripts:\n- j3 reader: x.jsonl"
     )
     monkeypatch.setattr(Path, "home", lambda: folder.parents[1])
-    composed = orca.vm_brief(demo, "j5", text, None)
+    composed = orca.vm_brief(demo, "j5", "builder", text, None)
     assert (orca.brief_of(composed), [said for said in ("DONE the reader's findings", "DESIGN the whole design", "ASK Which store?", "the notes") if said in composed]) == (text, [])
     assert {heading: (kept or "").splitlines()[0] for heading, kept in orca.drive_files(demo, text).items()} == {
         "Report of j2": "DESIGN the whole design",
@@ -778,7 +785,7 @@ def test_a_sprite_brief_names_drive_job_replies_for_each_earlier_transcript_no_r
         f"- j4 codex, its codex-ask run: {folder}/scratch/j4/codex\n"
         "Drive: demo, order o1, job j5"
     )
-    assert orca.brief_of(orca.vm_brief(demo, "j5", text, None)) == (
+    assert orca.brief_of(orca.vm_brief(demo, "j5", "builder", text, None)) == (
         "Order (his words): ship it\nTranscripts:\n"
         "- j1 design: drive job replies j1\n"
         "- j2 builder, a remote lane: drive job replies j2\n"
@@ -786,7 +793,7 @@ def test_a_sprite_brief_names_drive_job_replies_for_each_earlier_transcript_no_r
         f"- j4 codex, its codex-ask run: {folder}/scratch/j4/codex\n"
         "Drive: demo, order o1, job j5"
     )
-    assert orca.brief_of(orca.vm_brief(demo, "j5", text, state.LOCAL_ROUTE)) == text
+    assert orca.brief_of(orca.vm_brief(demo, "j5", "builder", text, state.LOCAL_ROUTE)) == text
 
 def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_and_stamps_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -1749,7 +1756,7 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(
             brief=str(first),
@@ -1806,7 +1813,7 @@ def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each
     recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Partition strategies", "body": "time, hash by key and spill all ship", "tags": [], "created_at": "2026-11-12T11:33:00Z"}
     taken = "## Taking over from a lane that died\n\nThe message it never read, which you act on now:\n\nUse @poeticapps/poetic"
     earlier = tmp_path / "earlier.md"
-    earlier.write_text(orca.vm_brief(remote, "j1", f"{Path(state.load(remote)['jobs']['j1']['brief']).read_text()}\n{taken}\n\n{state.HOLDS_NOW}\n\n- https://github.com/Forge-AI/monorepo/pull/7: held by his Hold.\n", None))
+    earlier.write_text(orca.vm_brief(remote, "j1", "builder", f"{Path(state.load(remote)['jobs']['j1']['brief']).read_text()}\n{taken}\n\n{state.HOLDS_NOW}\n\n- https://github.com/Forge-AI/monorepo/pull/7: held by his Hold.\n", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(earlier), workspace="sprite-old", ask="msg_q1", state="waiting", said="ASK which npm name?")
         data["jobs"]["j1"]["brief_flags"]["ruling"] = ["bc0da25"]
@@ -1861,7 +1868,7 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", state="waiting", said="WAITING release")
     sent, launched, runs = [], [], iter(["run_try1", "run_try2"])
@@ -1924,7 +1931,7 @@ def unsaveable(why: str) -> Callable[..., str]:
 
 def dead_lane_holding(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, save: Callable[..., str | None]) -> dict:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="pool-sleeping", state="running", said="building the tallies")
     monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
@@ -2118,7 +2125,7 @@ def test_a_dead_lanes_session_is_the_transcript_on_its_sprite_that_holds_its_dis
 
 def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], workspace: str, refusal: orca.OrcaError | None = None) -> list[tuple]:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace=workspace, dispatch=J2504_DISPATCH, state="running", said="building the redo volumes")
     sessions[workspace] = J2504_SESSION
@@ -2427,7 +2434,7 @@ def unreachable_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     workspace, dispatch, port = lane
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), dispatch=dispatch, workspace=workspace, branch="durable-agents-j2504/sandsql-two-redo-volumes", said="building the tallies")
     wakes, launches = [], []
@@ -2645,7 +2652,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     lane = {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG}
     monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
     with state.edit(remote) as data:
@@ -2711,7 +2718,7 @@ def test_resume_to_a_finished_worker_on_this_mac_whose_terminal_orca_no_longer_f
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", state.LOCAL_ROUTE))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", state.LOCAL_ROUTE))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), route=state.LOCAL_ROUTE, terminal="term_lane", workspace=None, environment=None)
     reply = {"ok": False, "error": {"code": "selector_not_found", "message": "No terminal matches term_lane."}}
@@ -2750,7 +2757,7 @@ def test_a_relaunch_on_this_mac_continues_in_the_worktree_holding_its_open_prs_b
     head = git_in(held, "rev-parse", "HEAD")
     url = f"https://github.com/{github.checkout_repo(str(clone))}/pull/7"
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", state.LOCAL_ROUTE))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", state.LOCAL_ROUTE))
     with state.edit(remote) as data:
         data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1") | {"branch": "remote-j1/fix", "head": "9" * 40}
         data["jobs"]["j1"].update(brief=str(first), route=state.LOCAL_ROUTE, terminal="term_lane", workspace=None, environment=None, prs=[url])
@@ -2787,7 +2794,7 @@ def test_a_finished_worker_whose_terminal_is_no_longer_connected_relaunches_the_
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", state="waiting")
     shown = {
@@ -2828,7 +2835,7 @@ UNFIT_KEPT = (
 def answered_dead_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, save: Callable[..., str | None], refusals: int) -> list[tuple[str, str, str | None]]:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", state="waiting")
         data["answers"]["a1"] = {"words": "Approve", "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
@@ -3065,7 +3072,7 @@ def test_a_finished_worker_whose_sprite_refuses_its_tools_starts_the_next_on_a_f
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = branches
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", sprite_config=SPRITE_CONFIG)
     reprepared(monkeypatch)
@@ -3104,7 +3111,7 @@ def test_a_finished_worker_whose_sprite_was_made_from_another_cc_remote_config_s
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", sprite_config=made)
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
@@ -3135,7 +3142,7 @@ def test_a_launch_of_a_lane_whose_worker_finished_prepares_its_sprite_again_with
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
     assert cli.main(["job", "launch", "j1"]) == 2
@@ -3161,7 +3168,7 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_moves_nothing_here
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
@@ -3184,7 +3191,7 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), terminal="term_lane", workspace="pool-one", environment="pool-one", lane="demo-j1")
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
@@ -3389,7 +3396,7 @@ def test_a_launch_local_of_a_job_whose_live_sprite_worker_returned_its_line_or_s
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove the session sweep\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove the session sweep\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state=job_state, said=said)
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane a launch moves: {args}"))
@@ -3441,7 +3448,7 @@ def test_a_resume_of_a_sprite_job_whose_brief_gained_a_mac_line_sends_its_live_w
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="waiting", said="WAITING its staging slot")
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
@@ -3466,7 +3473,7 @@ def test_a_resume_of_a_sprite_job_declaring_a_mac_step_while_eight_builders_hold
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="waiting", waits=["Forge-AI/monorepo#56299"])
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that waits to move here: {args}"))
@@ -3525,7 +3532,7 @@ def test_a_resume_of_a_running_sprite_job_that_builds_nothing_and_declares_a_mac
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running", builds_nothing=True)
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
@@ -3548,7 +3555,7 @@ def test_a_resume_moving_a_sprite_job_to_this_mac_whose_launch_started_no_worker
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running")
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
@@ -3610,7 +3617,7 @@ def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brie
     saved_on_github["demo-j1"] = ["saved/demo-j1/wip at 1a2b3c4d5e"]
     first = tmp_path / "first.md"
     written = "\n".join(filter(None, ["Order (his words): prove it live", brief_mac, "Drive: demo, order o1, job j1"]))
-    first.write_text(orca.vm_brief(remote, "j1", written, None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", written, None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", environment="sprite-old", state="waiting")
     state.keep_report(remote, "j1", report.splitlines()[0], report)
@@ -3641,7 +3648,7 @@ def test_a_pr_wake_of_a_red_pr_reaches_its_live_sprite_worker_while_eight_builde
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): sweep the stale sessions\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): sweep the stale sessions\nDrive: demo, order o1, job j1", None))
     url = "https://github.com/Forge-AI/monorepo/pull/1134"
     key = state.pr_key(url)
     with state.edit(remote) as data:
@@ -3727,7 +3734,7 @@ def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_i
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", state="waiting", said="WAITING CI")
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead() if dispatch == DISPATCH else LIVE_WORKER)
@@ -3780,7 +3787,7 @@ def test_a_relaunch_orca_refuses_says_the_text_held_with_the_refusal_verbatim(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it", state.LOCAL_ROUTE))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it", state.LOCAL_ROUTE))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), route=state.LOCAL_ROUTE, terminal="term_lane", workspace=None, environment=None)
     refusal = "orca orchestration worker-start: terminal_busy: The terminal is running another worker."
@@ -3919,7 +3926,7 @@ def test_a_relaunch_carries_each_held_text_in_its_handoff_ahead_of_its_own(
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old")
         data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": "TAP Approve #12", "at": state.stamp(), "said": None, "request": "req-held"}]
@@ -3945,7 +3952,7 @@ def test_a_death_relaunch_carries_the_texts_its_dead_worker_was_started_on_and_e
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     pr, card = "https://github.com/Forge-AI/monorepo/pull/7", "https://acme.slack.com/archives/D123/p1763190000000100"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", prs=[pr], returned=state.stamp(state.now() - timedelta(hours=1)))
@@ -3977,7 +3984,7 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     url = "https://github.com/Forge-AI/monorepo/pull/7"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", prs=[url])
@@ -4074,7 +4081,7 @@ def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_l
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pr_state: str, line: str, stops_while_waiting: bool
 ) -> None:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     url = "https://github.com/Forge-AI/monorepo/pull/7"
     key = state.pr_key(url)
     with state.edit(remote) as data:
@@ -4254,7 +4261,7 @@ def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_wait
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     url = "https://github.com/Forge-AI/monorepo/pull/7"
     key = state.pr_key(url)
     with state.edit(remote) as data:
@@ -4304,7 +4311,7 @@ def test_a_pr_wake_to_a_finished_lane_prepares_its_sprite_again_and_starts_its_j
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     url, above = "https://github.com/Forge-AI/monorepo/pull/55220", "https://github.com/Forge-AI/monorepo/pull/55285"
     ready = f"READY {url} {above}"
     with state.edit(remote) as data:
@@ -4934,7 +4941,7 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
     cloned(tmp_path, remote)
     saved_on_github["demo-j1"] = SAVED_BRANCHES
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), state="waiting", said="WAITING CI", workspace="pool-ie7ugrhamhjtmnwa")
     saves = iter([SAVED, None])
@@ -5308,7 +5315,7 @@ def test_resume_or_launch_after_end_reads_the_end_never_orca_or_the_destroyed_sp
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     url = "https://github.com/Forge-AI/monorepo/pull/53935"
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), state="waiting", said=f"WAITING CI on {url}", prs=[url], workspace="pool-rxo7catmn6cw4efb")
@@ -5368,7 +5375,7 @@ def test_a_resume_names_the_saved_branches_github_holds_never_the_garbled_save_a
 ) -> None:
     cloned(tmp_path, remote)
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     kept = {
         "dispatch": DISPATCH,
         "workspace": "pool-fhbxfis6temcixty",
@@ -6416,7 +6423,7 @@ def test_a_built_job_relaunched_on_his_answer_runs_none_of_the_mail_its_finished
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), dispatch=J2914_WORKER, turn_open=True, terminal="term_lane", route=state.LOCAL_ROUTE, workspace=None, environment=None, lane="demo-j1")
     kept, *unread = j2914_mail()
@@ -7360,7 +7367,7 @@ def test_a_relaunch_whose_worker_started_unrecorded_is_recorded_from_its_kept_re
     cloned(tmp_path, remote)
     first = state.drive_dir(remote) / "jobs" / "j1.md"
     first.parent.mkdir(exist_ok=True)
-    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", environment="sprite-old")
         state.lane_died(data["jobs"]["j1"], DISPATCH, "its worker exited", T0)
@@ -7671,7 +7678,7 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_work
     run: Run, rooted: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: dict[str, str], observed: dict | None
 ) -> None:
     first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(rooted, "j1", "Order (his words): the tooling root", state.LOCAL_ROUTE))
+    first.write_text(orca.vm_brief(rooted, "j1", "builder", "Order (his words): the tooling root", state.LOCAL_ROUTE))
     with state.edit(rooted) as data:
         data["jobs"]["j1"].update(recorded, lane="demo-j1", brief=str(first), ask=None, report=None)
     monkeypatch.setattr(orca, "worker", lambda dispatch: {**ROOT_WORKER, "worker": {**ROOT_WORKER["worker"], "state": "succeeded"}, "terminal": observed})

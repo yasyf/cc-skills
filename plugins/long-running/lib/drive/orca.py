@@ -25,7 +25,8 @@ EFFORT = "xhigh"
 LANE_LIMIT = 55
 NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
-BUILDER = PLUGIN / "agents" / "builder.md"
+AGENTS = PLUGIN / "agents"
+LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
 LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
 LANE_ENV = f"CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 {state.REMOTE_LANE_ENV}=1"
 LAUNCH_SECONDS = 1800
@@ -363,8 +364,20 @@ def lane_name(drive: str, job_id: str) -> str:
 
 
 def builder_body() -> str:
-    _, _, body = BUILDER.read_text().split("---", 2)
+    return agent_body("builder")
+
+
+def agent_body(role: str) -> str:
+    _, _, body = (AGENTS / f"{role}.md").read_text().split("---", 2)
     return body.strip()
+
+
+def role_body(role: str) -> str:
+    """The role an Orca worker runs: a builder's whole with the landing reference, any other's with the builder's sections saying how a lane reads, waits and reports through Orca, which its own role leaves out."""
+    if role == "builder":
+        return f"{builder_body()}\n\n# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}"
+    lane = [section.strip() for section in re.split(r"\n(?=## )", builder_body()) if section.startswith(LANE_SECTIONS)]
+    return "\n\n".join([agent_body(role), *lane])
 
 
 def place(job: dict) -> str:
@@ -372,19 +385,20 @@ def place(job: dict) -> str:
     return ON_MAC if state.on_mac(job) else f"on Sprite {job['workspace']}"
 
 
-def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
-    """What a builder started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: its role, landing rules, brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts."""
+def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) -> str:
+    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts."""
     on_mac = route == state.LOCAL_ROUTE
     running = (
         'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
         if on_mac
         else 'on a Sprite, so its "On a Sprite" section applies'
     )
+    role = state.JOB_AGENTS[kind][0].partition(":")[2]
+    borrowed = "" if role == "builder" else " Its On a Sprite and Waits and reads sections are the builder's, for how a lane reads, waits and reports, and their steps for a PR are a builder's: you open none."
     return (
-        f"Remote lane: drive {drive}, job {job_id}. You are the long-running builder below, running as an Orca "
-        f"worker {running}.\n\n"
-        f"{builder_body()}\n\n"
-        f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n"
+        f"Remote lane: drive {drive}, job {job_id}. You are the long-running {role} below, running as an Orca "
+        f"worker {running}.{borrowed}\n\n"
+        f"{role_body(role)}\n"
         f"{BRIEF_HEADING}{(brief if on_mac else sprite_transcripts(drive, brief)).strip()}\n"
     )
 
