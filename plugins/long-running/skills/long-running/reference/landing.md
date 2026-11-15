@@ -180,7 +180,9 @@ no failing test, such as a lint step, is the PR's own.
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
    needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `grading` while
-   a check at its head still runs and `ready` once every one finished, and the watch starts the drive's lander on it within
+   a check at its head still runs and `ready` once every one finished, except that the watch's read finding a check
+   failing on its own change there reads `red`, owed by you, at that read, `its own change fails …`, and starts no lander.
+   Only while `main`'s run of a failing one still runs is it left `ready` for the lander to judge. The watch starts the drive's lander on it within
    one GitHub read of `ready`: a process of its own, outliving your turn, that reads its checks from GitHub
    again, waits for `main`'s run of each failing one at the commit its run merged onto, and merges it with
    `gh pr merge <n> -R <repo> --<method> --admin --match-head-commit <head>` at the head that read found every

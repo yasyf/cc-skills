@@ -1014,6 +1014,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("flaky", None)
         if pr["flaky"]:
             pr["flaky"].setdefault("failed_checks", [])
+        pr.setdefault("own_reds", None)
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
@@ -5164,6 +5165,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "checker": None,
         "ejected": False,
         "flaky": None,
+        "own_reds": None,
         "review_asked": None,
         "objected": None,
         "rework": None,
