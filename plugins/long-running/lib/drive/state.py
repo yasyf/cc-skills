@@ -199,6 +199,7 @@ PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
+READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()[:12]
 CARDS_NOTED = "card_answers_noted"
 PR_JOB_INDEX: ContextVar[tuple[dict, dict[str, list[str]]] | None] = ContextVar("pr_job_index", default=None)
 BATCHED: dict[str, bytes] = {}
@@ -3848,21 +3849,21 @@ def take_held_lines(name: str, project: str | None = None) -> list[str]:
 
 
 def hold_reads(name: str, project: str | None, reads: dict) -> None:
-    """Keep the GitHub reads a watch process still owes, as it hands itself to a newer install or stops, for the watch process after it, which owes those and the ones the deliveries past its cursor name, never a read of every PR."""
+    """Keep the GitHub reads a watch process still owes, as it hands itself to a newer install or stops, for the watch process after it, which owes those and the ones the deliveries past its cursor name, never a read of every PR, marked with READ_MARK, the hash of the GitHub query this install reads each PR by."""
     path = reads_path(name, project)
     tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(json.dumps(reads))
+    tmp.write_text(json.dumps(reads | {"read": READ_MARK}))
     os.replace(tmp, path)
 
 
 def take_held_reads(name: str, project: str | None = None) -> dict | None:
-    """The GitHub reads the watch process before this one held for it, once; None when it held none, as after a kill or on a first start, so this one reads every PR."""
+    """The GitHub reads the watch process before this one held for it, once; None when it held none, as after a kill or on a first start, or held them under a GitHub query other than this install's, whose rows lack each field this install reads and that one did not, so this one reads every PR."""
     path = reads_path(name, project)
     if not path.exists():
         return None
     reads = json.loads(path.read_text())
     path.unlink()
-    return reads
+    return reads if reads.get("read") == READ_MARK else None
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:

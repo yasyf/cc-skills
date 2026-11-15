@@ -43,6 +43,7 @@ MERGEABILITY_PER_QUERY = 100
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } }"
+READ = f"{FIELDS} {UNDER} {STACK}"
 DELETED_AUTHOR = "ghost"
 PICK = re.compile(r" \(#(\d+)\)$")
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
@@ -458,7 +459,7 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
     found, refused = {}, []
     for chunk in by_repository(asked, PRS_PER_QUERY):
         try:
-            found |= parse(graphql(query(chunk, f"{FIELDS} {UNDER} {STACK}", RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
+            found |= parse(graphql(query(chunk, READ, RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
         except GithubError as error:
             refused.append(str(error))
     for chunk in by_repository([key for key, read in found.items() if key not in into and merged_off_default(read)], PRS_PER_QUERY):
