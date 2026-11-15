@@ -3702,6 +3702,23 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
     return ended
 
 
+def job_reclaim(args: argparse.Namespace) -> int:
+    """Free one thing an earlier or ended lane of the job left, which the watch's release_lanes starts as a process of its own: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS; refused, naming why, for a lane no death of the job records, when the checkout is not moved, or when the reclaimer fails or overruns."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
+    if not state.death_on(job, args.lane):
+        raise DriveError(f"{args.id}: refused, nothing reclaimed: no death of its lanes records {args.lane}, so no lane of it left that")
+    root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    if not state.on_mac(job):
+        released = orca.release(name, args.id, {**job, "workspace": args.lane}, root)
+        return emit(args, released, {"id": args.id, "lane": args.lane, "released": released})
+    reclaimed = orca.reclaim(job["run"], args.lane, root)
+    with state.edit(name) as data:
+        state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
+    return emit(args, reclaimed, {"id": args.id, "lane": args.lane, "reclaimed": reclaimed})
+
+
 def pr_add(args: argparse.Namespace) -> int:
     from drive import view
 
@@ -5771,6 +5788,19 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
+    verb = job.add_parser(
+        "reclaim",
+        parents=both,
+        help=(
+            "what the watch runs in a process of its own on each thing an earlier or ended lane of the job left: the Sprite cc-remote records under the workspace given, destroyed with its Orca environment"
+            " once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>, or, for a job on this Mac, the dispatch given, whose terminal it closes and whose worktree it removes once clean and pushed,"
+            " then marks freed so no watch reclaims it again; the reclaimer runs from the drive's checkout and is killed with every process it started past 300 seconds; refused, naming why, for a lane no death of the job records,"
+            " or when the reclaimer fails or overruns"
+        ),
+    )
+    verb.add_argument("id")
+    verb.add_argument("lane", help="the cc-remote workspace of the Sprite, or the dispatch of the lane on this Mac, that a lane of the job left")
+    verb.set_defaults(run=job_reclaim)
     verb = job.add_parser(
         "prove",
         parents=both,
