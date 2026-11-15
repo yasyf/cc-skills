@@ -321,7 +321,11 @@ a failed newest run of some workflow on the default branch for a `main fix`, and
 `incident fix`. One outside its class comes back as `PR … not landed: <why>`.
 
 - `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
-  and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. A port that
+  and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. It ports work
+  that merged or that he approved, and otherwise waits on and lands after #N: while the drive tracks
+  #N, in the port's own repository, unmerged and without his Approve, the port reads `blocked` on his
+  card on #N and no lander starts on it, and `--port-of` refuses an #N the drive does not track unless
+  GitHub reads it merged. A port that
   changes how data is stored, a migration, schema or `.proto` file, is not pure: its data model is a
   design part of its order, by his words "port his visuals but always do it the fundamentally right
   way when it comes to modelng the data", and `drive pr add` and `drive pr set` refuse it `--port-of`.

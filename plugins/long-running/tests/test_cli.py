@@ -6358,7 +6358,12 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("red", stage.BUILDER, owned)
 
 
-def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict) -> None:
+@pytest.fixture
+def merged_originals(monkeypatch: pytest.MonkeyPatch, on_github: dict) -> None:
+    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(on_github["comments"] if cmd[1] == "api" else on_github | ({"state": "MERGED"} if cmd[3] in ("51234", "4100") else {})))
+
+
+def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict, merged_originals: None) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["title"] = "Port: land it"
@@ -6752,7 +6757,9 @@ def test_pr_set_tap_on_an_exempt_pr_draws_no_card_so_checks_none(run: Run, with_
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
-def test_a_port_changing_how_its_data_is_stored_is_no_pure_port(run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_port_changing_how_its_data_is_stored_is_no_pure_port(
+    run: Run, demo: str, on_github: dict, merged_originals: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     on_github["title"] = "Port: land it"
@@ -6767,8 +6774,31 @@ def test_a_port_changing_how_its_data_is_stored_is_no_pure_port(run: Run, demo: 
     assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234", *LEAD)[0] == 0
 
 
+def test_port_of_refuses_an_original_the_drive_does_not_track_until_github_reads_it_merged(
+    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    on_github["title"] = "Port: land it"
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--port-of", "51234", *LEAD]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: Forge-AI/monorepo#42: refused, nothing set: #51234, the PR it ports, is not merged on GitHub and the drive does not track it, so nothing would hold"
+        " this port until #51234 merges or he approves it. Track #51234 first with drive pr add https://github.com/Forge-AI/monorepo/pull/51234 --job <j>, or name the merged PR it ports"
+    )
+    assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#51234"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/51234", "j1", "o1")
+    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234", *LEAD)[0] == 0
+    assert cli.main(["pr", "set", PR, "--port-of", "4100"]) == 2
+    assert "#4100, the PR it ports, is not merged on GitHub and the drive does not track it" in capsys.readouterr().err
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["port_of"] == 51234
+    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(on_github["comments"] if cmd[1] == "api" else on_github | ({"state": "MERGED"} if cmd[3] == "4100" else {})))
+    assert run("pr", "set", PR, "--port-of", "4100")[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["port_of"] == 4100
+
+
 def test_pr_set_port_of_refuses_a_title_that_does_not_open_port(
-    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+    run: Run, with_pr: str, on_github: dict, merged_originals: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     on_github["title"] = "move strip"
     assert cli.main(["pr", "set", PR, "--port-of", "4100"]) == 2
@@ -6785,7 +6815,7 @@ def test_pr_set_port_of_refuses_a_title_that_does_not_open_port(
     assert state.load("demo")["prs"][with_pr]["exempt"] == "pure port"
 
 
-def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, on_github: dict, withdrawals: "Withdrawals") -> None:
+def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, on_github: dict, merged_originals: None, withdrawals: "Withdrawals") -> None:
     on_github["title"] = "Port: land it"
     code, out = run("pr", "set", PR, "--port-of", "51234")
     pr = state.load("demo")["prs"][with_pr]
@@ -7316,7 +7346,7 @@ def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_of
 
 
 def test_job_ask_on_a_port_names_the_pr_it_ports_in_its_summary(
-    run: Run, asking: str, on_github: dict, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    run: Run, asking: str, on_github: dict, merged_originals: None, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     on_github["title"] = "Port: move strip"
     run("pr", "add", PR, "--job", asking, *LEAD)

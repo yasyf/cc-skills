@@ -3655,6 +3655,15 @@ def exempted(pr: dict) -> str | None:
     return None if pr.get("exempt") in UNCARDED_CLASSES and pr["wants_tap"] else pr.get("exempt")
 
 
+def port_hold(data: dict, pr: dict) -> str | None:
+    """The original a pure port waits on, #port_of in its own repository, while the drive tracks it unlanded and neither it nor the port carries his Approve, since the exemption covers only work that merged or that he approved: the port waits on it, reads blocked on his card on it, and lands after it; None for a port of merged or approved work, and for any other PR."""
+    if pr.get("exempt") != "pure port" or not pr.get("port_of") or (pr["tap"] or {}).get("label") == "Approve":
+        return None
+    original = f"{github.repo_of(pr_key(pr['url']))}#{pr['port_of']}"
+    held = data["prs"].get(original)
+    return original if held and held["state"] in github.UNLANDED and (held["tap"] or {}).get("label") != "Approve" else None
+
+
 def names_pr(words: str, key: str) -> bool:
     """Whether words name the PR by its link, its owner/name#N key or a bare #N."""
     number = key.rpartition("#")[2]

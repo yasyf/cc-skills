@@ -107,11 +107,16 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 def waiting(data: dict, key: str, cards: dict) -> Stage | None:
     """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting on what it waits on; None once nothing it waits on holds."""
-    if not (standing := view.holding(data, data["prs"][key]["waits"], cards)):
+    if not (standing := view.holding(data, pr_waits(data, data["prs"][key]), cards)):
         return None
     if mine := asked(data, key, standing, cards):
         return Stage("blocked", HIM, f"it waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*standing, *mine]))}")
     return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
+
+
+def pr_waits(data: dict, pr: dict) -> list[str]:
+    """What a PR waits on: its own waits, and the original a pure port waits on until it merges or he approves it, by state.port_hold."""
+    return [*pr["waits"], *filter(None, [state.port_hold(data, pr)])]
 
 
 def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[str]:
@@ -137,7 +142,7 @@ def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
     if job := data["jobs"].get(subject):
         waits = [*job["waits"], *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
     else:
-        waits = [*data["prs"][subject]["waits"], *land.pr_cards(data, data["prs"][subject])]
+        waits = [*pr_waits(data, data["prs"][subject]), *land.pr_cards(data, data["prs"][subject])]
     return view.holding(data, view.stored_waits(data, waits, cards), cards)
 
 
@@ -166,7 +171,7 @@ def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
     """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
     pr = data["prs"][key]
     lander = pr["lander"]
-    if not lander or lander["head"] != pr["head"] or ends(data, pr["waits"], cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
+    if not lander or lander["head"] != pr["head"] or ends(data, pr_waits(data, pr), cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
         return None
     if carded(pr) and not state.cleared(pr) or pr["tap"] and state.parse_time(pr["tap"]["at"]) > state.parse_time(lander["at"]):
         return None

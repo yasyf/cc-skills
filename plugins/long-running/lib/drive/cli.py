@@ -1419,7 +1419,7 @@ def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str 
 def unlandable(data: dict, keys: list[str]) -> str | None:
     """Why a builder may not start on --lands alone: each PR it lands is a drive PR his Approve or an exempt class lets land, since only then does it build nothing his order's research would shape."""
     for key in keys:
-        may_land, why = tap_verdict(data["prs"][key])
+        may_land, why = tap_verdict(data, data["prs"][key])
         if not may_land:
             return f"--lands {key}: it may not land yet, {why}; a builder lands only a PR he approved or an exempt class lands"
     return None
@@ -3635,6 +3635,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         )
     if port_of:
         refuse_a_port_storing_data(key, port_of)
+        refuse_an_untracked_original(known, key, port_of)
     if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     if exempt and exempt != state.FLAKE_FIX:
@@ -3749,6 +3750,7 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_an_unkinded_title(key, read, args.port_of)
         if args.port_of:
             refuse_a_port_storing_data(key, args.port_of)
+            refuse_an_untracked_original(known, key, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
             refuse_an_exempt_revert(known, key, order, read)
     if args.exempt and args.exempt != state.FLAKE_FIX:
@@ -4037,6 +4039,19 @@ def refuse_a_port_storing_data(key: str, port_of: int) -> None:
     )
 
 
+def refuse_an_untracked_original(data: dict, key: str, port_of: int) -> None:
+    """A pure port carries work that merged or that he approved: its original, #port_of in its own repository, is a PR the drive tracks, whose merge or his Approve on it state.port_hold waits on, or one GitHub reads merged."""
+    from drive import card
+
+    original = f"{github.repo_of(key)}#{port_of}"
+    if original in data["prs"] or (card.read(original) or {}).get("state") == "MERGED":
+        return
+    raise DriveError(
+        f"{key}: refused, nothing set: #{port_of}, the PR it ports, is not merged on GitHub and the drive does not track it, so nothing would hold this port"
+        f" until #{port_of} merges or he approves it. Track #{port_of} first with drive pr add {state.pr_url(original)} --job <j>, or name the merged PR it ports"
+    )
+
+
 def refuse_an_unexempt(key: str, exempt: str, done: str) -> None:
     """Refuse an exempt class the PR is not in, by land.outside, the class check the lander runs before it lands an exempt PR, on the PR as GitHub has it now, before anything is kept, so no class the lander would refuse takes Approve off his card, by his ruling to keep a lane's exempt word and check the class; a flake fix outside test and fixture code keeps his tap instead, by flake_tap."""
     if why := land.outside(exempt, key, served.change(key)):
@@ -4060,11 +4075,13 @@ def refuse_an_exempt_revert(data: dict, key: str, order_id: str, read: dict, add
     )
 
 
-def tap_verdict(pr: dict | None) -> tuple[bool, str]:
+def tap_verdict(data: dict, pr: dict | None) -> tuple[bool, str]:
     if pr is None:
         return True, "not a drive PR"
     if pr["hold_label"]:
         return False, "held by the hold label on GitHub"
+    if original := state.port_hold(data, pr):
+        return False, f"a pure port of {original}, which waits on its merge or his Approve on it"
     if not pr["wants_tap"] and state.merges_untapped(state.pr_key(pr["url"])):
         return True, f"wants no tap: the drive lands a {state.NO_TAP_OWNER}/* PR with none"
     if state.exempted(pr):
@@ -4081,8 +4098,8 @@ def tap_verdict(pr: dict | None) -> tuple[bool, str]:
 
 def pr_tapped(args: argparse.Namespace) -> int:
     key = state.pr_key(args.url)
-    pr = state.load(state.resolve(args.drive))["prs"].get(key)
-    may_land, why = tap_verdict(pr)
+    data = state.load(state.resolve(args.drive))
+    may_land, why = tap_verdict(data, data["prs"].get(key))
     emit(args, f"{key}: {why}", {"key": key, "may_land": may_land, "why": why})
     return 0 if may_land else 1
 
@@ -5595,7 +5612,7 @@ def parser() -> argparse.ArgumentParser:
         "--part", action="append", default=[], help="a part of its job's orders this PR delivers, as drive pr set --part names it, so its first check judges it on the parts it names"
     )
     untapped = verb.add_mutually_exclusive_group()
-    untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
+    untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this PR number in its own repository, work that merged or that he approved: exempt, with no tap card, waiting on and landing after an original the drive tracks until it merges or he approves it; refused for an original the drive does not track that GitHub does not read merged, and for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside Forge-AI; needs --why. Every other PR waits on his tap")
     verb.set_defaults(run=pr_add)
@@ -5622,7 +5639,7 @@ def parser() -> argparse.ArgumentParser:
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     exemption.add_argument("--no-exempt", action="store_true", help="clear the exemption")
     exemption.add_argument(
-        "--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card; refused for a PR changing a migration, schema or wire format, whose data model is a design part of his order"
+        "--port-of", type=int, metavar="PR", help="a pure port of this PR number in its own repository, work that merged or that he approved: exempt, with no tap card, waiting on and landing after an original the drive tracks until it merges or he approves it; refused for an original the drive does not track that GitHub does not read merged, and for a PR changing a migration, schema or wire format, whose data model is a design part of his order"
     )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     tapped = verb.add_mutually_exclusive_group()
