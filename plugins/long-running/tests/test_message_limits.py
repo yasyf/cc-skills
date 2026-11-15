@@ -2817,17 +2817,17 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
 def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_line_to_hims(talker: str, transcript: Path, run: Run, checked: Checked, slack_thread: Thread) -> None:
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(), "away": True}
-    claim = " ".join(["Claiming staging for 30 minutes to test the batch writer."] * 8) + " Does anyone object?"
+    claim = " ".join(["Claiming staging for 30 minutes to test the batch writer."] * 5) + " Does anyone object?"
     assert say(transcript, text=claim).startswith("Refused on purpose: he is away")
     assert say(transcript, text=claim, channel_id="C0STAGING1") is None
     assert message_limits.his_words(call("slack_dm_status", transcript, text=claim, channel_id="C0STAGING1") | {"tool_name": message_limits.SAY}) == [message_limits.MEMBERS_WORDS]
-    long = say(transcript, text=said(121), channel_id="C0STAGING1")
-    assert "this post is 121 words, and a post at the root of a channel outside his DM is at most 120 words" in long
+    long = say(transcript, text=said(61), channel_id="C0STAGING1")
+    assert "this post is 61 words, and a line to a channel's members is at most 60 words" in long
     assert long.rule == message_limits.MEMBERS_RULE
     assert long.counted == long
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
-    assert say(transcript, text=said(119) + " {pr:7}", channel_id="C0STAGING1") is None
+    assert say(transcript, text=said(59) + " {pr:7}", channel_id="C0STAGING1") is None
     coded = say(transcript, text="Claiming staging until 3 PM to test the fix in talk.py and record_on(). Does anyone object?", channel_id="C0STAGING1")
     assert coded.startswith("refused: this post names record_on, talk.py; say in plain words what the work does")
     assert coded.rule == message_limits.MEMBERS_RULE
@@ -2844,14 +2844,14 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     reads(lane_of(transcript), "1794288799.000003", channel="C0STAGING1")
     assert say(transcript, text=done, channel_id="C0STAGING1", thread_ts="1794288799.000003") is None
     line = say(transcript, text=done + " " + said(20), channel_id="C0STAGING1", thread_ts="1794288799.000003")
-    assert "this post is 65 words, and a line in the thread of a post to a channel's members is at most 60 words" in line
+    assert "this post is 65 words, and a line to a channel's members is at most 60 words" in line
     slack_thread.messages = [{"ts": "1794288799.000003", "from_bot": True, "text": said(130)}]
     edit = "https://acme.slack.com/archives/C0STAGING1/p1794288799000003"
     assert say(transcript, edit=edit, text=said(140)) is None
     assert "or 10 past the 130 words of the post it edits" in say(transcript, edit=edit, text=said(141))
 
 
-def test_a_staging_claim_citing_code_or_running_long_is_refused_and_its_plain_rewrite_and_closing_line_pass(talker: str, transcript: Path, run: Run) -> None:
+def test_a_staging_claim_past_one_plain_line_or_citing_code_is_refused_and_its_one_line_rewrite_and_closing_line_pass(talker: str, transcript: Path, run: Run) -> None:
     coded = (
         "*Staging claim: storage handover fix test, until 2:45 PM at the latest*\n"
         "Per the repository's rule for claiming staging: we're testing <https://github.com/acme/app/pull/55|#55>, a storage handover fix: a successor adopts a lease handed to it"
@@ -2867,20 +2867,34 @@ def test_a_staging_claim_citing_code_or_running_long_is_refused_and_its_plain_re
         " the API, both workers, the executor, the cloud runner and the runtime API. No release to staging starts until it ends; hotfixes still go through.\n\n"
         "Does anyone object? With no reply here in 5 minutes the deploy starts; an objection stops it and lifts the freeze."
     )
-    assert say(transcript, text=coded, channel_id="C0STAGING1").startswith("refused: this post names take_lease, ha::adopt, ha::claim, crates/storage/src/handoff.rs; say in plain words")
-    assert "this post is 140 words, and a post at the root of a channel outside his DM is at most 120 words" in say(transcript, text=long, channel_id="C0STAGING1")
+    listed = (
+        "*Staging claim: cut 2 of the release, until 7:45 PM*\n"
+        "Per the repository's rule for claiming staging, these go on staging's API, workers and executor together:\n"
+        "• <https://github.com/acme/app/pull/61|New: a run page shows its retries>\n"
+        "• <https://github.com/acme/app/pull/62|Fix: a shared chat link opens for a teammate>\n"
+        "• <https://github.com/acme/app/pull/63|Fix: a table move logs its step>\n"
+        "Does anyone object? With no reply here in 5 minutes the deploy starts."
+    )
     plain = (
         "*Claiming staging until 2:45 PM*, as the repository's rule for claiming staging asks, to test <https://github.com/acme/app/pull/55|a fix> that lets"
         " the database hand over to new code without losing its place. Only the database on staging is frozen, and production is untouched.\n\nDoes anyone object?"
         " With no reply here in 5 minutes the test starts."
     )
-    short = (
-        "*Claiming staging until 1:30 PM*, as the repository's rule for claiming staging asks, to test <https://github.com/acme/app/pull/54|the table layout changes>"
-        " on the cases this morning's run missed, such as forking and restoring a table that moved into its own file. Releases to staging wait until then;"
-        " hotfixes still go through.\n\nDoes anyone object? With no reply here in 5 minutes the test starts."
-    )
-    assert say(transcript, text=plain, channel_id="C0STAGING1") is None
-    assert say(transcript, text=short, channel_id="C0STAGING1") is None
+    refused = say(transcript, text=coded, channel_id="C0STAGING1")
+    assert "this post is 87 words, and a line to a channel's members is at most 60 words" in refused
+    assert "this post names take_lease, ha::adopt, ha::claim, crates/storage/src/handoff.rs; say in plain words" in refused
+    assert "this post is 140 words, and a line to a channel's members is at most 60 words" in say(transcript, text=long, channel_id="C0STAGING1")
+    assert "this post at the root of a channel outside his DM runs over 6 lines" in say(transcript, text=listed, channel_id="C0STAGING1")
+    assert "this post at the root of a channel outside his DM runs over 3 lines" in say(transcript, text=plain, channel_id="C0STAGING1")
+    bold = say(transcript, text=plain.split("\n")[0], channel_id="C0STAGING1")
+    assert "this post at the root of a channel outside his DM sets *Claiming staging until 2:45 PM* in bold" in bold
+    assert bold.rule == message_limits.MEMBERS_RULE
+    for line in (
+        "Testing the database handover fix on staging until 2:45 PM, per the repository's rule for claiming staging; lmk if anyone objects.",
+        "Testing the table layout changes on staging until 1:30 PM, per the repository's rule for claiming staging; releases to staging wait until then. Lmk if anyone objects.",
+        "Testing cut 2 of the release on staging's API, workers and executor until 7:45 PM, per the repository's rule for claiming staging; lmk if anyone objects.",
+    ):
+        assert say(transcript, text=line, channel_id="C0STAGING1") is None
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the handover fix on staging")
     with state.edit("demo") as data:
         state.join_thread(data["orders"]["o1"], ("C0STAGING1", "1794692852.753919"), state.stamp(), "members")
@@ -2910,7 +2924,7 @@ def test_a_say_reply_in_a_thread_an_order_keeps_as_members_skips_the_checks_of_a
     assert "Read it with slack_thread(channel_id=C0STAGING1, thread_ts=1794692852.753919" in say(transcript, **members)
     reads(lane_of(transcript), claim, channel="C0STAGING1")
     refused = say(transcript, **members)
-    assert "a line in the thread of a post to a channel's members is at most 60 words" in refused
+    assert "a line to a channel's members is at most 60 words" in refused
     assert "{card:demo:j1-7}" not in refused
     assert message_limits.his_words(call("slack_dm_status", transcript, **members) | {"tool_name": message_limits.SAY}) == [message_limits.MEMBERS_WORDS]
     reads(lane_of(transcript), alert, channel="C0822AHFY3G")
