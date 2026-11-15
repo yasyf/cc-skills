@@ -242,6 +242,7 @@ DRIVE_LOCK_SECONDS = 300
 SLOW_HOLD_SECONDS = 2
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 REHEARSING: set[str] = set()
+MEMO: dict[str, object] = {}
 READ_ONLY = {
     "tmux": ("show-environment", "list-clients", "list-panes"),
     "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "terminal list", "repo show", "diagnostics memory"),
@@ -291,12 +292,46 @@ def reads_only(argv: list[str]) -> bool:
 
 
 def outside(event: str, args: tuple) -> None:
-    """In a dry run, stop its op with Rehearsed at the first command it starts that does more than read, such as a Slack post, a cci record or an Orca send."""
-    if REHEARSING and event == "subprocess.Popen" and not reads_only(argv := [*args[1]]):
+    """In a dry run, stop its op with Rehearsed at the first command it starts that does more than read, such as a Slack post, a cci record or an Orca send; in a call that remembers its reads, forget them all at such a command, since it may change what they read."""
+    if event != "subprocess.Popen" or not (REHEARSING or MEMO) or reads_only(argv := [*args[1]]):
+        return
+    if REHEARSING:
         raise Rehearsed(" ".join([Path(argv[0]).name, *argv[1:3]]))
+    MEMO.clear()
 
 
 sys.addaudithook(outside)
+
+
+@contextmanager
+def remembered() -> Iterator[None]:
+    """Answer each command subprocess.run starts in the block that only reads, by reads_only, and each question settled.jev asks, as the first one with the same arguments was answered, raising what it raised then, until outside forgets them all at a command that does more; so a call checking its ops in a dry pass and then running them under the drive's lock reads and asks each thing once, such as the drive's checkout move, his cards, each PR's release reach and Jev's read of an order's words."""
+    from drive import settled
+
+    run, ask = subprocess.run, settled.jev
+
+    def recalled(key: str, answer: Callable[[], object]) -> object:
+        if key not in MEMO:
+            try:
+                MEMO[key] = answer()
+            except (OSError, subprocess.SubprocessError, settled.Unheard) as error:
+                MEMO[key] = error
+        if isinstance(memo := MEMO[key], BaseException):
+            raise memo
+        return memo
+
+    def answered(argv: list[str], *rest: object, **given: object) -> object:
+        if not reads_only([*argv]):
+            return run(argv, *rest, **given)
+        return recalled(repr((argv, rest, sorted(given.items()))), lambda: run(argv, *rest, **given))
+
+    subprocess.run = answered
+    settled.jev = lambda *args, **given: recalled(repr(("jev", args, sorted(given.items()))), lambda: ask(*args, **given))
+    try:
+        yield
+    finally:
+        subprocess.run, settled.jev = run, ask
+        MEMO.clear()
 
 
 def root() -> Path:
@@ -3618,7 +3653,7 @@ def edit(name: str) -> Iterator[dict]:
 
 @contextmanager
 def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
-    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was, and that save tells each session the call took open orders from; what a write does outside the drive runs after that save, its lines added to the list it yields. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it takes no lock, saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was, and that save tells each session the call took open orders from; what a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it takes no lock, saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
     if name in BATCHED:
         yield []
         return
@@ -3640,8 +3675,14 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
         finally:
             del BATCHED[name], AFTER_SAVE[name]
             REHEARSING.discard(name)
+    failed: list[str] = []
     for effect in effects:
-        after += effect()
+        try:
+            after += effect()
+        except DriveError as error:
+            failed.append(str(error))
+    if failed:
+        raise DriveError("\n".join([*after, *failed]))
 
 
 def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:

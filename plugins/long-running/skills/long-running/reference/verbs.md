@@ -37,10 +37,11 @@ its user.
   session. `order` (add, set, posted, told), `job` (add, set, brief), `pr` (add, set) and `incident`
   (open, stop, freeze) take `ops`, a list checked whole before any op runs: a call with an op the
   check refuses runs none of them and prints every refused op with its fix, so fix each and send
-  the whole call again. Then it runs them in order, printing a line per op. `order` and `job` save
-  the drive once for the call, so a refusal while it runs writes nothing either; `pr` and
-  `incident` keep each op before a refusal, since `pr add` draws his card and `incident open`
-  and `freeze` start an evidence record and a freeze, and name the ops left unrun.
+  the whole call again. The check takes no lock on the drive. Then it runs them in order, printing
+  a line per op. `order`, `job` and `pr` save the drive once for the call, each read the check made
+  answered as it was then, so a refusal while it runs writes nothing either, and a call killed past
+  its time says whether that save kept its ops; `incident` keeps each op before a refusal, since
+  `open` and `freeze` start an evidence record and a freeze, and names the ops left unrun.
 - Several ops from Bash go as one `drive tool <tool>` call with `{"ops": [...]}` on stdin, never a
   chain of `drive order add` calls, each its own write.
 - Each op is one verb, its flags and positionals as its schema's fields, dashes as underscores; an

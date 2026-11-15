@@ -5,6 +5,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import uuid
 
 from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
@@ -28,10 +29,16 @@ OPS_HELP = (
     " one line per op. An op its verb refuses keeps none of them, and the call names every refused op with its fix: fix each"
     " and send the whole call again. {saves}"
 )
-ONE_SAVE = ("order", "job")
-SAVED_ONCE = "The call runs the ops once, in order, under one save of the drive, so a refusal anywhere writes nothing."
-KEPT_BEFORE = "It runs them once all pass; a refusal while they run keeps each op before it, since {why}: send the ops it names unrun again."
-STARTS_OUTSIDE = {"pr": "pr add starts the lander", "incident": "open and freeze start an evidence record and a freeze"}
+ONE_SAVE = ("order", "job", "pr")
+SAVED_ONCE = (
+    "The call checks them with no lock on the drive, then runs them once, in order, under one save of the drive, each read the check"
+    " made answered as it was then, so a refusal anywhere writes nothing."
+)
+KEPT_BEFORE = (
+    "It runs them once all pass; a refusal while they run keeps each op before it, since open and freeze start an evidence record and a"
+    " freeze: send the ops it names unrun again."
+)
+KEPT = "the drive's one save kept these ops:"
 LEADS = {
     "order": (
         "His orders: add records one from his words, set changes one, posted records the communicator's post on one, told records"
@@ -355,7 +362,7 @@ def ops_tool(group: str, typed: dict[str, dict], root: argparse.ArgumentParser) 
     ]
     return {
         "name": group,
-        "description": OPS_HELP.format(lead=LEADS[group], saves=SAVED_ONCE if group in ONE_SAVE else KEPT_BEFORE.format(why=STARTS_OUTSIDE[group])),
+        "description": OPS_HELP.format(lead=LEADS[group], saves=SAVED_ONCE if group in ONE_SAVE else KEPT_BEFORE),
         "inputSchema": {
             "type": "object",
             "properties": {"ops": {"type": "array", "minItems": 1, "items": {"oneOf": shapes}}, "drive": DRIVE, "dry_run": DRY_RUN},
@@ -443,14 +450,19 @@ def listed(value: object) -> list[str]:
 
 
 def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
-    """Run the ops, each by its verb's own handler: the order and job tools once, under one save of the drive; a dry run, and the pr and incident tools before they run, in a dry state.batch, which keeps nothing and starts no command that does more than read."""
-    if group in ONE_SAVE and not dry_run:
+    """Run the ops, each by its verb's own handler, first in a dry state.batch, which takes no lock, keeps nothing and starts no command that does more than read, then, but in a dry run, for real: the order, job and pr tools under one save of the drive, whose kept lines go to stderr as it lands, so a call killed after it still names what it kept, and the incident tool op by op. Each read the dry pass ran is answered as it was then, by state.remembered, until the call starts a command that does more than read."""
+    with state.remembered():
+        with state.batch(name, dry=True):
+            said = performed(name, group, ops, True)
+        if dry_run:
+            return "\n".join(said)
+        if group not in ONE_SAVE:
+            return "\n".join(performed(name, group, ops, False))
+        kept: list[str] = []
         with state.batch(name) as after:
-            said = performed(name, group, ops, False)
-        return "\n".join([*said, *after])
-    with state.batch(name, dry=True):
-        said = performed(name, group, ops, True)
-    return "\n".join(said if dry_run else performed(name, group, ops, False))
+            state.after_save(name, lambda: print("\n".join([KEPT, *kept]), file=sys.stderr, flush=True) or [])
+            kept += performed(name, group, ops, False)
+        return "\n".join([*kept, *after])
 
 
 def performed(name: str, group: str, ops: list[dict], dry_run: bool) -> list[str]:

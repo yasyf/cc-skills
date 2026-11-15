@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from drive import cli, mcp, reads
+from drive import cli, mcp, reads, tools
 
 
 def answered(request: dict) -> str:
@@ -164,6 +164,23 @@ def test_a_warm_call_past_its_time_is_killed_and_says_so(warm_drive: Callable[[s
     monkeypatch.setattr(mcp, "CALL_SECONDS", 0.5)
     called = json.loads(answered(tool_call(6, "status", {})))
     assert called["result"] == {"content": [{"type": "text", "text": "drive tool status did not finish in 0.5 seconds"}], "isError": True}
+
+
+def test_an_ops_call_past_its_time_names_what_its_one_save_kept_or_says_it_kept_none(warm_drive: Callable[[str], None], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    warm_drive(
+        "if 'warm' in arguments: return 'warm'\n"
+        "    if arguments: print(mcp.tools.KEPT, '1 pr set: Forge-AI/monorepo#7', sep='\\n', file=sys.stderr, flush=True)\n"
+        "    time.sleep(60)"
+    )
+    assert json.loads(answered(tool_call(5, "pr", {"warm": True})))["result"]["content"][0]["text"] == "warm"
+    monkeypatch.setattr(mcp, "CALL_SECONDS", 0.5)
+    texts = [json.loads(answered(tool_call(request_id, "pr", arguments)))["result"]["content"][0]["text"] for request_id, arguments in ((6, {}), (7, {"ops": []}))]
+    assert texts == [
+        "drive tool pr did not finish in 0.5 seconds, and it kept none of its ops, since its one save of the drive never landed",
+        f"{tools.KEPT}\n1 pr set: Forge-AI/monorepo#7\ndrive tool pr did not finish in 0.5 seconds",
+    ]
+    newest_drive_runs(f"print({tools.KEPT!r}, file=sys.stderr, flush=True); time.sleep(60)", tmp_path, monkeypatch)
+    assert json.loads(answered(tool_call(8, "pr", {})))["result"]["content"][0]["text"] == f"{tools.KEPT}\ndrive tool pr did not finish in 0.5 seconds"
 
 
 def test_a_cancelled_warm_call_is_killed_and_gets_no_reply(warm_drive: Callable[[str], None], tmp_path: Path) -> None:
