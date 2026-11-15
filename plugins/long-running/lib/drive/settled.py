@@ -44,6 +44,13 @@ class Noul(NamedTuple):
     no: str | None = None
 
 
+class Pick(NamedTuple):
+    """One question Jev answers by picking one of its options, as spawnllm's Label asks it: what it asks of the request's state by backticked path, then each option's value beside what it means, or None, the fail-safe option first, since Jev leans toward it."""
+
+    ask: str
+    options: dict[str, str | None]
+
+
 UNSAID_HERE = 'A bare option number answers only the card it was typed on, and a question of his rules nothing out unless it proposes a way, as "why not just X?" orders X.'
 BREAKS = Noul("Do `words.{slot}.said` rule out `card.options[{index}]`, so building it goes against what he said?", no=UNSAID_HERE)
 WORKED = Noul("Does `card.show_me` leave `card.options[{index}]` unworked, showing none of its real calls, the rows it writes, its flow or what a caller gets?")
@@ -139,6 +146,10 @@ NARROWS = Noul(
     "Does `design` build less than `words.{slot}.said` name, or build part of it later, with no question in `forks` asking him about it?",
     yes="It leaves out, defers to a later change or trigger, or narrows what they name, such as building one of several strategies he approved while the others wait, or decides such a cut on its own because it is cheap to reverse.",
     no="It builds all they name, or a question in `forks` asks him about what it leaves out.",
+)
+NARROWED_AT = Pick(
+    "Which sentence of `design`, by its key, most builds less than `words` name, or builds part of it later, with no question in `forks` asking him about it?",
+    {"none": "Every sentence builds all `words` name, or a question in `forks` asks him about what it leaves out."},
 )
 STRATEGIES = Noul("Do `words` or `design` name several strategies for one job, such as the partition strategies a table picks by its usage?")
 ABSTRACTION_FIRST = Noul(
@@ -736,20 +747,20 @@ def jev_key() -> str:
     return api_key(Provider("jev", MODEL), timeout=DECIDE_SECONDS)
 
 
-def jev(state: dict, questions: dict[str, Noul], seconds: float = DECIDE_SECONDS) -> dict[str, float]:
-    """Jev's probability of yes for each Noul about the state, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
+def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_SECONDS) -> dict[str, float | str]:
+    """Jev's probability of yes for each Noul about the state, and the option it picks for each Pick, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
     import httpx
-    from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Provider, decide_sync
+    from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Label, LabelAnswer, Provider, decide_sync
 
     deadline = time.monotonic() + seconds
     try:
         token = jev_key()
-        decision = decide_sync(state, {key: Binary(*noul) for key, noul in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
+        decision = decide_sync(state, {key: Label(*question) if isinstance(question, Pick) else Binary(*question) for key, question in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError) as error:
         raise Unheard(str(error)) from None
-    if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer)]:
+    if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer | LabelAnswer)]:
         raise Unheard(f"Jev declined {', '.join(declined)}")
-    return {key: answer.p_yes for key, answer in decision.answers.items()}
+    return {key: answer.choice if isinstance(answer, LabelAnswer) else answer.p_yes for key, answer in decision.answers.items()}
 
 
 def reading(sure: float | None) -> bool | None:

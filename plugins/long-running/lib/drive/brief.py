@@ -822,7 +822,7 @@ def unlisted_waits(listed: list[re.Match]) -> str | None:
 
 
 def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
-    """Why a design may not be kept, as Jev reads it in one request against his words on its order and each order its job carries, each answer of his binding the job and his answer to each of its cards, beside the forks it asks him, the design by whole lines and his words by whole items, one Noul for each of his words: it leaves out, defers or narrows what one names with no fork asking him, at settled.YES or more; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. A reading in the band between, or none, keeps it, said on stderr."""
+    """Why a design may not be kept, as Jev reads it in one request: first the forks it asks him and his words, on its order and each order its job carries, each answer of his binding the job and his answer to each of its cards, by whole items, one Noul for each of his words, then the design by whole sentences, with one Pick of the sentence building less than his words: it leaves out, defers or narrows what one names with no fork asking him, at settled.YES or more, at the sentence the Pick names; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. Jev reads it only when every sentence fits that request, since a design read in part reads as building less than it does, so one that does not fit is kept, said on stderr with how many of its sentences fit; a reading in the band between, a Pick of no sentence, or none, keeps it too, said on stderr."""
     cwd = data["roles"]["coordinator"]["cwd"]
     ids, _ = bound(name, data, job)
     words = [
@@ -836,8 +836,16 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
     ]
     slots = {word["id"]: f"w{number}" for number, word in enumerate(words, 1)}
     weighs = (({"words": {slots[word["id"]]: {"asked": word["asked"], "said": word["said"]}}}, {f"narrows.{word['id']}": settled.asking(settled.NARROWS, slot=slots[word["id"]])}) for word in words)
-    base = {"forks": [question["title"] for question in job["questions"] if not question["closed"]], "words": {}}
-    told, questions, _ = settled.fill(base, {"strategies": settled.STRATEGIES, "first": settled.ABSTRACTION_FIRST}, [*settled.lined("design", text), *weighs])
+    sentences = {f"s{number}": sentence for number, sentence in enumerate((sentence for sentence in settled.SENTENCE.split(text) if sentence.strip()), 1)}
+    base = {"forks": [question["title"] for question in job["questions"] if not question["closed"]], "words": {}, "design": {}}
+    told, questions, _ = settled.fill(base, {"strategies": settled.STRATEGIES, "first": settled.ABSTRACTION_FIRST, "sentence": settled.NARROWED_AT._replace(options=settled.NARROWED_AT.options | dict.fromkeys(sentences))}, [*weighs, *(({"design": {key: sentence}}, {}) for key, sentence in sentences.items())])
+    if (fit := len(told["design"])) < len(sentences):
+        print(
+            f"drive job report: Jev read none of this design, since only {fit} of its {len(sentences)} sentences fit one request of"
+            f" {settled.REQUEST_CHARS:,} characters beside his words and its open cards, so it is kept unchecked",
+            file=sys.stderr,
+        )
+        return None
     try:
         read = settled.jev(told, questions)
     except settled.Unheard as failure:
@@ -845,14 +853,20 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
         return None
     items = {word["id"]: word for word in words}
     narrows = {key.partition(".")[2]: found for key, sure in read.items() if key.startswith("narrows.") and (found := settled.reading(sure)) is not False}
-    if said := next((items[key] for key, found in narrows.items() if found), None):
+    if (said := next((items[key] for key, found in narrows.items() if found), None)) and (sentence := sentences.get(read["sentence"])):
         return (
-            f'Jev reads this design as building less than his words "{cut(said["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({said["asked"]}) name, or later, with no fork asking him:'
+            f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as building less than his words'
+            f' "{cut(said["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({said["asked"]}) name, or later, with no fork asking him:'
             " building less than his words or an answer of his name is a fork whatever it costs to switch, so build it in, or keep it as a"
             " fork with drive job ask"
         )
-    for key in narrows:
-        print(f'drive job report: Jev is unsure whether this design builds less than his words ({items[key]["asked"]}) name, so it is kept', file=sys.stderr)
+    for key, found in narrows.items():
+        print(
+            f'drive job report: Jev reads this design as building less than his words ({items[key]["asked"]}) name but picks none of its sentences as building less, so it is kept'
+            if found
+            else f'drive job report: Jev is unsure whether this design builds less than his words ({items[key]["asked"]}) name, so it is kept',
+            file=sys.stderr,
+        )
     strategies, first = settled.reading(read["strategies"]), settled.reading(read["first"])
     if strategies and first is False:
         return (
