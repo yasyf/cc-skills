@@ -2798,7 +2798,8 @@ def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_st
     untooled(monkeypatch, orca.launch)
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     attempt = state.drive_dir(demo) / "jobs" / "j1.worker"
-    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}\n"
+    *steps, refusal = capsys.readouterr().err.splitlines()
+    assert ([step.split(" ", 3)[3] for step in steps], refusal) == ([f"it launches the lane on a fresh Sprite with {orca.LAUNCHER}, for at most {orca.LAUNCH_SECONDS} s"] * 2, f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["launching"], job.get("dispatch")) == (None, None)
 
@@ -2821,7 +2822,8 @@ def test_a_launch_whose_launcher_said_several_lines_quotes_each_in_its_refusal(
     said = subprocess.CompletedProcess([orca.LAUNCHER], 1, stdout="", stderr="\n".join(lines) + "\n")
     monkeypatch.setattr(orca, "grouped", lambda argv, **kwargs: said if argv[0] == orca.LAUNCHER else grouped(argv, **kwargs))
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
-    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}\n"
+    *steps, refusal = capsys.readouterr().err.splitlines()
+    assert ([step.split(" ", 3)[3] for step in steps], refusal) == ([f"it launches the lane on a fresh Sprite with {orca.LAUNCHER}, for at most {orca.LAUNCH_SECONDS} s"] * 2, f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}")
 
 
 def test_a_first_launch_whose_fresh_sprite_prepare_failed_launches_once_more_and_records_the_worker_that_started(
