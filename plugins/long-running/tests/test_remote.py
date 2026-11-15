@@ -41,7 +41,7 @@ from conftest import (
     staged,
     unheld,
 )
-from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, watch
+from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, view, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -1414,6 +1414,46 @@ def test_a_resume_of_an_agent_here_whose_turn_ended_while_eight_builders_hold_th
     assert unheld(orca.brief_of(launched[0])).endswith("The message it never read, which you act on now:\n\nPR #54870: checks failed")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["where"], job["route"], job["dispatch"]) == (None, "remote", None, "dispatch-2")
+
+
+def test_a_pushed_builders_takeover_that_started_no_worker_keeps_its_agent_and_holds_the_text_so_the_next_resume_takes_it_over_as_j5992_could_not(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, STOPPED, timedelta(seconds=13))
+    pushed = "PUSHED https://github.com/Forge-AI/monorepo/pull/54870"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["said"] = pushed
+    starts = orca.launch
+
+    def unstarted(*args: object) -> dict:
+        raise orca.Unstarted("orca-worker-launch.sh exited 1 before a worker started: jobs/j1.worker holds an earlier attempt of this brief")
+
+    monkeypatch.setattr(orca, "launch", unstarted)
+    assert cli.main(["job", "resume", "j1", "PR #54870: red at bf02e37"]) == 2
+    assert capsys.readouterr().err == "drive: orca-worker-launch.sh exited 1 before a worker started: jobs/j1.worker holds an earlier attempt of this brief\n"
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
+    assert {field: job.get(field) for field in ("agent", "where", "state", "said", "waits", "dispatch", "launching")} == {
+        "agent": "a1",
+        "where": "local",
+        "state": "waiting",
+        "said": pushed,
+        "waits": ["Forge-AI/monorepo#54870"],
+        "dispatch": None,
+        "launching": None,
+    }
+    assert ([held["words"] for held in job["undelivered"]], view.start_refusal(data, "j1", False)) == (["PR #54870: red at bf02e37"], None)
+    monkeypatch.setattr(orca, "launch", starts)
+    stop = f'its last response ended on refusal at {watch.when(STOPPED["timestamp"])}: "{render.cut(STOPPED_TEXT, 100)}"'
+    assert run("job", "resume", "j1", "PR #54870: red at 655db93") == (
+        0,
+        "j1: the message went to the job's next worker, started on Sprite workspace-2 as dispatch dispatch-2 in a handoff carrying it,"
+        f" taking over from its agent a1 on this Mac, which takes no message: {stop}",
+    )
+    [brief] = launched
+    assert ("PR #54870: red at bf02e37" in brief, unheld(orca.brief_of(brief)).endswith("The message it never read, which you act on now:\n\nPR #54870: red at 655db93")) == (True, True)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["where"], job["dispatch"], job["state"], job["undelivered"]) == (None, "remote", "dispatch-2", "running", [])
 
 
 ANSWERED = {"type": "assistant", "timestamp": "2026-11-12T20:44:30.000Z", "message": {"model": "claude-opus-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "j1's agent stopped."}]}}
