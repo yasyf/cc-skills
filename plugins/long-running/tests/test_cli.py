@@ -5680,6 +5680,19 @@ def test_a_builders_goal_or_done_when_jev_reads_as_ordering_a_return_with_no_res
     assert "j1: refused, no brief written: its --done-when" in capsys.readouterr().err
 
 
+def test_a_mac_line_written_as_a_drive_command_is_kept_only_once_the_drives_parser_takes_it_and_any_other_mac_line_as_written(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "resume j961 once its fix is live")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the resume")
+    brief = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main"]
+    assert cli.main([*brief, "--mac", "drive job resum j961 'the fix is live'"]) == 2
+    assert "j1: refused, no brief written: its --mac step drive job resum j961 'the fix is live' is no drive command the drive runs:" in capsys.readouterr().err
+    for step in ("drive job resume j961 'the fix is live'", "ci mac-box up"):
+        assert run(*brief, "--mac", step)[0] == 0
+        assert f"Mac: {step}\n" in Path(state.load(demo)["jobs"]["j1"]["brief"]).read_text()
+
+
 def test_a_waiting_line_naming_a_process_that_runs_on_this_mac_waits_on_it_pinned_to_its_start_and_one_that_ended_frees_nothing(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

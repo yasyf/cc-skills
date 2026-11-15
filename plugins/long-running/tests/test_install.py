@@ -1585,6 +1585,45 @@ def test_a_proof_of_a_brief_naming_a_mac_step_takes_done_on_its_exit_0_with_no_r
     assert (state.load("demo")["jobs"]["j1"]["state"], jev.asked) == ("done", [])
 
 
+def mac_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str) -> str:
+    drive = tmp_path / "newest-drive"
+    drive.write_text(f"#!/bin/sh\necho \"$*\" >> {tmp_path / 'steps'}\n{body}\n")
+    drive.chmod(0o755)
+    monkeypatch.setattr(install, "newest_drive", lambda: drive)
+    step = "drive job resume j961 'the fix is live'"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"mac": step}
+    return step
+
+
+def test_a_proof_runs_its_briefs_mac_drive_command_once_with_the_newest_drive_before_its_proof_file_and_no_later_proof_runs_it_again(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 2)
+    script.write_text("#!/bin/sh\necho 'WAIT j961 has not heard the fix yet'\nexit 2\n")
+    step = mac_drive(tmp_path, monkeypatch, 'echo "resumed on $CLAUDE_LONG_RUNNING_DRIVE"')
+    kept = state.proof_path("demo", "j1")
+    install.prove("demo", "j1", 900)
+    assert (state.load("demo")["jobs"]["j1"]["state"], kept.read_text()) == ("waiting", f"{step}: exits 0\nresumed on demo\nWAIT j961 has not heard the fix yet\n")
+    script.write_text("#!/bin/sh\necho 'ok j961 heard the fix'\n")
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["mac_ran"], kept.read_text(), (tmp_path / "steps").read_text(), jev.asked) == ("done", step, "ok j961 heard the fix\n", "job resume j961 the fix is live\n", [])
+
+
+def test_a_proof_whose_mac_step_exits_nonzero_takes_blocked_quoting_its_last_line_and_runs_no_proof_file(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    step = mac_drive(tmp_path, monkeypatch, "echo 'drive: j961 is done, so nothing resumes it' >&2\nexit 2")
+    kept = state.proof_path("demo", "j1")
+    install.prove("demo", "j1", 900)
+    why = f"its brief's Mac: step {step} exits 2, so the proof file did not run: drive: j961 is done, so nothing resumes it"
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"], job.get("mac_ran")) == ("failed", f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3, its output {kept}: {why[: install.SAID_CHARS]}", None)
+    assert kept.read_text() == f"{step}: exits 2\ndrive: j961 is done, so nothing resumes it\n{why}"
+
+
 def test_a_pr_merged_and_proved_before_the_watch_reads_it_names_its_close_report_by_the_title_drive_pr_add_read(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], on_github: dict
 ) -> None:

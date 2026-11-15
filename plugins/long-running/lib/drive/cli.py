@@ -1,5 +1,6 @@
 import argparse
 import html
+import io
 import json
 import os
 import re
@@ -12,7 +13,7 @@ import textwrap
 from collections.abc import Callable
 from functools import cache
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -2552,7 +2553,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, a Mac: line written as a drive command refused unless the drive's own parser takes it, since drive job prove runs it once the job's merges are installed, and each ruling named added to every ruling a brief of any job on its order binds, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     order = data["orders"][job["order"]]
@@ -2571,6 +2572,14 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         )
     if refused := brief.unworded_return(job["kind"], {"--done-when": flags["done_when"]}):
         raise DriveError(f"{job_id}: refused, no brief written: {refused}")
+    if (verb := install.mac_verb(flags["mac"])) is not None:
+        told = io.StringIO()
+        try:
+            with redirect_stderr(told), redirect_stdout(told):
+                parser().parse_args(verb)
+        except SystemExit:
+            said = (told.getvalue().strip().splitlines() or ["drive prints no usage"])[-1]
+            raise DriveError(f"{job_id}: refused, no brief written: its --mac step {flags['mac']} is no drive command the drive runs: {said}") from None
     if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     if state.starts_cut(job) and not job["release_build"]:
@@ -5369,7 +5378,12 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     verb.add_argument(
         "--mac",
-        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+        help=(
+            "the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start"
+            " and the agent_brief hook starts it here at any load, and no other words of the brief place it. A step to take once a yasyf/* merge is installed, such as resuming another job,"
+            ' is written as a drive command, such as "drive job resume j961 \'the fix is live\'", refused unless the drive\'s parser takes it: drive job prove runs it once with the newest'
+            " install's drive right before the proof file, which reads back what it changed"
+        ),
     )
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")

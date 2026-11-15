@@ -65,10 +65,14 @@ Contents:
   Mac runs that the job itself runs with `drive job brief <j> --mac "<the step>"`, its `Mac:` line:
   break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, or a
   devbox (`ci devbox`). A drive tooling builder whose Goal names a step to take once its change is
-  installed, such as redrawing a card or resuming a job, declares it there too, since a `yasyf/*`
-  merge reaches no lane and the proof file `drive job prove` runs here after the install takes it.
-  No Jev reading decides whether a Goal names such a step or a proof file takes it, by his pick
-  43f4d82 "drive job prove runs the step itself: no reading decides". A `Release:` line declares one too, since its
+  installed, such as resuming a job, declares it there too, written as a drive command, such as
+  `--mac "drive job resume j961 'the fix is live'"`, which `drive job brief` refuses unless the
+  drive's own parser takes it. A `yasyf/*` merge reaches no lane, so `drive job prove` runs that
+  command once with the newest install's drive right after the install and before the proof file,
+  which reads back what it changed; it keeps the step on the job, so no later proof runs it again,
+  and a step exiting nonzero takes `BLOCKED` quoting its last line with the proof file unrun, by his
+  pick 43f4d82 "drive job prove runs the step itself: no reading decides; the coordinator writes each
+  step as a drive command". Any other `Mac:` line only places the lane. A `Release:` line declares one too, since its
   agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word

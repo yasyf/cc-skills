@@ -256,11 +256,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      `drive job prove` runs your job's proof file on the installed build, takes `DONE` or `BLOCKED` on
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
-     exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only but
-     for the one step your brief's `Mac:` line names to take once the change is installed, which it
-     takes then, once: a Slack post as one `cci post --kind report --to communicator@<drive> --id <your job>-<step>`
-     record, which a handler draws through `say`, and any other write only once a read finds it not yet
-     done; it then reads back what that step changed, such as `cc-slack drive-cards --waits`,
+     exiting 0 once the installed plugins hold the fix and nonzero while they do not, and read-only:
+     the step your brief's `Mac:` line names to take once the change is installed is a drive command,
+     which `drive job prove` runs once with the installed drive right before your file; your file
+     reads back what that step changed, such as `cc-slack drive-cards --waits`,
      `cc-slack thread --url` or `drive status`, printing `WAIT <what>` while it has not shown; run
      with each changed plugin's `bin/` first on `PATH`, its bare `python3` the drive's own interpreter
      wherever it runs, since `drive job set --repro` pins that interpreter's folder first on the kept
@@ -392,7 +391,7 @@ event needs. The first four events then return as step 7 says.
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
 | His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, on this Mac and on a Sprite, and return `WAITING <the PR> waits on <the card>`: neither his order nor its recommended option answers it. |
-| A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. The watch takes your job's `DONE` itself at the merge of PRs outside `yasyf/*`, keeping no proof on its order, so this event comes once the release holding the merge is out, or at once for a change whose paths reach no released component: your `DONE` is the order's proof, from the surface your `NATIVE:` line names when he sees it there. A `yasyf/*` merge needs none of this: the watch's `drive job prove` proves it with your proof file and records the result, and no lane follows it, so a step your goal names after its install is your brief's `Mac:` line and your proof file takes it. |
+| A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. The watch takes your job's `DONE` itself at the merge of PRs outside `yasyf/*`, keeping no proof on its order, so this event comes once the release holding the merge is out, or at once for a change whose paths reach no released component: your `DONE` is the order's proof, from the surface your `NATIVE:` line names when he sees it there. A `yasyf/*` merge needs none of this: the watch's `drive job prove` proves it with your proof file and records the result, and no lane follows it, so a step your goal names after its install is your brief's `Mac:` line, a drive command `drive job prove` runs before your proof file, which reads back what it changed. |
 | A failed proof | Fix the cause its `FAIL` line names: a wrong proof file kept fixed on your own job with `drive job set <your job> --repro <file>`, wrong code in a PR of yours. Return `PUSHED` naming the failed job's merged PRs and any you opened: the watch's `drive job prove` proves your job, so run no prove and set no other job's proof file. |
 
 ## Releases
