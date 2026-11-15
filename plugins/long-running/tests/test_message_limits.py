@@ -2653,23 +2653,45 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
         data["orders"]["o1"].update(thread=[DM, "1.2"], incident=True)
     reason = posted(transcript, text="The fix merged.")
-    assert reason.startswith("Refused on purpose: he is away")
+    assert reason.startswith(f"Refused on purpose: he is away since he said so at {message_limits.render.when(heard)}, and while he is away only cards,")
     assert "joins the catch-up the drive posts when he is back" in reason
     card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
     assert posted(transcript, text="Users are unblocked.", thread_ts="1.2") is None
     assert posted(transcript, text="The fix merged.", asked="did it merge?") is None
     with state.edit("demo") as data:
-        data["owner"]["away"] = False
+        data["owner"]["away"] = state.stamp(state.now() + state.AWAY_AFTER)
     assert posted(transcript, text="The fix merged.") is None
+
+
+def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_a_line_whose_only_time_promises_the_next_line_waits(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    heard = state.now() - timedelta(hours=2)
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(heard), "away": state.stamp(heard + state.AWAY_AFTER)}
+    soon = message_limits.render.clock(state.now() + timedelta(minutes=20))
+    assert posted(transcript, text=f"The release freeze ends at {soon}.") is None
+    reason = posted(transcript, text=f"The fix merged; next line by {soon}.")
+    assert reason.startswith(
+        f"Refused on purpose: he is away since {message_limits.render.when(state.stamp(heard + state.AWAY_AFTER))}: last heard {message_limits.render.when(state.stamp(heard))}, an hour with no word or tap,"
+    )
+
+
+def test_a_line_names_a_time_to_come_by_the_drives_own_reader_of_typed_times_a_promise_of_the_next_line_aside() -> None:
+    at = datetime.fromisoformat("2026-11-13T16:38:00-08:00")
+    assert message_limits.time_to_come("Release freeze 45ab54019c ends at 5:00 PM, and auric-stein applies plat-usw2-prod by itself.", at)
+    assert message_limits.time_to_come("The cutover runs at 9:15 AM tomorrow.", at)
+    assert not message_limits.time_to_come("The fix merged at 4:20 PM.", at)
+    assert not message_limits.time_to_come("The fix merged; next line by 5:00 PM.", at)
+    assert message_limits.time_to_come("The fix merged; next line by 5:00 PM, and the freeze ends at 5:30 PM.", at)
 
 
 def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thread_goes_out(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
     update = "Staging stays frozen another half hour while the batch writer test finishes."
     assert say(transcript, text=update).startswith("Refused on purpose: he is away")
     reads(lane_of(transcript), "1794676871.132409", channel="C0STAGING1")
@@ -2679,7 +2701,7 @@ def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thr
 def test_the_rule_jev_weighs_a_line_held_while_he_is_away_by_names_the_drives_away_mark_and_his_words_that_the_line_waits(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
     rule = agents.ruled(posted(transcript, text="The fix merged."))["rule"]
     assert rule.startswith("He is away when the drive marks him so, as it has for this post,")
     assert "while he is away a line to him waits for his catch-up" in rule
@@ -2721,7 +2743,7 @@ def test_a_107_word_line_judged_a_summary_by_its_handler_still_refuses_when_jev_
 
 def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_back_so_he_reads_away_an_hour_after_the_last(talker: str, transcript: Path, slack_thread: Thread) -> None:
     with state.edit("demo") as data:
-        data["owner"] = {"heard": "2026-11-12T18:26:35-08:00", "away": False}
+        data["owner"] = {"heard": "2026-11-12T18:26:35-08:00", "away": "2026-11-12T19:26:35-08:00"}
     merge, status = datetime.fromisoformat("2026-11-12T18:40:27-08:00"), datetime.fromisoformat("2026-11-12T18:47:37-08:00")
     asked = "Anything approved already get merger asap and list the rest for me here"
     slack_thread.messages.append({"ts": f"{merge.timestamp():.6f}", "user": "U1", "text": asked})
@@ -2745,7 +2767,7 @@ def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
         data["orders"]["o2"]["incident"] = True
     posted = []
 
@@ -2775,7 +2797,7 @@ def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_o
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     due = "2026-11-14T04:00:00-08:00"
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
     attrs = {"order": "o1", "progress": "true", "quiet": "true", "due": due}
     monkeypatch.setattr(
         message_limits.cli.reads,
@@ -2784,7 +2806,7 @@ def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_o
     )
     reason = say(transcript, text="The fix is in review. Next line by 9:00 AM.", record="705373")
     assert reason == (
-        "Refused on purpose: he is away, since he said so or has written nothing for an hour, and report 705373 owes the line promised"
+        f"Refused on purpose: he is away since he said so at {message_limits.render.when(heard)}, and report 705373 owes the line promised"
         f" him by {message_limits.render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
         " so it joins no catch-up. Post nothing and return NOTHING owed at his return."
     )
@@ -2797,7 +2819,7 @@ def test_a_report_too_big_for_jevs_prompt_held_while_he_is_away_is_refused_as_he
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
     monkeypatch.setattr(
         message_limits.cli.reads,
         "run",
@@ -2822,7 +2844,7 @@ def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his
     own = tmp_path / "handler.jsonl"
     handler(own, RELAY_BRIEF, "1.2")
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
         data["handlers"]["f796ccf3"] = {"session": "handler-session", "started": state.stamp(), "holds": None, "handed": []}
     relayed = {"session_id": "handler-session", "transcript_path": str(own), "agent_type": "long-running:handler", "tool_name": message_limits.SAY}
     root = agents.seen(relayed | {"tool_input": {"text": "Resume works from any session now."}})
@@ -2894,7 +2916,7 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
 
 def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_line_to_hims(talker: str, transcript: Path, run: Run, checked: Checked, slack_thread: Thread) -> None:
     with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
     claim = " ".join(["Claiming staging for 30 minutes to test the batch writer."] * 5) + " Does anyone object?"
     assert say(transcript, text=claim).startswith("Refused on purpose: he is away")
     assert say(transcript, text=claim, channel_id="C0STAGING1") is None

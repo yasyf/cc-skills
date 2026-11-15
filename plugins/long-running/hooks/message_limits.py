@@ -52,8 +52,8 @@ WAITING = "WAITING-ON-HIM"
 AWAY_RULE = (
     "He is away when the drive marks him so, as it has for this post, from his saying so or an hour with no word or tap of his;"
     ' while he is away a line to him waits for his catch-up, by his words "Just do less realtime more summary / batching, with a'
-    " catch up post once I'm back\": only a card, a line saying what waits on him, an incident line or the answer to a question"
-    " of his goes out, and news that work moved, such as a fix merging, waits even when that work is his order."
+    " catch up post once I'm back\": only a card, a line saying what waits on him, an incident line, a line naming a clock time still"
+    " to come or the answer to a question of his goes out, and news that work moved, such as a fix merging, waits even when that work is his order."
 )
 REPORTER_RULE = (
     "The thread someone else reported a bug or asked him a question in hears from the drive once: that the bug is fixed once its fix"
@@ -798,26 +798,34 @@ def outage(tool_input: dict, drive: dict, report: dict, order_id: str | None) ->
 
 
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line in his DM waits while he is away: only cards, the WAITING-ON-HIM line, incident and customer outage lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive, but a report owing a promised line, which is owed at his return and joins no catch-up, since the watch writes it again the first pass after he is heard; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's request."""
+    """Why a handler's line in his DM waits while he is away: only cards, the WAITING-ON-HIM line, incident and customer outage lines, lines naming a clock time still to come and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive, but a report owing a promised line, which is owed at his return and joins no catch-up, since the watch writes it again the first pass after he is heard; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's request."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
     if talk.place(tool_input)[0] != slack.dm():
         return None
-    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()) or outage(tool_input, drive, report, order_id):
+    text, moment = tool_input.get("text") or "", state.now()
+    if WAITING in text or not state.owner_away(drive, moment) or outage(tool_input, drive, report, order_id) or time_to_come(text, moment):
         return None
-    gone = "he is away, since he said so or has written nothing for an hour, and while he is away only cards, incident lines and answers to his messages go out"
+    reading = render.owner_reading(drive["owner"])
+    gone = f"he is {reading}, and while he is away only cards, incident lines, lines naming a clock time still to come and answers to his messages go out"
     away = f"Refused on purpose: {gone}. Post nothing: this news joins the catch-up the drive posts when he is back."
     if not (seq := report.get("seq")):
         return agents.Ruled(away, AWAY_RULE, away, found=gone)
     if due := report.get("due"):
         return agents.Unjudged(
-            f"Refused on purpose: he is away, since he said so or has written nothing for an hour, and report {seq} owes the line promised"
+            f"Refused on purpose: he is {reading}, and report {seq} owes the line promised"
             f" him by {render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
             " so it joins no catch-up. Post nothing and return NOTHING owed at his return."
         )
     talk.hold(drive["name"], seq, posted_order(drive, tool_input, order_id))
     return agents.Unjudged(f"{away} Report {seq} is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
+
+
+def time_to_come(text: str, at: datetime) -> bool:
+    """Whether a line names a clock time still to come, such as a freeze ending at 5:00 PM, by the drive's own reader of typed times, a promise of the next line aside, so it reaches him before that time rather than in his catch-up."""
+    promised = [found.span() for found in cli.PROMISED_TIME.finditer(text)]
+    return any(limits.typed_moment(text, found, at) > at for found in limits.CLOCK_TIME.finditer(text) if not any(start <= found.start() < end for start, end in promised))
 
 
 def long_ack(payload: dict) -> str | None:

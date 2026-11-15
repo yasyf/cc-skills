@@ -1151,7 +1151,7 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
 ) -> None:
     heard, tapped = "2026-11-11T12:36:02-08:00", state.parse_time("2026-11-11T13:57:22-08:00")
     with state.edit(drive) as data:
-        data["owner"] = {"heard": heard, "away": False}
+        data["owner"] = {"heard": heard, "away": "2026-11-11T13:36:02-08:00"}
         data["held"]["665753"] = {"order": None, "at": "2026-11-11T13:40:00-08:00", "told": "665754"}
     monkeypatch.setattr(state, "now", lambda: tapped)
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
@@ -1159,7 +1159,7 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"seq": 661500}\n', ""))
     ask(tap)
     absence = {"since": heard, "from": "2026-11-11T13:36:02-08:00", "until": state.stamp(tapped)}
-    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": False, "absence": absence}
+    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": state.stamp(tapped + state.AWAY_AFTER), "absence": absence}
     assert state.load(drive)["catch_up"] == state.new_catch_up(heard, [])
 
 

@@ -1182,7 +1182,7 @@ def test_a_promised_time_passing_while_he_is_away_owes_no_report_until_the_first
     said = due_owed(monkeypatch)
     gone, due, back = T0 - timedelta(hours=3), state.stamp(T0 - timedelta(minutes=5)), T0 + timedelta(hours=3)
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(gone), "away": False}
+        data["owner"] = {"heard": state.stamp(gone), "away": state.stamp(gone + state.AWAY_AFTER)}
         data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=due, promised=state.stamp(T0 - timedelta(hours=4)))
     watching = watcher(demo)
     shown = [T0 + timedelta(minutes=175)]
@@ -1232,7 +1232,7 @@ def test_a_line_late_before_he_went_away_is_owed_at_once_on_his_return_and_late_
     due = T0 - timedelta(hours=2)
     away, back = due + timedelta(minutes=30), due + timedelta(minutes=33)
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(away), "away": True}
+        data["owner"] = {"heard": state.stamp(away), "away": state.stamp(away)}
         data["orders"]["o1"].update(
             thread=["D123", "1794200000.000100"], due=state.stamp(due), promised=state.stamp(due - timedelta(hours=1)), due_said=state.stamp(due + timedelta(minutes=28))
         )
@@ -1265,7 +1265,7 @@ def shown_pr(demo: str, key: str) -> str:
 
 def quiet_incident(demo: str) -> None:
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o1"].update(incident=True, joins=None, thread=["D123", INCIDENT_THREAD], note="674295", due=state.stamp(T0 + timedelta(minutes=10)), promised=state.stamp(T0))
         data["orders"]["o2"] = order(text="the same alert again", incident=True, joins="o1", jobs=["j2"], last_line=state.stamp(T0 + timedelta(minutes=2)))
         data["jobs"]["j2"] = job(order="o2", kind="codex")
@@ -1795,13 +1795,13 @@ def test_an_order_owes_its_thread_no_line_while_he_is_away_until_he_is_back_nor_
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
         if held == "away":
-            data["owner"] = {"heard": state.stamp(T0), "away": True}
+            data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         else:
             data["orders"]["o1"][held] = {"kind": "report", "attr": {"close": "o1"}, "text": "POST o1 is done", "body": ""} if held == "close_report" else "685000"
     assert watch.quiet_lines(watching, T0 + timedelta(hours=2)) == []
     assert calls == []
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 + timedelta(hours=2)), "away": False}
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(hours=2)), "away": state.stamp(T0 + timedelta(hours=3))}
     assert watch.quiet_lines(watching, T0 + timedelta(hours=2, seconds=5)) == []
     assert len(calls) == (2 if held == "away" else 0)
 
@@ -1861,7 +1861,7 @@ def heard_now(demo: str, capsys: pytest.CaptureFixture[str], *flags: str) -> str
 def returned_while_away(demo: str) -> None:
     threaded(demo)
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
     assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=1)) == []
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
@@ -1903,7 +1903,8 @@ def test_his_next_message_after_away_owes_his_catch_up_on_each_order_whose_news_
         data["handlers"].clear()
     monkeypatch.setattr(state, "now", lambda: BACK + timedelta(minutes=3))
     assert heard_now(demo, capsys, "--away") == "away"
-    assert watch.catch_up_lines(watching, BACK) == []
+    assert state.load(demo)["owner"]["away"] == state.stamp(BACK + timedelta(minutes=3))
+    assert watch.catch_up_lines(watching, BACK + timedelta(minutes=3)) == []
     assert len(calls) == 3
 
 
@@ -1935,7 +1936,7 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
         data["held"]["669950"] = {"order": "o2", "at": held_at}
@@ -1956,7 +1957,7 @@ def test_a_held_report_its_writer_withdrew_reads_withdrawn_in_drive_status_and_s
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
     with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
         data["held"] |= {"669950": {"order": "o2", "at": held_at}, "669960": {"order": "o2", "at": held_at}}
@@ -3591,7 +3592,7 @@ def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries:
     os.utime(path, (stamp, stamp))
     with state.edit(demo) as data:
         data["roles"]["communicator"] = {"session": "talker", "terminal": "term-7", "cwd": "/work", "started": state.stamp(T0)}
-        data["owner"] = {"heard": state.stamp(state.now() - heard), "away": False}
+        data["owner"] = {"heard": state.stamp(state.now() - heard), "away": state.stamp(state.now() - heard + state.AWAY_AFTER)}
 
 
 def answered(tokens: int) -> dict:
@@ -7544,7 +7545,7 @@ def test_a_proof_waiting_on_his_next_word_holds_its_job_with_no_orphan_and_runs_
     wait = "WAIT S1 no exchange since the install: reply in a DM thread within 60s of a handler's post there, then run this again"
     with state.edit(demo) as data:
         data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": "1.0.1", "waits": wait}
-        data["owner"]["heard"] = state.stamp(T0 - timedelta(minutes=5))
+        data["owner"] = {"heard": state.stamp(T0 - timedelta(minutes=5)), "away": state.stamp(T0 + timedelta(minutes=55))}
     watching = watcher(demo)
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
     assert provers == []
@@ -7566,7 +7567,7 @@ def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_an
         del data["prs"][KEY]
         data["jobs"]["j1"].update(state="waiting", said=said, prs=[], repro=proof_file(tmp_path), updated=state.stamp(T0 - timedelta(hours=1)))
         data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": said, "version": state.VERSION, "waits": wait}
-        data["owner"]["heard"] = state.stamp(T0 - timedelta(minutes=5))
+        data["owner"] = {"heard": state.stamp(T0 - timedelta(minutes=5)), "away": state.stamp(T0 + timedelta(minutes=55))}
     watching = watcher(demo)
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
     assert provers == []
@@ -8693,7 +8694,7 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
     watching = stalling(demo)
     said_at = T0 + timedelta(minutes=68)
     with state.edit(demo) as data:
-        data["owner"]["away"] = True
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["stalls"][KEY] = {
             "print": STALLED_CARD,
             "since": state.stamp(T0),
@@ -8707,7 +8708,7 @@ def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     assert ready_records == []
     with state.edit(demo) as data:
-        data["owner"]["away"] = False
+        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=141)), "away": state.stamp(T0 + timedelta(minutes=201))}
     for minutes in (141, 142):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"]
@@ -8720,7 +8721,6 @@ def test_a_stall_on_an_order_from_a_channel_thread_names_the_thread_of_his_dm_it
 ) -> None:
     watching = stalling(demo)
     with state.edit(demo) as data:
-        data["owner"]["away"] = False
         data["orders"]["o1"].update(thread=["C0B75AL4XEW", "1794436805.002349"], threads=[["C0B75AL4XEW", "1794438322.192619", state.stamp(T0), "posted"], *kept])
         data["stalls"][KEY] = {
             "print": STALLED_CARD,
@@ -8847,7 +8847,6 @@ def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_o
     on_it = {"question": asked, "options": ["Now", "Later"], "recommended": "Now", "asked": state.stamp(T0), "url": CARD, "card": {"title": asked, "body": ""}}
     elsewhere = {"question": "Which store should the sand CLI read?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD[:-3]}200", "card": {"title": "Which store?", "body": "sandsql"}}
     with state.edit(demo) as data:
-        data["owner"]["away"] = False
         data["prs"][KEY].update(state="merged", merged_sha="bd434a0f1b2c3d4e")
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [wait]}
         data["stalls"][wait] = stood
@@ -8881,7 +8880,6 @@ def test_replayed_705676_and_705742_jobs_waiting_on_one_pr_on_his_approve_keep_n
         "claim": None,
     }
     with state.edit(demo) as data:
-        data["owner"]["away"] = False
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3", "j4"]
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [FOOTER]}
         data["stalls"][FOOTER] = stood

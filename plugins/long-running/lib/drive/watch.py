@@ -3236,14 +3236,13 @@ def orphan_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders joined to it, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
+    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders joined to it, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         owner = data["owner"]
         since = owner["heard"]
-        gone = state.parse_time(since) + (timedelta() if owner["away"] else state.AWAY_AFTER) if back and since else None
-        absence = {"since": since, "from": state.stamp(gone), "until": state.stamp(moment)} if gone else owner["absence"]
-        data["owner"] = {"heard": state.stamp(moment), "away": away, "absence": absence}
+        absence = {"since": since, "from": owner["away"], "until": state.stamp(moment)} if back and since else owner["absence"]
+        data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER), "absence": absence}
         news = []
         held = list(data["held"]) if back and since else []
         if back and since:
