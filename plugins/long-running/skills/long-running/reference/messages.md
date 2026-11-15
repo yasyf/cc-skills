@@ -661,17 +661,19 @@ restating it.
   works on it or something it names moved, while he is away too, which the watch owes and has a
   handler post. A report on it goes out even when its thread already had one that turn, by
   [incidents.md](incidents.md).
-- He is away from the moment the owner row's `away` holds, which `drive status` prints beside when he
-  was last heard and the hook's refusal names: the moment he says he is going to sleep or stepping
-  out (`drive heard --away`), else an hour after he last wrote or tapped a card, since each tap on a
-  card records him heard as a message does. While he is away only cards, the watch's one reply under
-  a card holding built work, an incident's or a customer outage's line [incidents.md](incidents.md)
-  calls for, on an incident order or marked `customer_outage=true`, a line naming a clock time still to
-  come, such as a release freeze ending at 5:00 PM before a production deploy applies by itself, and
-  an answer passing `asked` post; a hook refuses any other handler line. A time that only promises
-  the next line, as "next line by 5:30 PM" does, lets nothing out. Summaries, due-time lines and job
-  results wait.
-  A report whose line the hook holds is marked held on the drive, and `drive status` lists it
+- He is away from the moment the owner row's away holds: when he says he is going to sleep or
+  stepping out, else an hour after his last word or tap. While he is away a line to him in his DM
+  goes out only as a card, a PR card, the watch's reply under a card holding built work, an edit of
+  a post already out, his catch-up, an answer passing asked, a line carrying WAITING-ON-HIM, an
+  incident's line, a line marked customer_outage=true, or a line naming a clock time still to come,
+  which a promise of the next line is not. say holds every other report for his catch-up, news that
+  work moved or that the drive failed him included; a report owing a line promised by a time waits
+  for his return instead, and a handler's line carrying no report is refused, by his words "Just do
+  less realtime more summary / batching, with a catch up post once I'm back". `drive status` prints
+  the away beside when he was last heard, `drive heard --away` records his going, and each tap on a
+  card records him heard as a message does. Incidents and customer outages post by
+  [incidents.md](incidents.md); summaries, due-time lines and job results wait.
+  A report whose line say holds is marked held on the drive, and `drive status` lists it
   under `Held for his catch-up`, so nobody takes it for a line he got. A correction record `--re`
   a held report travels with it, since cci never changes the report: `drive status` names it on
   the report's line, and a `say` of the correction posts nothing while its report is held. A

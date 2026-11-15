@@ -49,13 +49,7 @@ PROMISED_START = re.compile(
 )
 PROMISE_RULING = 'his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"'
 DOWN_RULING = "his Nov 8 ruling: \"The coordinator is down? Then why the fuck haven't you restarted it?\" and \"It's unacceptable to just say it's down\""
-WAITING = "WAITING-ON-HIM"
-AWAY_RULE = (
-    "He is away when the drive marks him so, as it has for this post, from his saying so or an hour with no word or tap of his;"
-    ' while he is away a line to him waits for his catch-up, by his words "Just do less realtime more summary / batching, with a'
-    " catch up post once I'm back\": only a card, a line saying what waits on him, an incident line, a line naming a clock time still"
-    " to come or the answer to a question of his goes out, and news that work moved, such as a fix merging, waits even when that work is his order."
-)
+AWAY_RULE = state.AWAY_HOLD + "."
 REPORTER_RULE = (
     "The thread someone else reported a bug or asked him a question in hears from the drive once: that the bug is fixed once its fix"
     " is proven live, or the answer once it is posted to him, by his words \"we have authorization to message once in bug fix threads"
@@ -320,7 +314,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
         return [f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."]
-    if any(ALERT_LINK.match(finding) for finding in findings) and outage(tool_input, drive, report, order_id):
+    if any(ALERT_LINK.match(finding) for finding in findings) and talk.outage(drive, tool_input, report, order_id):
         findings = [finding for finding in findings if not ALERT_LINK.match(finding)]
     if not findings:
         return []
@@ -546,7 +540,7 @@ def his_words(payload: dict) -> list[dict]:
 
 def order_words(drive: dict, tool_input: dict, order_id: str | None) -> list[dict]:
     """His words on the order the post is on, as the drive keeps them with no Slack read: the message of his it was added from, or the quotes of his its text holds."""
-    if not (found := posted_order(drive, tool_input, order_id)) or not (said := limits.his_words(order := drive["orders"][found])):
+    if not (found := talk.posted_order(drive, tool_input, order_id)) or not (said := limits.his_words(order := drive["orders"][found])):
         return []
     message = state.slack_message(order["from"]) if limits.from_his_message(order) else None
     return [{"id": f"slack:{message[1]}" if message else f"order:{found}", "source": "slack" if message else "order", "quote": said, "detail": ORDER_WORDS}]
@@ -673,7 +667,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unswitched(tool_input, drive),
             *unchecked(tool_input, messages, linked, drive, report, order_id),
             unbacked(payload, said),
-            None if tool_input.get("tap_prs") else unprevented(said, found, refs.subject(drive, posted_order(drive, tool_input, order_id))),
+            None if tool_input.get("tap_prs") else unprevented(said, found, refs.subject(drive, talk.posted_order(drive, tool_input, order_id))),
             unordered(said),
             corrected(tool_input, drive),
             untooled(payload, drive, said),
@@ -742,7 +736,7 @@ def unbacked_start(payload: dict, drive: dict, said: str, order_id: str | None) 
     """Why a handler's line says a job is being started while it names no job as {started:<j>} and no handoff state.owed_handoffs names is kept on the orders of the incident or order it goes to: the promise then rests on a session's answer alone, which nothing tracks; the refusal names each job made since the newest handoff kept there, the one the line should name."""
     if not payload.get("agent_id") or not (found := PROMISED_START.search(said)) or any(match[1] == "started" for match in limits.REF.finditer(said)):
         return None
-    posted = posted_order(drive, payload["tool_input"], order_id)
+    posted = talk.posted_order(drive, payload["tool_input"], order_id)
     group = state.feature_orders(drive, posted) if posted else []
     if state.owed_handoffs(drive, group):
         return None
@@ -879,46 +873,17 @@ def edited_order(name: str, link: str) -> str | None:
     return next((event["order"] for event, _ in state.read_events(name) if event["kind"] == "said" and not event.get("edited") and view.message_key(event["url"]) == key), None)
 
 
-def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:
-    """The order a post goes to: the one say records it on, else the open order whose own thread, in his DM or the channel its channel_id names, or the thread its lines to him go in, it goes in."""
-    where = talk.place(tool_input)
-    return order_id or next((each for each, order in state.open_orders(drive).items() if where[1] and where in (state.own_thread(order), state.promise_thread(order))), None)
-
-
-def outage(tool_input: dict, drive: dict, report: dict, order_id: str | None) -> bool:
-    """Whether a post reports on an outage he hears at once, never as its words read: an incident, as the order it goes to marks it, or a customer team's outage the drive did not cause, as its report's customer_outage mark says."""
-    return report.get("customer_outage") == "true" or bool((posted := posted_order(drive, tool_input, order_id)) and drive["orders"][posted]["incident"])
-
-
 def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a handler's line in his DM waits while he is away: only cards, the WAITING-ON-HIM line, incident and customer outage lines, lines naming a clock time still to come and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive, but a report owing a promised line, which is owed at his return and joins no catch-up, since the watch writes it again the first pass after he is heard; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out; say posts nothing of a held report whatever Jev reads, so that refusal is unjudged and comes back before any size check of Jev's request."""
+    """Why a line in his DM waits while he is away, by talk.away, the rule say reads too: a report's line say holds by talk.held_away, marked held or owed at his return, refused before Jev reads or sizes it, since say posts nothing of it whatever Jev reads; a handler's line carrying no report Jev weighs by AWAY_RULE; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out."""
     tool_input = payload["tool_input"]
-    if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
+    if edited(payload):
         return None
-    if talk.place(tool_input)[0] != slack.dm():
+    if held := talk.held_away(drive["name"], drive, tool_input, report, order_id):
+        return agents.Unjudged(f"Refused on purpose: {held}")
+    if not payload.get("agent_id") or not (gone := talk.away(drive, tool_input, report, order_id, state.now())):
         return None
-    text, moment = tool_input.get("text") or "", state.now()
-    if WAITING in text or not state.owner_away(drive, moment) or outage(tool_input, drive, report, order_id) or time_to_come(text, moment):
-        return None
-    reading = render.owner_reading(drive["owner"])
-    gone = f"he is {reading}, and while he is away only cards, incident lines, lines naming a clock time still to come and answers to his messages go out"
     away = f"Refused on purpose: {gone}. Post nothing: this news joins the catch-up the drive posts when he is back."
-    if not (seq := report.get("seq")):
-        return agents.Ruled(away, AWAY_RULE, away, found=gone)
-    if due := report.get("due"):
-        return agents.Unjudged(
-            f"Refused on purpose: he is {reading}, and report {seq} owes the line promised"
-            f" him by {render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
-            " so it joins no catch-up. Post nothing and return NOTHING owed at his return."
-        )
-    talk.hold(drive["name"], seq, posted_order(drive, tool_input, order_id))
-    return agents.Unjudged(f"{away} Report {seq} is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
-
-
-def time_to_come(text: str, at: datetime) -> bool:
-    """Whether a line names a clock time still to come, such as a freeze ending at 5:00 PM, by the drive's own reader of typed times, a promise of the next line aside, so it reaches him before that time rather than in his catch-up."""
-    promised = [found.span() for found in cli.PROMISED_TIME.finditer(text)]
-    return any(limits.typed_moment(text, found, at) > at for found in limits.CLOCK_TIME.finditer(text) if not any(start <= found.start() < end for start, end in promised))
+    return agents.Ruled(away, AWAY_RULE, away, found=gone)
 
 
 def long_ack(payload: dict) -> str | None:

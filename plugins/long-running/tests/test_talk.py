@@ -1195,6 +1195,26 @@ def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str
     assert state.load(demo)["held"] == {}
 
 
+def test_say_itself_holds_a_report_for_his_dm_while_he_is_away_from_a_caller_no_hook_checked_and_his_catch_up_carries_it(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    own_pr(demo)
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard, "absence": None}
+    report(monkeypatch, {"progress": "true"}, lane="meta")
+    with pytest.raises(DriveError, match=r"nothing posted: he is away since he said so at .+ Report 718234 is marked held: `drive status` lists it until the catch-up posts\. Return NOTHING held for his catch-up\."):
+        talk.say(demo, {"text": "The drive took three production break-glass grants on its own while you were away.", "record": "718234"})
+    assert (posts, said(demo), list(state.load(demo)["held"])) == ([], [], ["718234"])
+    talk.say(demo, {"text": f"{state.WAITS_ON_HIM}: the release card.", "record": "718236"})
+    report(monkeypatch, {"customer_outage": "true"}, lane="meta")
+    talk.say(demo, {"text": "Acme's runs fail in the new region.", "record": "718238"})
+    assert [argv[-1] for argv in posts] == [f"{state.WAITS_ON_HIM}: the release card.", "Acme's runs fail in the new region."]
+    report(monkeypatch, {"catch_up": "true"})
+    owe(demo)
+    assert talk.say(demo, {"text": "The break-glass grants only read.", "record": "718240"}).endswith("; it carries the reports held for it, no longer held: 718234")
+    assert state.load(demo)["held"] == {}
+
+
 def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_cci_grep_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
     newest_first = [
         {"seq": 669995, "kind": "withdraw", "re": 669902},

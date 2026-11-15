@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 
 from drive import slack
-from drive.state import CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -142,7 +142,7 @@ COMMUNICATOR_RULES = (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
         " each thread where he waits on a handler whose line has not come back: what is happening and when he hears next."
     ),
-    "Post nothing on your own clock: summaries come as reports, and while he is away only cards post.",
+    "Post nothing on your own clock: summaries come as reports, and while he is away say holds for his catch-up each report its away rule keeps from him.",
 )
 COORDINATOR_RULES = (
     (
@@ -213,6 +213,7 @@ META_RULES = (
         + " "
         + PREVENTED
     ),
+    f"{AWAY_HOLD}.",
     REACHING,
     (
         f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start, and each change"
