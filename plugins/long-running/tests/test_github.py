@@ -614,6 +614,19 @@ def test_fetched_reads_origins_head_while_another_fetch_holds_the_clones_remote_
     assert git_in(clone, "rev-parse", "refs/remotes/origin/main") == cloned
 
 
+def test_fetched_starts_no_git_maintenance_whose_worktree_prune_would_delete_the_entry_the_worktree_add_after_it_is_making(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    origin, clone, trace = tmp_path / "origin", tmp_path / "clone", tmp_path / "trace.json"
+    origin.mkdir()
+    git_in(origin, "init", "-q", "-b", "main")
+    commit_files(origin, "first", {"a": "a\n"})
+    git_in(tmp_path, "clone", "-q", str(origin), str(clone))
+    head = commit_files(origin, "second", {"b": "b\n"})
+    monkeypatch.setenv("GIT_TRACE2_EVENT", str(trace))
+    assert github.fetched(str(clone), "main") == head
+    started = [event["argv"] for line in trace.read_text().splitlines() if (event := json.loads(line))["event"] == "child_start"]
+    assert [argv for argv in started if "maintenance" in argv] == []
+
+
 def test_carrier_counts_a_build_at_or_after_a_merge_on_the_line_or_a_hotfix_cherry_picking_it_and_fetches_a_build_the_clone_lacks(tmp_path: Path) -> None:
     origin, clone = tmp_path / "origin", tmp_path / "clone"
     origin.mkdir()
