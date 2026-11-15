@@ -279,7 +279,11 @@ and waits ids, record seqs), never a technical name.
      of a command, which on a reader's shell finds the `~/.local/bin/drive` launcher, nor a pinned
      cache version's path, and reads the drive through that install's `drive.state`, such as
      `state.stored("<drive>", ("terminal", "jobs"))` from `$(drive --root)/lib`, never `drive.json`,
-     which only points to the drive's `drive.db`. On a brief naming user stories it clicks each
+     which only points to the drive's `drive.db`. A drive it builds to run the change on sets
+     `LONG_RUNNING_STATE` to a folder of its own, never `XDG_STATE_HOME`, and is saved with
+     `state.create`, never `state.edit_or_create`: any other drive reads as a live one, whose loads and
+     saves run `ccn` and `git` in the folder its coordinator's `cwd` names, no checkout in a proof, and
+     fail there. On a brief naming user stories it clicks each
      on the installed surface, asserts its criteria and prints, for each, the path of the picture it saves or the live post's link
      it reads back: `drive job prove` takes `BLOCKED` on output showing fewer stories than the brief names, or one
      Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
