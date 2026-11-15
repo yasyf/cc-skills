@@ -52,11 +52,12 @@ VERDICT = {
                 "properties": {"order": {"type": "string"}, "words": {"type": "string"}, "file": {"type": "string"}, "change": {"type": "string"}},
                 "required": ["order", "words", "file", "change"],
             },
-        }
+        },
+        "carried": {"type": "array", "items": {"type": "integer", "minimum": 1}},
     },
-    "required": ["changed", "against"],
+    "required": ["changed", "against", "carried"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description; then his durable answers cc-notes ranked near the words of those cards by the words they share, each labelled with the card it was ranked near, never read for their subject; then each ruling of his this change owes written, his words verbatim, into an AGENTS.md at or above the code it rules on, which his answer on where such a rule is written down names; then each answer of his among those binding it that is labelled with the directory of code it rules on. <change> holds each pull request's title, head and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change against his words before the drive puts it on his card for his Approve, and again once it merges, when the parts it carries are the parts of his orders it delivers. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers, each numbered, and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description; then his durable answers cc-notes ranked near the words of those cards by the words they share, each labelled with the card it was ranked near, never read for their subject; then each ruling of his this change owes written, his words verbatim, into an AGENTS.md at or above the code it rules on, which his answer on where such a rule is written down names; then each answer of his among those binding it that is labelled with the directory of code it rules on. <change> holds each pull request's title, head and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
 An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer. Where his answer picks an option of a card, by its number, as 1 or 1+2, or by its words, that option's own words and description are his words: they bind over the name of a part or anyone's reading of his pick, and a change that builds the option another way, such as one copying a whole file where the option lands only the pages a read needs, goes against them. An answer ranked near the words of his card shares words with that card and may speak to other work: it binds only where its own words speak to what this change builds, and there it binds as much as his pick does, so a change that keeps or adds what it rules out, such as a second code path where it asks for one, goes against it; one that speaks to other work binds nothing here, however near his card it was ranked.
 
@@ -74,14 +75,16 @@ The code at each change's head, the PRs it is stacked on included, reads with `g
 
 An answer of his labelled with a directory rules how all the code under that directory works, never only the lines the diff touches. For each, before you judge, find every place under that directory at the head that its words speak to with `git -C {clone} grep -n <pattern> <head> -- <directory>`, read each with `git -C {clone} show <head>:<path>`, and judge the directory as it stands at the head against that answer: list in `against` each place there that still goes against it, whether or not the diff shows it, its `file` that path and its `change` naming the path:line at the head.
 
-An empty `against` says the change meets his words."""
+Last, list in `carried` the number of each numbered part the diff does: whole, or, where its job's other PRs share the part, this change's own share of it. A part is not carried when the diff leaves out what its words name, such as a function, file, path or caller the diff never changes, whatever the PR's title says.
+
+An empty `against` says the change meets his words, and an empty `carried` that it does none of the numbered parts."""
 
 
 class Against(DriveError):
     """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries whole each answer of his the PR cites for its design and each other answer the check read that named names by the id or link its line opens with, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line; every other answer it read is one its job's brief already carries, or one cc-notes ranked near the words of a card it cites that no objection rests on, so the line stays one a relay carries whole."""
 
-    def __init__(self, keys: list[str], named: str, cited: list[str], others: list[str]):
-        self.named = named
+    def __init__(self, keys: list[str], named: str, cited: list[str], others: list[str], carried: dict[str, list[str]] | None = None):
+        self.named, self.carried = named, carried
         held = list(dict.fromkeys([*cited, *(line for line in others if line.partition(", ")[0] in named)]))
         read = f" His answers its design cites, and each other one an objection names, each whole: {'; '.join(held)}." if held else ""
         super().__init__(
@@ -94,10 +97,10 @@ class Against(DriveError):
 
 
 def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]:
-    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run, and the code under the directory each of those rulings is labelled with, by coded(), read once for owed and the judge, which reads it whole at the head and judges it as it stands there, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, naming those of them their diffs do, kept on each PR, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run while it is open, and the code under the directory each of those rulings is labelled with, by coded(), read once for owed and the judge, which reads it whole at the head and judges it as it stands there, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     prs = {key: data["prs"][key] for key in unit}
-    if all(stands(data, key, unit) for key in unit):
+    if all(stands(data, key, unit) and prs[key]["checked"]["carried"] is not None for key in unit):
         return {key: pr["checked"] for key, pr in prs.items()}
     orders = list(dict.fromkeys(order for pr in prs.values() for order in state.served_orders(data, pr)))
     reads = {key: change(key) for key in unit}
@@ -111,15 +114,20 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
     answered = list(dict.fromkeys([*cited, *binding["cited"]]))
     named_answers = {line.partition(", ")[0] for line in answered}
     near = [line for line in dict.fromkeys([*(line for each in cites for line in each["near"]), *binding["near"]]) if line.partition(", ")[0] not in named_answers]
-    if lacking := {key: text for key in unit if (text := unwritten(key, owes[key]))}:
+    if lacking := {key: text for key in unit if prs[key]["state"] == "open" and (text := unwritten(key, owes[key]))}:
         raise Against(list(lacking), "; ".join(lacking.values()), cited, [*binding["cited"], *near])
     carried = (state.pr_key(url) for job in data["jobs"].values() if any(pr["url"] in job["prs"] for pr in prs.values()) for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other not in prs and data["prs"][other]["state"] != "closed"]
-    judging = judged(name, words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled), reads)
-    if found := [item for item in judging if not (changing := [key for key in unit if item["file"] in lines[key]]) or any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing)]:
-        raise Against(list(unit), "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found), cited, [*binding["cited"], *near])
+    said, numbered = words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled)
+    found = judged(name, said, reads, len(numbered))
+    carries: dict[str, list[str]] = {}
+    for number in dict.fromkeys(found["carried"]):
+        order_id, part = numbered[number - 1]
+        carries.setdefault(order_id, []).append(part)
+    if against := [item for item in found["against"] if not (changing := [key for key in unit if item["file"] in lines[key]]) or any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing)]:
+        raise Against(list(unit), "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in against), cited, [*binding["cited"], *near], carries)
     heads = {key: read["head"] for key, read in reads.items()}
-    return {key: {"head": heads[key], "read": heads[key], "orders": orders, "lines": lines[key], "beside": {other: heads[other] for other in unit if other != key}} for key in unit}
+    return {key: {"head": heads[key], "read": heads[key], "orders": orders, "lines": lines[key], "beside": {other: heads[other] for other in unit if other != key}, "carried": carries} for key in unit}
 
 
 def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
@@ -129,30 +137,31 @@ def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against and the parts their diffs carry, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes the builder of an open PR through drive pr wake unless he approved the PR, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, naming no parts, and the watch tries it again RETRY on."""
     from drive import land, stage
 
     data = state.load(name)
     unit = land.landing_stacks(data).get(key, (key,))
     prs = {member: data["prs"][member] for member in unit}
-    heads, at, named, checked = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", {}
+    heads, at, named, checked, carried = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", {}, None
     orders, answers = {member: state.served_orders(data, pr) for member, pr in prs.items()}, {member: binds(name, data, pr) for member, pr in prs.items()}
     bound = list(dict.fromkeys(answer for job in dict.fromkeys(pr["job"] for pr in prs.values()) for answer in brief.bound(name, data, data["jobs"][job])[0]))
     try:
         checked = check(name, unit, bound)
     except Against as error:
-        outcomes, named = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named
+        outcomes, named, carried = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named, error.carried
     except DriveError as error:
         outcomes = dict.fromkeys(unit, f"{FAILED}: {error}")
     else:
         basis = f"the words of {', '.join(checked[key]['orders'])}" if checked[key]["orders"] else f"his ruling {state.FLAKE_RULING}"
+        carried = checked[key]["carried"]
         cards = view.live_cards(name)
         outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}; {stage.on_card(data, member, cards).why}; {view.staging(data, member)}" for member, stamp in checked.items()}
-    return install.finished(f"{key}: {outcomes[key]}", JUDGE_SECONDS, kept, name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "checked": checked, "pid": os.getpid()})
+    return install.finished(f"{key}: {outcomes[key]}", JUDGE_SECONDS, kept, name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "checked": checked, "carried": carried, "pid": os.getpid()})
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; on a merged PR, each done job that opened or proves it delivers the parts its diff carries, by state.post_carried, as its DONE would have had the check landed first; the outcome for key."""
     outcome = result["outcomes"][key]
     with state.edit(name) as data:
         fresh = [
@@ -168,8 +177,13 @@ def kept(name: str, key: str, result: dict) -> str:
             if result["checked"]:
                 pr["checked"] = result["checked"][member]
             pr["checker"] = {
-                "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"]
+                "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"],
+                "carried": result.get("carried"),
             }
+            if pr["merged_sha"] and result.get("carried"):
+                for job_id, job in data["jobs"].items():
+                    if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and not state.done_at_merge(job) and member in state.opened_or_proven(data, job_id):
+                        state.post_carried(data, job_id, job["said"] or "")
             if said.startswith(FAILED) or said.startswith(NOT_READY) and pr["job"] in woken:
                 continue
             woken.add(pr["job"])
@@ -213,7 +227,17 @@ def start(name: str, keys: list[str]) -> None:
             if not any(pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"]) for pr in prs):
                 pid, at = spawn(name, key), state.stamp()
                 for pr in prs:
-                    pr["checker"] = {"head": pr["head"], "pid": pid, "at": at, "orders": None, "answers": None, "outcome": None, "against": ""}
+                    pr["checker"] = {"head": pr["head"], "pid": pid, "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "carried": None}
+
+
+def merge_due(pr: dict, moment: datetime) -> bool:
+    """Whether a merged PR's check is to start, the one that names the parts its merged diff carries: no check at its head named them, as one kept before checks named parts did not, and none runs there, or one that failed or ended with no outcome started RETRY ago."""
+    checker = pr["checker"]
+    if state.carried(pr) is not None:
+        return False
+    if not checker or checker["head"] != pr["head"] or checker["outcome"] and not checker["outcome"].startswith(FAILED):
+        return True
+    return not (checker["outcome"] is None and state.alive(checker["pid"])) and moment - state.parse_time(checker["at"]) >= RETRY
 
 
 def spawn(name: str, key: str) -> int:
@@ -273,9 +297,10 @@ def files(diff: bytes) -> list[tuple[str, str]]:
     return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)][: len(found)], strict=True)]
 
 
-def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], near: list[str], others: list[str], owes: list[dict], ruled: list[tuple[str, str, str]]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those each of its PRs names, else every part of it that PR's job delivers, shared with the jobs' other PRs when they have any, and the order's other parts left to other changes, so a change is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the jobs' PRs, such as a teammate's, is left to other changes with that PR named; an order the change carries no part of is read whole. Then the jobs' merged PRs, which already deliver their share, and their other open PRs, each judged on its own; then each answer of his binding the PRs or that they cite, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PRs owe, by owed, as his ruling WRITES_RULING names it, so the judge reads that AGENTS.md hunk as his words; then each answer of his binding them labelled with a directory of code, by coded(), whose directory the judge reads whole at the head and judges as it stands there against that answer, since his answer rules on all of that code and never only the lines the diff touches."""
-    lines = []
+def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], near: list[str], others: list[str], owes: list[dict], ruled: list[tuple[str, str, str]]) -> tuple[str, list[tuple[str, str]]]:
+    """Each order's words, oldest first, with the parts of it the change carries, those each of its PRs names, else every part of it that PR's job delivers, shared with the jobs' other PRs when they have any, each numbered, and the order's other parts left to other changes, so a change is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the jobs' PRs, such as a teammate's, is left to other changes with that PR named; an order the change carries no part of is read whole. Then the jobs' merged PRs, which already deliver their share, and their other open PRs, each judged on its own; then each answer of his binding the PRs or that they cite, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PRs owe, by owed, as his ruling WRITES_RULING names it, so the judge reads that AGENTS.md hunk as his words; then each answer of his binding them labelled with a directory of code, by coded(), whose directory the judge reads whole at the head and judges as it stands there against that answer, since his answer rules on all of that code and never only the lines the diff touches. With them, the order and part each number names, for the parts the judge finds the diffs carry."""
+    lines: list[str] = []
+    numbered: list[tuple[str, str]] = []
     named = any(pr["parts"] for pr in prs)
     ours = {state.pr_key(url) for pr in prs for url in data["jobs"][pr["job"]]["prs"]}
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
@@ -285,9 +310,11 @@ def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], n
         merged = {part: link for part in carried if (link := order["parts"][part]["posted"]) and state.PR_URL.search(link) and state.pr_key(link) not in ours}
         parts = [part for part in carried if part not in merged]
         rest = [f"{part}, which {merged[part]} merged" if part in merged else part for part in order["parts"] if part not in parts] if named or carried else []
+        listed = [f"[{len(numbered) + index}] {part}" for index, part in enumerate(parts, 1)]
+        numbered += [(order_id, part) for part in parts]
         lines.append(
             f'{order_id}, {order["created"]}: "{order["text"]}"'
-            + (f"\n  {delivers}: {'; '.join(parts)}" if parts else "")
+            + (f"\n  {delivers}: {'; '.join(listed)}" if parts else "")
             + (f"\n  other changes deliver: {'; '.join(rest)}" if rest else "")
         )
     for state_of, said in (("merged", "its job's merged PRs already deliver their share of these orders: "), ("open", "its job's other open PRs, each judged on its own, deliver their share of these orders: ")):
@@ -308,7 +335,7 @@ def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], n
             "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: "
             + "; ".join(f"{answer_id} on {directory}" for answer_id, _, directory in ruled)
         )
-    return "\n".join(lines)
+    return "\n".join(lines), numbered
 
 
 def coded(data: dict, key: str, bound: list[str]) -> list[tuple[str, str, str]]:
@@ -534,13 +561,14 @@ def shown(changes: dict[str, dict]) -> str:
     return "\n".join([*out, *([f"{len(omitted)} files left out for length: {cut(', '.join(omitted), LEFT_OUT_CHARS)}"] if omitted else [])])
 
 
-def judged(name: str, said: str, changes: dict[str, dict]) -> list[dict]:
-    """Where a Claude session allowed only git show and git grep in the coordinator's clone, at each change's head fetched there, judges the change goes against his words, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child; an empty list when it meets them."""
+def judged(name: str, said: str, changes: dict[str, dict], parts: int) -> dict:
+    """Where a Claude session allowed only git show and git grep in the coordinator's clone, at each change's head fetched there, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them, and `carried`, the number of each of the parts numbered 1 to parts that its diff does."""
     clone = state.load(name)["roles"]["coordinator"]["cwd"]
     for key, read in changes.items():
         fetched(clone, key, read["head"])
     prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes)}\n</change>"
-    return structured(name, RULES.format(clone=clone), prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", [f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)"])["against"]
+    schema = VERDICT | {"properties": VERDICT["properties"] | {"carried": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": max(parts, 1)}, "maxItems": parts}}}
+    return structured(name, RULES.format(clone=clone), prompt, schema, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", [f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)"])
 
 
 def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, reads: list[str] | None = None) -> dict:
