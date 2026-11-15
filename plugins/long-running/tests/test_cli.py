@@ -7227,6 +7227,21 @@ def test_a_staging_tests_pause_is_one_waiting_naming_its_soak_commit_which_is_ke
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], view.holding(data, [wait], {})) == ("waiting", [wait], [wait])
 
 
+def test_a_staging_tests_turn_on_staging_is_one_waiting_on_staging_slot_which_is_kept_and_held_until_its_worker_starts_and_the_topic_name_alone_is_refused(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test the stack on staging")
+    code, err = keep(monkeypatch, capsys, "j1", "WAITING my window, asked on staging-slots\n")
+    assert (code, "its WAITING names nothing the watch frees it on" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j1", "WAITING staging-slot, my turn on staging\n") == (0, "")
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], view.holding(data, [state.STAGING_SLOT], {})) == ("waiting", [state.STAGING_SLOT], [state.STAGING_SLOT])
+    with state.edit("demo") as data:
+        state.start(data["jobs"]["j1"])
+    assert state.load("demo")["jobs"]["j1"]["waits"] == []
+
+
 def test_a_builders_goal_or_done_when_jev_reads_as_ordering_a_return_with_no_result_word_is_refused_and_one_quoting_such_a_line_is_kept(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:

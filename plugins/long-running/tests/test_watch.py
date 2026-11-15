@@ -5012,6 +5012,30 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     assert place.waiting_builders(state.load(demo)) == ["j9"]
 
 
+def test_a_staging_test_waiting_its_turn_on_staging_is_freed_once_a_staging_freeze_names_its_job_a_holder_and_the_freezes_are_read_only_while_one_waits(
+    demo: str, monkeypatch: pytest.MonkeyPatch, freezes: list[dict]
+) -> None:
+    serve(monkeypatch, {})
+    read_by = []
+    monkeypatch.setattr(watch.brief, "freezes", lambda name, data: read_by.append(name) or freezes)
+    with state.edit(demo) as data:
+        data["prs"].clear()
+        data["jobs"]["j1"]["prs"] = []
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=[state.STAGING_SLOT])
+    other = "freeze d6cnpuxte4: api/plat-usw2-staging until Nov 9, 1:00 PM for fork cases, set by Ada Lovelace. Staging runs only for its holders."
+    freezes.append({"freeze": {"id": "d6cnpuxte4", "holders": ["other/j1"]}, "text": other})
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=2)) if line.startswith("FREE ")]
+    held = "freeze e7dqvyuf5b: api/plat-usw2-staging until Nov 9, 1:00 PM for fork cases, set by Ada Lovelace. Staging runs only for its holders."
+    freezes.append({"freeze": {"id": "e7dqvyuf5b", "holders": ["other/j2", f"{demo}/j1"]}, "text": held})
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=4)) if line.startswith("FREE ")] == [f"FREE j1 o1: its turn on staging came: {held.rstrip('.')}, nothing else holds it"]
+    assert state.load(demo)["jobs"]["j1"]["waits"] == []
+    watch.run_pass(watching, T0 + timedelta(minutes=6))
+    assert read_by == [demo, demo]
+
+
 def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = None, carried: set[str] | None = None) -> list[list[str]]:
     calls = []
 
