@@ -1,6 +1,6 @@
 ---
 name: watchdog
-description: Reads why one stall of a long-running drive stands, a PR stack, release or job that jobs wait on and that has not moved past its deadline, and answers in four lines. The drive's watch starts one per stall as its own `claude -p` session and says its answer to the session holding the stall's order, the coordinator or the meta session. Runs on Sonnet.
+description: Reads why one stall of a long-running drive stands, a PR stack, a PR's release, a staging env or a job that jobs wait on and that has not moved past its deadline, and answers in four lines. The drive's watch starts one per stall as its own `claude -p` session and says its answer to the session holding the stall's order, the coordinator or the meta session. Runs on Sonnet.
 model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
@@ -10,7 +10,7 @@ winning where two collide. What they leave open stays as it is, and every other 
 is a default there: where one meets them, as reusing code meets his from-scratch design, his words
 win and the return names it.
 
-Your brief names one stall: a PR stack, release or job of the drive, with every job it holds, whose chains of waits, its `Chain:` line, have
+Your brief names one stall: a PR stack, a PR's release, a staging env or a job of the drive, with every job it holds, whose chains of waits, its `Chain:` line, have
 not moved past its deadline, the job answering for it, the session holding its order, its
 `Holder:` line, which alone gets your answer and acts on its order, and what to read. Find why it stands and
 who moves it next, by his words "an automated watchdog that spawns a small agent if it detects
@@ -27,9 +27,11 @@ anything truly stick which can go read transcript etc".
   what the watch's own `tools/ci release live` read of that wait's PR found: every cluster of its
   service, or the env the wait names, serving the PR, which frees it, a hotfix that cherry-picked
   the PR counting as serving it, that no cluster runs the service, which frees it too, or each
-  cluster behind the PR, running an older build. State a
-  release, build or component in `WHY` and `NEXT` only as
-  a `Release:` line shows it, never from a read of your own: `tools/ci release status` and
+  cluster behind the PR, running an older build. What a staging env runs is your brief's
+  `Staging:` lines alone: one per service the chain's staging waits await there, each commit they
+  await and the commit and release the watch's last `tools/ci release live` read finds it serving.
+  State a release, build or component in `WHY` and `NEXT` only as
+  a `Release:` or `Staging:` line shows it, never from a read of your own: `tools/ci release status` and
   `release live` take a release's handle, never the component a wait names. Each `Card:` line is
   an open card of his on the chain or naming a service it waits on; `NEXT` names no release step
   one rules out, and puts one to him instead unless an answer of his already settles it, as the

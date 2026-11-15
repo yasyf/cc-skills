@@ -10000,6 +10000,104 @@ def test_jobs_waiting_on_one_pr_the_lander_has_not_landed_make_one_stall_one_wat
     assert (len(watchdogs), list(state.load(demo)["stalls"])) == (1, [OTHER])
 
 
+STAGING_TARGETS = ("api", "rsw-cp", "rsw-dp", "rsw-go", "rsw-search", "executor", "staging-smoke", "sandsql", "runtime-api-next", "cloudrunner-next", "dashboard")
+STAGING_LIVE = [
+    *({"target": target, "env": state.STAGING_ENV, "commit": "afb881f92076aa", "release": "rc/2026-11-15/4"} for target in STAGING_TARGETS[:7]),
+    {"target": "sandsql", "env": state.STAGING_ENV, "commit": "f0f336aa2315bb", "release": "release-emergency/2026-11-15/3"},
+    *({"target": target, "env": state.STAGING_ENV, "commit": "8ab0e2526f06cc", "release": "release-emergency/2026-11-15/4"} for target in STAGING_TARGETS[8:]),
+]
+
+
+def staged_on(target: str, commit: str) -> str:
+    return f"staging:{target}/{state.STAGING_ENV}@{commit}"
+
+
+def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_one_stuck_line_and_a_lone_service_left_undeployed_its_own(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    waits = {
+        "j1": [staged_on(target, "6d44e8728ec1") for target in STAGING_TARGETS if target not in ("staging-smoke", "sandsql")],
+        "j2": [staged_on("sandsql", "15a282a50022")],
+        "j3": [staged_on(target, "5f986a0") for target in STAGING_TARGETS],
+        "j4": [staged_on("api", "c5dca80ed9be"), staged_on("dashboard", "2c18705b7744")],
+    }
+    thing, serving = f"staging:{state.STAGING_ENV}", "the watch's last tools/ci release live read finds it serving"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] = list(waits)
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": waits["j1"]}
+        data["jobs"] |= {"j2": job(state="waiting", waits=waits["j2"]), "j3": job(), "j4": job(state="waiting", waits=waits["j4"])}
+    watching = watcher(demo)
+    watching.cards, watching.live = NO_CARDS, STAGING_LIVE
+    assert watch.stall_lines(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j3"] |= {"state": "waiting", "waits": waits["j3"]}
+    for minutes in (26, 59):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    kept = state.load(demo)["stalls"]
+    assert (sum(map(len, waits.values())), list(kept), kept[thing]["since"], len(kept[thing]["print"].split("; "))) == (23, [thing], state.stamp(T0), 23)
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=60)) == []
+    [(brief, out)] = watchdogs
+    lines = brief.splitlines()
+    assert lines[0] == f"Stall: {thing}, which holds j1, j2, j3, j4, unmoved 60 minutes"
+    staging = [line for line in lines if line.startswith("Staging:")]
+    assert len(staging) == len(STAGING_TARGETS)
+    assert {
+        f"Staging: api on {state.STAGING_ENV}, awaited at 6d44e8728ec1, 5f986a0, c5dca80ed9be: {serving} afb881f92076 of rc/2026-11-15/4",
+        f"Staging: sandsql on {state.STAGING_ENV}, awaited at 15a282a50022, 5f986a0: {serving} f0f336aa2315 of release-emergency/2026-11-15/3",
+        f"Staging: staging-smoke on {state.STAGING_ENV}, awaited at 5f986a0: {serving} afb881f92076 of rc/2026-11-15/4",
+        f"Staging: dashboard on {state.STAGING_ENV}, awaited at 6d44e8728ec1, 5f986a0, 2c18705b7744: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4",
+    } <= set(staging)
+    watchdog_answered(out)
+    [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
+    assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, j2, j3, j4, unmoved 68 minutes: {state.STAGING_ENV} running api at 6d44e8728ec1 or a build carrying it")
+    for minutes in (69, 97, 98, 99):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    [[report]] = ready_records
+    assert report["text"] == f"POST {thing}, which holds j1, j2, j3, j4, has not moved in 98 minutes and the coordinator was told 30 minutes ago: post one line on it in its thread"
+    assert (len(watchdogs), list(state.load(demo)["stalls"])) == (1, [thing])
+    lone = staged_on("cloudrunner-next", "5f986a0")
+    with state.edit(demo) as data:
+        for job_id in ("j1", "j2", "j4"):
+            data["jobs"][job_id] |= {"state": "done", "waits": []}
+        data["jobs"]["j3"]["waits"] = [lone]
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=100)) == []
+    assert state.load(demo)["stalls"][thing]["since"] == state.stamp(T0 + timedelta(minutes=100))
+    watch.stall_lines(watching, T0 + timedelta(minutes=160))
+    [_, (brief, out)] = watchdogs
+    assert brief.splitlines()[0] == f"Stall: {thing}, which holds j3, unmoved 60 minutes"
+    assert [line for line in brief.splitlines() if line.startswith("Staging:")] == [
+        f"Staging: cloudrunner-next on {state.STAGING_ENV}, awaited at 5f986a0: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4"
+    ]
+    watchdog_answered(out)
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=168)) == [
+        f"STUCK j3 o1: {thing}, which holds j3, unmoved 68 minutes: {state.STAGING_ENV} running cloudrunner-next at 5f986a0 or a build carrying it https://github.com/{state.MONOREPO}/commit/5f986a0."
+        f" WHY: {READERS_FIRST}, and j2 waits on {FOOTER}, which the lander has not merged; NEXT: drive pr land {FOOTER}; its whole answer, WHO and UNREAD with it, in {out}"
+    ]
+
+
+def test_release_waits_fold_into_one_stall_per_pr_and_env_and_staging_waits_into_one_per_env(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] = ["j1", "j2"]
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:api:{OTHER}@{state.STAGING_ENV}", staged_on("api", "6d44e8728ec1")]}
+        data["jobs"]["j2"] = job(state="waiting", waits=[f"release:executor:{OTHER}", f"release:api:{KEY}", staged_on("rsw-go", "5f986a0")])
+    data = state.load(demo)
+    found = stall.things(data, stall.chains(data, NO_CARDS, False, T0))
+    assert {thing: (held["members"], held["subjects"], held["joins"]) for thing, held in found.items()} == {
+        f"release:{OTHER}": ([f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:executor:{OTHER}"], ["j1", "j2"], True),
+        f"release:{OTHER}@{state.STAGING_ENV}": ([f"release:api:{OTHER}@{state.STAGING_ENV}"], ["j1"], True),
+        f"staging:{state.STAGING_ENV}": ([staged_on("api", "6d44e8728ec1"), staged_on("rsw-go", "5f986a0")], ["j1", "j2"], True),
+        f"release:{KEY}": ([f"release:api:{KEY}"], ["j2"], True),
+    }
+
+
+def test_a_staging_or_release_stall_keeps_its_hour_while_waits_join_and_restarts_it_once_one_ends_while_a_pr_stack_restarts_on_any_change() -> None:
+    kept = stall.aged(None, "a; b", True, T0)
+    assert stall.aged(kept, "c; a; b", True, T0 + timedelta(minutes=30)) == kept | {"print": "c; a; b"}
+    assert stall.aged(kept, "a; c", True, T0 + timedelta(minutes=30))["since"] == state.stamp(T0 + timedelta(minutes=30))
+    assert stall.aged(kept, "a; b; c", False, T0 + timedelta(minutes=30))["since"] == state.stamp(T0 + timedelta(minutes=30))
+
+
 def test_a_stall_whose_report_another_live_watch_claimed_posts_nothing_and_one_whose_claimer_died_posts_once(
     demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
 ) -> None:
@@ -10190,11 +10288,13 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_the_communicator_once
 
 
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
-    releases = {job_id: f"release:{service}:{OTHER}" for job_id, service in (("j1", "api"), ("j2", "web"), ("j3", "sand"))}
+    released = {"j1": OTHER, "j2": "Forge-AI/monorepo#44", "j3": "Forge-AI/monorepo#45"}
+    releases = {job_id: f"release:{service}:{released[job_id]}" for job_id, service in (("j1", "api"), ("j2", "web"), ("j3", "sand"))}
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
         data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[releases["j3"]])}
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
+        for key in released.values():
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1")
     watching = watcher(demo)
     watching.cards = NO_CARDS
     watch.stall_lines(watching, T0)
@@ -10211,9 +10311,9 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
     assert len(watchdogs) == 2
     watch.stall_lines(watching, T0 + timedelta(minutes=68))
     assert [brief.splitlines()[0] for brief, _ in watchdogs] == [
-        f"Stall: {releases['j3']}, which holds j3, unmoved 65 minutes",
-        f"Stall: {releases['j1']}, which holds j1, unmoved 60 minutes",
-        f"Stall: {releases['j2']}, which holds j2, unmoved 63 minutes",
+        f"Stall: release:{released['j3']}, which holds j3, unmoved 65 minutes",
+        f"Stall: release:{released['j1']}, which holds j1, unmoved 60 minutes",
+        f"Stall: release:{released['j2']}, which holds j2, unmoved 63 minutes",
     ]
 
 
@@ -10237,7 +10337,7 @@ def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_o
     with state.edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="bd434a0f1b2c3d4e")
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [wait]}
-        data["stalls"][wait] = stood
+        data["stalls"][f"release:{KEY}"] = stood
     watching = watcher(demo)
     watching.cards = NO_CARDS | {"questions": [on_it, elsewhere]}
     watching.serving = {wait: {"plat-usw2-prod": False, "plat-usw2-staging": False}}
@@ -10248,7 +10348,7 @@ def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_o
     for minutes in (121, 181):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     [(brief, _)] = watchdogs
-    assert brief.splitlines()[0] == f"Stall: {wait}, which holds j1, unmoved 60 minutes"
+    assert brief.splitlines()[0] == f"Stall: release:{KEY}, which holds j1, unmoved 60 minutes"
     assert [line for line in brief.splitlines() if line.startswith(("Release:", "Hold:", "Card:"))] == [
         f"Release: {wait}: sand-next on plat-usw2-prod, plat-usw2-staging is behind {KEY}'s merge commit bd434a0f1b2c, running an older build",
         f'Card: "{asked}" {CARD}, asked by no job of the drive',

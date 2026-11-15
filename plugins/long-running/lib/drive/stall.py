@@ -61,7 +61,7 @@ def link(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
 
 
 def things(data: dict, links: dict[str, list[tuple[str, str, bool]]]) -> dict[str, dict]:
-    """Each thing the chains end on, by its id, with its members, every job and PR whose chain ends on it, in the order chains() found them, and each link of their chains in words, so however many jobs wait on one PR stack, release or job they make one stall, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line": a PR stands for the card it draws on by state.card_unit, its landing stack or its repository's open PRs serving its order, named by the stack's bottom PR or the order's lowest-numbered one; a release, a job or a builder slot stands for itself."""
+    """Each thing the chains end on, by its id, with its members, every job and PR whose chain ends on it, in the order chains() found them, each link of their chains in words, and whether waits join it, so however many jobs wait on one PR stack, release, staging env or job they make one stall, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line": a PR stands for the card it draws on by state.card_unit, its landing stack or its repository's open PRs serving its order, named by the stack's bottom PR or the order's lowest-numbered one; a staging or release wait for its fold, by fold(), its members every wait of the chains folding there; a job or a builder slot stands for itself."""
     stacks = land.landing_stacks(data)
     units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items() if pr["state"] == "open"}
     members: dict[tuple, list[str]] = {}
@@ -70,17 +70,31 @@ def things(data: dict, links: dict[str, list[tuple[str, str, bool]]]) -> dict[st
             members[units[key]] = list(stack)
         else:
             members.setdefault(units[key], []).append(key)
+    folds: dict[str, list[str]] = {}
+    for end in dict.fromkeys(end for chained in links.values() for end, _, last in chained if last):
+        if into := fold(end):
+            folds.setdefault(into, []).append(end)
     found: dict[str, dict] = {}
     for subject, chained in links.items():
         for end, _, last in chained:
             if not last:
                 continue
-            named = members[units[end]] if end in units else [end]
-            held = found.setdefault(named[0], {"members": named, "subjects": [], "chain": {}})
+            into = fold(end)
+            named = folds[into] if into else members[units[end]] if end in units else [end]
+            held = found.setdefault(into or named[0], {"members": named, "subjects": [], "chain": {}, "joins": bool(into)})
             if subject not in held["subjects"]:
                 held["subjects"].append(subject)
                 held["chain"] |= {link: words for link, words, _ in chained}
     return found
+
+
+def fold(wait: str) -> str | None:
+    """The one stall a wait stands in with every other wait on the same, by his order's words "one frozen environment produces five stall lines for one job in five minutes and twenty for two jobs": a staging wait in its env's, whichever service, commit or job awaits it there, and a release wait in its PR's on the env it names, or on every cluster when it names none, whichever service; None for any other wait."""
+    if staging := state.STAGING_WAIT.fullmatch(wait):
+        return f"staging:{staging['env']}"
+    if release := state.RELEASE_WAIT.fullmatch(wait):
+        return f"release:{release['pr']}" + (f"@{release['env']}" if release["env"] else "")
+    return None
 
 
 def words(data: dict, cards: dict, members: list[str]) -> str:
@@ -88,10 +102,10 @@ def words(data: dict, cards: dict, members: list[str]) -> str:
     return "; ".join(link(data, cards, member)[0] for member in members)
 
 
-def aged(kept: dict | None, printed: str, moment: datetime) -> dict:
-    """The stall record of a thing that reads printed now: kept while it reads as it did, else a fresh one from this moment, so a push, a new stage, his answer or a wait ending on it is progress and a new stall, while a job starting or ending its wait on it is neither."""
-    if kept and kept["print"] == printed:
-        return kept
+def aged(kept: dict | None, printed: str, joins: bool, moment: datetime) -> dict:
+    """The stall record of a thing that reads printed now: kept while it reads as it did, or, for one waits join, while each wait it read still reads so, its print then naming the waits that joined, else a fresh one from this moment, so a push, a new stage, his answer or a wait ending on it is progress and a new stall, while a job starting or ending its wait on it is neither, nor a wait joining a staging env or release that already stands."""
+    if kept and (kept["print"] == printed or joins and set(kept["print"].split("; ")) <= set(printed.split("; "))):
+        return kept | {"print": printed}
     return {"print": printed, "since": state.stamp(moment), "agent": None, "found": None, "said": None, "told": None, "claim": None}
 
 
