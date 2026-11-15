@@ -1626,6 +1626,36 @@ done({ title: card.querySelector('.card-title').textContent, story: [...card.que
     assert led == {"title": "A stuck lock frees itself in 30 seconds", "story": [["Why", "A held lock never lets go."], ["Tested", "Not yet on staging."]]}
 
 
+def test_a_pr_cards_main_panel_draws_the_first_picture_of_its_show_me_beside_its_story_and_v_enlarges_it(tmp_path: Path) -> None:
+    show_me = "Once it lands:\n\n![The queue with its first picture](/demo/after.png)\n\n### Before\n\n![The queue as it was](/demo/before.png)"
+    read = READ | {"body": f"## Show me\n{show_me}", "show_me": show_me}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await until(() => document.querySelector('#main .pr-example'));
+const box = (el) => el.getBoundingClientRect();
+const example = document.querySelector('#main .pr-example');
+const drawn = {
+  picture: example.querySelector('[data-shot]')?.dataset.caption, caption: example.querySelector('.caption').textContent, more: example.querySelector('[data-spot]').textContent,
+  beside: box(example).left >= box(document.querySelector('#main .pr-story')).right, tabbed: Boolean(example.closest('.pr-pane')),
+};
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', bubbles: true }));
+const lightbox = document.querySelector('#lightbox');
+const enlarged = { open: lightbox.open, alone: lightbox.querySelector('.lb-bar .meta')?.textContent === '' };
+lightbox.close();
+document.querySelector('#main [data-prtab="context"]').click();
+await wait(100);
+document.querySelector('#main .pr-example [data-spot]').click();
+await wait(100);
+done({ drawn, enlarged, tab: document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab, focused: document.activeElement === document.querySelectorAll('#main .pr-pane.show [data-shot]')[1] });
+""", board(queue=[STACK], review=OPEN), "1440,900", before=STAND_IN.replace(json.dumps(READ), json.dumps(read)))
+    assert seen == {
+        "drawn": {"picture": "The queue with its first picture", "caption": "The queue with its first picture", "more": "1 more in Show me →", "beside": True, "tabbed": False},
+        "enlarged": {"open": True, "alone": True},
+        "tab": "show",
+        "focused": True,
+    }
+
+
 def test_a_pr_cards_lead_titles_it_and_tells_its_why_what_and_downstream_above_its_stack_with_nothing_to_open(tmp_path: Path) -> None:
     lead = {"headline": "Held locks let go after 30 seconds", "why": "A held lock never lets go.", "what": "A held lock lets go after 30 s.", "downstream": "A slow writer can lose its lock."}
     led = browse(tmp_path, """
