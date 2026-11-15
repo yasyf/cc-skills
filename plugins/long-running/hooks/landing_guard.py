@@ -112,6 +112,12 @@ HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
 )
+AGENTS_FREEZE_HIS = (
+    "Refused on purpose: `{command}` lifts or excepts an agents freeze, the release-ledger row holding every release his agents"
+    ' and ai-oncall start, and only he does either, by his words "no releases until I say we can again, only I can give exceptions"'
+    ' and his pick "your freeze holds your agents\' releases until you lift it". A job needing a release under it returns WAITING'
+    " release naming that exact command, and the top asks him for his exception"
+)
 CUT_UNREAD = (
     "Refused on purpose: whether this forge/release build is a release cut, one whose env holds RELEASE_START, could not be"
     " read, so `{command}` waits until it can: {error}. Run it again once Buildkite answers"
@@ -207,6 +213,7 @@ RELEASE_BY_HAND = (
     " top's checkout, prints its build and briefs the job's agent to follow it and read its approve hold. A job needing a release"
     " returns WAITING release naming that exact command once its `tools/ci release plan` reads right, and the top asks him for his go"
 )
+AGENTS_FREEZE_VALUED = Landing(("ci", "release"), frozenset({"except", "reason", "order", "via"}))
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
     " session, the communicator's answer, handoff or refused record naming a job a coordinator session's agent runs on"
@@ -456,7 +463,7 @@ def lane_reason(keys: list[str]) -> str | None:
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:
-    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
+    """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: none of them lifts an agents freeze or adds an exception to it, which only he does; a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, and a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job."""
     if READS_ONLY & set(words):
         return None
     try:
@@ -468,6 +475,8 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     lane = os.environ.get(state.REMOTE_LANE_ENV)
     codex = codex_job()
     job = shell.job or bool(lane or codex)
+    if (shell.driving or job) and lifts_agents_freeze(verb, words):
+        return AGENTS_FREEZE_HIS.format(command=" ".join(words))
     if verb == "cancel" and job:
         return RELEASE_CANCEL
     if verb not in RELEASE_CUTS:
@@ -522,6 +531,12 @@ def release_verb(words: list[str]) -> str | None:
 def release_cut(number: str | None) -> bool:
     """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a write naming no build, such as one creating a build, counts as one."""
     return not (number and number.isdigit()) or bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
+
+
+def lifts_agents_freeze(verb: str, words: list[str]) -> bool:
+    """Whether a `ci release` verb lifts an agents freeze or adds an exception to it, `unfreeze --agents` or `freeze --agents --except <answer id>`, read as go/ci reads them: `--agents` as a word of its own, `--except` with its value as the next word or after `=`."""
+    _, options = parse(words[3:], AGENTS_FREEZE_VALUED)
+    return "--agents" in words[3:] and (verb == "unfreeze" or verb == "freeze" and "except" in options)
 
 
 def lane_release_reason(release: str) -> str | None:
@@ -736,7 +751,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, lifts or excepts an agents freeze in a drive session or agent, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

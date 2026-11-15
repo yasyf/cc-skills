@@ -1208,6 +1208,35 @@ def test_a_drive_job_cancels_no_release_it_started_and_returns_it_held_for_the_c
     assert landing_guard.deny_reason(bash(cancel) | {"session_id": "session-under-test"}) is None
 
 
+def test_no_drive_session_or_agent_lifts_or_excepts_his_agents_freeze_and_each_still_reads_and_sets_one(demo: str, no_calls: list[list[str]]) -> None:
+    callers = (
+        {"session_id": "session-under-test"},
+        {"session_id": "session-under-test", "agent_id": "a4da3dca63d05a40d", "agent_type": "long-running:builder"},
+        {"session_id": "a-lane-of-its-own", "agent_type": "long-running:builder"},
+    )
+    lifts = {
+        "tools/ci release unfreeze --agents": "tools/ci release unfreeze --agents",
+        "go/ci/.build/ci.dev release unfreeze --agents --json": "go/ci/.build/ci.dev release unfreeze --agents --json",
+        "tools/ci release freeze --agents --except 15c4de1": "tools/ci release freeze --agents --except 15c4de1",
+        "cd /work && tools/ci release freeze --except=15c4de1 --agents --via a-9": "tools/ci release freeze --except=15c4de1 --agents --via a-9",
+        "env -u AWS_PROFILE tools/ci release unfreeze --via a-9 --agents": "tools/ci release unfreeze --via a-9 --agents",
+    }
+    refused = [landing_guard.AGENTS_FREEZE_HIS.format(command=runs) for runs in lifts.values()]
+    assert [landing_guard.deny_reason(bash(command) | caller) for caller in callers for command in lifts] == refused * len(callers)
+    passes = (
+        "tools/ci release freeze --agents",
+        "tools/ci release freeze --agents --json",
+        'tools/ci release freeze --agents --reason "no releases until I say we can again" --order 15c4de1',
+        "tools/ci release unfreeze --agents=true",
+        "tools/ci release unfreeze --agents --help",
+        "tools/ci release freeze --agents --except 15c4de1 -h",
+        "tools/ci release unfreeze 7f3e2a",
+        "tools/ci release freeze api --reason x --until 2026-11-16T00:00:00Z --except-incident-fixes",
+    )
+    assert [landing_guard.deny_reason(bash(command) | caller) for caller in callers for command in passes] == [None] * len(passes) * len(callers)
+    assert [landing_guard.deny_reason(bash(command) | {"session_id": "outside-any-drive"}) for command in lifts] == [None] * len(lifts)
+
+
 
 BRIEFED_HOTFIX = "tools/ci release hotfix 55225 --only cloudrunner-next,executor"
 UNENVED_START = "tools/ci release start cloudrunner-next executor"
