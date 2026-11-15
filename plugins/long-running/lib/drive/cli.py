@@ -1352,6 +1352,17 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
+    given = {
+        "kind": args.kind,
+        "goal": args.goal,
+        "agent": args.agent,
+        "where": "remote" if args.remote else None,
+        "repo": args.repo,
+        "branch": args.branch,
+        "worktree": args.worktree,
+        "builds_nothing": args.builds_nothing,
+        "model": args.model,
+    }
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_job_parts(name, data, args.order, args.part)
@@ -1359,7 +1370,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         fresh = state.new_job(args.order, args.kind, args.goal, parts, created)
         waits = view.stored_waits(data, [state.change_wait(data, wait, None, fresh) for wait in args.waits], found)
-        held = state.change_job(data, args.order, parts, waits) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
+        held = state.change_job(data, args.order, parts, waits, proving=state.builds_nothing(given)) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
@@ -1373,17 +1384,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
-        given = {
-            "kind": args.kind,
-            "goal": args.goal,
-            "agent": args.agent,
-            "where": "remote" if args.remote else None,
-            "repo": args.repo,
-            "branch": args.branch,
-            "worktree": args.worktree,
-            "builds_nothing": args.builds_nothing,
-            "model": args.model,
-        }
         took = []
         folds = held and state.untaken(held[1])
         if folds:
@@ -1484,13 +1484,13 @@ def one_change_job(data: dict, order_id: str, kind: str, parts: list[str], held:
         return f'{carries}, so a second {kind} would race it on one change: send it the event with drive job resume {held_id} "<the event>", or stop it with drive job set {held_id} --state stopped before adding the job that replaces it'
     if not adds:
         return f"{carries}, and a part has one change job: drive job add {kind} --order {order_id} on that part takes its place, or stop it first with drive job set {held_id} --state stopped"
-    second = state.change_job(data, order_id, parts, waits, held_id)
+    second = state.change_job(data, order_id, parts, waits, held_id, state.builds_nothing(other))
     return f"{carries}, and {second[0]} {second[1]['kind']} {second[1]['state']} carries {second[2]}: a part has one change job, so name the parts of one of them" if second else None
 
 
 def refuse_a_second_change_job(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job = data["jobs"][job_id]
-    if job["kind"] in state.CHANGE_KINDS and (held := state.change_job(data, order_id, parts, job["waits"], job_id)):
+    if job["kind"] in state.CHANGE_KINDS and (held := state.change_job(data, order_id, parts, job["waits"], job_id, state.builds_nothing(job))):
         raise DriveError(f"{job_id}: refused, nothing changed: {one_change_job(data, order_id, job['kind'], parts, held, job['waits'], adds=False)}")
 
 
@@ -2703,7 +2703,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a stopped job's return is kept ahead of every refusal and sets nothing, its state, said line, waits, PRs, builders and briefs left as they were, the print saying it stays stopped, so the agent its stop left running ends on that line; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each; each open card of the job the return no longer names it withdraws, by superseded.moved_on, printing how each is asked again; a reader's or design's return whose line goes against a recorded answer of his is refused, by brief.overruled_refusal. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a stopped job's return is kept ahead of every refusal and sets nothing, its state, said line, waits, PRs, builders and briefs left as they were, the print saying it stays stopped, so the agent its stop left running ends on that line; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there, each write only the line naming when to start each builder it added, which no other line carries; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each; each open card of the job the return no longer names it withdraws, by superseded.moved_on, printing how each is asked again; a reader's or design's return whose line goes against a recorded answer of his is refused, by brief.overruled_refusal. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2753,10 +2753,13 @@ def job_report(args: argparse.Namespace) -> int:
         withdrawn = [*superseded.follow(name, moved_on, "that its work went on without it"), *redraws(data, moved_on)] if moved_on else []
         briefed = [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed]
         told = state.load(name)
+        started = render.builder_lines(data, added)
         if (taken := told["jobs"][args.id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
-            state.returned(name, told, args.id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *render.builder_lines(data, added)]))
+            state.returned(name, told, args.id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
+        elif started:
+            state.returned(name, told, args.id, "; ".join(started))
         shown = f"{where}\n{said}" if said else where
-        shown = "\n".join([shown, *registered, *fixes, *withdrawn, *briefed, *render.builder_lines(data, added)])
+        shown = "\n".join([shown, *registered, *fixes, *withdrawn, *briefed, *started])
         return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added})
     text = state.report_text(name, args.id, args.all)
     if not text and job["said"] in (None, state.NOT_STARTED):

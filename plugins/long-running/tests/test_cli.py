@@ -5131,6 +5131,23 @@ def test_a_builder_taking_over_a_pr_on_a_build_order_no_reader_read_is_added_and
         assert brief.brief_refusal("demo", state.load("demo"), job_id, handoff) is None
 
 
+def test_a_build_added_on_a_part_a_prover_carries_starts_beside_it_and_leaves_the_provers_goal_waits_and_state(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "the copy")
+    proof = "prove Forge-AI/monorepo#7 live"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", proof)[1].splitlines()[0] == "j1"
+    released = ["release:api:Forge-AI/monorepo#7"]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(waits=released, state="waiting")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "retry each stalled copy")[1].splitlines()[0] == "j2"
+    jobs = state.load("demo")["jobs"]
+    assert [(jobs[job_id]["goal"], jobs[job_id]["waits"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [(proof, released, "waiting"), ("retry each stalled copy", [], "running")]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(agent="a", said="WAITING on the release of Forge-AI/monorepo#7")
+        data["jobs"]["j2"]["state"] = "stopped"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "retry it again")[1].splitlines()[0] == "j3"
+    assert (state.load("demo")["jobs"]["j1"]["state"], state.load("demo")["jobs"]["j1"]["parts"]) == ("waiting", ["the copy"])
+
+
 def test_a_reader_carrying_another_orders_part_is_that_parts_reader_so_its_builder_starts_on_its_research(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5963,6 +5980,19 @@ def test_j135_a_builder_added_for_a_piece_another_builder_left_unbuilt_plans_on_
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     plan = f'\nPlan: j2\'s return, change "retry each stalled copy": drive job report j2; stack on j2\'s PR {url}, branch j2-copy-one-store, head 71de42aa7967150dbbac2b152c7c28c041403478 as it returned\n'
     assert (code, plan in written) == (0, True)
+
+
+def test_a_builders_pushed_whose_unbuilt_line_adds_a_builder_writes_the_line_starting_it_though_a_pushed_wakes_nobody(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    kept_proof(tmp_path, "j2")
+    pushed = "PUSHED https://github.com/yasyf/cc-skills/pull/1\nSERVES: drive tooling\nREUSES: calls store_copy_at for each store\nUNBUILT: retry each stalled copy\n"
+    assert keep(monkeypatch, capsys, "j2", pushed) == (0, "")
+    started = 'j3 builder on "retry each stalled copy": start its agent now'
+    assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and event["job"] == "j2"] == [started]
 
 
 def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_make_no_part_and_an_unbuilt_line_on_work_a_sibling_part_or_another_jobs_pr_holds_is_refused(

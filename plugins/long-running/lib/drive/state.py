@@ -2538,8 +2538,8 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     ]
 
 
-def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None) -> tuple[str, dict, str] | None:
-    """The one unfinished builder or codex job but job_id on any of these parts of the order, beside the parts it holds of them, quoted, since a part has one change job at a time, so one reader's return frees one builder and one PR builds one change; none on an incident, whose second job on a brief whose clock ran out races the first by design, and none that these waits name, by its id or a PR it opened, whose next change waits on its own."""
+def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None, proving: bool = False) -> tuple[str, dict, str] | None:
+    """The one unfinished builder or codex job but job_id on any of these parts of the order, beside the parts it holds of them, quoted, since a part has one change job at a time, so one reader's return frees one builder and one PR builds one change; none on an incident, whose second job on a brief whose clock ran out races the first by design, none that these waits name, by its id or a PR it opened, whose next change waits on its own, and none that builds nothing unless proving says the job asking builds nothing too, since a prover or staging tester proves a change another job built, so a build folding into it would take its release waits and drop its goal."""
     if data["orders"][order_id]["incident"]:
         return None
     return next(
@@ -2550,6 +2550,7 @@ def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (
             and (other := data["jobs"][other_id])["kind"] in CHANGE_KINDS
             and not {other_id, *map(pr_key, other["prs"])} & set(waits)
             and other["state"] not in FINISHED_JOB_STATES
+            and builds_nothing(other) == proving
             and (shared := [part for part in parts if part in job_parts(other, order_id)])
         ),
         None,
