@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from drive import dashboard, picture, reads, render, settled, slack, state, view
+from drive import dashboard, limits, picture, reads, render, settled, slack, state, view
 from drive.limits import REF
 from drive.state import DriveError
 
@@ -123,7 +123,7 @@ def stated(line: str) -> bool:
 
 
 def unprevented(text: str, found: dict[str, dict], subject: set[str]) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that names a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or a line of the drive late or overdue, or cites the defect record the drive filed for one, when the text outside its fences names no order or PR carrying the tool change that prevents it, never counting subject, the orders and PRs the text reports on, which say what was late, not what keeps it from being late again; found holds each reference the text makes, as resolved reads it."""
+    """Each line of the text, outside a fence and a quoted line, whose writer's own words name a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or a line of the drive late or overdue, or that cites the defect record the drive filed for one, when the text outside its fences names no order or PR carrying the tool change that prevents it, never counting subject, the orders and PRs the text reports on, which say what was late, not what keeps it from being late again; found holds each reference the text makes, as resolved reads it."""
     told = picture.FENCE.sub("", text)
     if named(told) - subject:
         return []
@@ -131,12 +131,17 @@ def unprevented(text: str, found: dict[str, dict], subject: set[str]) -> list[st
         line.strip()
         for line in told.splitlines()
         if not line.lstrip().startswith(">")
-        and (drive_failure(QUOTED.sub("", line)) or any(found[match[0]].get("defect") for match in REF.finditer(line) if match[1] == "record"))
+        and (drive_failure(own_words(line)) or any(found[match[0]].get("defect") for match in REF.finditer(line) if match[1] == "record"))
     ]
 
 
 def drive_failure(line: str) -> bool:
     return bool(FAILURE.search(line) and DRIVE_PART.search(line) or LATE.search(line))
+
+
+def own_words(line: str) -> str:
+    """The line with each reference, link, URL, quote and code name blanked, as limits.masked blanks them, so only the words its writer typed remain: a {pr:…|…} title, a test's name or a quoted refusal says nothing of the drive's own."""
+    return limits.masked(REF.sub(lambda found: limits.MASK * len(found[0]), line))
 
 
 def named(text: str) -> set[str]:
@@ -154,9 +159,9 @@ def subject(data: dict, order_id: str | None) -> set[str]:
 
 
 def prevented(text: str) -> bool:
-    """Whether a line of the text, outside a fence, a quote and a quoted line, names a cause or a failure of the drive's own while a line outside its fences and quotes carries the order or PR preventing it, the post his ruling on failures asks for."""
+    """Whether a line of the text, outside a fence and a quoted line, names a cause or a failure of the drive's own in its writer's own words while a line outside its fences and quotes carries the order or PR preventing it, the post his ruling on failures asks for."""
     told = [line for line in picture.FENCE.sub("", text).splitlines() if not line.lstrip().startswith(">")]
-    return any(named(line) for line in told) and any(CAUSE.search(plain := QUOTED.sub("", line)) or drive_failure(plain) for line in told)
+    return any(named(line) for line in told) and any(CAUSE.search(plain := own_words(line)) or drive_failure(plain) for line in told)
 
 
 def record_excuses(text: str) -> list[str]:

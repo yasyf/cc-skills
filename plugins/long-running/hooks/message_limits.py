@@ -114,6 +114,12 @@ PROMISE_RULE = (
     f" it goes to, which the watch owes the thread a line on five quiet minutes later until a job of that order starts, by {PROMISE_RULING}; a line"
     " saying a job already at work goes on, or a release or step that is no job's start, promises no such start."
 )
+PREVENTION_RULE = (
+    "A failure of the drive's own that reaches him, such as a card refused, a check nobody ran, a message that never arrived, a hook"
+    " refusing a post he ordered or a line promised him late, says in that post how it is prevented: the tool change, the order or PR"
+    " carrying it and when it is live, by his ruling 6a6edbf \"thats not acceptable to dsay without telling me how you will prevent it\"."
+    " A line on what the product, a customer's run or a PR's own checks and tests did tells no failure of the drive's and needs nothing."
+)
 DOWN_RULE = f"A coordinator that is down is restarted that minute, and he hears it was restarted, never only that it is down, by {DOWN_RULING}."
 SAY_RULE = (
     "Every message to him in his DM, a new post or an edit of one, goes through say, the one call that links its references"
@@ -191,10 +197,6 @@ DOC_SOURCE = "; {docs} is a doc, which backs what that doc says and nothing abou
 CITED_SOURCE = "a record the post cites or a claim names, as the posting handler's newest call naming its seq"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
 CARRIED_SOURCE = "the report this post carries, another agent's words, as the posting handler's newest call naming its seq"
-
-
-class Warned(str):
-    """A finding the session hears beside its post, which goes out as written: a word pattern that also matches the product's own refusals, such as a pod its check refused, warns rather than refuses, by his pick "1 and then if we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings only warn the session ... posts go out"."""
 
 
 def his_drive(session: str) -> dict | None:
@@ -409,18 +411,17 @@ def unbacked(payload: dict, said: str) -> str | None:
     )
 
 
-def unprevented(said: str, found: dict[str, dict], subject: set[str]) -> Warned | None:
-    """What the session hears when a line of its post to him reads as a failure, refusal or gap of the drive's own, a line of it late included, or cites its defect record, and the post has no word on how it is prevented, the order it goes to and that order's PRs, subject, never counting as that word: the post goes out as written. A post drawing a PR card carries the PR that prevents it."""
+def unprevented(said: str, found: dict[str, dict], subject: set[str]) -> agents.Ruled | None:
+    """Why a line of a post to him, in its writer's own words, reads as a failure, refusal or gap of the drive's own, a line of it late included, or cites its defect record, while the post has no word on how it is prevented, the order it goes to and that order's PRs, subject, never counting as that word: each line one finding Jev weighs by PREVENTION_RULE, so a line on what the product or a PR's own tests did passes. A post drawing a PR card carries the PR that prevents it."""
     if not (lines := refs.unprevented(said, found, subject)):
         return None
-    return Warned(
-        "message_limits: this post goes out as written, and these lines read as telling him a card, check, hook, lane or session"
-        " of the drive failed, refused, disconnected or left a gap, or that a line of it is late, with no word on how it is prevented. When one does, reword"
-        " the post with say(edit=<its permalink>, text=…) adding the tool change, the {order:<o>} or {pr:<n>}"
-        " carrying it and when it is live, never the order or PR the post is about, or return a DEFECT line when no fix is started; a disconnect is no excuse, since a"
-        " session reaches another with SendMessage while cci is down. A line telling what the product does, such as a pod its"
-        ' own check refused, needs nothing. His ruling 6a6edbf: "thats not acceptable to dsay without telling me how you will'
-        f' prevent it". The lines: {" | ".join(lines)}'
+    return agents.Ruled(
+        "refused: these lines tell him a card, check, hook, lane or session of the drive failed, refused, disconnected or left a gap, or"
+        " that a line of it is late, with no word on how it is prevented: add the tool change, the {order:<o>} or {pr:<n>} carrying it and"
+        " when it is live, never the order or PR the post is about, or return a DEFECT line when no fix is started; a disconnect is no"
+        f" excuse, since a session reaches another with SendMessage while cci is down. The lines: {' | '.join(lines)}",
+        PREVENTION_RULE,
+        findings=[{"rule": PREVENTION_RULE, "found": line} for line in lines],
     )
 
 
@@ -525,8 +526,7 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    reason = checked(payload)[0]
-    return None if isinstance(reason, Warned) else reason
+    return checked(payload)[0]
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
@@ -568,7 +568,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, and `cc-slack check-post` passes its exact words; a line naming a failure of the drive's with no word on how it is prevented only warns the session, and the post goes out."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, and `cc-slack check-post` passes its exact words."""
     dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -868,13 +868,12 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all, its counted findings numbered as its refusals are and each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
-    found = [refusal for refusal in refusals if refusal]
-    refused = [refusal for refusal in found if not isinstance(refusal, Warned)]
+    """One refusal holding each check's, so a single rewrite fixes them all, its counted findings numbered as its refusals are and each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone."""
+    refused = [refusal for refusal in refusals if refusal]
     if unjudged := next((refusal for refusal in refused if isinstance(refusal, agents.Unjudged)), None):
         return unjudged
     if len(refused) < 2:
-        return next(iter(refused or found), None)
+        return next(iter(refused), None)
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
     rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
     counted = "\n".join(f"{index}. {refusal.counted.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled) and refusal.counted)
@@ -1030,20 +1029,18 @@ def main() -> None:
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
         ids = {item["read"]: item["id"] for item in reads if item["id"].startswith("read:")}
         sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})
-        heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
-        reason = "" if heard else reason
         judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
         if unfit := judged and settled.unfit_reads(judged):
-            reason, heard, judged = unroomed(unfit), {}, {}
+            reason, judged = unroomed(unfit), {}
     except Exception as error:
         if isinstance(error, state.NewerDrive) and install.rechecked(Path(__file__).name, payload):
             return
-        reason, heard, judged = (
+        reason, judged = (
             f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
-        ), {}, {}
+        ), {}
     refused = denial(reason) | agents.ruled(reason) if reason else {}
-    if output := heard | refused | judged:
+    if output := refused | judged:
         print(json.dumps(output))
 
 
