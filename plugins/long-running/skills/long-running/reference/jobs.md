@@ -456,8 +456,11 @@ before it sends or starts.
   drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
   hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
   send, and the next message tries again. On a finished worker on this Mac, it starts the job's
-  next worker in its terminal, on the Run and terminal Orca recorded for that worker, kept even
-  when Orca's read shows no terminal because it could not tie it to the worker's process. On a
+  next worker through the launcher in a fresh terminal and Claude session, in the worktree Orca
+  recorded for that worker, or the one holding the job's open PR branch, on a Run this terminal
+  makes, never in the finished worker's own terminal, whose session every earlier worker there
+  filled; when that start starts no worker, as when the worktree is gone, it relaunches in a fresh
+  worktree as a dead worker's. On a
   finished worker whose Sprite is still up, it prepares that Sprite again with
   `cc-remote orca prepare <Sprite> --existing`, which gives it the tool payload and keys a fresh
   Sprite gets, and starts the next worker there in the checkout the last one left, on a Run this

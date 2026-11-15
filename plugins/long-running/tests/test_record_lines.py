@@ -776,6 +776,20 @@ def test_a_post_or_close_reaching_an_unfinished_jobs_id_is_refused_naming_the_re
     assert record_lines.decision(close | {"tool_input": close["tool_input"] | {"seqs": ["8"]}}) is None
 
 
+def test_a_record_to_the_cci_address_drive_job_resume_writes_for_a_jobs_agent_goes_out_to_that_agent(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bound_to_iris(run, demo, monkeypatch)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
+    run("job", "set", "j1", "--agent", "a4667d5c611bb5233")
+    address = state.agent_address(state.load(demo)["jobs"]["j1"])
+    assert address == f"peer:{SESSION}/a4667d5c611bb5233"
+    made = record_lines.decision(post("iris-1", kind="handoff", text="j1: rebase first", to=[address], attrs={"order": "o1", "job": "j1"})) or {}
+    assert (made.get("permissionDecision"), made.get("updatedInput", {}).get("to", [address])) == (None, [address])
+    reason = refusal(record_lines.decision(post("iris-1", kind="handoff", text="j1: rebase first", to=[f"peer:{SESSION}/a0000000000000000"])))
+    assert reason.startswith(f"refused, nothing posted: to peer:{SESSION}/a0000000000000000: no session of drive demo reads that lane")
+
+
 def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_hearing_that_order(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

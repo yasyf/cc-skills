@@ -34,6 +34,7 @@ OLDER_INSTALL_PROMISE = ("due", "promised", "kept", "due_said", "next_due", "nex
 JOB_KINDS = ("builder", "reader", "design", "codex")
 REPORT_REPLY = "report_"
 RETURNED = "returned"
+TEXT_WENT = "went"
 TURN_ENDS = ("worker_done", "escalation")
 EARLIER_RETURN = "--- an earlier return, kept {at} ---"
 EARLIER_LINE = "an earlier return, kept {at}: {line}"
@@ -2111,6 +2112,21 @@ def open_jobs(data: dict) -> list[str]:
     return [job_id for job_id, job in data["jobs"].items() if job["state"] not in FINISHED_JOB_STATES]
 
 
+def told(job: dict, words: list[str]) -> None:
+    """Mark said now each text the job holds with these words, since its sender was just told it is held, so the watch's ANSWER undelivered line on it comes DUE_EVERY from now and went says when it goes."""
+    for kept in job["undelivered"]:
+        if kept["words"] in words:
+            kept["said"] = stamp()
+
+
+def went(name: str, data: dict, job_id: str, texts: list[dict], how: str) -> None:
+    """Write the TEXT_WENT event the watch hearing a job says for each of these texts the drive told its sender it held, by drive job resume's held line or the watch's ANSWER undelivered line, as it goes to a worker, how it went, so a sender told a text waits hears when it goes."""
+    job = data["jobs"][job_id]
+    for kept in texts:
+        if kept.get("said"):
+            append_event(name, TEXT_WENT, job=job_id, order=job["order"], words=kept["words"], held=kept["at"], how=how, lane=heard_job_lane(data, job))
+
+
 def hand_held(data: dict, job_id: str, into: str) -> None:
     """Move each text a job holds onto the job taking its work, but one that job holds already, so the text reaches that job's next worker; any other job that stops or ends done drops what it holds as it is saved, by drop_ended_texts."""
     taker = data["jobs"][into]
@@ -2128,7 +2144,7 @@ def hand_off(data: dict, ends: dict[str, str]) -> None:
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
-    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox read, the live worker's at each lane pass or an ended one's, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts hold_text kept."""
+    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox read, the live worker's at each lane pass, an ended one's or one's before an end drops it, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts hold_text kept."""
     senders = {sent_by(sender): sender for sender in [HIM, *SENDER_NAMES]}
     unread = {unheld(message["body"]): senders.get(message["subject"]) for message in box if hold and not message["read"]}
     settled = {unheld(message["body"]) for message in box if hold or message["read"]}
@@ -4629,11 +4645,11 @@ def holding_job_lane(data: dict, job: dict) -> str:
 
 
 def unread(drives: dict[str, dict], to: list[str], drive: str | None, held: bool = False) -> str | None:
-    """Why a record cannot go out: it names a lane of a drive the session is bound to that no session reads, a bare lane read as the drive's, as a sub-coordinator's handoffs to coordinator sat unread while the top coordinator read root; the drive's sessions read root, communicator, meta and each sub-coordinator's lane, and he reads owner. An unfinished job's id is the lane its job hears where held is set, since that post holds the record on the job by hold_addressed, and job_addressed refuses it anywhere else."""
+    """Why a record cannot go out: it names a lane of a drive the session is bound to that no session reads, a bare lane read as the drive's, as a sub-coordinator's handoffs to coordinator sat unread while the top coordinator read root; the drive's sessions read root, communicator, meta and each sub-coordinator's lane, he reads owner, and each agent on this Mac a job of the drive runs reads its own cci address, agent_address, which drive job resume posts its texts to. An unfinished job's id is the lane its job hears where held is set, since that post holds the record on the job by hold_addressed, and job_addressed refuses it anywhere else."""
     for entry in to:
         lane, _, name = entry.partition("@")
         name = name or drive or ""
-        if not (data := drives.get(name)) or lane in (lanes := ["root", "communicator", "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data):
+        if not (data := drives.get(name)) or lane in (lanes := ["root", "communicator", "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
             continue
         return job_addressed(drives, [entry], drive) or f"refused, nothing posted: to {lane}: no session of drive {name} reads that lane; name one of {', '.join(lanes)}, or an unfinished job's id on the drive's `record` tool"
     return None
@@ -4649,6 +4665,11 @@ def job_addressed(drives: dict[str, dict], to: list[str], drive: str | None) -> 
                 f" for its running worker or codex run, as drive job resume holds a text; send it there with to {lane}, re the seq it answers and resolves each seq it closes"
             )
     return None
+
+
+def agent_address(job: dict) -> str:
+    """The cci address of the agent on this Mac a job runs as, which that agent reads once its starter's SendMessage points it at a record there."""
+    return f"peer:{job['session']}/{job['agent']}"
 
 
 def tooling(order: dict) -> bool:
