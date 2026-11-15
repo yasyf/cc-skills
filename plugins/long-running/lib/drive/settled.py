@@ -193,6 +193,10 @@ FEATURE = Noul(
     "Is `order` on the feature `open.{slot}` holds: the same fault or change, a slice of it, a fix to it or a step after it?",
     no="It asks for work that order is not about, even in the same code.",
 )
+SAME_CHANGE = Noul(
+    "Does `open.{slot}` already make the change `part.name` names, a part of `part.order`: the same fix or change, or one that leaves nothing of it to build?",
+    no="It is other work, even in the same code or on the same feature, or a step before or after it.",
+)
 ORDERS = Noul(
     "Do `answer.said`, read with `answer.notes`, `card` and his `earlier` answers in that thread, have the release in `action` run?",
     yes=(
@@ -888,6 +892,27 @@ def repeats(data: dict, words: str, tooling: bool) -> str | None:
             file=sys.stderr,
         )
     return None
+
+
+def same_changes(data: dict, order_id: str, part: str) -> list[str]:
+    """Each undelivered part of another open order, as `<order>:<part>`, and each open drive PR, by its key, that Jev reads at YES or more as already making the change a new part of the order names, against the REPEATS_ASKED of them whose part name with its order's title, or PR title, shares the most rare words with the part's name, none sharing none, one Noul each, every one read in as many requests as batched needs, so a likelier one never pushes the right one out of a full request; Unheard when Jev gives no reading."""
+    said = rare(part)
+    open_work = [
+        *(
+            (f"{other_id}:{other_part}", f'"{other_part}", a part of {other["title"] or cut(other["text"], 200)}')
+            for other_id, other in state.open_orders(data).items()
+            if other_id != order_id
+            for other_part in other["parts"]
+            if not state.delivered(data, other_id, other_part)
+        ),
+        *((key, f'pull request "{pr["title"]}"') for key, pr in data["prs"].items() if pr["state"] == "open" and pr["title"]),
+    ]
+    closest = sorted((item for item in open_work if said & rare(item[1])), key=lambda item: len(said & rare(item[1])), reverse=True)[:REPEATS_ASKED]
+    slots = {f"c{number}": key for number, (key, _) in enumerate(closest, 1)}
+    items = (({"open": {slot: text}}, {f"same.{slot}": asking(SAME_CHANGE, slot=slot)}) for slot, (_, text) in zip(slots, closest, strict=True))
+    order = data["orders"][order_id]
+    read = jev_all(batched({"part": {"name": part, "order": " — ".join(filter(None, [order["title"], order["text"][:BODY_CHARS]]))}, "open": {}}, {}, items))
+    return [slots[key.partition(".")[2]] for key, sure in read.items() if sure >= YES]
 
 
 def asks_page(words: str) -> bool:
