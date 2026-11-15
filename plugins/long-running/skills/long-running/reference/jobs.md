@@ -484,14 +484,24 @@ before it sends or starts.
   replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
   handoff, oldest first. A relaunch Orca refuses exits 0 with Orca's refusal, saying the text is still held, which the
   watch carries again ten minutes on; `drive job resume <j>` delivers it once Orca reads the lane.
-- A text sent to a live worker stays only in the mailbox of the Orca keeping its Dispatch, this
-  Mac's for a lane here and the lane's Sprite's for a lane there, until that worker reads it. Once
-  the watch's lane pass reads a lane's worker finished or exited while its job runs or waits, it
-  reads that dispatch's unread mail once from that Orca, `orca orchestration inbox --environment
-  <the job's environment>` for a Sprite lane, holds each text on the job, and runs `drive job resume
-  <j>` with no text, whose relaunch carries them in the next worker's handoff, unless the death it
-  read starts that relaunch already, and names them on a `JOB` line. Orca's own notice that mail
-  did not reach a finished worker says nothing more.
+- A text sent to a live worker stays in the mailbox of the Orca keeping its Dispatch, this Mac's
+  for a lane here and the lane's Sprite's for a lane there, and on the job as queued, until a
+  mailbox read at the end of a worker's turn finds it read: the watch reads the worker's mailbox
+  at each turn it ends while its job keeps a text queued. Once the watch's lane pass reads a
+  lane's worker finished or exited while its job runs or waits, it reads that dispatch's mailbox
+  once from that Orca, `orca orchestration inbox --environment <the job's environment>` for a
+  Sprite lane, takes each text it shows read off the queued list, holds each it shows unread on
+  the job, and runs `drive job resume <j>` with no text, whose relaunch carries them in the next
+  worker's handoff, unless the death it read starts that relaunch already, and names them on a
+  `JOB` line. A worker that reports with mail unread gets an Orca follow-up: a `New messages`
+  Dispatch whose `followUpOf` names the reported one, started in its terminal, its unread mail
+  moved to the follow-up's mailbox. The watch reads that follow-up as the job's mail delivery,
+  never its worker: each turn it ends takes the texts its mailbox shows read off the queued list,
+  and when its start fails, as when the worker is still busy past Orca's 60-second wait, no
+  `STOPPED` line goes up; the watch holds each text its mailbox shows unread, runs
+  `drive job resume <j>`, and says on one `JOB` line that delivery failed. Orca's own notice that
+  mail did not reach a finished worker says nothing more. `drive status`'s job row names each
+  held and each queued text.
 - The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
   message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
   notifies you when it ends.

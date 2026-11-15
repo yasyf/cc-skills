@@ -3088,14 +3088,10 @@ def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
 
 
 def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:
-    """Hold on the job each text the lane's ended worker never read, read by orca.unread from the Orca that keeps that worker's Dispatch mailbox, since Orca shows a finished worker none of its mail and a relaunch carries only what the job holds, so the job's next worker gets each as any held text gets there, each held as sent by the sender its subject names by state.sent_by; the texts held that the job did not hold already. The lane is the job as the watch read it with that worker, so a relaunch since then never has its live worker's mail held. OrcaError when that mailbox cannot be read."""
-    unread = orca.unread(lane)
-    job = state.load(name)["jobs"][job_id]
-    senders = {state.sent_by(sender): sender for sender in [state.HIM, *state.SENDER_NAMES]}
-    words = {message["body"]: senders.get(message["subject"]) for message in unread if all(held["words"] != message["body"] for held in job["undelivered"])}
-    for text, sender in words.items():
-        hold(name, job_id, text, sender)
-    return list(words)
+    """Hold on the job each text the lane's ended worker never read, read by orca.mailbox from the Orca that keeps that worker's Dispatch mailbox, since Orca shows a finished worker none of its mail and a relaunch carries only what the job holds, so the job's next worker gets each as any held text gets there, and take off the job's queued list each text that mailbox shows read or holds, by state.take_mail; the texts held that the job did not hold already. The lane is the job as the watch read it with that worker, so a relaunch since then never has its live worker's mail held. OrcaError when that mailbox cannot be read."""
+    box = orca.mailbox(lane, lane["dispatch"])
+    with state.edit(name) as data:
+        return state.take_mail(data["jobs"][job_id], box, True)
 
 
 def deliver(args: argparse.Namespace, name: str) -> int:
@@ -3144,17 +3140,18 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict]) -
     hows = []
     for index, kept in enumerate(held):
         try:
-            hows.append(orca.answer(name, job, kept))
+            how, queued = orca.answer(name, job, kept)
         except orca.OrcaError as error:
             return unsent(args, job, held[index:], error)
-        install.finished(f"{args.id}: its worker took the text", state.DRIVE_LOCK_SECONDS, sent_kept, name, args.id, kept | {"ask": job.get("ask")} | ({} if unfit else {"tools_on": workspace}))
+        hows.append(how)
+        install.finished(f"{args.id}: its worker took the text", state.DRIVE_LOCK_SECONDS, sent_kept, name, args.id, kept | {"ask": job.get("ask"), "queued": queued} | ({} if unfit else {"tools_on": workspace}))
         job = {**job, "ask": None}
     how = "; ".join(hows) + (f"; its Sprite still lacks the drive forwarder: {unfit}" if unfit else "")
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, dropped from the job, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; messaged runs it through install.finished, since a newer install may save the drive while Orca takes the text, so the text is never sent twice."""
+    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, dropped from the job's held texts, and when Orca queued it in a Dispatch mailbox rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; messaged runs it through install.finished, since a newer install may save the drive while Orca takes the text, so the text is never sent twice."""
     given_text = state.drive_dir(name) / "jobs" / f"{job_id}.sent-{sent['request']}.md"
     given_text.write_text(sent["words"])
     held = state.parse_time(sent["at"]).timestamp()
@@ -3167,6 +3164,8 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
             updated=state.stamp(),
             undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
         )
+        if sent.get("queued") and all(queued["words"] != sent["words"] for queued in fresh["queued"]):
+            fresh["queued"].append({"words": sent["words"], "sender": sent["sender"], "at": fresh["updated"]})
         if "tools_on" in sent:
             fresh["tools_on"] = sent["tools_on"]
         superseded.hear(data, job_id, sent["words"], state.parse_time(sent["at"]))

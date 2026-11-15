@@ -664,16 +664,15 @@ def newest_mail() -> list[dict]:
     return call("inbox", "--limit", str(MAIL_LIMIT))["messages"]
 
 
-def unread(job: dict) -> list[dict]:
-    """The mail the job's Dispatch worker never read, oldest first, from the Orca that keeps that mailbox: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads a Run's."""
-    dispatch = job["dispatch"]
+def mailbox(job: dict, dispatch: str) -> list[dict]:
+    """The mail in one Dispatch mailbox of the job, read or not, oldest first, from the Orca that keeps it: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads a Run's. A message keeps its read flag there once its worker reads it, and Orca moves a reported worker's unread mail to the mailbox of the follow-up it starts to carry it."""
     environment = [] if state.on_mac(job) else ["--environment", job["environment"]]
     messages = call("inbox", *environment, "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
-    return sorted((message for message in messages if message["to_handle"] == f"dispatch:{dispatch}" and not message["read"]), key=lambda message: message["sequence"])
+    return sorted((message for message in messages if message["to_handle"] == f"dispatch:{dispatch}"), key=lambda message: message["sequence"])
 
 
 def unread_notice(message: dict) -> bool:
-    """Whether the message is Orca's notice that its mail did not reach a finished worker, which says nothing of the lane's work, since the watch reads that mail itself once it reads the worker ended: an escalation whose payload names a reason and, unlike each of Orca's stop escalations, no stopReason."""
+    """Whether the message is Orca's notice that its mail did not reach a finished worker, which says nothing of the lane's work, since the watch reads that mail itself in the mailbox of the follow-up Orca started to carry it: an escalation whose payload names a reason and, unlike each of Orca's stop escalations, no stopReason."""
     if message["type"] != "escalation":
         return False
     payload = json.loads(message["payload"] or "{}")
@@ -682,6 +681,17 @@ def unread_notice(message: dict) -> bool:
 
 def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
+
+
+def follow_up(dispatch: str) -> dict | None:
+    """The worker-show of a Dispatch Orca started as the follow-up that carries the mail a worker had not read when it reported, in that worker's terminal, its followUpOf naming that worker's Dispatch and its worker's state failed when that start failed; None for any other Dispatch, or one Orca no longer holds. OrcaError when Orca cannot tell."""
+    try:
+        shown = worker(dispatch)
+    except OrcaError as error:
+        if gone(error):
+            return None
+        raise
+    return shown if shown["dispatch"].get("followUpOf") else None
 
 
 def placement(worker: dict) -> dict:
@@ -1083,8 +1093,8 @@ def completed(argv: list[str], command: subprocess.Popen) -> subprocess.Complete
     return subprocess.CompletedProcess(argv, command.returncode, stdout, stderr)
 
 
-def answer(drive: str, job: dict, kept: dict) -> str:
-    """Reply to the lane's open question with the held text, or send it to its Dispatch under the subject state.sent_by gives its sender, His answer for his and From the coordinator for the coordinator's, when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch."""
+def answer(drive: str, job: dict, kept: dict) -> tuple[str, bool]:
+    """Reply to the lane's open question with the held text, or send it to its Dispatch under the subject state.sent_by gives its sender, His answer for his and From the coordinator for the coordinator's, when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch. What came of it, and whether a Dispatch mailbox queues it until its worker reads it, as each send does and no answer its question took does."""
     if job.get("ask"):
         try:
             reply(drive, job["run"], job["ask"], kept["words"], kept["request"])
@@ -1092,8 +1102,8 @@ def answer(drive: str, job: dict, kept: dict) -> str:
             if error.code != ANSWERED_ELSEWHERE:
                 raise
         else:
-            return woke(job, f"answered its question {job['ask']}")
-    return send(drive, job, state.sent_by(kept["sender"]), kept["words"], str(uuid.uuid5(uuid.UUID(kept["request"]), "send")))
+            return woke(job, f"answered its question {job['ask']}"), False
+    return send(drive, job, state.sent_by(kept["sender"]), kept["words"], str(uuid.uuid5(uuid.UUID(kept["request"]), "send"))), True
 
 
 def send(drive: str, job: dict, subject: str, text: str, request: str | None = None) -> str:
