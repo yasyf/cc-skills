@@ -1357,6 +1357,23 @@ def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:
     assert view.staging(drive_of({}, {}, []), "yasyf/cc-skills#7") == "Not on staging: yasyf/cc-skills has no staging env"
 
 
+@pytest.mark.parametrize(
+    ("verdict", "words"),
+    [
+        ("pass", f"Tested on staging: passed at {when(state.stamp(T0))}, [proof]({PROOF}). Land it without what staging did not exercise? a retry of an unlanded run. Approve lands it without them; Hold keeps it from landing"),
+        ("fail: the second run never landed", "Tested on staging: no pass: CASE run 2 at #7's head lands: fail: the second run never landed"),
+    ],
+)
+def test_a_monorepo_prs_staging_words_read_the_done_a_job_of_its_order_waiting_on_it_ran_its_cases_in_under_a_part_of_its_own(state_root: Path, verdict: str, words: str) -> None:
+    part = "This is the kinda thing that needs to be tested in staging ffs"
+    jobs = {"j1": job("o1", "done", "DONE #7's staging case ran", parts=[part], waits=["Forge-AI/monorepo#7"])}
+    drive = drive_of({"o1": order("ship it", ["j1"], parts={part: state.new_part()})}, jobs, [tracked(7)])
+    state.drive_dir("demo").mkdir(parents=True)
+    report = f"DONE #7's staging case ran\nCHECK: {PROOF}\nCASE run 1 on dev reproduces the failure: pass\nCASE run 2 at #7's head lands: {verdict}\nCASE a retry of an unlanded run: not exercised\n"
+    state.keep_report("demo", "j1", "DONE #7's staging case ran", report, T0)
+    assert view.staging(drive, "Forge-AI/monorepo#7") == words
+
+
 def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say() -> None:
     parts = {"ship it": state.new_part(), state.STAGING_TEST.format(number=5): state.new_part() | {"soak": SOAK, "posted": PROOF}}
     _, entry = pr(5, "o1", wants_tap=True)

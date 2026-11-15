@@ -4964,7 +4964,7 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(data: dict, pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, neither his Hold nor his Approve on it, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
+    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, not approved by him, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. His Hold stops only its landing, by his pick 6f2f239, so a held PR offers it, and his Approve there lifts the Hold, as one Approve on a stack card lifts each member's, by his pick eb69825. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
     from drive import land
 
     if pr["state"] != "open":
@@ -4975,11 +4975,8 @@ def tap_refused(data: dict, pr: dict) -> str | None:
         return f'its exempt class "{pr["exempt"]}" lands it with no tap'
     if not pr["wants_tap"]:
         return "its author or its own builder lands it with no tap"
-    match (pr["tap"] or {}).get("label"):
-        case "Approve":
-            return "he approved it already"
-        case "Hold":
-            return "he held it"
+    if (pr["tap"] or {}).get("label") == "Approve":
+        return "he approved it already"
     job = data["jobs"][pr["job"]]
     if not open_incidents(data, [job["order"], *job["carries"]]) and (holding := land.pr_cards(data, pr)):
         return f"his cards {', '.join(holding)} hold it until he answers each, by his pick {CARDS_FIRST}"

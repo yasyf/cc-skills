@@ -4057,7 +4057,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = None) -> list[str]:
-    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head and staging line never stay stale: one slack.draw_pr_lines call writes those lines onto every row of each such PR, which cc-slack redraws in place in the background, buttons kept, and the watch's copy of his cards takes them too. A PR his open card asks his tap on, by the PR numbers its waits id names, by card.ask_waits, or every PR on it under an older merge waits id, that no longer asks it, by state.asks_tap, is first redrawn whole from drive card, so the card gives up its Approve, once until the watch next reads his cards; a whole redraw that fails leaves its lines unwritten, so the next pass asks both again."""
+    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head and staging line never stay stale: one slack.draw_pr_lines call writes those lines onto every row of each such PR, which cc-slack redraws in place in the background, buttons kept, and the watch's copy of his cards takes them too. A PR his open card asks his tap on, by view.asks_on, that no longer asks it, by state.asks_tap, is first redrawn whole from drive card, so the card gives up its Approve, once until the watch next reads his cards; a whole redraw that fails leaves its lines unwritten, so the next pass asks both again."""
     from drive import card
 
     if watcher.cards is None:
@@ -4067,7 +4067,7 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
     for shown in [*watcher.cards["pr_cards"], *(closed for closed in watcher.cards["closed"] if "card" in closed)]:
         for row in shown["card"]["prs"]:
             rows.setdefault(state.pr_key(row["url"]), []).append(row)
-    asking = {state.pr_key(row["url"]) for shown in watcher.cards["pr_cards"] if (waits := shown["card"].get("waits") or "").startswith("merge:") for row in shown["card"]["prs"] if not (asked := state.ASK_WAITS.fullmatch(waits)) or state.pr_key(row["url"]).split("#")[1] in asked[1].split(".")} - watcher.redrawn_whole
+    asking = {state.pr_key(row["url"]) for shown in watcher.cards["pr_cards"] if (waits := shown["card"].get("waits") or "").startswith("merge:") for row in shown["card"]["prs"] if view.asks_on(waits, row["url"])} - watcher.redrawn_whole
     lines, fresh = [], {}
     for key, drawn in rows.items():
         pr = data["prs"].get(key)

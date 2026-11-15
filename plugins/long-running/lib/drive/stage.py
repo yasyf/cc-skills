@@ -52,7 +52,7 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 
 
 def own(data: dict, key: str, cards: dict | None) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while neither it nor a PR below it in its stack, native or chained by base branch, is being reworked to his words, by state.reworked_under, since drive card draws none of them, and state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, or the one open on it leaves off a PR of its stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while neither it nor a PR below it in its stack, native or chained by base branch, is being reworked to his words, by state.reworked_under, since drive card draws none of them, and state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head or asks his tap on its other PRs alone, or cc-slack keeps the one drawn closed in place, any of which the watch redraws in place, none open asks his Approve on a PR he held, which the watch draws one asking, or the one open on it leaves off a PR of its stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
     if not state.reworked_under(data["prs"], key, state.pr_graph(data)) and cards is not None and state.asks_tap(data, pr) and (not view.tap_card(data, pr, cards) or view.apart(data, key, cards["pr_cards"])):
         return Stage("uncarded", WATCH, uncarded(data, key, cards))
@@ -63,10 +63,14 @@ def uncarded(data: dict, key: str, cards: dict) -> str:
     pr = data["prs"][key]
     if left := view.apart(data, key, cards["pr_cards"]):
         return f"his card on it leaves off {', '.join(left)} of its stack, so the watch draws one card for the whole stack in its place"
+    if view.head_card(pr, cards["pr_cards"]):
+        return "his card on it asks his Approve on its other PRs alone, so the watch redraws it in place asking it too"
     if shown := view.card_for(cards["pr_cards"], pr["url"]):
         return f"his card on it shows {view.shown_heads(shown, pr)} rather than its head {pr['head'][:7]}, so the watch redraws it in place"
     if view.standing_card(pr, cards):
         return "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place"
+    if (pr["tap"] or {}).get("label") == "Hold":
+        return "he held it and no card of his open on it asks his Approve, so the watch draws one asking it, which lifts his Hold"
     return "his card on it is not drawn yet"
 
 
@@ -248,7 +252,7 @@ def flake_red(data: dict, key: str, failing: str, cards: dict | None) -> Stage |
 
 
 def stopped(pr: dict) -> str:
-    """What of his stops the PR landing: his Hold, on which his card offers no Approve, or the hold label on GitHub, on which it still does; neither stops its builder, so a red or conflicted PR under either reads red, rework, blocked or behind and the watch wakes its builder to keep it rebased and green until he lifts it."""
+    """What of his stops the PR landing: his Hold, which his Approve on his card lifts, or the hold label on GitHub, which only its coming off lifts; neither stops its builder, so a red or conflicted PR under either reads red, rework, blocked or behind and the watch wakes its builder to keep it rebased and green until he lifts it."""
     if (pr["tap"] or {}).get("label") == "Hold":
         return f"held by his Hold of {pr['tap']['at']}"
     if pr["hold_label"]:

@@ -5975,15 +5975,15 @@ def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monke
 
 
 @pytest.mark.parametrize(
-    ("tap", "labels", "says"),
+    ("tap", "labels", "field", "says"),
     [
-        ({"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}, [], "Held by you"),
-        ({"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}, [github.HOLD_LABEL], "Approved by you. Held by the hold label on GitHub"),
+        ({"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}, [], "lands", f"you approve, lifting your Hold of {render.when(state.stamp(T0))} and CI passes"),
+        ({"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}, [github.HOLD_LABEL], "blocks", "Approved by you. Held by the hold label on GitHub. CI failed; the agent is fixing it"),
     ],
     ids=["his hold", "the hold label on a pr he approved"],
 )
-def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_builder_every_thirty_minutes_while_no_lander_starts_and_his_card_says_held(
-    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], tap: dict | None, labels: list[str], says: str
+def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_builder_every_thirty_minutes_while_no_lander_starts_and_his_card_says_what_lifts_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], tap: dict | None, labels: list[str], field: str, says: str
 ) -> None:
     waiting_job(demo)
     with state.edit(demo) as data:
@@ -5997,7 +5997,7 @@ def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_build
     kept = data["prs"][KEY]["stage"]
     assert (kept["name"], kept["owner"], [key for key, _ in woken], landers) == ("red", stage.BUILDER, [KEY, KEY], [])
     assert land.held(data, [KEY]) == f"{KEY}: {stage.stopped(data['prs'][KEY])}"
-    assert his_card_row(demo, KEY)["blocks"] == f"{says}. CI failed; the agent is fixing it"
+    assert his_card_row(demo, KEY)[field] == says
 
 
 def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minutes_while_his_card_stays_up(
@@ -9917,7 +9917,7 @@ def drawn_pr_card(name: str, *keys: str, url: str = CARD) -> dict:
     data = state.load(name)
     shown = pr_card(*keys, url=url)
     shown["card"]["prs"] = [row | card.drawn_lines(name, data, key) for row, key in zip(shown["card"]["prs"], keys, strict=True)]
-    if asked := [{"url": row["url"], "headRefOid": row["head"]} for row, key in zip(shown["card"]["prs"], keys, strict=True) if state.asks_tap(data, data["prs"][key])]:
+    if asked := [({"url": row["url"], "headRefOid": row["head"]}, data["prs"][key]) for row, key in zip(shown["card"]["prs"], keys, strict=True) if state.asks_tap(data, data["prs"][key])]:
         shown["card"]["waits"] = card.ask_waits(asked)
     return shown
 
