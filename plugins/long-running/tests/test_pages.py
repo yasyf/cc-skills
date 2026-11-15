@@ -72,6 +72,29 @@ def test_page_add_refuses_a_folder_the_dashboard_could_not_serve_or_naming_what_
     assert not pages.pages_dir(ordered).exists()
 
 
+@pytest.mark.parametrize(
+    ("files", "refused"),
+    [
+        ({"data.js": "const edges = [['o1', 'o2']];"}, "data.js:1 o1; data.js:1 o2: a page names a drive order, job or PR only in page.json's"),
+        ({"index.html": "<main>\n<p>j12 builds it</p></main>"}, "index.html:2 j12:"),
+        ({"app.js": "const lane = ['yasyf/cc-skills#42'];"}, "app.js:1 yasyf/cc-skills#42:"),
+        ({"index.html": '<a href="https://github.com/a/b/pull/7">change</a>'}, "index.html:1 https://github.com/a/b/pull/7:"),
+        ({"page.json": json.dumps({"title": "Lane of j5306", "goal": "g"})}, "page.json title j5306:"),
+    ],
+)
+def test_page_add_refuses_a_page_naming_a_drive_order_job_or_pr_outside_page_json(
+    ordered: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], files: dict[str, str], refused: str
+) -> None:
+    assert cli.main(["page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | files))]) == 2
+    assert refused in capsys.readouterr().err
+    assert not pages.pages_dir(ordered).exists()
+
+
+def test_a_page_names_its_orders_and_job_in_page_json_and_draws_their_ids_from_its_slice(run: Run, ordered: str, tmp_path: Path) -> None:
+    files = PAGE | {"index.html": BRIDGED, "page.json": json.dumps({"title": "Run page lane", "goal": "g", "orders": ["o1"], "job": "j1"})}
+    assert run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, files)))[0] == 0
+
+
 def test_a_page_is_live_while_any_order_it_shows_is_open(run: Run, ordered: str, tmp_path: Path) -> None:
     run("order", "add", "--title", "Run page docs", "--project", "Iris", "--workstream", "Run page", "document the run page")
     run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "orders": ["o2"]})})))

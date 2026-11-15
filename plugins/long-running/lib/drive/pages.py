@@ -6,10 +6,11 @@ import shutil
 import uuid
 from pathlib import Path
 
-from drive import page_check, state, view
+from drive import limits, page_check, state, view
 from drive.state import DriveError
 
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
+DRIVE_IDS = re.compile(rf"{limits.DRIVE_ID.pattern}|{state.PR_URL.pattern}|[\w.-]+/[\w.-]+#\d+")
 KINDS = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
@@ -25,7 +26,7 @@ def pages_dir(name: str) -> Path:
 
 
 def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
-    """Check the folder is a page the dashboard can serve for the order and put it at pages/<slug>, replacing the page of that slug whole: its index.html, a page.json naming its title and goal, and the orders and PRs it shows, all known to the drive, and only files of KINDS."""
+    """Check the folder is a page the dashboard can serve for the order and put it at pages/<slug>, replacing the page of that slug whole: its index.html, a page.json naming its title and goal, and the orders and PRs it shows, all known to the drive, only files of KINDS, and no drive order, job or PR named anywhere but page.json's orders, prs and job, so the page draws each from its slice."""
     if not SLUG.fullmatch(slug):
         raise DriveError(f"{slug!r} is no page slug: lowercase letters, digits and dashes, starting with a letter or digit, at most 63")
     drive = state.load(name)
@@ -39,6 +40,17 @@ def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
     files = [path for path in folder.rglob("*") if path.is_file()]
     if strange := sorted(str(path.relative_to(folder)) for path in files if path.suffix not in KINDS):
         raise DriveError(f"the dashboard serves only {', '.join(KINDS)} files from a page, not {', '.join(strange)}")
+    texts = [("page.json title", said["title"]), ("page.json goal", said["goal"])] + [
+        (f"{path.relative_to(folder)}:{number}", line)
+        for path in files
+        if path.suffix != ".png" and path != folder / "page.json"
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+    ]
+    if named := [f"{where} {found[0]}" for where, text in texts for found in DRIVE_IDS.finditer(text)]:
+        raise DriveError(
+            f"{'; '.join(named)}: a page names a drive order, job or PR only in page.json's orders, prs and job, since he cannot open an id"
+            " it shows and one its code keeps freezes what it draws; draw each from the slice, adding a fact it lacks to pageSlice in site/app.js"
+        )
     orders = list(dict.fromkeys([order_id, *said.get("orders", [])]))
     if unknown := [each for each in orders if each not in drive["orders"]] + [each for each in said.get("prs", []) if each not in drive["prs"]]:
         raise DriveError(f"page.json names {', '.join(unknown)}, which the {name} drive does not hold")
