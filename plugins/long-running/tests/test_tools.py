@@ -775,6 +775,35 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     assert list(orders["o1"]["parts"]) == ["Short title", "and the logs page"]
 
 
+def test_his_words_in_a_thread_his_work_and_drive_tooling_orders_share_become_a_part_of_the_newest_order_of_their_own_side_there_as_719834_did_not(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[list[dict]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append(records)
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
+
+    tooled = "1794200000.000300"
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--thread", THREAD)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why", "--thread", THREAD)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: posts say when", "--thread", tooled)
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Logs", "ship the logs page", "--thread", tooled)
+    monkeypatch.setattr(subprocess, "run", post)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    product = {"kind": "owner", "text": "and the run list", "about": "his work", "thread": THREAD}
+    drive = {"kind": "owner", "text": "the dashboard drops my cards", "about": "drive", "thread": tooled}
+    tools.run("record", demo, {"records": [product, drive]})
+    assert [(record["to"], record["attr"]["order"], record["attr"]["part"]) for record in posted[0]] == [
+        (["root@demo"], "o1", "o1:and the run list"),
+        (["meta@demo"], "o3", "o3:the dashboard drops my cards"),
+    ]
+    orders = state.load(demo)["orders"]
+    assert [list(order["parts"]) for order in orders.values()] == [["Short title", "and the run list"], ["Short title"], ["Short title", "the dashboard drops my cards"], ["Short title"]]
+
+
 def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_and_words_he_never_typed_there_are_refused(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, recorded: Answers, tmp_path: Path
 ) -> None:
@@ -907,7 +936,7 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     url = f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794514438699909?thread_ts={thread}&cid=D0C4HQWPLCC"
     asked = {"kind": "owner", "about": "drive", "text": words, "url": url, "thread": thread}
     run("order", "add", "--owner", "coordinator", "--title", "Subagents persist", "--project", "Iris", "--workstream", "Agents", "--thread", thread, "why is his subagents not persisting across restart?")
-    with pytest.raises(DriveError, match="1: refused, his words about the drive reach the meta session holding an order, and o1 is no open order the meta session holds"):
+    with pytest.raises(DriveError, match="1: refused, his words about the drive reach the meta session holding an order, and no order holds this record or its thread"):
         tools.run("record", demo, {"records": [asked]})
     filed = ["--kind", "answer", "--project", "The drive", "--workstream", "Skill and process", "--title", "Drive tooling: hierarchical coordinators"]
     assert run("order", "add", "--from", url, "--thread", thread, "--owner", "meta", *filed, words) == (0, "o2")

@@ -3857,13 +3857,14 @@ def joined_orders(data: dict) -> dict[str, list[str]]:
     return joined
 
 
-def thread_order(data: dict, thread: str | None, until: datetime | None = None) -> str | None:
-    """The order that came last into a thread of his, by until when given: added with it as its own thread, or joined to it as a thread it keeps, the newer order winning a tie; None when no order is in it."""
+def thread_order(data: dict, thread: str | None, until: datetime | None = None, about: str | None = None) -> str | None:
+    """The order that came last into a thread of his, by until when given, and of the side words about `about` reach when given, the meta session's orders for the drive and every other order for his work: added with it as its own thread, or joined to it as a thread it keeps, the newer order winning a tie; None when no such order is in it."""
     if not thread:
         return None
     came = [
         (moment, index, order_id)
         for index, (order_id, order) in enumerate(data["orders"].items())
+        if about is None or (order["owner"] == "meta") == (about == ABOUT_DRIVE)
         for at in ([order["created"]] if order["thread"] and order["thread"][1] == thread else []) + [at for _, ts, at, _ in order["threads"] if ts == thread]
         for moment in [parse_time(at)]
         if until is None or moment <= until
@@ -3901,14 +3902,14 @@ def report_orders(data: dict, attrs: dict) -> list[str]:
 
 
 def served_order(data: dict, attrs: dict) -> str | None:
-    """The order a record serves: the one its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread; None when it names none."""
+    """The order a record serves: the one its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread of the side its attr about names; None when it names none."""
     job = data["jobs"].get(named_job(data, attrs))
     named = attrs.get("order") if attrs.get("order") in data["orders"] else job and job["order"]
-    return named or thread_order(data, attrs.get("thread"))
+    return named or thread_order(data, attrs.get("thread"), about=attrs.get("about"))
 
 
 def serving_lane(data: dict, kind: str, attrs: dict, answered: list[str]) -> str | None:
-    """The cci lane of the session a communicator's owner, answer, handoff or refused record reaches, by the order its attr order names, else the order of the job its attr job or waits id names, else the newest order in its thread: for any but his owner words, which add a part to that order, the coordinator session whose agent runs the job it names, by starter_lane; else the meta session's for a drive tooling order but for his words about his work; for an answer, handoff or refused record naming no job, the top coordinator's or sub-coordinator's that wrote the record it answers; else the coordinator session hearing that order; None for another kind, or a record naming none."""
+    """The cci lane of the session a communicator's owner, answer, handoff or refused record reaches, by the order served_order reads: for any but his owner words, which add a part to that order, the coordinator session whose agent runs the job it names, by starter_lane; else the meta session's for a drive tooling order but for his words about his work; for an answer, handoff or refused record naming no job, the top coordinator's or sub-coordinator's that wrote the record it answers; else the coordinator session hearing that order; None for another kind, or a record naming none."""
     if kind not in ROUTED_KINDS:
         return None
     if kind != "owner" and (lane := starter_lane(data, attrs)):
