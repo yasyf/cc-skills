@@ -4487,7 +4487,7 @@ def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiti
         state.take_result(data, "j2", failed, f"{failed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 a write lands: fail: the writer kept the old row\n")
     data = state.load(demo)
     assert watch.part_gap(watcher(demo), data, "o1", staging, state.now() + timedelta(hours=1)) == (
-        f"j2's DONE is no full pass, a CASE line of it reading other than pass or none there, so the part waits on a rerun: drive job add builder --order o1 --part '{staging}' --goal '<rerun it>'"
+        f"j2's DONE is no full pass of its PR, a CASE line of it reading other than pass, none there or no line naming the PR, so the part waits on a rerun: drive job add builder --order o1 --part '{staging}' --goal '<rerun it>'"
     )
 
 
