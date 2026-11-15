@@ -643,12 +643,14 @@ def bound(name: str, data: dict, job: dict) -> list[str]:
 
 
 def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], list[dict]]:
-    """What bound reads before it asks cc-notes which ids keep an answer, so a watch pass reads it with no subprocess: the ids the job's brief's rulings and the settled questions of its feature's readers and designs name, the ids their rulings: lines cite, and his words on each question of theirs he answered with no answer recorded, with the question, when and where."""
+    """What bound reads before it asks cc-notes which ids keep an answer, so a watch pass reads it with no subprocess: the ids the job's brief's rulings and the settled questions of its feature's readers and designs name, the ids their rulings: lines cite with each answer `drive answer` kept on the feature by on_feature, so a PR's check is judged again once he gives one, and his words on each question of theirs he answered with no answer recorded, with the question, when and where."""
     from drive import served
 
-    found = list({reader_id: text for order_id in state.job_feature(data, job) for reader_id, text in researches(name, data, order_id, list(data["orders"][order_id]["parts"]))}.items())
+    orders = state.job_feature(data, job)
+    jobs = state.orders_jobs(data, orders)
+    found = list({reader_id: text for order_id in orders for reader_id, text in researches(name, data, order_id, list(data["orders"][order_id]["parts"]))}.items())
     closed = [(question["title"], answer) for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
-    cited = list(dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text).get("rulings", "")) if kind == "answer"))
+    cited = list(dict.fromkeys([*(answer_id for _, text in found for kind, answer_id in served.named(researched(text).get("rulings", "")) if kind == "answer"), *(answer_id for answer_id, answer in data["answers"].items() if on_feature(data, answer, orders, jobs))]))
     ruled = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for _, answer in closed if answer["ruling"])]
     heard = {answer["words"]: {"id": None, "asked": title or "his answer", "said": answer["words"], "at": answer["at"], "link": answer["link"], "by": []} for title, answer in closed if not answer["ruling"] and answer["words"]}
     return ruled, cited, list(heard.values())
@@ -657,12 +659,10 @@ def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], lis
 def spec(name: str, data: dict, job: dict) -> list[dict]:
     """His words on the job's feature, newest first, the one list every brief's Decisions that bind and drive job ask's judge read beside the words of the job's own orders: each answer of his binding names, each one `drive answer` kept whose marks or heard jobs name an order of the feature or a job on one, his words on each question of its readers and designs he answered with no answer recorded, and each other order of the feature, each whole with when and where he gave it. An answer cc-notes marks superseded keeps its place with the newer answers replacing it under `by`, so no brief or judge reads it as standing; an id a brief's rulings name that cc-notes keeps no answer under refuses the brief, any other is left out."""
     orders = state.job_feature(data, job)
-    jobs = state.orders_jobs(data, orders)
     ruled, cited, heard = binding(name, data, job)
-    kept = [answer_id for answer_id, answer in data["answers"].items() if on_feature(data, answer, orders, jobs)]
     cwd = data["roles"]["coordinator"]["cwd"]
     found: dict[str, dict] = {}
-    for answer_id in dict.fromkeys([*ruled, *cited, *kept]):
+    for answer_id in dict.fromkeys([*ruled, *cited]):
         try:
             answer = settled.shown(answer_id, cwd)
         except state.DriveError:
@@ -759,7 +759,7 @@ def waits_on_research(order: dict, kind: str, parts: list[str]) -> bool:
 
 
 def job_refusal(data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not be added on the order: an order he limited to options gets no builder or codex job until he picks, and an answer order is one reader's. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. A build order's research is read once, when the job's agent starts, by brief_refusal, so a builder proving a merged PR live, retrying its proof or rebasing it is added like any other. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, one starting a release, one marked --builds-nothing, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past the options-only refusal, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not be added on the order: an order he limited to options gets no builder or codex job until he picks, and an answer order is one reader's. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, ending once that job registers a PR, by state.change_pr. A build order's research is read once, when the job's agent starts, by brief_refusal, so a builder proving a merged PR live, retrying its proof or rebasing it is added like any other. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, one starting a release, one marked --builds-nothing, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past the options-only refusal, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     if order["options_only"] and kind in ("builder", "codex") and not (set(state.AT_ONCE) & set(parts) or lands):
         return (

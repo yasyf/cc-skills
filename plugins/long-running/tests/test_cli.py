@@ -5612,7 +5612,7 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     )
 
 
-def test_a_builder_is_added_waiting_on_another_builders_change_which_names_that_builders_open_pr_once_it_opens_one(
+def test_a_builder_is_added_waiting_on_another_builders_change_and_keeps_that_wait_on_the_builder_once_it_opens_a_pr(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     built = "Forge-AI/monorepo#7"
@@ -5623,15 +5623,15 @@ def test_a_builder_is_added_waiting_on_another_builders_change_which_names_that_
     code, out = run("job", "add", "builder", "--order", "o1", "--part", "the read", "--goal", "read the copy", "--waits", "j2")
     assert (code, out.splitlines()[:2]) == (0, ["j3", "j3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended"])
     assert run("pr", "add", state.pr_url(built), "--job", "j2", *LEAD)[0] == 0
-    assert state.load("demo")["jobs"]["j3"]["waits"] == [built]
+    assert state.load("demo")["jobs"]["j3"]["waits"] == ["j2"]
     assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy the next store", "--waits", "j2")[1].splitlines()[0] == "j4"
-    assert state.load("demo")["jobs"]["j4"]["waits"] == [built]
+    assert state.load("demo")["jobs"]["j4"]["waits"] == ["j2"]
     assert run("job", "add", "reader", "--order", "o1", "--part", "the read", "--goal", "dropped")[0] == 0
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j1"]) == 2
     assert capsys.readouterr().err.strip().endswith("refused, no job added: --waits j1: j1 is done, so nothing of it is left to wait on")
     assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
     assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "y", "--waits", "j2")[1].splitlines()[0] == "j7"
-    assert [state.load("demo")["jobs"][job_id]["waits"] for job_id in ("j6", "j7")] == [["j5"], [built]]
+    assert [state.load("demo")["jobs"][job_id]["waits"] for job_id in ("j6", "j7")] == [["j5"], ["j2"]]
 
 
 def test_a_jobs_clock_is_a_time_to_come(run: Run, meta: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -6551,6 +6551,37 @@ def test_a_designs_change_worded_as_a_part_a_stopped_builder_names_gets_its_own_
         "j5": (["the writes through it"], "waiting", ["j4"]),
     }
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ("done", "carried by builder j3")
+
+
+def test_a_builder_added_later_for_an_earlier_change_joins_the_waits_of_each_unstarted_builder_of_a_change_waiting_on_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES)[0] == 0
+    with state.edit("demo") as data:
+        assert data["jobs"]["j4"]["waits"] == ["j3"]
+        data["jobs"]["j3"]["state"] = "failed"
+        added = state.change_builders(data, "j1", "j1", [(["the moved-table interface"], []), (["the reads through it"], []), (["the writes through it"], [2])])
+    writes = state.load("demo")["jobs"]["j4"]
+    assert (added, writes["state"], writes["waits"], writes["said"]) == (["j5"], "waiting", ["j3", "j5"], state.NOT_STARTED)
+
+
+def test_a_jobs_binding_ids_hold_each_answer_drive_answer_kept_on_its_feature_so_a_new_one_judges_its_pr_again(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools")
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "rename the verbs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "make the verbs MCP tools")
+    listed, waiting, elsewhere = ("1" * 40, "2" * 40, "3" * 40)
+    with state.edit(demo) as data:
+        builder_id = data["orders"]["o1"]["jobs"][-1]
+        answer = {"words": "build it all tonight", "link": "", "at": state.stamp(), "said": state.stamp()}
+        data["answers"] |= {
+            listed: answer | {"cards": {f"o1:{next(iter(data['orders']['o1']['parts']))}": {"mark": "stands"}}, "jobs": {}},
+            waiting: answer | {"cards": {}, "jobs": {builder_id: None}},
+            elsewhere: answer | {"cards": {"o2": None}, "jobs": {}},
+        }
+    data = state.load(demo)
+    assert brief.binding(demo, data, data["jobs"][builder_id])[1] == [listed, waiting]
 
 
 @pytest.mark.parametrize(

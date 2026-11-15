@@ -300,7 +300,8 @@ the others, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
 `(waits on …)`, and the drive gives each change its own builder as your design returns, waiting on
-the builder of each earlier change it waits on. Those words are the change's one identity, which
+the builder of each earlier change it waits on until that builder registers its PR, then cut
+from that PR's branch. Those words are the change's one identity, which
 its builder and PR hang on: when you file your design again, each change you listed before keeps
 its words on its `Change:` line, a design of one change being your own part, with what is new on
 the `Design:` line. A design of several that leaves out an undelivered change you listed before drops it from the

@@ -1469,7 +1469,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         new_parts = [part for part in parts if not state.part_jobs(data, args.order, part)]
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         fresh = state.new_job(args.order, args.kind, args.goal, parts, created)
-        waits = view.stored_waits(data, [state.change_wait(data, wait, None, fresh) for wait in args.waits], found)
+        waits = view.stored_waits(data, [state.job_wait(data, wait, None, fresh) for wait in args.waits], found)
         held = state.change_job(data, args.order, parts, waits, proving=state.builds_nothing(fresh | given)) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
@@ -1685,7 +1685,7 @@ def job_set(args: argparse.Namespace) -> int:
         if args.card:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
-        waits = merged_waits(data, job, [state.change_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
+        waits = merged_waits(data, job, [state.job_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
         job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
         if args.carries:
             if args.parts:
@@ -3131,7 +3131,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Goal": job["goal"],
         "Done when": flags["done_when"],
-        "Where": flags["where"],
+        "Where": " ".join(filter(None, [flags["where"], (stacked := state.stacked_on(data, job)) and f"Cut your branch {stacked}, so your PR stacks on the changes it waited on."])),
         "Runs as": flags["runs_as"],
         "Release": release,
         "Release build": job["release_build"],
@@ -4198,7 +4198,7 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None, waits: list[str] = ()) -> tuple[dict, list[str]]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, which ends each wait on its job's change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -5755,7 +5755,7 @@ def parser() -> argparse.ArgumentParser:
             " on drive pr set alone review:<a teammate's GitHub login>, their review of the PR's head, which holds his card from drawing and the PR from landing"
             " until the watch's GitHub read finds their newest review is of its head, said on the PR's line,"
             " or a job of this drive still at work, of any kind, it waits on;"
-            " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
+            " repeat for each. The watch drops each as he answers or taps it, the PR merges, the job registers a PR, the FREE line naming its branch to stack on, or returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
             " once the PR merged, every cluster tools/ci release live reads running that service, production or not, or the one env the wait names, serves"
             " a commit holding the merge, at once when release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs,"
