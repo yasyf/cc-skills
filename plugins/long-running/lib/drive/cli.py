@@ -4293,24 +4293,27 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
 
 
 def shipped(data: dict, job_id: str, order_id: str, parts: list[str]) -> str:
-    """Give a done job the parts of the order its merged PR shipped without holding, by his answer 431352e, so the job owes them and its passing proof delivers them, by state.deliver_proven, at once when its said line is that proof's DONE and else once drive job prove runs its proof file; the line saying which."""
+    """Give a done job the parts of the order its merged PR shipped without holding, by his answer 431352e, so the job owes them and its passing proof delivers them, by state.deliver_proven, at once when its said line is that proof's DONE and else once drive job prove runs its proof file, a part of another order it carries once the check of the merged head finds the diff carries it; the line saying which."""
     job = data["jobs"][job_id]
-    held = job["parts"] if job["order"] == order_id else job["carries"].setdefault(order_id, [])
-    held += [part for part in parts if part not in held]
+    held = [part for held_order in [job["order"], *job["carries"]] for part in state.job_parts(job, held_order)]
+    if unheld := [part for part in parts if part not in held]:
+        state.deliver(data, job_id, order_id, unheld)
+    checked = ", a part of another order it carries once the check of its merged head finds the diff carries it" if any(part not in data["orders"][order_id]["parts"] for part in parts) else ""
     if not (proven := state.PROVEN_LINE.match(job["said"] or "")):
-        return f"\n{job_id} holds them, and drive job prove delivers them once its proof file exits 0"
+        return f"\n{job_id} holds them, and drive job prove delivers them once its proof file exits 0{checked}"
     state.deliver_proven(data, job_id, proven["proof"])
-    return f"\nposted by {job_id}'s passing proof: {proven['proof']}"
+    return f"\nposted by {job_id}'s passing proof{checked}: {proven['proof']}"
 
 
 def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool, done: str) -> None:
-    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name; a merged PR whose job returned DONE names any part of its order, which its job then holds and its passing proof delivers, by shipped, since it shipped work its job was never given."""
+    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name; a merged PR whose job returned DONE also names any part of its order, which its job then holds and its passing proof delivers, by shipped, since it shipped work its job was never given."""
     pr = data["prs"][key]
     job = data["jobs"][pr["job"]]
-    delivered = list(data["orders"][pr["order"]]["parts"]) if delivers else [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
+    held = [part for order_id in [job["order"], *job["carries"]] for part in state.job_parts(job, order_id)]
+    delivered = list(dict.fromkeys([*data["orders"][pr["order"]]["parts"], *held])) if delivers else held
     if unknown := [part for part in parts if part not in delivered]:
         listed = ", ".join(f'"{part}"' for part in delivered)
-        lacks = f"its order {pr['order']} has" if delivers else f"its job {pr['job']} delivers"
+        lacks = f"its order {pr['order']} and its job {pr['job']} have" if delivers else f"its job {pr['job']} delivers"
         raise DriveError(f"{key}: refused, nothing {done}: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
 
 

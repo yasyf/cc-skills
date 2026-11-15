@@ -9958,7 +9958,7 @@ def test_pr_set_part_on_a_done_builders_merged_pr_gives_its_job_a_part_of_its_or
         data["jobs"]["j1"].update(state="done", said=f"DONE {url} merged: yasyf/cc-skills#4582 at abc123")
         data["prs"]["yasyf/cc-skills#4582"]["state"] = "merged"
     assert cli.main(["pr", "set", url, "--part", "a part nobody ordered"]) == 2
-    assert f'yasyf/cc-skills#4582: refused, nothing set: its order o1 has no part a part nobody ordered; its parts are "{main}", "{state.IMMEDIATE_FIX}"' in capsys.readouterr().err
+    assert f'yasyf/cc-skills#4582: refused, nothing set: its order o1 and its job j1 have no part a part nobody ordered; its parts are "{main}", "{state.IMMEDIATE_FIX}"' in capsys.readouterr().err
     code, out = run("pr", "set", url, "--part", main)
     data = state.load("demo")
     assert (code, data["jobs"]["j1"]["parts"], state.delivered(data, "o1", main)) == (0, [state.IMMEDIATE_FIX, main], False)
@@ -9970,6 +9970,30 @@ def test_pr_set_part_on_a_done_builders_merged_pr_gives_its_job_a_part_of_its_or
     data = state.load("demo")
     assert (code, data["jobs"]["j1"]["parts"], [data["orders"]["o1"]["parts"][part]["posted"] for part in (main, state.IMMEDIATE_FIX)]) == (0, [state.IMMEDIATE_FIX, main], [proof, proof])
     assert f"posted by j1's passing proof: {proof}" in out
+
+
+def test_pr_set_part_on_a_done_builders_merged_pr_names_a_part_of_another_order_its_job_carries_which_the_check_of_its_merged_head_delivers(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "ship the watch", "--parts", "ship the watch")
+    run("order", "add", "--title", "Other title", "--project", "p", "--workstream", "w", "stack the PRs", "--parts", "stack 1", "stack 2")
+    run("job", "add", "builder", "--order", "o1", "--part", "ship the watch", "--goal", "the watch", "--agent", "a")
+    assert run("job", "set", "j1", "--carries", "o2", "--part", "stack 2")[0] == 0
+    url = "https://github.com/yasyf/cc-skills/pull/4582"
+    run("pr", "add", url, "--job", "j1", *LEAD)
+    proof = f"{url} live: repro/j1.sh exits 0 on long-running@skills 1.0.4"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="done", said=f"DONE {proof}")
+        data["prs"]["yasyf/cc-skills#4582"].update(state="merged", merged_sha="abc123")
+    assert cli.main(["pr", "set", url, "--part", "stack 1"]) == 2
+    assert 'yasyf/cc-skills#4582: refused, nothing set: its order o1 and its job j1 have no part stack 1; its parts are "ship the watch", "stack 2"' in capsys.readouterr().err
+    code, out = run("pr", "set", url, "--part", "stack 2")
+    data = state.load("demo")
+    assert (code, data["prs"]["yasyf/cc-skills#4582"]["parts"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["carries"]) == (0, ["stack 2"], ["ship the watch"], {"o2": ["stack 2"]})
+    assert f"posted by j1's passing proof, a part of another order it carries once the check of its merged head finds the diff carries it: {proof}" in out
+    assert not state.delivered(data, "o2", "stack 2")
+    assert cli.main(["pr", "check", url, "--drive", demo]) == 0
+    assert state.load("demo")["orders"]["o2"]["parts"]["stack 2"]["posted"] == proof
 
 
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(
