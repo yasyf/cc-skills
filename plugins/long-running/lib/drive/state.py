@@ -3587,13 +3587,13 @@ def tooling(order: dict) -> bool:
 
 
 def tooling_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a "Drive tooling:" order's work, which never holds his product work, by his words "Block in a fucking tooling question for core work is not fucnigbbacceotbale": a job of such an order, a PR it tracks or that PR's release, a part of it, or a card of his only its jobs asked, since a job or PR never carries both kinds of order."""
+    """Whether a wait names a "Drive tooling:" order's work, which never holds his product work, by his words "Block in a fucking tooling question for core work is not fucnigbbacceotbale": a job of such an order, a PR it tracks or that PR's release while the PR has not landed, by github.UNLANDED, a part of it, or a card of his only its jobs asked, since a job or PR never carries both kinds of order; a merged PR's release is the product's to wait on, as a proof needing that release live does."""
     from drive import view
 
     if wait in data["jobs"]:
         return tooling(data["orders"][data["jobs"][wait]["order"]])
     if (key := waited_pr(wait)) in data["prs"]:
-        return tooling(data["orders"][data["prs"][key]["order"]])
+        return data["prs"][key]["state"] in github.UNLANDED and tooling(data["orders"][data["prs"][key]["order"]])
     if part := part_wait(data, wait):
         return tooling(data["orders"][part[0]])
     return bool(drawn := view.drawn_on(data, wait)) and all(tooling(data["orders"][data["jobs"][job_id]["order"]]) for job_id, _ in drawn)
