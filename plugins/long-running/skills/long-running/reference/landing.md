@@ -645,6 +645,18 @@ the patch.
   `drive job add --release` refuses a start whose `--order <id>` Jev does not read as his order or
   pick to release, unless the answer is an incident's, labelled `incident`, and the `landing_guard`
   hook refuses every `ci release start` and `hotfix` a drive session or agent runs itself.
+- A release-order rule stays prose, a cc-notes note labeled `drive:<drive>` and `release-order` or
+  `release` whose title names the PR or commit the rule turns on, as 3e6822d's "no SandSQL cut
+  carries #55980". By his ruling 17f763e, "Again this is not meant to be codified as hard coded
+  rules that fail, the tooling is jsut there to help the agent comply with the prose rules", nothing
+  refuses on one. `drive job ask` and `drive job add --release`, `--check` and the job tool's
+  `dry_run` included, send Jev every such note in one request. Beside them goes each start a card's
+  options, their descriptions and its Show me name in backticks, or the one start. Each note Jev
+  does not read as silent on a start, an unsure read included, prints whole, with what git finds for
+  the PRs and commits its title names at the commit that start cuts. Follow its words before you
+  offer or start one, such as taking a target it forbids off the option or the start, or naming its
+  hazard on his card where it says so. Run the job tool's `dry_run` of `drive job add --release`
+  first, since the verb starts the release in the same call.
 - A job never approves a release he has not approved, and never touches one he started himself. An
   incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
 - Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what

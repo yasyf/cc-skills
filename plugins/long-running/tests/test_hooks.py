@@ -19,7 +19,7 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SHORT_ASK, WRITTEN_AT, answered_cut, drawn_card, kept_brief, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1389,6 +1389,32 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
         "refused: Jev did not say whether his answer ac61348 approves this release (no jev decision within 20s)"
     )
     assert len(jev.asked) == 3
+
+
+def test_the_release_gate_reads_a_start_against_the_drive_release_notes_at_its_default_branch_head_never_refusing_and_parses_a_manual_starts_stack_and_commit(
+    demo: str, tmp_path: Path, jev: Jev, release_noted: list[dict], pr_reads: dict[str, dict]
+) -> None:
+    merge = cloned(tmp_path, "demo", {"catalog.rs": "the catalog change"})
+    head = cloned(tmp_path, "demo", {"other.rs": "a later change"})
+    data = state.load("demo")
+    pr_reads[f"{github.checkout_repo(data['roles']['coordinator']['cwd'])}#55980"] = {"state": "MERGED", "mergeCommit": merge, "base_pr": None}
+    release_noted.append(SANDSQL_NOTE)
+    start, hotfix = "tools/ci release start --targets sandsql --order 5d0c4a1", "tools/ci release hotfix 56001 --order 5d0c4a1"
+    assert brief.release_notes([start, hotfix], data) == []
+    jev.speaks = {"3e6822d": 0.9}
+    [line] = brief.release_notes([start, hotfix], data)
+    assert line.startswith(
+        f'Jev reads release note 3e6822d, "{SANDSQL_NOTE["title"]}", as speaking to `{start}` (at main\'s head {head[:12]}: holds #55980 ({merge[:12]}));'
+        f" `{hotfix}` (a hotfix cuts from the build live now, which git here cannot name). Nothing is refused"
+    )
+    jev.answer = None
+    assert brief.release_notes([start], data) == [
+        f"the drive's release notes were not read against `{start}` (Jev gave no reading: no jev decision within 20s): read each note"
+        " `ccn note list --label drive:demo --label release-order` and `--label release` list before you offer or start one"
+    ]
+    assert brief.started("tools/ci release start --manual --stack runtime-api-next/plat-usw2-prod --commit 55b9c39c --rollback") == [
+        {"manual": ("true",), "stack": ("runtime-api-next/plat-usw2-prod",), "commit": ("55b9c39c",), "rollback": ("true",)}
+    ]
 
 
 RELEASE_HOLD = {

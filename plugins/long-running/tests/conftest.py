@@ -169,6 +169,18 @@ CUT_PICK = {
     "created_at": "2026-11-14T06:11:19Z",
 }
 CUT_TAP = CUT_PICK | {"id": "7ab1e20" + "0" * 33, "body": "The full release"}
+SANDSQL_NOTE = {
+    "id": "3e6822d" + "0" * 33,
+    "title": "Release-order constraint: no SandSQL cut carries #55980 (catalog schema change at the cut) before its branch has run on frozen staging",
+    "body": "Constraint for whoever starts production cuts: no `tools/ci release start` whose targets include sandsql ships a commit holding #55980 to plat-usw2-prod until a record shows its branch ran on frozen staging.\n",
+    "tags": ["drive:demo", "release-order"],
+}
+SAND_NEXT_NOTE = {
+    "id": "1510272" + "0" * 33,
+    "title": "Release-order hazard: no sand-next cut from dev before the AskSmallModel reply-trim fix is in it (untitled Iris chats since #53949)",
+    "body": "No sand-next cut from dev before the trim fix.\n",
+    "tags": ["drive:demo", "release-order"],
+}
 ACME_CUT = "tools/ci release start --hotfix 101 --only api --from releases/2026-11-13/29 --without plat-usw2-staging,plat-usw2-prod,tnt-usw2-north --order {}"
 KEPT_BRIEFS = itertools.count(1)
 
@@ -998,6 +1010,14 @@ def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
 
 
 @pytest.fixture(autouse=True)
+def release_noted(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """The drive's release notes `brief.kept_notes` reads from cc-notes: none until a test adds one."""
+    notes: list[dict] = []
+    monkeypatch.setattr(brief, "kept_notes", lambda data: notes)
+    return notes
+
+
+@pytest.fixture(autouse=True)
 def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
     reads: dict[str, dict] = {}
     monkeypatch.setattr(github, "fetch", lambda keys, into=None: ({key: reads[key] for key in keys if key in reads}, None))
@@ -1085,6 +1105,7 @@ class Jev:
     named: set[str] = field(default_factory=set)
     paged: float = 0.05
     read_for_pages: list[str] = field(default_factory=list)
+    speaks: dict[str, float] = field(default_factory=dict)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
@@ -1111,6 +1132,8 @@ class Jev:
             return self.unexplained.get(state["names"][f"n{question.removeprefix(limits.PLAIN)}"], 0.05)
         if question == "names" and state["parts"][about.partition(".")[2]] in self.named:
             return 0.9
+        if question == "speaks":
+            return self.speaks.get(state["notes"][about.partition(".")[0]]["id"], 0.05)
         if self.chosen and self.chosen[0] in key.split("."):
             return self.chosen[1]
         return self.answer

@@ -1,6 +1,9 @@
 import functools
+import itertools
+import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -94,7 +97,7 @@ MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 AFTER = re.compile(r"^After install:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
-RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order"})
+RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
 RELEASE_ASIDE = frozenset({"json"})
 RELEASE_APPROVAL = (
     "A release starts only on words of his ordering it, whatever card or thread they answer, or on an incident's order, the"
@@ -116,6 +119,16 @@ NAMES_NO_RELEASE = (
     f" name it so, or ask that session to put the release to him and start nothing until he answers. {RELEASE_APPROVAL}"
 )
 RELEASE_UNNAMED = RELEASE_ASKED + NAMES_NO_RELEASE
+RELEASE_NOTE_LABELS = ("release-order", "release")
+NOTE_REFS = re.compile(r"#(\d+)\b|\b((?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40})\b")
+NOTED = (
+    'Jev reads release note {id}, "{title}", as speaking to {starts}. Nothing is refused: follow its words before you offer or'
+    " start one, and `ccn note show {id}` prints them whole: {body}"
+)
+UNNOTED = (
+    "the drive's release notes were not read against {starts} ({why}): read each note `ccn note list --label drive:{name}"
+    " --label release-order` and `--label release` list before you offer or start one"
+)
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
 ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
@@ -259,6 +272,108 @@ def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str
         if refused := release_refusal(release) or approval_refusal(release, data):
             return f"{asked}, and `drive job add --release` would refuse `{release}`: {refused.removeprefix('refused: ')}"
     return None
+
+
+def release_notes(releases: list[str], data: dict) -> list[str]:
+    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in one request of SPEAKS_TO_START Nouls, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming the notes one request had no room for. It refuses nothing."""
+    from drive import github
+
+    if not releases:
+        return []
+    named = ", ".join(f"`{release}`" for release in releases)
+    try:
+        notes = kept_notes(data)
+    except state.DriveError as error:
+        return [UNNOTED.format(starts=named, why=error, name=data["name"])]
+    if not notes:
+        return []
+    starts = {f"s{number}": release for number, release in enumerate(releases, 1)}
+    slots = {note["id"]: f"n{number}" for number, note in enumerate(notes, 1)}
+    items = (
+        ({"notes": {slots[note["id"]]: {"id": note["id"][:7], "title": note["title"], "body": note["body"]}}}, {f"speaks.{slots[note['id']]}.{start}": settled.asking(settled.SPEAKS_TO_START, note=slots[note["id"]], start=start) for start in starts})
+        for note in notes
+    )
+    told, questions, left = settled.fill({"starts": starts, "notes": {}}, {}, items)
+    skipped = [UNNOTED.format(starts=named, why="no room in one Jev request for " + ", ".join(note["id"] for part, _ in left for note in part["notes"].values()), name=data["name"])] if left else []
+    try:
+        read = settled.jev(told, questions)
+    except settled.Unheard as failure:
+        return [UNNOTED.format(starts=named, why=f"Jev gave no reading: {failure}", name=data["name"])]
+    speaking: dict[str, list[str]] = {}
+    for note in notes:
+        for start, release in starts.items():
+            if (key := f"speaks.{slots[note['id']]}.{start}") in read and settled.reading(read[key]) is not False:
+                speaking.setdefault(note["id"], []).append(release)
+    if not speaking:
+        return skipped
+    spoken = {note["id"]: note["title"] for note in notes if note["id"] in speaking}
+    try:
+        facts = note_facts(set(itertools.chain(*speaking.values())), spoken, data["roles"]["coordinator"]["cwd"])
+    except github.GithubError as error:
+        facts = dict.fromkeys(itertools.product(releases, spoken), f" (git read no commit it cuts: {error})")
+    return skipped + [
+        NOTED.format(id=note["id"][:7], title=note["title"], starts="; ".join(f"`{release}`{facts[release, note['id']]}" for release in speaking[note["id"]]), body=note["body"].strip())
+        for note in notes
+        if note["id"] in speaking
+    ]
+
+
+def kept_notes(data: dict) -> list[dict]:
+    """The drive's release notes: each cc-notes note labelled drive:<drive> and release-order or release that no later note superseded, with its title and body."""
+    found: dict[str, dict] = {}
+    for label in RELEASE_NOTE_LABELS:
+        listed = settled.ccn(
+            ["ccn", "note", "list", "--label", f"drive:{data['name']}", "--label", label, "--limit", "0", "--full", "--json"],
+            "",
+            data["roles"]["coordinator"]["cwd"],
+            f"could not read the drive's notes labelled {label}",
+        )
+        found |= {note["id"]: note for note in json.loads(listed)}
+    return list(found.values())
+
+
+def note_facts(releases: set[str], titles: dict[str, str], cwd: str) -> dict[tuple[str, str], str]:
+    """What git says, by release and note id, of each PR and commit a note's title names at the commit the release cuts: its --from or --commit, else its repository's default branch head, which one fetch brings into the drive's checkout, and a PR at the merge commit `github.landing` reads for it in one `github.fetch`; a hotfix with neither cuts from the build live now, which git here cannot name. GithubError when the checkout's repository or default branch head could not be read."""
+    from drive import github
+
+    refs = {note_id: NOTE_REFS.findall(title) for note_id, title in titles.items()}
+    repo = github.checkout_repo(cwd)
+    branch = github.default_branch(repo)
+    head = github.fetched(cwd, branch)
+    keys = sorted({f"{repo}#{number}" for found in refs.values() for number, _ in found if number})
+    reads, refused = github.fetch(keys) if keys else ({}, None)
+    landed = {key: github.landing(read) for key, read in reads.items()}
+    facts = {}
+    for release, note_id in itertools.product(releases, titles):
+        [flags] = started(release)
+        given = (flags.get("from") or flags.get("commit") or (None,))[-1]
+        if given is None and "hotfix" in flags:
+            facts[release, note_id] = " (a hotfix cuts from the build live now, which git here cannot name)"
+            continue
+        commit = given or head
+        said = []
+        for number, sha in refs[note_id]:
+            pull = landed.get(f"{repo}#{number}") if number else None
+            if sha:
+                said.append(contained(cwd, sha, sha, commit))
+            elif pull is None:
+                said.append(f"GitHub did not read #{number}" + (f": {refused}" if refused else ""))
+            elif pull["state"] != "merged":
+                said.append(f"lacks #{number}, which is {pull['state']}" + (f" into {pull['into']}" if pull["into"] else ""))
+            else:
+                said.append(contained(cwd, f"#{number}", pull["merged_sha"], commit))
+        where = given or f"{branch}'s head {head[:12]}"
+        facts[release, note_id] = f" (at {where}: {'; '.join(said)})" if said else ""
+    return facts
+
+
+def contained(cwd: str, named: str, sha: str, commit: str) -> str:
+    """Whether commit holds sha, as `git merge-base --is-ancestor` answers in the drive's checkout, said of named, its PR or the sha itself."""
+    shown = named if named == sha else f"{named} ({sha[:12]})"
+    ran = subprocess.run(["git", "-C", cwd, "merge-base", "--is-ancestor", sha, commit], capture_output=True, text=True, check=False)
+    if ran.returncode in (0, 1):
+        return f"{'holds' if ran.returncode == 0 else 'lacks'} {shown}"
+    return f"git cannot place {shown}: {' '.join(ran.stderr.split())}"
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:
