@@ -3201,8 +3201,10 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
         return f"{job_id} {waiting} and no open PR, card or due time can wake it{ended_waits(data, job_id, job)}"
     if job["state"] == "done":
+        if judging(data, job_id):
+            return None
         if state.done_at_merge(job):
-            return None if judging(data, job_id) else (
+            return (
                 f"{job_id} took DONE at its merge, which proves nothing live, and the watch adds the builder proving it live once its"
                 f" `tools/ci release select --pr` read of {', '.join(reported_prs(data, job_id))} answers"
             )
@@ -3266,15 +3268,24 @@ def unproven(data: dict, job_id: str) -> bool:
 
 
 def judging(data: dict, job_id: str) -> bool:
-    """Whether a builder whose PRs, by reported_prs, all merged waits on the check of a merged diff, the one that names the parts of his orders it carries: one waiting on a READY, PUSHED or WAITING line, before the watch takes its DONE or proves it, and a product builder that took DONE at its merge before checks named parts, while a part it holds is undelivered, before unproved hands that part to its prover."""
+    """Whether a job whose PRs, by judged_prs, all merged waits on the check of a merged diff, the one that names the parts of his orders it carries: a builder waiting on a READY, PUSHED or WAITING line, before the watch takes its DONE or proves it; and, while a part it holds is undelivered, a product builder that took DONE at its merge before checks named parts, before unproved hands that part to its prover, and a builder or codex job holding a DONE of its own, whatever its line says, such as one it returned after its merge or one drive job prove took, whose parts served.kept delivers by state.post_carried once that check lands."""
     job = data["jobs"][job_id]
     waiting = job["state"] == "waiting" and MERGE_ENDS.match(job["said"] or "")
-    if job["kind"] != "builder" or not (waiting or state.done_at_merge(job) and product(data, job_id)):
+    own = job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and not state.done_at_merge(job)
+    if not (own or job["kind"] == "builder" and (waiting or state.done_at_merge(job) and product(data, job_id))):
         return False
-    keys = reported_prs(data, job_id)
+    keys = judged_prs(data, job_id)
     if not (keys and all(data["prs"][key]["merged_sha"] for key in keys) and any(state.carried(data["prs"][key]) is None for key in keys)):
         return False
     return bool(waiting) or not all(state.delivered(data, order_id, part) for order_id, parts in open_served(data, job).items() for part in parts)
+
+
+def judged_prs(data: dict, job_id: str) -> list[str]:
+    """The PRs whose merged diffs' check names the parts a job delivers: those its said line names, by reported_prs, but for a DONE of a job's own each merged one of those its DONE delivers by, by state.delivering_prs."""
+    job = data["jobs"][job_id]
+    if job["state"] != "done" or state.done_at_merge(job):
+        return reported_prs(data, job_id)
+    return [key for key in state.delivering_prs(data, job_id, job["said"] or "") if data["prs"][key]["merged_sha"]]
 
 
 def at_merge(data: dict, job_id: str) -> bool:
@@ -3340,7 +3351,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> list[str]:
-    """Finish each builder the watch hears whose PRs all merged, once the check of each merged diff named the parts of his orders it carries, which the watch starts on each merged head no check named them at: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits ending with it; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on no release, its handoff naming whether their paths reach only tests or CI config, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
+    """Finish each builder the watch hears whose PRs all merged, once the check of each merged diff named the parts of his orders it carries, which the watch starts on each merged head no check named them at, by judging, the merged PRs of a DONE a builder or codex job holds of its own among them, whose parts that check delivers once it lands: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits ending with it; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on no release, its handoff naming whether their paths reach only tests or CI config, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -3348,7 +3359,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     owed = [job_id for job_id in heard if unproved(data, job_id)]
     if not (owed or any(finishes(data, job_id) for job_id in heard)):
         return []
-    if due := [key for job_id in heard if judging(data, job_id) for key in reported_prs(data, job_id) if served.merge_due(data["prs"][key], moment)]:
+    if due := [key for job_id in heard if judging(data, job_id) for key in judged_prs(data, job_id) if served.merge_due(data["prs"][key], moment)]:
         served.start(watcher.name, list(dict.fromkeys(due)))
     merging = [job_id for job_id in heard if at_merge(data, job_id)]
     lines: list[str] = []

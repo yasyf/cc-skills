@@ -7931,6 +7931,34 @@ def test_a_merged_ready_job_whose_merged_diff_no_check_has_judged_starts_one_che
     assert (state.carried(data["prs"][OTHER]), state.delivered(data, "o1", "ship the watch"), "j2" in data["jobs"]) == ({}, False, False)
 
 
+def test_a_done_of_a_builders_own_on_a_merged_pr_no_check_judged_starts_its_check_which_delivers_the_parts_its_diff_carries_and_a_diff_carrying_none_leaves_its_orphan(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee", "head": "bbbbbbb222"}
+        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(YASYF)} merged as ccc333ddd and installed", prs=[state.pr_url(YASYF)], updated=state.stamp(T0 - timedelta(hours=1)))
+    watching = watcher(demo)
+
+    def orphans(moment: datetime) -> list[str]:
+        return [line for line in watch.run_pass(watching, moment) if line.startswith("ORPHAN")]
+
+    assert (orphans(T0), checkers) == ([], [YASYF])
+    judge.carried = []
+    assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
+    data = state.load(demo)
+    assert (state.carried(data["prs"][YASYF]), state.delivered(data, "o1", "ship the watch")) == ({}, False)
+    assert ([line.startswith('ORPHAN o1 "ship the watch": ') for line in orphans(T0 + timedelta(minutes=1))], checkers) == ([True], [YASYF])
+    with state.edit(demo) as data:
+        data["prs"][YASYF].update(checker=None, checked=None)
+    judge.carried = None
+    assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
+    data = state.load(demo)
+    assert (state.carried(data["prs"][YASYF]), data["orders"]["o1"]["parts"]["ship the watch"]["posted"]) == ({"o1": ["ship the watch"]}, state.pr_url(YASYF))
+    assert (orphans(T0 + timedelta(minutes=2)), checkers) == ([], [YASYF])
+
+
 def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_builder_proving_it_live_returns_done(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
 ) -> None:
