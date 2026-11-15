@@ -75,6 +75,11 @@ STAGING_MAC = (
     " `tools/ci release select --pr <N>`, your cases and how long they run, then return `WAITING staging:<target>/plat-usw2-staging@<head>`, one per target;"
     " the top sequences every staging cut, packing PRs that change different files into one, and resumes you in its window, so start no release yourself"
 )
+EXCEPTION_MAC = (
+    "start the release dry run of each component the `staging test of #N before it lands` part of yours names that staging has no copy of, from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"
+    " `tools/ci release start <each target holding them> --only <those components> --from <its branch> --emergency --dry-run`, then read each stack's preview with"
+    " `tools/ci release watch <its build> --json` once the build ends"
+)
 STAGING_FIRST = (
     "a finding of your staging run that production shows too goes to his thread the moment you have it, before any other step: one `report`"
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the finding>`, `attrs: {attrs}`, so it posts while he is away too;"
@@ -3492,9 +3497,9 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
 
 
 def mac_lines(name: str, job: dict, flags: dict) -> tuple[str | None, str | None]:
-    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else STAGING_MAC when a part of its is a staging test, and its release flag."""
+    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else STAGING_MAC when a part of its is a staging test, or EXCEPTION_MAC for a tester asking his exception, by state.EXCEPTED, and its release flag."""
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
-    return flags["mac"] or (STAGING_MAC.format(drive=name) if staged else None), flags["release"]
+    return flags["mac"] or ((EXCEPTION_MAC if state.EXCEPTED.match(job["goal"]) else STAGING_MAC.format(drive=name)) if staged else None), flags["release"]
 
 
 def declared_step(name: str, job: dict) -> str | None:
@@ -4265,11 +4270,11 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
-        tester = state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]]) if read["state"] == "OPEN" and read["files"] else None
-        if staged:
-            state.reach_staging(data, key)
+        testers = [state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]])] if read["state"] == "OPEN" and read["files"] else []
+        if key in staged:
+            testers.append(state.reach_staging(data, key, staged[key]))
     note_third_person(key, read)
-    return pr, [tester] if tester else []
+    return pr, [tester for tester in testers if tester]
 
 
 def design_basis(text: str) -> str:
@@ -4383,9 +4388,8 @@ def pr_set(args: argparse.Namespace) -> int:
             serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
-        if staged:
-            state.reach_staging(data, key)
-        testers = [tester_id] if args.staging and (tester_id := state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))) else []
+        reached = state.reach_staging(data, key, staged[key]) if key in staged else None
+        testers = [tester_id for tester_id in [reached, args.staging and state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))] if tester_id]
         delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
         if args.part and delivers:
             delivering += shipped(data, pr["job"], order, args.part)
@@ -4517,7 +4521,7 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes, and on its head when they change rust/Cargo.lock, so go/ci reads a lockfile line as reaching only the crates that link its package: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which a checkout of dev runs, and releases, those the paths reach through reads off that list; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
+    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes, and on its head when they change rust/Cargo.lock, so go/ci reads a lockfile line as reaching only the crates that link its package: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which a checkout of dev runs, releases, those the paths reach through reads off that list, and staged, those of the releases with an env its infra/envs file marks `stage: staging`; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
     clone = data["roles"]["coordinator"]["cwd"]
     if not (keys and (Path(clone) / GO_CI).is_file()):
         return {}
@@ -4529,7 +4533,7 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
     for key in ours:
         paths = github.files(key)
         if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
-            reach[key] = {"components": [], "touched": [], "dev": [], "releases": [], "tested": True}
+            reach[key] = {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
             continue
         request = {"body": "", "paths": paths}
         if CARGO_LOCK in paths:
@@ -4570,14 +4574,18 @@ def live_sand_next(checkout: Path) -> str:
     return github.run(["git", "-C", str(checkout), "rev-parse", "--verify", f"{found['commit']}^{{commit}}"]).strip()
 
 
-def staging_reach(name: str, data: dict, keys: list[str]) -> list[str]:
-    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases through paths off go/ci's dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; DriveError when that read fails, so its caller keeps nothing."""
+def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]]:
+    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases through paths off go/ci's dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; each with the releases staging has no copy of when it has a copy of none, neither one with a staging env, by release_reach's staged, nor one of the MAC_BOX_BUILDS, which a `tools/ci mac-box prove` signs in to staging, else none, as state.reach_staging reads it, so a PR touching only such a component, such as platy, goes to his exception after the release dry run's preview of each, by his answer 67caa93, rather than to a soak that cannot deploy it; DriveError when that read fails, so its caller keeps nothing."""
     keys = [key for key in keys if not state.merges_first_lift(data["prs"].get(key))]
     try:
         reach = release_reach(name, data, keys)
     except github.GithubError as error:
         raise DriveError(f"could not read which components the paths {', '.join(keys)} changes reach, so whether it waits on a staging test is unknown: {error}; run this again") from None
-    return [key for key in keys if (answer := reach.get(key)) and answer["releases"]]
+    return {
+        key: [] if answer["staged"] or MAC_BOX_BUILDS & set(answer["releases"]) else answer["releases"]
+        for key in keys
+        if (answer := reach.get(key)) and answer["releases"]
+    }
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:

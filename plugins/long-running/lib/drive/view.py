@@ -416,7 +416,7 @@ def staging(drive: dict, key: str) -> str:
 
 
 def staging_row(drive: dict, key: str) -> tuple[str, ...]:
-    """What a PR's cards say of its staging test, in parts, each its tester's or builder's own words Pasted, which his card draws only as card.plain_row lets it, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
+    """What a PR's cards say of its staging test, in parts, each its tester's or builder's own words Pasted, which his card draws only as card.plain_row lets it, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or, while its tester asks his exception, by state.EXCEPTED, that staging has no copy of what it changes, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return (f"Not on staging: {repo} has no staging env",)
@@ -440,6 +440,8 @@ def staging_row(drive: dict, key: str) -> tuple[str, ...]:
         return ("Not on staging: its staging test has not started",)
     ran = next((each for each in parts if each["posted_by"]), None)
     job_id, job = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] != "done" or ran and job_id == ran["posted_by"]), jobs[-1])
+    if job["state"] not in state.FINISHED_JOB_STATES and (excepted := state.EXCEPTED.match(job["goal"])):
+        return (f"Not on staging: staging has no copy of {excepted['components']}, so it lands on your exception once you read the release dry run's preview of each",)
     if job["state"] not in state.FINISHED_JOB_STATES:
         if soak and soak[0] in job["waits"]:
             return (f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}",)
