@@ -85,7 +85,7 @@ and waits ids, record seqs), never a technical name.
      of your own, by his words "get codex to design and stop doing the bare minimum". Before any
      code, write each user story on the brief's `Interactions:` line into your proof file as strict
      acceptance criteria, what he sees first, the result of each click, key or hover, and its empty
-     and error states, and keep it with `drive job set <your job> --repro <file>`; `drive pr add`
+     and error states, as the `CRITERION` lines step 7 names, and keep it with `drive job set <your job> --repro <file>`; `drive pr add`
      refuses your PR until it is kept.
 3. Design choices are his. One is a choice neither the brief's `Plan` nor his answers settle between two
    reasonable shapes that cost a lot to switch once built (a data layout or file format, a schema or
@@ -284,10 +284,16 @@ and waits ids, record seqs), never a technical name.
      `LONG_RUNNING_STATE` to a folder of its own, never `XDG_STATE_HOME`, and is saved with
      `state.create`, never `state.edit_or_create`: any other drive reads as a live one, whose loads and
      saves run `ccn` and `git` in the folder its coordinator's `cwd` names, no checkout in a proof, and
-     fail there. On a brief naming user stories it clicks each
-     on the installed surface, asserts its criteria and prints, for each, the path of the picture it saves or the live post's link
-     it reads back: `drive job prove` takes `BLOCKED` on output showing fewer stories than the brief names, or one
-     Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
+     fail there. On a brief naming user stories it clicks each on the installed surface, asserts
+     its criteria and prints these lines for each story, numbered `S1` on in the order the
+     `Interactions:` line names them: `STORY Sn: <the story>`; `CRITERION Sn <label>: <what must
+     hold>` for each strict acceptance criterion, `first`, `empty state` and `error state` among its
+     labels; `PASS Sn <label>: <what the run saw>` or `FAIL Sn <label>: <why>` for each criterion by
+     its label; and `SEEN Sn: <the picture or recording it saved, or the live post's link it read
+     back>`. `drive job prove` reads those lines in code, never by Jev, and takes `BLOCKED` on each
+     story missing one of them, printing a `FAIL` or `GAP` line, or whose `SEEN` line names no
+     picture or recording that exists nor a link that opens: its `BLOCKED` line quotes the first
+     gap, and each gap is a line of its own closing the output it keeps, headed drive job prove. A fix to red CI proves itself in that file
      with `drive pr ci <its PR's url>`, which exits 0 once the CI of the push that carried its merge,
      on the push's head when one push carried several merges, passed in a run or status from that
      commit's own on whose commit holds the merge, never by a local test
@@ -606,7 +612,7 @@ listing decisions that block nothing is not a result.
 
 | Result | When |
 | --- | --- |
-| `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, or a picture or recording of each user story the brief's `Interactions:` line names (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`, one picture, recording or live post's link per story, and the proof file of their criteria, Jev reading each story's proof against them. |
+| `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, or a picture or recording of each user story the brief's `Interactions:` line names (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`, and on a brief naming user stories refuses the `DONE` whatever it names, since only `drive job prove` proves them, reading each story's lines in what your proof file prints (step 7). |
 | `PUSHED <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch's check judges its change against his words at its head. It is the `READY` below held until the watch reads green every check its repository's default branch rules name, one not yet posted holding it too, or at its first read when they name none, waking nobody meanwhile; a red one comes back to you. A `Forge-AI/monorepo` PR carries its `STAGING:` line. |
 | `READY <pr url> [<pr url>…]` | The same, with every check its repository's rules require green; his card, drawn at `drive pr add`, shows it ready for his Approve. A stack names every PR, bottom first, so it gets one card, as sibling PRs of one order ready together do. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names and each card your `drive job ask` put up in this run, by its waits id or Slack link, which `drive status <your job>` shows. Its lines name the option built for each card and what his other picks would change. |
