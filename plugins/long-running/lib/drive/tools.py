@@ -332,23 +332,27 @@ def run(tool: str, name: str, arguments: dict) -> str:
 
 
 def parsed_arguments(arguments: dict, shapes: dict[str, dict]) -> dict:
-    """The call's arguments with each list or object a client sent as JSON text parsed, at any depth, such as an op's flaky pair, as the tool's schema types it."""
-    return parsed("arguments", arguments, {"properties": shapes})
+    """The call's arguments with each list or object a client sent as JSON text parsed, at any depth, such as an op's flaky pair, as the tool's schema types it, and a list or object sent for a field whose schema takes neither refused by its path, type and description before any tool runs."""
+    return parsed("", arguments, {"properties": shapes})
 
 
-def parsed(key: str, value: object, shape: dict) -> object:
+def parsed(path: str, value: object, shape: dict) -> object:
     choices = shape.get("oneOf") or shape.get("anyOf") or ()
     kinds = {shape.get("type"), *(choice.get("type") for choice in choices)}
     if isinstance(value, str) and "string" not in kinds and kinds & {"array", "object"}:
         try:
             value = json.loads(value)
         except json.JSONDecodeError as error:
-            raise DriveError(f"{key} is a list or object, and its text is not JSON: {error}") from None
+            raise DriveError(f"{path} is a list or object, and its text is not JSON: {error}") from None
+    if isinstance(value, list | dict) and (kinds - {None} or "enum" in shape) and not kinds & {"array", "object"}:
+        sent = "a list" if isinstance(value, list) else "an object"
+        raise DriveError(f"{path} takes one {kind(shape)}, not {sent}" + (f": {shape['description']}" if "description" in shape else "") + "; nothing ran")
     if isinstance(value, list) and "items" in shape:
-        return [parsed(key, item, shape["items"]) for item in value]
+        return [parsed(f"{path}[{index}]", item, shape["items"]) for index, item in enumerate(value)]
     if isinstance(value, dict):
         properties = {field: each for choice in (shape, *choices) for field, each in choice.get("properties", {}).items()}
-        return {field: parsed(field, item, properties.get(field, {})) for field, item in value.items()}
+        rest = shape.get("additionalProperties")
+        return {field: parsed(f"{path}.{field}" if path else field, item, properties.get(field, rest if isinstance(rest, dict) else {})) for field, item in value.items()}
     return value
 
 
@@ -941,7 +945,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, alone or as <lane>@<drive> of this drive, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread, where any other session's handoff naming no lane goes too, after the coordinator session whose agent runs the job it names; an owner record naming no about, an item whose re names several seqs, or one to a lane no session of the drive reads, is refused."""
+    """The cci record an item posts as, to the lane it names, alone or as <lane>@<drive> of this drive, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread, where any other session's handoff naming no lane goes too, after the coordinator session whose agent runs the job it names; an owner record naming no about, or one to a lane no session of the drive reads, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
@@ -951,11 +955,6 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         if item.get(key):
             made[key] = item[key]
     if re := item.get("re"):
-        if isinstance(re, list):
-            raise DriveError(
-                f"re names one seq, not {len(re)}: cci stores one record per seq it answers, so name the newest record this"
-                " answers, whose own re reaches the rest; nothing posted"
-            )
         made["re"] = [re]
     if waits := item.get("waits"):
         waits = state.waits_of(drive, waits)
