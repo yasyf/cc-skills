@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, Self
 
-from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
+from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -4502,6 +4502,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         return 0
     try:
         os.environ.update(launchd.session_env())
+        children.mark_watch()
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
         held = state.take_held_reads(name, project)

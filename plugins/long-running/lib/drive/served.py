@@ -253,8 +253,9 @@ def start(name: str, keys: list[str]) -> None:
 
 
 def merge_due(pr: dict) -> bool:
-    """Whether a merged PR's check is to start, the one that names the parts its merged diff carries: none ever started at its merged head, which never moves, so each merged head is judged once whatever that check found; one that failed or ended with no outcome stays on the PR for the drive pr check the ORPHAN line of each part it leaves uncarried names, by watch.unbuilt, and one kept there before checks named parts starts none."""
-    return not pr["checker"] or pr["checker"]["head"] != pr["head"]
+    """Whether a merged PR's check is to start, the one that names the parts its merged diff carries: none ever started at its merged head, which never moves, or the one there ended with no outcome RETRY ago, as one its watch's end killed does, so each merged head is judged once whatever a finished check found; one that failed stays on the PR for the drive pr check the ORPHAN line of each part it leaves uncarried names, by watch.unbuilt, and one kept there before checks named parts starts none."""
+    checker = pr["checker"]
+    return not checker or checker["head"] != pr["head"] or checker["outcome"] is None and not state.alive(checker["pid"]) and state.now() - state.parse_time(checker["at"]) >= RETRY
 
 
 def merge_judging(pr: dict) -> bool:
