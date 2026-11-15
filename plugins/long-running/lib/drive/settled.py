@@ -138,6 +138,11 @@ ANSWERS_NOTHING = Noul(
     yes='His words "Expand on 1 and 2 and how does the replica fit in?", "Why is 1 recommended over 2?" and "could we do 1 without re-uploading?" only ask, a way proposed as a question such as "why not just X?" included.',
     no="They pick an option, approve the recommended one, rule one out, or order the work in words that ask nothing.",
 )
+BESIDE = Noul(
+    "Do `his_words`, written under `card`, order work other than what `card.question` asks, while picking none of `card.options` and leaving what the card asks as it stands?",
+    yes='His words "Why is 1 recommended over 2? Also the status page is still blank, fix it" ask the card a question and order other work beside it, so the card still waits on his pick.',
+    no="They pick an option, approve the recommended one, rule one out, change what the card asks, order the card's own work, or order nothing.",
+)
 ADVISED = (
     "drive job ask: Opus reads {part} as breaking {id}, {asked}, \"{said}\".{rule} This finding refuses no card, by his pick"
     " 320b7a7 that drive job ask keeps every well-shaped card and prints its finding to the agent: when it holds, rewrite"
@@ -1394,9 +1399,10 @@ def pacific(moment: datetime) -> str:
     return moment.astimezone(view.ZONE).strftime("%A %b %-d %Y, %-I:%M %p Pacific")
 
 
-def only_asks(title: str, options: list[str], words: str) -> bool:
-    """Whether his words under a card only ask it questions, one proposing a way included, or remark on it, as Jev reads them beside its question and options at YES or more, so they answer nothing, with no `claude` process, so the card command needs none on its PATH; Unheard when Jev gave no answer."""
-    return reading(jev({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING})["answers_nothing"]) is True
+def read_under(title: str, options: list[str], words: str) -> dict[str, bool | None]:
+    """How Jev reads his words under a card beside its question and options, in one request with no `claude` process, so the card command needs none on its PATH: `answers_nothing`, whether they only ask it questions, one proposing a way included, or remark on it, so they answer nothing, and `beside`, whether they order other work beside it, leaving what it asks as it stands; Unheard when Jev gave no answer."""
+    answers = jev({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING, "beside": BESIDE})
+    return {key: reading(sure) for key, sure in answers.items()}
 
 
 def answered_card(data: dict, answer: dict) -> limits.Question | None:
@@ -1641,7 +1647,7 @@ SPANS = Noul(
     no="The claim speaks of the one thing the call reads; or the call lists or searches every member, such as a grep across the code, a database query's rows or a status listing; or the call reads the rule every member follows, its own words naming that set, such as a manual's rule for each kind of post; or its words of a set quote a title, an order or a name rather than speak for that set.",
 )
 HOLDS = Noul(
-    "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in the post, `post.text` as Slack gets it and `post.written` as its writer typed it?",
+    "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in the post, `post.written` as its writer typed it?",
     yes="The rule is meant to stop what the finding names in this post.",
     no="The finding's pattern matched words its rule never meant.",
 )
@@ -1651,12 +1657,12 @@ FACT = Noul(
     no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists; or each fact in it is one `claims` say, such as a lead line summing up the claims under it.",
 )
 CARD = Noul(
-    "He asked `card.asked` under the card for `card.title`, and `post.text` answers him. Does answering him take what `card.title` names, its mechanism or a coined name for it, while `post.text` leaves a term of it with no clause saying what it is and why the change needs it?",
+    "He asked `card.asked` under the card for `card.title`, and `post.written` answers him. Does answering him take what `card.title` names, its mechanism or a coined name for it, while `post.written` leaves a term of it with no clause saying what it is and why the change needs it?",
     yes="His question turns on what the card's change does, and the post leaves a term of the title, such as a mark, queue, lease or gate it names, unexplained.",
     no="The post says in a clause what each term of the title is and why the change needs it, his question does not turn on what the change does, such as when it ships or whether it merged, or the title holds only words anyone reads.",
 )
 SCOPE = Noul(
-    "`post.text` goes in a thread of his DM about one piece of his work. Does it tell him of the whole drive's work, such as how many question cards, Approve cards or taps are open across his DM, his whole queue, or other projects' work?",
+    "`post.written` goes in a thread of his DM about one piece of his work. Does it tell him of the whole drive's work, such as how many question cards, Approve cards or taps are open across his DM, his whole queue, or other projects' work?",
     yes="It counts, lists or ranks what waits on him across the drive, his DM or the dashboard's queue, such as 143 question cards open in his DM or the queue's first four cards.",
     no="It tells of one piece of work: its own PRs, cards, jobs, merges and staging tests, however many it names, and the release or PR they wait on, such as two Approve cards of this work and nothing else of it waiting on him.",
 )
@@ -1751,11 +1757,11 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
-    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, and the drive's line for each PR a claim names beside that claim as `staged` gives it, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained, and his words in the thread of his DM holding orders it goes in, beside one Noul whether the post tells him of the whole drive's work and one whether those words name a wider subject, neither reading the thread's work, whose strays code finds, so a thread holding much work still has its posts judged, when they fit a request beside the post, else left out and only warned of; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
+    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post's typed words once, since Slack's copy of them repeats each word beside its links, and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, and the drive's line for each PR a claim names beside that claim as `staged` gives it, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained, and his words in the thread of his DM holding orders it goes in, beside one Noul whether the post tells him of the whole drive's work and one whether those words name a wider subject, neither reading the thread's work, whose strays code finds, so a thread holding much work still has its posts judged, when they fit a request beside the post, else left out and only warned of; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     words = output.get("his_words") or []
-    base = {"post": {"text": post.get("text") or "", "written": post.get("written") or post.get("text") or ""} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
+    base = {"post": {"written": post.get("written") or post.get("text") or ""} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
     shared: dict[str, list[tuple[dict, dict[str, Noul]]]] = {}
     scope = output.get("thread_scope")
     scoped = ({"thread": {"asked": scope["asked"]}}, {"scope": SCOPE, "wider": WIDER}) if scope else None

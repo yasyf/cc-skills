@@ -582,7 +582,7 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it, and each whose to names an unfinished job's id held on that job with its seq and this session's role as sender, by state.hold_addressed, for its running worker or codex run as drive job resume holds a text. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it and whether or not that drive holds a communicator, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question; none posts when one not in his words says a release may start while a freeze or his release hold it does not name stands."""
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it, and each whose to names an unfinished job's id held on that job with its seq and this session's role as sender, by state.hold_addressed, for its running worker or codex run as drive job resume holds a text. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it and whether or not that drive holds a communicator, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question; none posts when one not in his words says a release may start while a freeze or his release hold it does not name stands. Owner words of his that Opus reads as ordering other work beside a card end none of its questions, so the card keeps asking while the record carries them, with their url, to the session holding that work."""
     held = card_drive(name, records)
     data = state.load(held)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID") if held == name else (data["roles"].get("communicator") or {}).get("session")
@@ -620,11 +620,13 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         if (questions or ruling) and (unsaid := unheard(data, found, made, ruled.pop(ruling, []))):
             raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
         try:
-            unanswered = asks_only(found, made, questions)
+            unanswered, beside = under_card(found, made, questions)
         except settled.Unheard as failure:
-            unanswered = UNHEARD.format(failure=failure)
+            unanswered, beside = UNHEARD.format(failure=failure), False
         if unanswered:
             raise DriveError(f"{index}: refused, nothing posted: {unanswered}")
+        if beside:
+            closes[index - 1] = []
     ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) for made in posts]
     if unordered := [index for index, (item, alone) in enumerate(zip(records, ordering, strict=True), start=1) if "order" in item and not alone]:
         raise DriveError(
@@ -798,21 +800,22 @@ def unheard(data: dict, found: dict, made: dict, ruled: list[dict]) -> str | Non
     return settled.his_at(settled.shown(made["attr"]["ruling"], data["roles"]["coordinator"]["cwd"])["body"], list(dict.fromkeys(other["url"] for other in ruled)), found, data)[1]
 
 
-def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str | None:
-    """Why an answer or owner record of his words that would end a card's question answers nothing, the record tool's or the card command's for his words in its Other box: Opus reads them, beside the card's question and options, as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; settled.Unheard when Opus gives no reading, which each caller refuses, since a question ended on such words costs a redrawn card. None for words that pick an option or order the work, and for any record ending no question."""
+def under_card(found: dict, made: dict, questions: list[tuple[str, dict]]) -> tuple[str | None, bool]:
+    """How an answer or owner record of his words that would end a card's question reads beside the card's question and options, the record tool's or the card command's for his words in its Other box: why it answers nothing, when Opus reads them as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer, and whether Opus reads owner words as ordering other work beside the card, so the record goes out with its url and the card keeps asking, by his words 2a27048; settled.Unheard when Opus gives no reading, which each caller refuses, since a question ended on such words costs a redrawn card. None and False for words that pick an option or order the card's work, and for any record ending no question."""
     if made["kind"] not in ("answer", "owner") or not made.get("url") or not questions:
-        return None
+        return None, False
     _, question = questions[0]
     card = view.asked_card(found, named) if (named := question["waits"] or question["card"]) else None
-    if not settled.only_asks(question["title"] or "", card["options"] if card else [], made["text"]):
-        return None
+    read = settled.read_under(question["title"] or "", card["options"] if card else [], made["text"])
+    if read["answers_nothing"] is not True:
+        return None, made["kind"] == "owner" and read["beside"] is True
     return (
         "Opus reads his words as only asking the card questions, one proposing a way included, or remarking on it, so they answer"
         " nothing: answer them in the card's thread and send no record of them, and the card keeps asking him, its waits kept,"
         " a way they propose going to the job's session to redraw the card offering it, by his words 2a27048, \"Why does the card"
         ' say answered? I wanted you to answer my Qs so I could then make a choice"; words that pick an option or order the work'
         " are his answer"
-    )
+    ), False
 
 
 def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict]], found: dict) -> list[tuple[str, dict, dict]]:
