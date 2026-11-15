@@ -7045,6 +7045,27 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     assert (lifted, bool(marked), [state.load("demo")["jobs"][job_id]["goal"] for job_id in restaged]) == (None, True, [cases])
 
 
+def test_a_builders_42_none_lifts_a_test_no_job_took_up_and_one_that_ended_with_no_pass(
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    key, part = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42)
+    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)]
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: it changes one test's code alone\n") == (0, "")
+    data = state.load("demo")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"]) == (False, [], "stopped")
+    with state.edit("demo") as data:
+        data["prs"][key] |= {"unstaged": None, "paths_at": None, "head": "abc"}
+        tester_id = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"])
+        data["jobs"][tester_id] |= {"agent": "a1", "state": "failed"}
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: its failed test needs no rerun\n") == (0, "")
+    data = state.load("demo")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"]) == (False, [])
+
+
 def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dangerous_tester_hears_its_cases_and_no_none_line_lifts_it(
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

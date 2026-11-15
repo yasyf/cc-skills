@@ -183,12 +183,7 @@ def running(pr: dict) -> bool:
 
 def reported(key: str, pr: dict) -> bool:
     """Whether the lander merges the PR itself with gh pr merge, as it does every PR but a Forge-AI/monorepo one Trunk merges, and says so on its own line, so GitHub's merged line asks no step: it still runs on it, or it merged it."""
-    return not state.queued_by_lander(key) and (running(pr) or merged_try(pr))
-
-
-def merged_try(pr: dict) -> bool:
-    """Whether the lander's last try on the PR merged it, by the outcome merged() records, which says so before the watch's next GitHub read of the PR does; a merged PR takes no later head, so the try that merged it stands at whatever head the row reads."""
-    return ((pr["lander"] or {}).get("outcome") or "").startswith("merged")
+    return not state.queued_by_lander(key) and (running(pr) or ((pr["lander"] or {}).get("outcome") or "").startswith("merged"))
 
 
 def landing(pr: dict) -> bool:
@@ -564,7 +559,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs, nor one with a PR waiting on his tap whose paths at its head reach a component staging runs and that no staging test passed yet, by cli.staging_reach, which it puts on its staging test first, but one drive order set --drop-part or his answer let merge before that test, by state.merge_first, which lands and gets its after-merge staging pass. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, nor several PRs outside a Forge-AI/monorepo unit, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs, nor one with a PR waiting on his tap whose paths at its head reach a component staging runs and that no staging test passed yet, by cli.staging_reach, which it puts on its staging test first, but one drive order set --drop-part or his answer let merge before that test, by state.merge_first, which lands and gets its after-merge staging pass. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -572,6 +567,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a PR he approved or an exempt class lands, a pure port only once its original merged or he approved it, and no other")
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
+    if len(keys) > 1 and not state.queued_by_lander(keys[0]):
+        raise state.DriveError(f"{', '.join(keys)}: {' '.join(MERGE)} merges one PR at a time, so the lander lands one outside Forge-AI/monorepo, never crediting the rest with its merge")
     below: list[str] = []
     asked: dict[str, str] = {}
     try:
@@ -733,8 +730,7 @@ def ask_review(repo: str, number: str, head: str) -> str | None:
 
 
 def merged(name: str, key: str, method: str, flags: list[str]) -> str:
-    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to, the lander's own failure by unanswered()."""
-    repo, number = key.split("#")
+    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; then read the PR back with github.fetch and record its landing on its row by github.landing, the one rule of whether a PR merged, so the row reads merged before the watch's next read and a merge GitHub does not read merged ends the try not landed, installing nothing, rather than crediting the PR with whatever the default branch's head carries; once merged, install from its own merge commit each plugin of this Mac it changes; what came of it, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to or a read back that failed, the lander's own failure by unanswered()."""
     if (refusal := merged_sync(key, method, flags)) and STACKED in refusal:
         print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
         refusal = merged_async(key, method, flags)
@@ -743,12 +739,19 @@ def merged(name: str, key: str, method: str, flags: list[str]) -> str:
     if refusal:
         return refusal if refusal.startswith(OWN_FAILURE) else f"not landed: {refusal}"
     try:
-        sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
+        reads, failed = github.fetch([key])
+        if failed:
+            raise failed
         files = github.files(key)
     except github.GithubError as error:
-        return f"merged, but its merge commit did not read, so nothing was installed: {cut(str(error), SAID_CHARS)}"
+        return f"{OWN_FAILURE} read {key} back from GitHub after {' '.join(MERGE)} said it merged, so nothing was installed: {cut(str(error), SAID_CHARS)}; the next watch pass reads it"
+    landed = github.landing(reads[key])
     with state.edit(name) as data:
-        data["prs"][key]["merged_sha"] = sha
+        data["prs"][key].update(landed, updated=state.stamp())
+    if landed["state"] != "merged":
+        return f"not landed: GitHub reads it {landed['state']} after {' '.join(MERGE)} said it merged, so nothing was installed"
+    sha = landed["merged_sha"]
+    repo = github.repo_of(key)
     plugins = install.touched(repo, files)
     if not plugins:
         return f"merged at {sha[:12]}; it changes no plugin installed on this Mac"
