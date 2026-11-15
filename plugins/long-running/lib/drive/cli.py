@@ -2850,6 +2850,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Runs as": flags["runs_as"],
         "Release": flags["release"],
         "Release build": job["release_build"],
+        "Release freezes": brief.releases(name, data),
         "Mac": flags["mac"],
         "After install": flags["after"],
         "Handoff": flags["handoff"],
@@ -4736,7 +4737,11 @@ def status(args: argparse.Namespace) -> int:
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     project = state.session_project(data, session)
     runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None
-    return emit(args, render.status_text(data, seen, shown, runs), render.status_data(shown or data, seen, shown is not None, runs))
+    text, payload = render.status_text(data, seen, shown, runs), render.status_data(shown or data, seen, shown is not None, runs)
+    if shown is not None and any(state.RELEASE_WAIT.fullmatch(wait) for owner in [*payload["jobs"].values(), *payload["prs"].values()] for wait in owner["waits"]):
+        payload["release_freezes"] = brief.releases(name, data)
+        text += f"\nRelease freezes: {payload['release_freezes']}"
+    return emit(args, text, payload)
 
 
 def with_build(place: str, held: dict) -> str:

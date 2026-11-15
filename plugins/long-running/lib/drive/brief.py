@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlparse
 
-from drive import limits, settled, state
+from drive import limits, reads, settled, state
 from drive.render import cut
 from drive.shell import simple_commands
 
@@ -128,6 +128,11 @@ NOTED = (
 UNNOTED = (
     "the drive's release notes were not read against {starts} ({why}): read each note `ccn note list --label drive:{name}"
     " --label release-order` and `--label release` list before you offer or start one"
+)
+RELEASE_CLAIM = re.compile(
+    r"\bfreeze\b[^.;\n]{0,60}?\b(?:lifted|lifts now|ended|is over|is gone|came off)\b|\bunfrozen\b|\bno longer frozen\b"
+    r"|\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|go|run|ship)\b|\breleases? (?:start|go) (?:as usual|again)\b",
+    re.IGNORECASE,
 )
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
@@ -374,6 +379,37 @@ def contained(cwd: str, named: str, sha: str, commit: str) -> str:
     if ran.returncode in (0, 1):
         return f"{'holds' if ran.returncode == 0 else 'lacks'} {shown}"
     return f"git cannot place {shown}: {' '.join(ran.stderr.split())}"
+
+
+def freezes(name: str, data: dict) -> list[dict]:
+    """Each release freeze standing now, as `tools/ci release freezes --json` reads the release ledger from the drive's checkout at the head of its default branch: its ledger row under freeze and its line under text."""
+    from drive import orca
+
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "freezes", "--json"], checkout))
+
+
+def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
+    """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief, wait or post states a freeze that lifted or misses one set since; a ledger that could not be read stands under no id, which no words name."""
+    held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold, data)[0]}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
+    try:
+        return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
+    except (reads.ReadError, state.DriveError) as error:
+        return [(None, f"the release ledger could not be read ({error}), so read `tools/ci release freezes` before saying a release is frozen or may start"), *held]
+
+
+def releases(name: str, data: dict) -> str:
+    """What stands on releases now, as the one line a job's brief, a handler's prompt and drive status carry."""
+    return "; ".join(line for _, line in standing(name, data)) or "no release freeze or release hold of his stands"
+
+
+def claim_refusal(text: str, name: str, data: dict) -> str | None:
+    """Why words saying a release freeze lifted or a release may start may not go out: they leave out, by its id, a freeze or his hold standing now; None for words claiming neither, or naming each that stands."""
+    if not RELEASE_CLAIM.search(text):
+        return None
+    if unnamed := [line for stands, line in standing(name, data) if stands is None or stands not in text]:
+        return f"these words say a release freeze lifted or a release may start, and these stand now: {'; '.join(unnamed)}. Name each by its id and what it holds, or leave the claim out"
+    return None
 
 
 def gives_tooling(job_id: str, order_id: str) -> str:
