@@ -14,9 +14,9 @@ die() {
   exit 1
 }
 
-forward=$(jq -er '.forward | [.host, .config] | select(all(type == "string" and length > 0)) | @tsv' "$task") ||
-  die "$task names no ssh forward host and config, so no Sprite was reached"
-IFS=$'\t' read -r host config <<<"$forward"
+forward=$(jq -er '[.forward.host, .forward.config, .projectRoot] | select(all(type == "string" and length > 0)) | @tsv' "$task") ||
+  die "$task names no ssh forward host and config or no projectRoot, so no Sprite was reached"
+IFS=$'\t' read -r host config root <<<"$forward"
 
 words=()
 for entry in "${released[@]}"; do
@@ -43,7 +43,7 @@ for pair in ${tools[@]+"${tools[@]}"}; do
   placed+=("$name" "$(base64 <"$file" | tr -d '\n')")
 done
 
-printf -v args ' %q' "$((${#placed[@]} / 2))" ${placed[@]+"${placed[@]}"} "${words[@]}"
+printf -v args ' %q' "$root" "$((${#placed[@]} / 2))" ${placed[@]+"${placed[@]}"} "${words[@]}"
 status=0
 ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" <<'SPRITE' || status=$?
 set -eu
@@ -51,8 +51,8 @@ dest=$HOME/.local/bin
 staged=$(mktemp -d)
 trap 'rm -rf "$staged"' EXIT
 mkdir -p "$dest"
-placed=$1
-shift
+root=$1 placed=$2
+shift 2
 while [ "$placed" -gt 0 ]; do
   name=$1 text=$2
   shift 2
@@ -94,6 +94,16 @@ if [ "$("$dest/zig" version 2>/dev/null)" != 0.14.0 ]; then
   ln -sfn "$zig/zig" "$dest/zig"
 fi
 echo "zig $("$dest/zig" version)"
+sccache=
+export MISE_TRUSTED_CONFIG_PATHS=$root MISE_LOCKED=1
+[ ! -x "$dest/mise" ] || sccache=$("$dest/mise" -C "$root" current sccache)
+if [ -n "$sccache" ]; then
+  "$dest/mise" -C "$root" install sccache >&2
+  ln -sfn "$("$dest/mise" -C "$root" which sccache)" "$dest/sccache"
+  found=$(bash -lc "command -v sccache" 2>/dev/null) || found=nothing
+  [ "$found" = "$dest/sccache" ] || { echo "a login shell runs sccache from $found, not the $dest/sccache linked to the sccache $root pins" >&2; exit 1; }
+  echo "sccache $sccache"
+fi
 SPRITE
 [ "$status" -eq 0 ] || [ "$status" -eq 255 ] || exit "$unfit"
 exit "$status"
