@@ -704,6 +704,22 @@ def test_a_drive_saved_before_proofs_proven_keeps_work_delivered_only_where_driv
     assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["proofs_proven"], "proofs_posted" in loaded) == (post, True, False)
 
 
+def test_the_post_that_answered_a_part_stops_delivering_it_while_a_builder_takes_it_on_as_work_which_only_its_passing_proof_delivers(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    created = "2026-11-14T10:00:00-08:00"
+    part, post, proof = "why it broke", "https://acme.slack.com/archives/D123/p1794200040000500", "j1 live: repro/j1.sh exits 0 on long-running 1.0.3"
+    data["orders"] = {"o1": state.new_order("fix it", "slack", None, {part: state.new_part() | {"answer": True, "posted": post}}, created) | {"kind": "build", "jobs": ["j1"]}}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "fix what broke", [part], created) | {"state": "stopped"}}
+    answered = state.delivered(data, "o1", part)
+    data["jobs"]["j1"]["state"] = "running"
+    taken = (state.delivered(data, "o1", part), state.owed_work(data, "j1"))
+    data["jobs"]["j1"]["state"] = "done"
+    done = state.delivered(data, "o1", part)
+    state.deliver_proven(data, "j1", proof)
+    assert [answered, taken, done, (state.delivered(data, "o1", part), data["orders"]["o1"]["parts"][part]["posted"])] == [True, (False, [("o1", part)]), False, (True, proof)]
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

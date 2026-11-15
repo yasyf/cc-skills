@@ -146,7 +146,8 @@ DISPATCH_PREFIX = "ctx_"
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 HELD_DONE = re.compile(rf"WAITING (?:{PR_URL.pattern} )+to merge: DONE\b")
-PROVEN_LINE = re.compile(r"DONE (?P<proof>.+? live: \S+ exits 0 on .+)")
+PROOF = re.compile(r".+? live: \S+ exits 0 on .+")
+PROVEN_LINE = re.compile(rf"DONE (?P<proof>{PROOF.pattern})")
 POST_PROOFS_MERGED = datetime.fromisoformat("2026-11-15T06:49:27-08:00")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<env>[\w.-]+))?")
@@ -2689,13 +2690,13 @@ def staging_tester(data: dict, wait: str) -> str | None:
 
 
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; any other once its posted field holds what delivered it, on work he ordered the passing proof drive job prove ran, by deliver_proven, and on words he reads the post that answered it; no job's state, merge or PR link delivers a part."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; any other once its posted field holds what delivered it, on work he ordered only the passing proof drive job prove ran, by deliver_proven, so the post that answered a part sorted as an answer stops delivering it once a builder, codex or design job takes it on as work, and on words he reads the post that answered it; no job's state, merge or PR link delivers a part."""
     held = data["orders"][order_id]["parts"][part]
     if held["standing"]:
         return False
     if STAGING_PART.fullmatch(part):
         return staged(data, order_id, part)
-    return bool(held["posted"])
+    return bool(held["posted"]) and (not work(data, order_id, part) or bool(PROOF.fullmatch(held["posted"])))
 
 
 def owed_work(data: dict, job_id: str) -> list[tuple[str, str]]:
