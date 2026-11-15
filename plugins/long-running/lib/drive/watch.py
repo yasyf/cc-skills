@@ -2733,8 +2733,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     else:
                         deaths[job_id] = (job["agent"], stopped_on(turn))
                     continue
-                if running and job["kind"] != "codex" and session_of(job, data) is None:
-                    lost[job_id] = f"no bound session holds its agent {job.get('agent') or 'none recorded'}"
+                if running and job["kind"] != "codex" and job.get("agent") and session_of(job, data) is None:
+                    lost[job_id] = f"no bound session holds its agent {job['agent']}"
                 gap = running and agent_gap(job_id, job, data, moment)
                 if isinstance(gap, Answered):
                     taken[job_id] = gap
