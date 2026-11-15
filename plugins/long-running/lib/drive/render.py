@@ -92,8 +92,11 @@ COMMUNICATOR_RULES = (
         "A question-card answer (slack.action with waits: true), whatever its waits id, one naming no job included,"
         " whether he tapped it, typed its number in its thread or wrote in its Other box, and an Undo (undo: true) get"
         " no record and no handler: cc-slack closed the card, and its card command posted his answer record, `undone:`"
-        " for an Undo. A payload without `recorded: true` is a card command that missed it: one defect record quoting"
-        " the payload, never an answer record of yours, which drive record refuses. Explain more gets no record: a handler briefed"
+        " for an Undo. Words he wrote in its Other box that only ask about the card (asks: true) get no record: the card"
+        " command recorded nothing and cc-slack drew its options again, so a handler briefed `Message (his words):` with"
+        " them verbatim, the card's permalink and its thread answers them there, as his words in its thread. Any other"
+        " payload without `recorded: true` is a card command that missed it: one defect record quoting the payload, never"
+        " an answer record of yours, which drive record refuses. Explain more gets no record: a handler briefed"
         " `Message (his words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:) gets"
         " nothing, since cc-slack records it."
     ),
