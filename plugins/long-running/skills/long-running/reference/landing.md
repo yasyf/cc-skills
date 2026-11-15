@@ -68,16 +68,20 @@ for its repository says, then return `DONE <proof>`.
     the PR is doing, and use exact technical terms rather than being roundabout". It opens the PR's
     section of his card, under the lead `drive pr add` keeps.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
-    code lately: which part of the system it touches, what that part did before, and what it does now.
-    It follows the Summary on his card. The card also reads `## ELI5`, and a monorepo body's
+    code lately: which part of the system it touches, what that part did before, and what it does now,
+    in plain full sentences that define each term where it first appears. It follows the Summary on
+    his card. The card also reads `## ELI5`, and a monorepo body's
     `## Context`, which its `submit-pr` template writes in this voice.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.
   - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
-    behavior he did not ask for, a shortcut, or a risk he would not take.
+    behavior he did not ask for, a shortcut, or a risk he would not take. A cost is the concrete
+    things the change adds, such as a new message kind or a call that now waits on another, never an
+    adjective.
   - `## Show me`: one concrete example of the change, which his card draws as a picture, or as Slack's
     code block when the code is one line or trivial, and the dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
-    fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
+    fence naming its language (`sql`, `go`, `sand`), with one plain sentence after it saying what
+    happens when it runs, as *A post that explains* in [Messages](messages.md) shows. An `arch` map of the components it adds or rewires,
     or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
     `chart` fence (Vega-Lite) or a markdown table. A change to what he or a user sees, a UI, page,
     card or post, gets a before and an after screenshot of it as two markdown images, kept anywhere,
