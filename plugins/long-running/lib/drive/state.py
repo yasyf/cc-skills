@@ -2573,10 +2573,15 @@ def opened_or_proven(data: dict, job_id: str) -> list[str]:
     return [key for key in dict.fromkeys(keys) if key in data["prs"]]
 
 
+def delivering_prs(data: dict, job_id: str, words: str) -> list[str]:
+    """The drive PRs whose merged diffs deliver the parts a change job's DONE holds: each it opened or proves, by opened_or_proven, and each its words name."""
+    return list(dict.fromkeys([*opened_or_proven(data, job_id), *named_prs(data, data["jobs"][job_id]["order"], words)]))
+
+
 def post_carried(data: dict, job_id: str, words: str) -> None:
-    """Deliver each part of work he ordered a change job's DONE holds that a merged PR it opened, proves or names in words carries, as the check of that PR's merged diff names it, by that PR's link, the one mark delivered reads for such work; a part a merged PR already delivered keeps its link."""
+    """Deliver each part of work he ordered a change job's DONE holds that a merged PR it opened, proves or names in words carries, by delivering_prs, as the check of that PR's merged diff names it, by that PR's link, the one mark delivered reads for such work; a part a merged PR already delivered keeps its link."""
     job = data["jobs"][job_id]
-    for key in dict.fromkeys([*opened_or_proven(data, job_id), *named_prs(data, job["order"], words)]):
+    for key in delivering_prs(data, job_id, words):
         for order_id, parts in carried_by(data, [key]).items():
             for part in parts:
                 held = data["orders"][order_id]["parts"].get(part)

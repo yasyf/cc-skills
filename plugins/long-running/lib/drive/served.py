@@ -162,7 +162,7 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; on a merged PR, each done job that opened or proves it delivers the parts its diff carries, by state.post_carried, as its DONE would have had the check landed first; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; on a merged PR, each done job whose DONE delivers by it, by state.delivering_prs, delivers the parts its diff carries, by state.post_carried, as its DONE would have had the check landed first; the outcome for key."""
     outcome = result["outcomes"][key]
     with state.edit(name) as data:
         fresh = [
@@ -182,7 +182,7 @@ def kept(name: str, key: str, result: dict) -> str:
             }
             if pr["merged_sha"] and result.get("carried"):
                 for job_id, job in data["jobs"].items():
-                    if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and not state.done_at_merge(job) and member in state.opened_or_proven(data, job_id):
+                    if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and not state.done_at_merge(job) and member in state.delivering_prs(data, job_id, job["said"] or ""):
                         state.post_carried(data, job_id, job["said"] or "")
             if not said.startswith(CHECKED):
                 continue
