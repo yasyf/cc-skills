@@ -98,8 +98,8 @@ def ask(name: str, job_id: str, question: str, incident: bool, model: str | None
 
 
 def guarded() -> None:
-    """Hold each codex run's Bash calls to landing_guard, as capt-hook holds a Claude session's: a PreToolUse group in codex's hooks.json runs this install's landing_guard on every call of a run that carries its job, trusted in config.toml as codex keeps the hash of a hook it may run, so the next run starts with it; the group an older install wrote is replaced in place."""
-    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    """Hold each codex run's Bash calls to landing_guard, as capt-hook holds a Claude session's: a PreToolUse group in codex's hooks.json runs this install's landing_guard on every call of a run that carries its job, trusted in config.toml as codex keeps the hash of a hook it may run, so the next run starts with it; the group an older install wrote is replaced in place. The trust is keyed on codex's home with its symlinks resolved, as codex resolves it, since codex skips without a word a hook whose key names another path, such as macOS's /var/folders for /private/var/folders."""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").resolve()
     hooks = home / "hooks.json"
     handler = {"type": "command", "command": f'[ -z "${state.OWN_JOB_ENV}" ] || exec {shlex.quote(sys.executable)} -I {shlex.quote(str(GUARD))}', "timeout": GUARD_SECONDS}
     group = {"matcher": GUARD_MATCHER, "hooks": [handler]}
