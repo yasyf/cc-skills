@@ -305,7 +305,9 @@ lane reads those, and Slack, through this Mac with a blocking question.
   for a `cci`, `ccn` or `cc-slack` read the builder agent lists, or `READ <path>` for a file under the drive's
   `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole,
   naming a file that is not UTF-8 text by its path and size and refusing a path that resolves
-  outside the folder. A `READ` question runs its first line alone. A `LOG <url>` question, which a lane started under the builder
+  outside the folder. A `READ` naming one of those five folders itself, as `jobs` or `asks/`,
+  lists what it holds one level deep, through `reads.carried_folders`, a file by its path and size
+  and a folder by its path and a `/`, so a lane learns which paths to read next. A `READ` question runs its first line alone. A `LOG <url>` question, which a lane started under the builder
   rules from before this Mac's log read was deleted still asks, reads nothing: its answer is the
   builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `tools/ci bk`
   refuses there.
