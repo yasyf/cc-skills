@@ -2176,14 +2176,14 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | None) -> str:
-    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume with no text, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; for an agent on this Mac whose starter state.agent_lane names, the session this line goes to, the same resume, which posts each text the job holds whole to the agent and prints the SendMessage pointing it at each, so the line's cut quote is never the text anyone sends; else the step superseded.delivery names from the session holding the job."""
+    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume with no text, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; for an agent on this Mac, the same resume, which posts each text the job holds whole to the agent and prints the SendMessage pointing it at each while its starter reaches it, else hands each to the job's next worker in its handoff, so the line's cut quote is never the text anyone sends; else, a builder that returned, which superseded.fresh_builder sends a fresh builder, among them, the step superseded.delivery names from the session holding the job."""
     held = (
         f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it"
     )
     if locked:
         return f"{held}; drive job resume {job_id} is refused now: {locked}, so {orca.moved_here(job_id)}"
-    if job.get("where") == "remote" and job.get("dispatch") or state.agent_lane(data, job):
+    if job.get("where") == "remote" and job.get("dispatch") or job.get("where") == "local" and job.get("agent") and not superseded.fresh_builder(data, job_id, job, answer["words"], "his words"):
         return f"{held}, and drive job resume {job_id} delivers it now"
     return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])[1]}"
 
