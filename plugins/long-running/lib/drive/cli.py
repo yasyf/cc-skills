@@ -1207,10 +1207,10 @@ def recording_refusal(data: dict, route: str) -> str | None:
 
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
-    """Why a report may deliver or close nothing on an order, the one check say, order posted and order set --state done share: another report already closes the order, or the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane. A record of his words delivers and closes nothing, so none is refused."""
+    """Why a report may deliver or close nothing on an order, the one check say, order posted and order set --state done share: another report already closes the order, or the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane. A record of his words, or a report naming no part and no close, a progress line, delivers and closes nothing, so none is refused, whoever wrote it."""
     if refused := state.second_close(data, order_id, report):
         return refused
-    if report.get("kind") in agents.HIS_KINDS:
+    if report.get("kind") in agents.HIS_KINDS or not report.get("part") and not state.closed_orders(report):
         return None
     writer = state.LANE_ROLES.get(report.get("writer") or "")
     holder = data["orders"][order_id]["owner"] if order_id in data["orders"] else None

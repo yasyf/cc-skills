@@ -1,6 +1,8 @@
+import fcntl
 import json
 import os
 import re
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -1083,6 +1085,45 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
     assert talk.say(demo, {"text": "The run page is live.", "thread_ts": thread, "record": "664352"}) == f'POSTED {answer}; o2 closing line, no part delivered: {answer}'
     assert len(sent) == 2
 
+
+
+def test_a_report_naming_no_order_goes_on_the_newest_open_order_in_its_thread_as_a_progress_line_whoever_wrote_it_and_one_naming_a_part_only_from_its_holder(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the post tool", "--thread", thread, "--owner", "meta")
+    communicating(run, demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["state"] = "done"
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"thread": thread}, lane="meta")
+    assert talk.say(demo, {"text": "The fix is building.", "thread_ts": thread, "record": "720574"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
+    report(monkeypatch, {"thread": thread, "part": "Short title"}, lane="meta")
+    with pytest.raises(DriveError, match=r"nothing posted: refused, the report is the meta session's and o1 is the coordinator's order, so it delivers nothing there"):
+        talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "720580"})
+
+
+def test_say_records_its_post_from_when_cc_slack_returns_it_waiting_out_a_drive_lock_held_past_the_wait_before_any_write_of_its_own(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str]
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
+    communicating(run, demo)
+    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.2)
+    answer = slack_thread.post(state.now(), from_claude=True)
+    with open(state.drive_dir(demo) / ".lock", "a") as stuck:
+
+        def held_once_posted(*argv: str) -> dict:
+            fcntl.flock(stuck, fcntl.LOCK_EX)
+            threading.Timer(4 * state.DRIVE_LOCK_SECONDS, fcntl.flock, [stuck, fcntl.LOCK_UN]).start()
+            return {"permalink": answer, "thread_ts": thread}
+
+        monkeypatch.setattr(slack, "cc_slack", held_once_posted)
+        report(monkeypatch, {"order": "o1"}, lane="communicator")
+        assert talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "720560"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
+    assert (state.load(demo)["carried"], unrecorded) == ({"720560": answer}, [])
 
 
 def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_failed_post_gives_its_close_back(

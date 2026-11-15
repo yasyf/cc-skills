@@ -2,6 +2,7 @@ import fcntl
 import hashlib
 import itertools
 import json
+import math
 import marshal
 import os
 import re
@@ -231,6 +232,7 @@ READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()
 UNSTARTED_WAITING = ".unstarted-jobs-waiting"
 CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
+WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
 READING = threading.Lock()
@@ -3568,12 +3570,12 @@ def flocked(path: Path) -> Iterator[None]:
 
 @contextmanager
 def locked(name: str) -> Iterator[None]:
-    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it; a process's first hold moves the reports an older install kept into their jobs' histories."""
+    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it, but for one under waiting_out_lock, which waits as long as the lock is held; a process's first hold moves the reports an older install kept into their jobs' histories."""
     path = drive_dir(name) / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     asked = time.monotonic()
     with open(path, "a") as handle:
-        if not taken(handle, DRIVE_LOCK_SECONDS):
+        if not taken(handle, math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS):
             raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
         got = time.monotonic()
         try:
@@ -3582,6 +3584,16 @@ def locked(name: str) -> Iterator[None]:
         finally:
             if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS:
                 kept_hold(name, held, got - asked)
+
+
+@contextmanager
+def waiting_out_lock() -> Iterator[None]:
+    """Wait out the drive's lock under it however long it is held, for a write whose only other end is lost work, such as the record of a post already out."""
+    token = WAITS_OUT_LOCK.set(True)
+    try:
+        yield
+    finally:
+        WAITS_OUT_LOCK.reset(token)
 
 
 def kept_hold(name: str, held: float, waited: float) -> None:
@@ -3947,8 +3959,8 @@ def started_order(data: dict, channel: str, ts: str) -> str | None:
 
 
 def report_order(data: dict, attrs: dict) -> str | None:
-    """The order a report is about: the one named_order reads, else the newest in its thread."""
-    return named_order(data, attrs) or thread_order(data, attrs.get("thread"))
+    """The order a report is about: the one named_order reads, else the newest open order in its thread, else the newest there, so a report in a thread a closed order came into later still goes on the open one it serves."""
+    return named_order(data, attrs) or thread_order({"orders": open_orders(data)}, attrs.get("thread")) or thread_order(data, attrs.get("thread"))
 
 
 def named_order(data: dict, attrs: dict) -> str | None:

@@ -68,7 +68,7 @@ def say(name: str, post: dict) -> str:
     if key := request_key(name, known, post, report):
         post = post | {"request_key": key}
     try:
-        reply = posted(name, post, order)
+        reply = posted(name, post, order, {"record": seq, "report": report if close else None} if order else None)
     except (DriveError, slack.SlackError):
         cli.unclaim_close(name, claimed)
         raise
@@ -92,7 +92,7 @@ def say(name: str, post: dict) -> str:
     if report.get("catch_up"):
         line += released(name, link, amended)
     if order:
-        line += "; " + recording(name, {"order": order, "link": link, "record": seq, "sent": reply.get("sent"), "channel": post.get("channel_id")}, report if close else None)
+        line += "; " + record_line(order, *reply["recorder"], close)
     if close:
         line += closed(name, order, report["seq"], link, post.get("text") or "")
     if promise:
@@ -161,20 +161,25 @@ def awaiting(name: str, job_id: str, link: str) -> str:
     return f"{job_id} waits on the reply to it"
 
 
-def recording(name: str, receipt: dict, closing: dict | None = None) -> str:
-    """Record the post on its order in its own process, behind a receipt kept in the drive, so a slow Slack read, Jev call or drive lock never holds the say call past RECORD_WAIT_SECONDS: the record's line once it lands within that, else where its receipt keeps the line it ends with. say refused, before it posted, a post its session may not record on the order, so the process, which runs as no session, records every post it is handed. A post that closes its order records in the call on the report its close writes, closing, so the order takes the post before it is set done."""
-    if closing is not None:
-        return recorded(name, receipt, closing, "")
+def recording(name: str, receipt: dict) -> tuple[Path, int]:
+    """Keep the receipt of a post on its order in the drive and record the post there in its own process, which outlives the say call and waits out the drive lock, so a say killed, or held behind the lock, after cc-slack returned its post still records it: the receipt, where that process writes the line it ends with, and its pid. say refused, before it posted, a post its session may not record on the order, so the process, which runs as no session, records every post it is handed."""
     kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(json.dumps(receipt))
-    state.detach(name, ["say-record", str(kept)], "posts.log")
+    return kept, state.detach(name, ["say-record", str(kept)], "posts.log")
+
+
+def record_line(order: str, kept: Path, recorder: int, close: bool) -> str:
+    """The line the record of a say post on order ends with, read from its receipt: once it lands within RECORD_WAIT_SECONDS, so a slow Slack read, Jev call or drive lock never holds the say call past that, else where the receipt keeps it; a post closing its order waits for its recorder to end, so the order takes the post before it is set done."""
     ends = time.monotonic() + RECORD_WAIT_SECONDS
-    while time.monotonic() < ends:
-        if line := json.loads(kept.read_text()).get("line"):
-            return line
+    while not (line := json.loads(kept.read_text()).get("line")):
+        if close:
+            os.waitpid(recorder, 0)
+            return json.loads(kept.read_text())["line"]
+        if time.monotonic() >= ends:
+            return f"recording on {order} after this call; its line lands in {kept}, and a failure reaches the meta session as a defect"
         time.sleep(RECORD_POLL_SECONDS)
-    return f"recording on {receipt['order']} after this call; its line lands in {kept}, and a failure reaches the meta session as a defect"
+    return line
 
 
 def unrecorded(name: str, text: str) -> None:
@@ -185,19 +190,20 @@ def unrecorded(name: str, text: str) -> None:
 
 
 def record_kept(name: str, kept: Path) -> str:
-    """Record a say post on its order from the receipt `recording` kept, writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
+    """Record a say post on its order from the receipt `recording` kept, waiting out the drive lock however long it is held, since the post is already out, and writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
     receipt = json.loads(kept.read_text())
-    line = recorded(name, receipt, None, f"; receipt {kept}")
+    with state.waiting_out_lock():
+        line = recorded(name, receipt, f"; receipt {kept}")
     tmp = kept.with_suffix(".tmp")
     tmp.write_text(json.dumps(receipt | {"line": line}))
     os.replace(tmp, kept)
     return line
 
 
-def recorded(name: str, receipt: dict, report: dict | None, where: str) -> str:
-    """Record a say post on its order on its report, read from cci by the receipt's record unless given; one that cannot be recorded is sent to the meta session as a defect, `where` naming the receipt when one was kept."""
+def recorded(name: str, receipt: dict, where: str) -> str:
+    """Record a say post on its order on its report, the close report the receipt keeps, else read from cci by the receipt's record; one that cannot be recorded is sent to the meta session as a defect, `where` naming the receipt."""
     try:
-        report = report if report is not None else cli.report_attrs(receipt["record"]) if receipt["record"] else {}
+        report = receipt["report"] if receipt["report"] is not None else cli.report_attrs(receipt["record"]) if receipt["record"] else {}
         return cli.record_post(name, receipt["order"], receipt["link"], report, receipt["sent"], receipt["channel"])[0]
     except (DriveError, slack.SlackError) as error:
         return unkept(name, receipt, error, where)
@@ -449,8 +455,8 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
     return visuals, "\n\n".join(filter(None, [text, *charts])), lifted
 
 
-def posted(name: str, post: dict, order: str | None = None) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links."""
+def posted(name: str, post: dict, order: str | None = None, receipt: dict | None = None) -> dict:
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links. A post say records on order keeps receipt, its record and close report, and starts its recorder the moment cc-slack returns it, ahead of every drive write after it, the receipt's path and the recorder's pid then its recorder."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -476,6 +482,8 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
             else status(name, data, post | {"channel_id": first[0], "thread_ts": first[1]}, stack, pictures, sent)
         )
     )
+    if receipt is not None:
+        reply |= {"recorder": recording(name, receipt | {"order": order, "link": reply["permalink"], "sent": sent, "channel": post.get("channel_id")})}
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
