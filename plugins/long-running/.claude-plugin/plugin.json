@@ -21,7 +21,7 @@
     {
       "name": "cc-inbox",
       "marketplace": "cc-inbox",
-      "version": ">=0.54.44"
+      "version": ">=0.55.0"
     },
     {
       "name": "cc-notes",
