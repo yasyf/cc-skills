@@ -328,6 +328,32 @@ FIRST_PASS_BOX_TAP = (
     "- I'm at the Mac: start it now and I'll tap Touch ID once\n"
     "- Hold it until I say I'm back\n"
 )
+COOKIESYNC_TAP = "Your Touch ID: cookiesync, which lends your browser's sign-in to an agent, opens the real page; each proof waits for your tap"
+SERVICE_SIGN_IN = "Service-account sign-in: poetic-svc signs in to GitHub with a stored password and code; you approve that credential once"
+PAGES_PROOF = (
+    "ASK How should a design doc's live proof open its page on docs.poetic.design, which only readers signed in to GitHub can open?\n"
+    "For Drive tooling: your pick decides whether proving a merged design doc live ever waits on your Touch ID.\n"
+    "I recommend rendering the exact files GitHub Pages published: measured today at 34 seconds, with no tap and no new secret.\n"
+    "- Published files: the proof downloads the bundle Pages deployed, checks its fingerprint and clicks each story; no tap, no new secret (recommended)\n"
+    "  After a merge, the prover reads GitHub's newest record of a Pages publish, downloads the site bundle it published with the drive's own GitHub"
+    " token, checks its sha256 against the publish log, serves it on this Mac and clicks each story in a browser. It never passes GitHub's sign-in or"
+    " CDN. Builds a drive helper and lets the proof check accept it.\n"
+    f"- {COOKIESYNC_TAP}\n"
+    "  The prover asks cookiesync to seed a throwaway browser with your docs.poetic.design and github.com cookies; you tap Touch ID on an unlocked Mac"
+    " and the grant lasts ten minutes. It opens the real URL as you do. A merge while you are away waits for your tap. Builds only the prover's call to"
+    " cookiesync.\n"
+    f"- {SERVICE_SIGN_IN}\n"
+    "  poetic-svc, the service account with write on design-docs and code-owner review on the monorepo, gets a password and authenticator seed in the"
+    " CI secret store, and the prover signs it in headless to open the real URL. You approve creating that credential once. GitHub may challenge"
+    " headless sign-ins, and the secret needs rotating.\n"
+    "Findings:\n"
+    "Root cause: docs.poetic.design is private GitHub Pages, whose github.com/pages/auth gate admits only a browser signed in to github.com: gh's"
+    " repo-scoped token in Bearer, token and redirect-following forms got 302 to /login, 3 of 3. The drive holds API tokens only; the one signed-in"
+    " browser is his, released by cookiesync only on his Touch ID.\n"
+    "First principles: Published files\n"
+    "Simplest: Published files\n"
+    "Holds: none: no option changes code any job builds\n"
+)
 
 
 def said(count: int) -> str:
@@ -1960,6 +1986,7 @@ def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_
         (FIRST_PASS_BOX_TAP, 'with "I\'ll tap Touch ID"'),
         (options_ask("Key read: you approve the cc-sudo prompt, then the job reads the SSM parameter (recommended)", "Close on the fix"), 'with "you approve the cc-sudo"'),
         (options_ask("Tap Touch ID once: the job claims a devbox and proves the change on it (recommended)", "Close on the fix"), 'with "Tap Touch ID"'),
+        (options_ask("Your Touch ID: cc-sudo reads the pass box's API key from SSM (recommended)", "Close on the fix"), 'with "Your Touch ID"'),
     ],
 )
 def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
@@ -1985,10 +2012,18 @@ def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refus
         options_ask("Users sign in with Okta on the dashboard as today (recommended)", "Close on the fix"),
         options_ask("The job starts the pass box under the machine profile, reads the key and opens a results PR (recommended)", "Close on the fix"),
         options_ask("You tap Touch ID once so cookiesync seeds the dashboard session for the recording (recommended)", "Close on the fix"),
+        options_ask(f"{COOKIESYNC_TAP} (recommended)", SERVICE_SIGN_IN),
+        options_ask(MACHINE_PROFILE_READ, "You tap Touch ID once so this Mac's keychain releases the GitHub deploy key"),
+        options_ask("Your Touch ID: your Mac's Secure Enclave key signs the relay's new writer, then the machine profile writes the key to AWS (recommended)", "Close on the fix"),
     ],
 )
 def test_a_card_running_an_aws_action_on_the_machine_profile_quoting_his_words_or_naming_a_sign_in_off_aws_passes(block: str) -> None:
     assert limits.question(block).options
+
+
+def test_a_touch_id_lending_his_browsers_sign_in_is_judged_by_its_own_option_and_asks_no_aws_sign_in() -> None:
+    _, problems = limits.question_problems(PAGES_PROOF)
+    assert [problem for problem in problems if "asks him to sign in" in problem] == []
 
 
 @pytest.mark.parametrize(
