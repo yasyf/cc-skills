@@ -487,7 +487,8 @@ class Question:
 
 
 def words(text: str) -> int:
-    return len(WORD.findall(TOKEN.sub(" link ", LABELLED.sub(r" \1 ", text))))
+    """The words its writer typed in a text: a link counts as the words after its | or as one word, so a drive reference counts as those words or as one, never the title say draws for it."""
+    return len(WORD.findall(TOKEN.sub(" link ", LABELLED.sub(r" \1 ", REF.sub(lambda found: f" {found[3] or 'link'} ", text)))))
 
 
 def lead_problems(lead: dict) -> list[str]:
