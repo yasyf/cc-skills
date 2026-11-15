@@ -282,7 +282,7 @@ checkout with no session of this Mac's, as the lane's own job on its own drive, 
 all it printed under a first line naming its exit status, each file named by the lane's own path,
 which the lane's `drive` prints and exits with. While no answer comes, that `drive` says so on
 stderr every 30 s, naming the question, and gives up at 9 minutes, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
-`job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `manual` and `status`, its reads on any job as a Mac lane's,
+`job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `manual`, `page-owner` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
 on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
 verb, a write naming another job, which is a `job report` keeping stdin, `job ask`, `job set` or

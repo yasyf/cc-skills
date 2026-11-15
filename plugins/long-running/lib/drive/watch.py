@@ -740,6 +740,38 @@ def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, mo
     ]
 
 
+def page_owner(name: str, data: dict, title: str, why: str) -> str:
+    """Page his own Datadog On-Call user at high urgency with `tools/ci oncall page me` in the drive's checkout, which Platy answers for the release operator this Mac signs in as, so the drive holds no Datadog credential and can page nobody else; go/ci's line naming the page."""
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    argv = [str(checkout / "tools" / "ci"), "oncall", "page", "me", "--title", cut(title, 80), "--description", f"{why}\n{dashboard.link(name)}"]
+    return state.unrehearsed(name, lambda: reads.run(argv, checkout).strip(), "<page>")
+
+
+def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Page him once for each incident order the watch hears that opened since he was last heard and is open while he is not present, by state.absence, the presence the landing gate reads, and by his words "if anything goes wrong while doing things autonomously, the agent should have a tool to use ddog to page its human"; one that fails is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    if not state.absence(data, moment):
+        return []
+    heard = data["owner"]["heard"]
+    owed = [
+        key
+        for key in state.open_incidents(data, list(data["orders"]))
+        if not data["orders"][key]["paged"] and (not heard or state.parse_time(data["orders"][key]["created"]) > state.parse_time(heard)) and hears(watcher, data, key)
+    ]
+    lines = []
+    for key in owed:
+        order = data["orders"][key]
+        try:
+            paged = page_owner(watcher.name, data, f"{key} {order['title'] or order['text']}", render.order_line(data, key, order))
+        except (state.DriveError, reads.ReadError) as error:
+            return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
+        watcher.failures.pop("owner page", None)
+        with state.edit(watcher.name) as edited:
+            edited["orders"][key]["paged"] = state.stamp(moment)
+        lines.append(f"WATCH paged him for incident {key} while he is away: {paged}")
+    return lines
+
+
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one."""
     data = state.load(watcher.name)
@@ -3736,6 +3768,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield folded_lines(watcher, moment)
         yield finished(watcher, moment)
         yield recovered_lines(watcher, moment)
+        yield owner_page_lines(watcher, moment)
         yield close_report_lines(watcher, moment)
         yield waiting_lines(watcher, moment)
         yield answer_lines(watcher, moment)

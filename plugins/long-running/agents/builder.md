@@ -472,6 +472,10 @@ event needs. The first five events then return as step 7 says.
   its first check proved that build works. A rollback to an older build, when prudent, is an immediate
   fix it approves. It never approves a revert: a PR or build that takes a change out lands only on his
   tap, on a card stating the bug in it.
+- When something you run breaks production while he is away, run `drive page-owner "<what broke,
+  for whom, its link>" --order <your order>` before anything else, once, by his words "if anything
+  goes wrong while doing things autonomously, the agent should have a tool to use ddog to page its
+  human".
 - On an incident nothing stops between the merge and the build: no dry run, no read of what the cut
   covers or what caused the break, no comparison of open builds, no question. Lift the service's
   freeze the brief's `Incident:` line names with `tools/ci release unfreeze <id>` and return `WAITING
@@ -495,7 +499,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   prints all it printed there and exits with its status. While it waits it prints a line to stderr
   every 30 s naming the question, and at 9 minutes it gives up and exits 1, inside the Bash call's
   600000 ms; the Mac may still run it, so read what it would change before you type it again. It runs `job report`, `job ask`,
-  `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `manual` and `status` on your own
+  `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `manual`, `page-owner` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,

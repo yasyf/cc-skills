@@ -47,6 +47,7 @@ LANE_VERBS = (
     ("plan", "search"),
     ("datadog",),
     ("manual",),
+    ("page-owner",),
     ("status",),
 )
 LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))

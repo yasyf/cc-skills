@@ -9142,6 +9142,23 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
+def test_an_incident_opened_while_he_is_away_pages_his_datadog_user_once_and_one_he_heard_of_or_one_while_he_is_here_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: calls.append(argv) or "Paged Datadog user u-ym at high urgency: page p-1\n")
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: DRIVE_CHECKOUT)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)))
+        data["orders"]["o2"] = order(text="raw_sql reads fail", incident=True, created=state.stamp(T0 - timedelta(minutes=5)))
+    watching = watcher(demo)
+    assert watch.owner_page_lines(watching, T0 + timedelta(minutes=10)) == []
+    away = T0 + timedelta(minutes=20)
+    assert watch.owner_page_lines(watching, away) == ["WATCH paged him for incident o1 while he is away: Paged Datadog user u-ym at high urgency: page p-1"]
+    assert watch.owner_page_lines(watching, away + timedelta(minutes=1)) == []
+    assert [argv[1:6] for argv in calls] == [["oncall", "page", "me", "--title", "o1 SandSQL writes down"]]
+    assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away)
+
+
 def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     serve(monkeypatch, {})
     calls = incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
