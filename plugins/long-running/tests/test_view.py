@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK
-from drive import land, limits, page, pages, pr_graph, render, slack, stage, state, view, watch
+from drive import land, limits, page, pages, pr_graph, render, slack, stage, state, talk, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -24,6 +24,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "text": text,
         "from": "terminal",
         "thread": ["D123", "1794200000.000100"],
+        "threads": [],
         "state": "working",
         "due": None,
         "due_said": None,
@@ -577,6 +578,7 @@ def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a
 def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
     monkeypatch.setattr(page, "draw", DRAW)
+    monkeypatch.setattr(watch.slack, "owed", lambda session: [])
     answers = iter(["F1", "F1", "F2"])
 
     def canvas(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
@@ -1401,3 +1403,46 @@ def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_sta
         "|---|---|---|---|---|",
         f"| [yasyf/cc-skills#6](https://github.com/yasyf/cc-skills/pull/6) {title} | waiting | it waits on j2, and the watch frees it once each ends | j2 | {when(at(-300))} |",
     ]
+
+
+def test_the_now_screen_rows_each_project_by_the_daily_sweeps_bars_filing_each_wait_by_its_order_else_its_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C9", "name": "demo-platform"}])
+    approved = state.new_tap("Approve", "aaaaaaa111", "card", at=at(-25 * 60))
+    data = drive_of(
+        {"o1": order("ship the page", ["j1"], project="Iris"), "o2": order("fix the router", ["j2"], project="Platform"), "o3": order("fix the queue", [], project="platform")},
+        {"j1": job("o1", "running"), "j2": job("o2", "running")},
+        [pr(1, "o1", wants_tap=True), pr(2, "o3", tap=approved)],
+    )
+    card = pr_card(1, -49 * 60)
+
+    def said(minutes: int, waited: int, url: str, **fields: object) -> dict:
+        posted = T0 + timedelta(minutes=minutes)
+        return {"kind": "said", "at": state.stamp(posted), "text": "It is up.", "channel": None, "thread": None, "url": url, "card": None, "order": None, "visuals": [], "prs": [], "edited": False, "answers": [f"{(posted - timedelta(minutes=waited)).timestamp():.6f}"]} | fields
+
+    slow, quick, reask = f"{TEAM}archives/D123/p1794200000000600", f"{TEAM}archives/C9/p1794200000000800", f"{TEAM}archives/D123/p1794200000000700"
+    events = [
+        said(-25 * 60, 50, f"{TEAM}archives/D123/p1794200000000500", order="o1"),
+        said(-30, 3, slow, order="o1"),
+        said(-10, 1, quick, channel="C9"),
+        said(-5, 0, reask, text=f"{talk.ASKING_AGAIN} a reported bug", answers=[]),
+    ]
+    owed = [{"thread_ts": ts, "ts": ts, "text": "is it up?", "permalink": f"{TEAM}archives/{channel}/p{ts.replace('.', '')}"} for channel, minutes in (("C9", 20), ("D123", 5)) for ts in [f"{(T0 - timedelta(minutes=minutes)).timestamp():.6f}"]]
+    model = view.board(data, found(pr_cards=[card]), "live", events, T0, set(), {})
+    none = {"count": 0, "crossed": False, "link": None, "p90": None, "since": None}
+    assert view.sweep(data, model, events, owed, "live", T0) == {
+        "rows": [
+            {"project": "Iris", "bars": {"answers": {"count": 1, "crossed": True, "link": slow, "p90": 180.0, "since": None}, "owed": none, "reasks": none, "cards": {"count": 1, "crossed": True, "link": card["url"], "p90": None, "since": at(-49 * 60)}, "approved": none}},
+            {
+                "project": "Platform",
+                "bars": {
+                    "answers": {"count": 1, "crossed": False, "link": quick, "p90": 60.0, "since": None},
+                    "owed": {"count": 1, "crossed": True, "link": owed[0]["permalink"], "p90": None, "since": slack.sent_at(owed[0]).isoformat()},
+                    "reasks": none,
+                    "cards": none,
+                    "approved": {"count": 1, "crossed": True, "link": state.pr_url("yasyf/cc-skills#2"), "p90": None, "since": at(-25 * 60)},
+                },
+            },
+            {"project": None, "bars": {"answers": none, "owed": none, "reasks": {"count": 1, "crossed": True, "link": reask, "p90": None, "since": events[-1]["at"]}, "cards": none, "approved": none}},
+        ],
+        "owed": "live",
+    }

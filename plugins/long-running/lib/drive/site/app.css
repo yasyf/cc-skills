@@ -676,6 +676,31 @@ dl.keyed dd ul { margin: 2px 0 0; }
 .pr-status .linkish { padding: 0; font: inherit; }
 .pr-status .state-pill { padding: 2px 9px; border-radius: 99px; background: var(--soft); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .pr-status time { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.slack-bars { flex: none; min-width: 0; margin-bottom: 16px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+.sb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 10px 12px; }
+.sb-head .eyebrow { margin: 0; }
+.sb-head > span { color: var(--muted); font-size: 11px; }
+.sb-scroll { overflow-x: auto; }
+.slack-bars table { width: 100%; min-width: 940px; border-collapse: separate; border-spacing: 0; color: var(--ink-2); font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.slack-bars th, .slack-bars td { border-top: 1px solid var(--line); text-align: left; vertical-align: middle; white-space: nowrap; }
+.slack-bars th { padding: 7px 10px; font-weight: 550; }
+.slack-bars td { padding: 0; }
+.slack-bars thead th { background: var(--panel-2); font-size: 11px; }
+.slack-bars thead small { display: block; margin-top: 1px; color: var(--muted); font-size: 10px; font-weight: 400; }
+.slack-bars thead th:first-child, .slack-bars tbody th { position: sticky; left: 0; z-index: 1; background: var(--paper); border-right: 1px solid var(--line); }
+.slack-bars tbody th { color: var(--ink); }
+.slack-bars tbody th span { display: block; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.sb-cell { display: block; padding: 7px 10px; color: var(--ink-2); }
+.sb-cell b { font-weight: 550; }
+.sb-cell small { margin-left: 5px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.slack-bars a { color: var(--accent); text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.slack-bars a:hover { background: var(--panel-3); text-decoration-color: currentColor; }
+.sb-cell.is-crossed { color: var(--bad); background: var(--panel-2); box-shadow: inset 2px 0 0 var(--bad); text-decoration-color: currentColor; }
+.sb-cell.is-crossed b { font-weight: 650; }
+.sb-cell.is-crossed small { color: inherit; }
+.sb-cell.is-empty { color: var(--muted); }
+.sb-cell.is-unknown { color: var(--warm); }
+.sb-cell.is-empty b, .sb-cell.is-unknown b { font-weight: 400; }
 .scope-work .eyebrow { margin-bottom: 10px; }
 .task-sheet .story { margin-top: 28px; }
 .now-grid { display: grid; grid-template-columns: minmax(0, 1fr) 285px; gap: 25px; align-items: start; }
