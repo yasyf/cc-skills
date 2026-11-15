@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import sys
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -472,10 +473,11 @@ ASKS_HIM_TO_SIGN_IN = re.compile(
     re.IGNORECASE,
 )
 AWS_ACTION = re.compile(
-    r"\bbreak[- ]?glass\w*|\bBreakGlassAccess\b|\baws\b|\bidentity center\b|\bcredentials?\b|\bprofile\b|\bgrant\b|\btoken\b"
+    r"\bbreak[- ]?glass\w*|\bBreakGlassAccess\b|\baws\b|\bidentity center\b|\bmachine\s+profile\b"
     r"|\bpass[- ]?box(?:es)?\b|\bdb-read\b|\bdevbox(?:es)?\b|\bssm\b|\bsecrets\s+manager\b",
     re.IGNORECASE,
 )
+OFF_AWS_SIGN_IN = re.compile(r"\bcookiesync\b|\bbrowser(?:['’]s)?\s+(?:sign[- ]?in|cookies|session)\b|\bsecure\s+enclave\b", re.IGNORECASE)
 FACT_NOUN = r"(?:ids?|keys?|tokens?|secrets?|urls?|names?|numbers?|values?|address(?:es)?|passwords?|emails?|credentials?|handles?|endpoints?|hosts?)"
 FACT_VERB = r"(?:paste|copy|send|share|type|enter|tell|reply(?:\s+with)?|look\s+up|find|give|provide|fill\s+in|dig\s+up)"
 ASKS_HIM_FOR_A_VALUE = re.compile(
@@ -863,7 +865,10 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     ]
     problems += option_problems(options, unsettled)
     problems += description_problems(options, described)
-    problems += sign_in_problems([("the question", title), *(("the summary", line) for line in summary), *((f'option "{option}"', option) for option in options), *prose])
+    problems += sign_in_problems(
+        [("the question", title), *(("the summary", line) for line in summary)],
+        [(f'option "{option}"', [option, *lines]) for option, lines in zip(options, described, strict=True)],
+    )
     problems += fact_problems(asked)
     if marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
@@ -959,18 +964,22 @@ def description_problems(options: list[str], described: list[list[str]]) -> list
     return [*problems, f"each option has {DESCRIPTION_SHAPE} ({DESCRIBED_RULING})"] if problems else []
 
 
-def sign_in_problems(lines: list[tuple[str, str]]) -> list[str]:
-    """Why lines about an AWS action, such as a pass box start and its key read, break-glass, db-read or a devbox, ask him for Okta, MFA, an SSO login, a Touch ID tap or cc-sudo: this Mac's machine profile runs every one with none of them, so that run takes their place. His words in double quotes, and a sign-in a line rules out, as "no Okta MFA" does, ask nothing."""
-    said = [(where, line, SAID.sub(lambda quoted: MASK * len(quoted[0]), line)) for where, line in lines]
-    if not any(AWS_ACTION.search(masked) for _, _, masked in said):
-        return []
+def sign_in_problems(shared: list[tuple[str, str]], options: Iterable[tuple[str, list[str]]] = ()) -> list[str]:
+    """Why a line asks him for Okta, MFA, an SSO login, a Touch ID tap or cc-sudo on an AWS action, such as a pass box start and its key read, break-glass, db-read, a devbox or the machine profile itself: this Mac's machine profile runs every one with none of them, so that run takes their place. A shared line, a card's question or summary line or a brief's planned line, asks it on an AWS action any shared line names; an option, its title and description lines, on one its own words or a shared line names, never another option's, since one option's AWS read makes no other option's sign-in an AWS one. The machine profile reaches AWS alone, so an option or shared line naming cookiesync, a browser's sign-in or a Secure Enclave key asks for that sign-in, which no machine profile makes in his place, and is never refused. His words in double quotes, and a sign-in a line rules out, as "no Okta MFA" does, ask nothing."""
+
+    def unquoted(line: str) -> str:
+        return SAID.sub(lambda quoted: MASK * len(quoted[0]), line)
+
+    around = [unquoted(line) for _, line in shared]
     return [
         f'{where} asks him to sign in with "{line[found.start() : found.end()].strip(" .;:")}": this Mac\'s machine profile runs it with no'
         " sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the machine certificate, such as"
         ' `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack <domain>/<env> --reason "<why>"'
         f" -- <command>` from a lane on this Mac, so that run takes its place ({MACHINE_PROFILE_RULING})"
-        for where, line, masked in said
-        if SIGN_IN.search(masked) and (found := proposed(ASKS_HIM_TO_SIGN_IN, masked))
+        for where, lines in [*((where, [line]) for where, line in shared), *options]
+        if not any(OFF_AWS_SIGN_IN.search(unquoted(line)) for line in lines) and any(AWS_ACTION.search(text) for text in [*around, *map(unquoted, lines)])
+        for line in lines
+        if SIGN_IN.search(unquoted(line)) and (found := proposed(ASKS_HIM_TO_SIGN_IN, unquoted(line)))
     ]
 
 
