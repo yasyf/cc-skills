@@ -1,12 +1,15 @@
 import functools
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
+from fnmatch import fnmatchcase
 from itertools import groupby, takewhile
 from pathlib import Path
 
@@ -48,6 +51,11 @@ UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { numb
 READ = f"{FIELDS} {UNDER} {STACK}"
 DELETED_AUTHOR = "ghost"
 PICK = re.compile(r" \(#(\d+)\)$")
+DIFF = ["--no-renames", "--no-ext-diff", "--no-color", "--no-textconv", "-U0", "--src-prefix=a/", "--dst-prefix=b/"]
+UNSHIPPED = re.compile(r"(?:^|/)(?:AGENTS\.md|CLAUDE\.md|[^/]*_test\.go)$|(?:^|/)(?:tests|testdata)/")
+EMBEDS = "//go:embed[[:space:]]|include_(str|bytes)!|(from|import|require|glob)[[:space:]]*\\(?[[:space:]]*['\"`][^'\"`]*(\\.md|\\*)"
+EMBEDDING = ["*.go", "*.rs", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.ts", "*.tsx"]
+QUOTED = re.compile(r"\"([^\"]*)\"|`([^`]*)`|'([^']*)'")
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 FLOOR = re.compile(r"ccx: GitHub rate limit floor: [^(]*\((?P<reset>[^)]+)\)")
 UNANSWERED = re.compile(r'\b(?:Get|Head|Post|Put|Patch|Delete) "https?://[^"]+": |\bHTTP 5\d\d\b|TLS handshake timeout|context deadline exceeded|i/o timeout|connection reset', re.IGNORECASE)
@@ -630,8 +638,50 @@ def fetch_commit(clone: str, sha: str) -> None:
         run(["git", "-C", clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", sha])
 
 
-def uncarried(clone: str, build: str, head: str) -> list[str]:
-    """Each commit of head that a build's commit carries no change of, by one `git cherry`, which matches commits by patch id, so a cut that cherry-picked a PR's commits onto the default branch carries them as one built on its branch does; each commit the clone lacks fetched first, by fetch_commit."""
+def uncarried(clone: str, build: str, head: str, base: str) -> list[str]:
+    """Each file a PR at head changes since its fork from base, its merge-base with base's head as origin holds it now, by fetched, that a build's commit does not carry: its blob there differs from head's and the lines the PR removes and adds in it are not all among those the build's own commits since that fork remove and add in it, by changed_lines, so a shared cut on an older line of the default branch that cherry-picks, squashes or replays the PR on other context carries it as one built on its branch does, whatever its patch ids, and a file no build ships, by shipped, may differ, as when a cut keeps another member's AGENTS.md or the PR's head moved on only in its tests; each commit the clone lacks fetched first, by fetch_commit."""
     for sha in (build, head):
         fetch_commit(clone, sha)
-    return [sha for mark, sha in (row.split() for row in run(["git", "-C", clone, "cherry", build, head]).splitlines()) if mark == "+"]
+    git = ["git", "-C", clone, "--literal-pathspecs", "-c", "core.quotePath=false"]
+    fork = run([*git, "merge-base", head, fetched(clone, base)]).strip()
+    if not (wanted := changed_lines(run([*git, "diff", *DIFF, fork, head]))):
+        return []
+    built = changed_lines(run([*git, "log", "-p", "--no-merges", "--format=", *DIFF, build, f"^{fork}", "--", *wanted]))
+    build_tree, head_tree = ({path: entry for entry, path in (row.split("\t", 1) for row in run([*git, "ls-tree", "-r", "-z", commit, "--", *wanted]).split("\0") if row)} for commit in (build, head))
+    missing = [path for path, lines in wanted.items() if build_tree.get(path) != head_tree.get(path) and not (lines and Counter(lines) <= Counter(built.get(path, [])))]
+    return shipped(clone, build, missing)
+
+
+def changed_lines(diff: str) -> dict[str, list[str]]:
+    """The lines a git diff, or each commit a git log shows, removes and adds in each file, joined in order, read only past each file's first hunk header, where a removed line starting `--` no longer reads as its header; a file it changes no line of, as a binary or mode change, maps to none."""
+    lines: dict[str, list[str]] = {}
+    for section in re.split(r"^diff --git ", diff, flags=re.MULTILINE)[1:]:
+        named, _, rest = section.partition("\n")
+        lines.setdefault(named[2 : (len(named) - 1) // 2], []).extend(line for line in rest.partition("\n@@")[2].splitlines()[1:] if line[:1] in "+-")
+    return lines
+
+
+def shipped(clone: str, build: str, paths: list[str]) -> list[str]:
+    """The files of paths a build ships: each but an AGENTS.md, a CLAUDE.md, a Go _test.go or a file under a tests or testdata folder, which ships only when the build embeds it, by embeds, read with one git grep at the build."""
+    if not (unshipped := {path for path in paths if UNSHIPPED.search(path)}):
+        return paths
+    grep = subprocess.run(["git", "-C", clone, "grep", "-I", "-z", "-E", EMBEDS, build, "--", *EMBEDDING], capture_output=True, text=True, check=False)
+    if grep.returncode > 1:
+        raise GithubError(f"git grep for what {build[:12]} embeds failed: {grep.stderr.strip()}")
+    found = [(named.split(":", 1)[1], text) for named, text in (row.split("\0", 1) for row in grep.stdout.split("\n") if row)]
+    return [path for path in paths if path not in unshipped or any(embeds(source, text, path) for source, text in found)]
+
+
+def embeds(source: str, text: str, path: str) -> bool:
+    """Whether a line of a source file builds path into what it ships: a //go:embed pattern of a Go file in a folder above path matching it or a folder above it, as Go embeds a folder whole, or a quoted path or glob of a Rust include_str! or include_bytes! or a JavaScript or TypeScript import, require or import.meta.glob, read from the file's folder, or, for one that is not relative, as the end of path, as a bundler alias or a Rust concat! of the crate's folder names it."""
+    folder = posixpath.dirname(source)
+    if source.endswith(".go"):
+        _, embed, listed = text.partition("//go:embed")
+        names = posixpath.relpath(path, folder or ".").split("/")
+        patterns = [next(filter(None, found), "").removeprefix("all:").split("/") for found in re.findall(r'"([^"]*)"|`([^`]*)`|(\S+)', listed)]
+        return bool(embed) and (not folder or path.startswith(f"{folder}/")) and any(len(parts) <= len(names) and all(map(fnmatchcase, names, parts)) for parts in patterns)
+    literals = [literal for found in QUOTED.findall(text) if (literal := next(filter(None, found), "").partition("?")[0])]
+    return any(
+        fnmatchcase(path, posixpath.normpath(posixpath.join(folder, literal)) if literal.startswith(".") or source.endswith(".rs") and not literal.startswith("/") else f"*{literal.lstrip('/')}")
+        for literal in literals
+    )

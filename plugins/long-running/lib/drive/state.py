@@ -2834,7 +2834,7 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, or, for a PR changing only tools/ci and go/ci, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by one git cherry, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR changing only tools/ci and go/ci, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
     from drive import brief, cli, settled, view
 
     job = data["jobs"][job_id]
@@ -2867,9 +2867,9 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
             misses = []
             for build in (build for build in runs[key] if build in deployed):
                 commit, envs = deployed[build]
-                if not (missing := github.uncarried(clone, commit, data["prs"][key]["head"])):
+                if not (missing := github.uncarried(clone, commit, data["prs"][key]["head"], data["prs"][key]["base"])):
                     break
-                misses.append(f"git cherry finds {key}'s {', '.join(sha[:12] for sha in missing)} missing from {commit[:12]}, which {build} deployed to {', '.join(envs)}")
+                misses.append(f"{key}'s changes to {', '.join(missing)} are missing from {commit[:12]}, which {build} deployed to {', '.join(envs)}")
             else:
                 lacking[key] = misses
         if lacking:
@@ -2877,7 +2877,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
             for key in [key for key in lacking if key in reach and not reach[key]["releases"]]:
                 head = data["prs"][key]["head"]
                 commits = [found["sha"] for proof in named[key] if (found := COMMIT_LINK.fullmatch(proof)) and found["repo"].casefold() == github.repo_of(key).casefold()]
-                if any(not github.uncarried(clone, commit, head) for commit in commits):
+                if any(not github.uncarried(clone, commit, head, data["prs"][key]["base"]) for commit in commits):
                     del lacking[key]
                 else:
                     lacking[key].append(f"{key} changes only tools/ci and go/ci, code its caller runs from a checkout, and no CHECK: line heading its cases links a commit carrying its head {head[:12]}")

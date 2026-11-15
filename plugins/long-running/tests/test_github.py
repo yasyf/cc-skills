@@ -727,6 +727,36 @@ def test_carrier_counts_a_build_at_or_after_a_merge_on_the_line_or_a_hotfix_cher
     assert git_in(clone, "cat-file", "-t", unpicked) == "commit"
 
 
+def test_uncarried_finds_each_file_a_pr_changes_since_its_fork_among_a_builds_own_changes_on_any_line_squashed_or_replayed_and_lets_an_unembedded_agent_doc_or_test_differ_as_cut_6ea037ed0480_needed(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "monorepo"
+    repo.mkdir()
+    git_in(repo, "init", "-q", "-b", "dev")
+    lines = "".join(f"line {n}\n" for n in range(1, 13))
+    edited = lines.replace("line 8\n", "line eight\n")
+    docs = {"app/defs/AGENTS.md": "new\n", "cmd/AGENTS.md": "new\n", "cmd/CLAUDE.md": "new\n"}
+    older = commit_files(repo, "staging's older line", {"app/main.go": lines, "app/embed.go": "package app\n\n//go:embed defs\nvar defs embed.FS\n"} | dict.fromkeys(docs, "old\n"))
+    git_in(repo, "remote", "add", "origin", str(repo))
+    commit_files(repo, "dev work the cut leaves out", {"app/main.go": lines.replace("line 6\n", "line six\n"), "app/other.go": "dev\n"})
+    git_in(repo, "switch", "-q", "-c", "pr")
+    commit_files(repo, "the PR's first commit", {"app/main.go": edited.replace("line 6\n", "line six\n")} | docs)
+    head = commit_files(repo, "the PR's second commit", {"app/main.go": edited.replace("line 6\n", "line six\n").replace("line 9\n", "line nine\n")})
+    moved = commit_files(repo, "the PR's tests move on", {"app/main_test.go": "test\n", "app/testdata/case.txt": "case\n"})
+    git_in(repo, "switch", "-q", "-c", "stacked")
+    stacked = commit_files(repo, "a PR stacked on it", {"app/stacked.go": "stacked\n"})
+    squashed = {"app/main.go": edited.replace("line 9\n", "line nine\n"), "app/stacked.go": "stacked\n"}
+    git_in(repo, "switch", "-q", "-c", "cut", older)
+    cut = commit_files(repo, "shared cut: both PRs squashed on the older line, keeping cmd's docs as they were", squashed | {"app/defs/AGENTS.md": "new\n"})
+    git_in(repo, "switch", "-q", "-c", "bare", older)
+    bare = commit_files(repo, "a cut leaving every doc out that names cmd's docs", squashed | {"web/docs.ts": 'import claude from "../cmd/CLAUDE.md?raw";\n', "rust/src/lib.rs": 'const A: &str = include_str!("../../cmd/AGENTS.md");\n'})
+    git_in(repo, "switch", "-q", "dev")
+    clone = str(repo)
+    assert [github.uncarried(clone, cut, pr, "dev") for pr in (head, moved)] + [github.uncarried(clone, cut, stacked, "pr"), github.uncarried(clone, head, head, "dev")] == [[], [], [], []]
+    assert github.uncarried(clone, bare, head, "dev") == ["app/defs/AGENTS.md", "cmd/AGENTS.md", "cmd/CLAUDE.md"]
+    assert github.uncarried(clone, older, moved, "dev") == ["app/defs/AGENTS.md", "app/main.go"]
+
+
 @pytest.mark.parametrize(("page", "landed"), [(github.OWNERS_PER_BASE - 1, {"state": "merged", "into": None, "merged_sha": "fff000"}), (github.OWNERS_PER_BASE, None)])
 def test_fetch_reads_a_fold_whose_base_no_pr_was_open_on_merged_at_its_own_commit_and_refuses_it_while_githubs_first_page_of_prs_on_that_base_is_full(
     monkeypatch: pytest.MonkeyPatch, page: int, landed: dict | None
