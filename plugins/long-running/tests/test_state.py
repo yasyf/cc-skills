@@ -94,7 +94,7 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     make("demo")
     with state.edit("demo") as data:
-        data["orders"]["o1"] = {"text": "ship it", "jobs": []}
+        data["orders"]["o1"] = state.new_order("ship it", "terminal", None, {}, state.stamp())
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
     assert [path.name for path in (state_root / "demo").iterdir() if path.name.endswith(".tmp")] == []
     assert (state_root / "demo" / ".lock").exists()
@@ -961,9 +961,8 @@ def test_a_jobs_agent_stays_with_the_coordinator_that_started_it_whatever_coordi
     make("demo", "top", "2026-11-11T01:00:00-08:00")
     with state.edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
-        data["orders"]["o1"] = {"text": "ship the run page", "jobs": [], "parts": {}, "promised": None, "project": "Iris"}
-        data["orders"]["o2"] = {"text": "fix the watch", "jobs": [], "parts": {}, "promised": None, "project": "The drive"}
-        data["orders"]["o3"] = {"text": "Drive tooling: fix the wake", "jobs": [], "parts": {}, "promised": None, "project": None}
+        for order_id, text, project in (("o1", "ship the run page", "Iris"), ("o2", "fix the watch", "The drive"), ("o3", "Drive tooling: fix the wake", None)):
+            data["orders"][order_id] = state.new_order(text, "terminal", None, {}, "2026-11-11T02:00:00-08:00") | {"project": project}
         data["roles"]["meta"] = {"session": "meta-1", "terminal": None, "cwd": "/meta", "started": "2026-11-11T02:00:00-08:00"}
         ran = {
             "moved": ("o1", "local", "top", "agent-1"),

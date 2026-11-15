@@ -28,7 +28,6 @@ READ_EVERY = timedelta(seconds=60)
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
-QUIET_THREAD = timedelta(minutes=5)
 CLAIM_REPLIES = timedelta(minutes=5)
 HANDOFF_FACT = "handoff"
 WAITED_FACT = "card waiting"
@@ -1900,7 +1899,7 @@ def waited_cards(data: dict, jobs: dict[str, dict], prs: dict[str, dict], moment
 
 def quiet_handoffs(data: dict, group: list[str], moment: datetime) -> list[dict]:
     """Each handoff state.owed_handoffs names on the orders that went out five quiet minutes or more before moment."""
-    return [handoff for handoff in state.owed_handoffs(data, group) if moment - state.parse_time(handoff["at"]) >= QUIET_THREAD]
+    return [handoff for handoff in state.owed_handoffs(data, group) if moment - state.parse_time(handoff["at"]) >= state.QUIET_THREAD]
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1925,7 +1924,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
         since = max(quiet_since(data, groups[head]) for head in heads)
         moved = {head: untold(data["orders"][head], facts[head]) for head in heads}
         working = {head: [job_id for job_id, job in state.orders_jobs(data, groups[head]).items() if job["state"] == "running"] for head in heads}
-        if moment - since < QUIET_THREAD or not (heads := [head for head in heads if moved[head] or data["orders"][head]["incident"] and working[head]]):
+        if moment - since < state.QUIET_THREAD or not (heads := [head for head in heads if moved[head] or data["orders"][head]["incident"] and working[head]]):
             continue
         source = f"quiet {heads[0]}"
         owed = data["orders"][heads[0]]["quiet"]

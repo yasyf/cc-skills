@@ -10,12 +10,16 @@ from drive import agents, render, state
 def main() -> None:
     payload = json.load(sys.stdin)
     session = payload.get("session_id") or ""
-    if payload.get("agent_id") or not (names := state.session_drives(session)):
+    if not (names := state.session_drives(session)):
         return
-    if role := agents.hold_rules(names[0], session):
+    agent = payload.get("agent_id")
+    lines = render.overdue(state.held_clocks(names[0], session, agent), state.now())
+    if not agent and (role := agents.hold_rules(names[0], session)):
         changed = f"Your {state.title(role)} rules or held channels changed since this session's block drew them: long-running {state.VERSION}'s replace them whole, and win where any older text disagrees."
         data = state.load(names[0])
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join([changed, render.hold_line(data, role, state.session_project(data, session)), *render.rules(data, role)])}}))
+        lines += [changed, render.hold_line(data, role, state.session_project(data, session)), *render.rules(data, role)]
+    if lines:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join(lines)}}))
 
 
 if __name__ == "__main__":
