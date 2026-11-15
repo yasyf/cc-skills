@@ -1285,7 +1285,17 @@ PROOF = "https://buildkite.com/forge/staging/builds/9"
         ({"soak": SOAK, "posted": PROOF}, {"state": "waiting"}, f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF})"),
         ({"soak": SOAK, "posted": "/Users/me/soak.txt"}, {"state": "done"}, "Tested on staging: plat-usw2-staging at f3a6f23, passed, its proof a file on the Mac"),
         ({"soak": SOAK, "posted": PROOF, "passed_at": at(-30)}, {"state": "done"}, f"Tested on staging: plat-usw2-staging at f3a6f23, passed at {when(at(-30))}, [proof]({PROOF})"),
-        ({"soak": SOAK}, {"state": "done", "waits": [SOAK], "said": "DONE the cut ran no case"}, "Tested on staging: plat-usw2-staging at f3a6f23, no pass: DONE the cut ran no case"),
+        ({"soak": SOAK}, {"state": "done", "waits": [SOAK], "said": "DONE the cut ran no case"}, "Tested on staging: plat-usw2-staging at f3a6f23, no pass: j1's DONE ran none of its cases"),
+        (
+            {"soak": SOAK, "posted_by": "j1", "cases": [["a rollback refused", "pass"], ["a write lands", "fail: the writer kept the old row"]]},
+            {"state": "done", "said": "DONE ran the staging test of #7"},
+            "Tested on staging: plat-usw2-staging at f3a6f23, no pass: CASE a write lands: fail: the writer kept the old row",
+        ),
+        (
+            {"soak": SOAK, "posted": PROOF, "posted_by": "j1", "cases": [["a rollback refused", "pass"], ["token issued to another user", "not exercised: staging signs in as one account"], ["the DuckDB route", "not exercised"]]},
+            {"state": "done"},
+            f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF}). Land it without what staging did not exercise? token issued to another user (staging signs in as one account); the DuckDB route. Approve lands it without them; Hold keeps it from landing",
+        ),
         ({"soak": SOAK}, {"state": "running", "brief_flags": {"release": "kaleidoscopic-gamsakhurdia"}}, "Not on staging: its staging test has not started"),
         ({"soak": SOAK}, {"state": "failed", "said": "FAILED open p99 rose to 4s"}, "Tested on staging: plat-usw2-staging at f3a6f23, no pass: FAILED open p99 rose to 4s"),
         ({}, {"state": "stopped"}, "Not on staging: its test ended, stopped with no result"),

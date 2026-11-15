@@ -1095,7 +1095,7 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])
     if state.STAGING_PART.fullmatch(part):
-        raise DriveError(f'--part "{part}": refused, a staging test part is delivered only by the DONE of its newest tester whose CASE lines all read pass, never by a post or a merged PR')
+        raise DriveError(f'--part "{part}": refused, a staging test part is delivered only by the DONE of its tester whose CASE lines for its PR read pass, one or more, and each other pass or not exercised, never by a post or a merged PR')
     if state.following(order["parts"][part]):
         raise DriveError(f'--part "{part}": refused, the watch follows {order["parts"][part]["follow"]["build"]} for it, so only the end line it owes once that build ends delivers it')
     if state.work(data, order_id, part):

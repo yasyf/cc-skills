@@ -4584,7 +4584,7 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
     assert landers == [(KEY,)]
 
 
-def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun(demo: str) -> None:
+def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun_naming_each_case_that_did_not_pass(demo: str) -> None:
     staging = "staging test of #43 before it lands"
     failed = "DONE #43 failed a case on cut 1"
     with state.edit(demo) as data:
@@ -4594,8 +4594,31 @@ def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiti
         state.take_result(data, "j2", failed, f"{failed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 a write lands: fail: the writer kept the old row\n")
     data = state.load(demo)
     assert watch.part_gap(watcher(demo), data, "o1", staging, state.now() + timedelta(hours=1)) == (
-        f"j2's DONE is no full pass of its PR, a CASE line of it reading other than pass, none there or no line naming the PR, so the part waits on a rerun: drive job add builder --order o1 --part '{staging}' --goal '<rerun it>'"
+        f"j2's DONE is no pass of Forge-AI/monorepo#43's staging test: CASE 1 a write lands: fail: the writer kept the old row, so the part waits on a rerun: drive job add builder --order o1 --part '{staging}' --goal '<rerun it>'"
     )
+
+
+def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_release_nor_one_whose_done_only_followed_it_even_held_for_its_own_prs_merge_while_a_tester_ran_its_cases(demo: str) -> None:
+    staging = "staging test of #43 before it lands"
+    followed = "DONE APPLIED: radiant-tudor serves sandsql on plat-usw2-staging at 2c18705b7744"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["parts"][staging] = state.new_part()
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["jobs"]["j2"] = job(parts=[staging], carries={}, brief_flags={"release": "radiant-tudor"}, builds_nothing=True)
+        data["jobs"]["j3"] = job(parts=[staging], carries={}, builds_nothing=True)
+        state.take_result(data, "j3", followed, f"{followed}\nCHECK: https://buildkite.com/forge/release/builds/16720\nCASE 1 a write lands: not exercised: this job only followed the release\n")
+    unrun = watch.part_gap(watcher(demo), state.load(demo), "o1", staging, state.now() + timedelta(hours=1))
+    failed = "DONE #43 failed a case on cut 1"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j4")
+        data["jobs"]["j4"] = job(parts=[staging], carries={})
+        state.take_result(data, "j4", failed, f"{failed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 a write lands: fail: the writer kept the old row\n")
+        data["jobs"]["j3"] |= {"state": "waiting", "said": f"WAITING {state.pr_url(KEY)} to merge: {followed}"}
+    add = f"drive job add builder --order o1 --part '{staging}'"
+    assert [unrun, watch.part_gap(watcher(demo), state.load(demo), "o1", staging, state.now() + timedelta(hours=1))] == [
+        f"j3's DONE ran no case of Forge-AI/monorepo#43's staging test, so the part waits on a run of it: {add} --goal '<run it>'",
+        f"j4's DONE is no pass of Forge-AI/monorepo#43's staging test: CASE 1 a write lands: fail: the writer kept the old row, so the part waits on a rerun: {add} --goal '<rerun it>'",
+    ]
 
 
 @pytest.mark.parametrize(
