@@ -11411,9 +11411,9 @@ def test_pr_set_serves_refuses_a_pr_changing_code_a_ruling_of_its_job_rules_on_u
     diff = b"diff --git a/go/sand/cache/key.go b/go/sand/cache/key.go\n--- a/go/sand/cache/key.go\n+++ b/go/sand/cache/key.go\n@@ -1 +1 @@\n-return id\n+return run.ID\n"
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: cache key", "body": "", "base": "dev", "head": "abc", "diff": diff})
     assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
-    assert f'{with_pr}: refused, nothing set: c0de123 "Key the cache on the run id": {with_pr} changes go/sand/cache/key.go, under go/sand/cache, and no AGENTS.md' in capsys.readouterr().err
+    assert f'{with_pr}: refused, nothing set: c0de123 "Key the cache on the run id": {with_pr} changes go/sand/cache/key.go, under go/sand/cache, and go/sand/cache/AGENTS.md does not hold' in capsys.readouterr().err
     assert state.load("demo")["prs"][with_pr].get("serves") is None
-    diff += b"diff --git a/go/sand/AGENTS.md b/go/sand/AGENTS.md\n--- a/go/sand/AGENTS.md\n+++ b/go/sand/AGENTS.md\n@@ -1 +1,2 @@\n # Sand\n+- Ruled Nov 11: Key the cache on the run id\n"
+    diff += b"diff --git a/go/sand/cache/AGENTS.md b/go/sand/cache/AGENTS.md\n--- a/go/sand/cache/AGENTS.md\n+++ b/go/sand/cache/AGENTS.md\n@@ -1 +1,2 @@\n # Cache\n+- Ruled Nov 11: Key the cache on the run id\n"
     assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
     assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
 
