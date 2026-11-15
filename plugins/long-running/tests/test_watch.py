@@ -7169,6 +7169,26 @@ def enqueue_exiting(tmp_path: Path, name: str, code: int) -> str:
     return on_main(tmp_path, name, f'#!/bin/sh\necho "trunk said $*"\nexit {code}\n')
 
 
+def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component_and_puts_it_on_its_staging_test_which_reads_red_owed_by_its_builder_until_a_tester_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+    enqueue_exiting(tmp_path, demo, 0)
+    asked = []
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {key: {"components": ["api"], "touched": ["api"]} for key in keys})
+    part = f"o1:{state.STAGING_TEST.format(number=42)}"
+    held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
+    assert land.run(demo, [KEY], dry_run=True) == held
+    assert state.load(demo)["prs"][KEY]["waits"] == []
+    assert land.run(demo, [KEY]) == held
+    assert (state.load(demo)["prs"][KEY]["waits"], asked) == ([part], [[KEY], [KEY]])
+    assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test {part} has not passed"
+    now = stage.of(state.load(demo), KEY, NO_CARDS)
+    assert (now.name, now.owner, now.why) == ("red", stage.BUILDER, f"it waits on {part}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
+
+
 @pytest.mark.parametrize("code", [0, 3])
 def test_a_landers_outcome_is_said_on_its_prs_line_waking_no_one_and_a_failure_reads_unlanded_which_wakes_the_session_holding_its_order(
     demo: str, tmp_path: Path, code: int

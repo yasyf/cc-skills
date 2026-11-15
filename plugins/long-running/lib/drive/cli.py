@@ -3963,7 +3963,7 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> tuple[dict, list[str]]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -4014,6 +4014,10 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         raise DriveError(f"{key}: refused, nothing added: {problems[0]}")
     if problems:
         raise DriveError("\n".join([f"{key}: refused, nothing added, for each of these {len(problems)}:", *(f"{number}. {why}" for number, why in enumerate(problems, 1))]))
+    try:
+        staged = staging_reach(name, known, [key] if pending["wants_tap"] and read["state"] == "OPEN" else [])
+    except DriveError as error:
+        raise DriveError(f"{key}: refused, nothing added: {error}") from None
     with state.edit(name) as data:
         job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
@@ -4024,6 +4028,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
         tester = state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]]) if read["state"] == "OPEN" and read["files"] else None
+        if staged:
+            state.reach_staging(data, key)
     note_third_person(key, read)
     return pr, [tester] if tester else []
 
@@ -4123,6 +4129,10 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_an_exempt_revert(known, key, order, read)
     if args.exempt and args.exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, args.exempt, "set")
+    try:
+        staged = staging_reach(name, known, [key] if after["wants_tap"] and before["state"] == "open" else [])
+    except DriveError as error:
+        raise DriveError(f"{key}: refused, nothing set: {error}") from None
     serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in (answered["cited"] if answered else []))
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
@@ -4130,6 +4140,8 @@ def pr_set(args: argparse.Namespace) -> int:
             serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
+        if staged:
+            state.reach_staging(data, key)
         if args.staging and (tester_id := state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))):
             serving += "".join(f"\n{line}" for line in render.builder_lines(data, [tester_id]))
         if args.part:
@@ -4292,6 +4304,15 @@ def live_sand_next(checkout: Path) -> str:
     if not (found := LIVE_SAND_NEXT.search(listed)):
         raise DriveError("`tools/ci release status --manual sand-next --env core-usw2-auto` lists no passed sand-next release among its newest builds, so no live sand-next commit was read")
     return github.run(["git", "-C", str(checkout), "rev-parse", "--verify", f"{found['commit']}^{{commit}}"]).strip()
+
+
+def staging_reach(name: str, data: dict, keys: list[str]) -> list[str]:
+    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases, by release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; DriveError when that read fails, so its caller keeps nothing."""
+    try:
+        reach = release_reach(name, data, keys)
+    except github.GithubError as error:
+        raise DriveError(f"could not read which components the paths {', '.join(keys)} changes reach, so whether it waits on a staging test is unknown: {error}; run this again") from None
+    return [key for key in keys if (answer := reach.get(key)) and answer["touched"]]
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:

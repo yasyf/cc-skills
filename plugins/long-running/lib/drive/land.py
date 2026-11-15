@@ -535,7 +535,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs, nor one with a PR waiting on his tap whose paths at its head reach a component staging runs and that no staging test passed yet, by cli.staging_reach, which it puts on its staging test first. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -553,9 +553,19 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         elif state.merges_untapped(keys[0]):
             outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
         else:
+            from drive import cli
+
             below = uncleared_below(data, keys)
-            if misfiled := "; ".join(why for key in keys if (why := unexempt(data, key))):
+            misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
+            untested = [key for key in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]) if not state.staging_tested(data, key)]
+            if untested and not dry_run:
+                with state.edit(name) as edited:
+                    for key in untested:
+                        state.reach_staging(edited, key)
+            if misfiled:
                 outcome = f"not landed: {misfiled}"
+            elif untested:
+                outcome = f"{WAITED}: {', '.join(untested)} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
             elif away := next((why for key in keys if (why := unattended(data, key, state.now()))), None):
                 outcome = f"{AWAY}: {away}"
             elif below:

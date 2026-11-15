@@ -866,7 +866,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     assert (json.loads(request.read_text()), state.load("demo")["jobs"]["j1"]["waits"]) == ({"body": "", "paths": ["go/sand/next/cmd/main.go"]}, [executor])
     assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/7", "--waits", staged]) == 0
     said = f"{staged}: runner-worker is no component go/ci releases, so no release ever carries Forge-AI/monorepo#7"
-    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged])
+    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged, "o1:staging test of #7 before it lands"])
     code, err = keep(monkeypatch, capsys, "j1", f"WAITING {executor} rides the next executor release\n")
     assert (code, f"note, kept: {executor}: executor's release never carries" in err, executor in state.load("demo")["jobs"]["j1"]["waits"]) == (0, True, True)
     answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": []}))
@@ -6370,27 +6370,76 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
 
 
-def test_a_builders_pushed_naming_a_monorepo_pr_says_how_it_is_tested_on_staging_and_its_staging_line_adds_the_part_its_wait_and_one_tester_briefed_on_this_mac(
-    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def reaching(monkeypatch: pytest.MonkeyPatch, *reached: str) -> None:
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "web"], "touched": ["api"] if key in reached else []} for key in keys})
+
+
+def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_one_tester_the_cases_briefed_on_this_mac_and_no_none_line_stands_for_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    part, cases = state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key, part, cases = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
+    reaching(monkeypatch, key)
+    for url in (PR, STACKED):
+        assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
+    on_part = f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it"
     for report, refused in (
-        (f"PUSHED {PR}\n", f"it names {with_pr}, so {state.STAGING_RULE}"),
+        (f"PUSHED {PR}\n", on_part),
         (f"PUSHED {PR}\nSTAGING: none\n", "its STAGING line `none` neither stages"),
-        (f"PUSHED {PR}\nSTAGING: #43 run it twice\n", "its STAGING line `#43 run it twice` neither stages"),
+        (f"PUSHED {PR}\nSTAGING: #44 run it twice\n", "its STAGING line `#44 run it twice` neither stages"),
+        (f"PUSHED {PR}\n{UNSTAGED}", on_part),
+        (f"PUSHED {PR} {STACKED}\n{UNSTAGED}", on_part),
+        (f"PUSHED {PR} {STACKED}\nSTAGING: #42 {cases}\n", f"it names Forge-AI/monorepo#43, so {state.STAGING_RULE}"),
     ):
         code, err = keep(monkeypatch, capsys, "j1", report)
         assert (code, f"j1: refused, nothing kept: {refused}" in err) == (2, True)
+    assert [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")] == []
     for _ in range(2):
-        assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
+        assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR} {STACKED}\nSTAGING: #42 {cases}\n{UNSTAGED}") == (0, "")
     data = state.load("demo")
     (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
-    assert (data["prs"][with_pr]["waits"], part in data["orders"]["o1"]["parts"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], True, True)
+    assert (data["prs"][key]["waits"], data["prs"]["Forge-AI/monorepo#43"]["waits"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], [], True)
     assert (tester["kind"], tester["goal"], tester["parts"], tester["where"]) == ("builder", cases, [part], "local")
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
     assert (f"Mac: {cli.STAGING_MAC}" in written, '"incident": "true"' in written, "Researched:" in written) == (True, True, False)
-    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
+
+
+def test_pr_add_and_pr_set_put_a_flake_fix_whose_paths_reach_a_component_on_its_staging_test_before_his_first_card_and_a_failed_reach_read_keeps_nothing(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], draws: Draws
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key, tested, part = "Forge-AI/monorepo#42", "Forge-AI/monorepo#43", state.STAGING_TEST.format(number=42)
+    paths = {key: ["api/src/upload.ts", "api/src/upload.test.ts"], tested: ["rust/crates/sandsql-sql/src/tests.rs"]}
+    monkeypatch.setattr(github, "files", lambda key: paths[key])
+
+    def unread(name: str, data: dict, keys: list[str]) -> dict:
+        raise github.GithubError("HTTP 502")
+
+    monkeypatch.setattr(cli, "release_reach", unread)
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", state.FLAKE_FIX, *LEAD]) == 2
+    assert f"{key}: refused, nothing added: could not read which components the paths {key} changes reach, so whether it waits on a staging test is unknown: HTTP 502" in capsys.readouterr().err
+    assert (key in state.load("demo")["prs"], draws.keys) == (False, [])
+    reaching(monkeypatch, key, tested)
+    assert run("pr", "add", PR, "--job", "j1", "--exempt", state.FLAKE_FIX, *LEAD) == (0, f"{key}, his card {draws.link}")
+    assert run("pr", "add", STACKED, "--job", "j1", "--exempt", state.FLAKE_FIX, *LEAD) == (0, tested)
+    data = state.load("demo")
+    assert (data["prs"][key]["waits"], data["prs"][key]["wants_tap"], part in data["orders"]["o1"]["parts"], draws.keys) == ([f"o1:{part}"], True, True, [[key]])
+    assert (data["prs"][tested]["waits"], data["prs"][tested]["wants_tap"]) == ([], False)
+    monkeypatch.setattr(cli, "release_reach", unread)
+    assert cli.main(["pr", "set", PR, "--no-waits"]) == 2
+    assert f"{key}: refused, nothing set: could not read which components" in capsys.readouterr().err
+    reaching(monkeypatch, key)
+    assert run("pr", "set", PR, "--no-waits")[0] == 0
+    assert state.load("demo")["prs"][key]["waits"] == [f"o1:{part}"]
+    with state.edit("demo") as data:
+        data["prs"][key]["waits"] = []
+        del data["orders"]["o1"]["parts"][part]
+    assert run("pr", "set", PR, "--tap")[0] == 0
+    data = state.load("demo")
+    assert (data["prs"][key]["waits"], part in data["orders"]["o1"]["parts"]) == ([f"o1:{part}"], True)
 
 
 def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_sand_next_too(
@@ -6402,6 +6451,8 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
         "#15231  passed  manual dry-run  sand-next  core-usw2-auto  9f00aa11bb  started 17:02 PT  -  https://buildkite.com/forge/release/builds/15231\n"
         "#15220  passed  manual release  sand-next  core-usw2-auto  6c751b8b10  started 21:19 PT  -  https://buildkite.com/forge/release/builds/15220\n"
     )
+    reaching(monkeypatch, with_pr)
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 switch a chat's topology in the app and write to a subagent\n") == (0, "")
     (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")]
     asked: list[list[str]] = []
@@ -6509,6 +6560,25 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
         data["jobs"][marked]["state"] = "done"
         restaged = state.staging_testers(data, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n")
     assert (lifted, bool(marked), [state.load("demo")["jobs"][job_id]["goal"] for job_id in restaged]) == (None, True, [cases])
+
+
+def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dangerous_tester_hears_its_cases_and_no_none_line_lifts_it(
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key, part, cases = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
+    reaching(monkeypatch, key)
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    data = state.load("demo")
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert (data["prs"][key]["waits"], data["prs"][key]["reached"], "each a dangerous change" in tester["goal"]) == ([f"o1:{part}"], True, True)
+    code, err = keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}")
+    assert (code, f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
+    data = state.load("demo")
+    assert ([job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")], [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
 
 
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(
