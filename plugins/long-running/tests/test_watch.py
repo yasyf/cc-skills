@@ -10595,16 +10595,18 @@ def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check
 
 
 @pytest.mark.parametrize(
-    ("key", "standing", "stale", "fresh"),
+    ("key", "builder", "standing", "stale", "fresh"),
     [
         (
             "yasyf/cc-slack#460",
+            "j2",
             RED_STAGE | {"why": "its required check test failed at 5e1c0de"},
             "WHY: Its replacement fix, https://github.com/yasyf/cc-slack/pull/460, is stuck. The `test` check is red\nWHO: the holder\nNEXT: send its builder after the red test check\nUNREAD: nothing\n",
             "WHY: yasyf/cc-slack#460 merged at 2026-11-15T12:50:33Z with every check at its head passing (gh pr view), and cc-slack 0.20.82 carries it\nWHO: the holder\nNEXT: drive job resume j1 with the merged fix\nUNREAD: nothing\n",
         ),
         (
             "Forge-AI/monorepo#56693",
+            "j1",
             UNLANDED | {"why": "green and approved by him at afb881f, its ready line 714494"},
             "WHY: #56693's ready line 714494 is stale\nWHO: the holder\nNEXT: cut #56693's ready line again\nUNREAD: nothing\n",
             "WHY: record 717774 re-cut #56693's ready line 714494 into cut 4 on afb881f92076\nWHO: the lander\nNEXT: drive pr land Forge-AI/monorepo#56693\nUNREAD: nothing\n",
@@ -10612,12 +10614,15 @@ def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check
     ],
 )
 def test_replayed_718877_and_718879_a_stalls_report_to_him_carries_a_fresh_watchdogs_read_of_the_newest_records_and_github_never_the_stuck_lines_answer(
-    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], key: str, standing: dict, stale: str, fresh: str
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], key: str, builder: str, standing: dict, stale: str, fresh: str
 ) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
-        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"stage": standing}
+        data["prs"][key] = state.new_pr(state.pr_url(key), builder, "o1") | {"stage": standing}
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [key]}
+        if builder != "j1":
+            data["orders"]["o1"]["jobs"].append(builder)
+            data["jobs"][builder] = job(state="done", prs=[state.pr_url(key)])
     watching = watcher(demo)
     watching.cards = NO_CARDS
     for minutes in (0, 60):
@@ -10628,10 +10633,9 @@ def test_replayed_718877_and_718879_a_stalls_report_to_him_carries_a_fresh_watch
     assert stall.answer(stale)["WHY"] in stuck
     assert watch.stall_lines(watching, T0 + timedelta(minutes=98)) == []
     [_, (brief, out)] = watchdogs
-    assert {
-        f"- cci grep '(o1|j1|#{key.split('#')[1]})\\b' --drive demo --limit 30",
-        f"- gh pr view {state.pr_url(key)} --json state,mergedAt,headRefOid,statusCheckRollup",
-    } <= set(brief.splitlines())
+    [grep] = [line.split("'")[1] for line in brief.splitlines() if line.startswith("- cci grep ")]
+    assert {"o1", "j1", builder, f"#{key.split('#')[1]}"} <= set(grep.removeprefix("(").removesuffix(")\\b").split("|"))
+    assert f"- gh pr view {state.pr_url(key)} --json state,mergedAt,headRefOid,statusCheckRollup" in brief.splitlines()
     watchdog_answered(out, fresh)
     assert watch.stall_lines(watching, T0 + timedelta(minutes=99)) == []
     [[report]] = ready_records
