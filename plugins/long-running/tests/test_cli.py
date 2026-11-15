@@ -4317,10 +4317,24 @@ def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch
     for holds in ("copy one store", "copy one store, in #4127"):
         block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: {holds}"))
         assert cli.main(["job", "ask", "j1", str(block)]) == 2
-        assert f"`Holds: {holds}` names no PR the drive tracks on j1's orders and no branch" in capsys.readouterr().err
+        assert f"`Holds: {holds}` names no PR the drive tracks on j1's orders or waiting on a part j1 carries, as the PR its staging test tests, and no branch" in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: copy one store, built on `j1-copy-store`"))
     assert run("job", "ask", "j1", str(block))[0] == 0
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["holds"] == "copy one store, built on `j1-copy-store`"
+    tested, staging = "https://github.com/Forge-AI/monorepo/pull/4127", "staging test of #4127 before it lands"
+    run("order", "add", "--title", "Ship title", "--project", "The drive", "--workstream", "Drive tooling", "ship the store copy")
+    run("job", "add", "builder", "--order", "o2", "--goal", "ship the copy")
+    assert run("pr", "add", tested, "--job", "j2", *LEAD)[0] == 0
+    run("order", "add", "--title", "Soak title", "--project", "The drive", "--workstream", "Drive tooling", "soak the store copy", "--parts", staging)
+    run("job", "add", "builder", "--order", "o3", "--part", staging, "--goal", "soak #4127 on staging")
+    assert run("pr", "set", tested, "--waits", f"o3:{staging}")[0] == 0
+    gating = "Holds: #4127, the store copy this staging test gates"
+    block.write_text(SHORT_ASK.replace("opens without guessing?", "opens on its first read?").replace("Holds: none: no option changes code any job builds", gating))
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    assert f"`{gating}` names no PR the drive tracks on j1's orders or waiting on a part j1 carries" in capsys.readouterr().err
+    assert run("job", "ask", "j3", str(block))[0] == 0
+    data = state.load("demo")
+    assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#4127"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
 
 
 def test_a_build_orders_design_job_waits_on_its_readers_research(
@@ -5529,6 +5543,17 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     run("job", "report", "j1", "-")
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["branch"], job["waits"]) == ("built", branch, ["demo:j1-3", card])
+    staging, url = "staging test of #7 before it lands", "https://github.com/Forge-AI/monorepo/pull/7"
+    run("order", "add", "--title", "Soak title", "--project", "The drive", "--workstream", "Drive tooling", "ship and soak it", "--parts", "the store", staging)
+    run("job", "add", "builder", "--order", "o2", "--part", "the store", "--part", staging, "--goal", "ship and soak #7")
+    assert run("pr", "add", url, "--job", "j2", *LEAD)[0] == 0
+    assert run("pr", "set", url, "--waits", f"o2:{staging}")[0] == 0
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["waits"] = ["Forge-AI/monorepo#7"]
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT {branch}, waits on demo:j2-3\nCHECK: build 12\n"))
+    run("job", "report", "j2", "-")
+    job = state.load("demo")["jobs"]["j2"]
+    assert (job["state"], job["waits"]) == ("built", ["demo:j2-3"])
 
 
 def test_a_report_takes_a_waiting_or_built_job_and_is_refused_on_a_stopped_one_keeping_nothing_until_a_fresh_worker_runs_it(
@@ -5651,6 +5676,15 @@ def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_neve
     assert keep(monkeypatch, capsys, "j1", f"WAITING {state.pr_url(keys[0])} and {state.pr_url(keys[1])}, then release:sandsql:{keys[2]}\n") == (0, "")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["waits"]) == ("waiting", [f"release:sandsql:{keys[2]}", keys[1]])
+    staging, soak = "staging test of #54680 before it lands", "staging:sandsql/plat-usw2-staging@044e8552b694"
+    run("order", "add", "--title", "Soak title", "--project", "The drive", "--workstream", "Drive tooling", "soak the SandSQL slots", "--parts", staging)
+    run("job", "add", "builder", "--order", "o3", "--part", staging, "--goal", "soak #54680 on staging")
+    assert run("pr", "set", state.pr_url(keys[2]), "--waits", f"o3:{staging}")[0] == 0
+    code, err = keep(monkeypatch, capsys, "j3", f"WAITING {state.pr_url(keys[2])} waits on its soak\n")
+    assert (code, "j3: refused, nothing kept: its WAITING names nothing the watch frees it on" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j3", f"WAITING {state.pr_url(keys[2])} waits on {soak}\n") == (0, "")
+    tester = state.load(demo)["jobs"]["j3"]
+    assert (tester["state"], tester["waits"], tester["waited"]["waits"]) == ("waiting", [soak], [soak])
 
 
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:

@@ -1370,11 +1370,12 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
                 f" keeps none it can run{f', as {why}' if why else ''}: keep an executable script exiting 0 once the installed plugins hold the fix, printing a line for each check it passed, with drive job set {job_id} --repro <file>,"
                 " then send this report again"
             )
-    if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, job["waits"], None) or result_waits(data, job["order"], line)):
+    if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, unlooped(data, job_id, job["waits"]), None) or result_waits(data, job_id, line)):
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
             " release:<service>:<owner>/<repo>#<n>, a staging test's soak commit as staging:<target>/<env>@<commit>, an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>"
             f" or a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends, since a PR that merged or closed, a part delivered and a process that ended free it at once,"
+            f" and a PR waiting on a part {job_id} carries, as the PR its staging test tests, waits on {job_id} in turn,"
             f" or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )
     if waiting := WAITING_LINE.match(line):
@@ -1471,17 +1472,18 @@ def part_wait(data: dict, wait: str) -> tuple[str, str] | None:
     return (named[1], named[2]) if named and named[1] in data["orders"] and named[2] in data["orders"][named[1]]["parts"] else None
 
 
-def result_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release, staging soak commit, process on this Mac and part a WAITING's line names that view.holds says still holds, since a merged PR or a delivered part would free it at once, and none for any other line."""
+def result_waits(data: dict, job_id: str, line: str) -> list[str]:
+    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release, staging soak commit, process on this Mac and part a WAITING's line names that view.holds says still holds, since a merged PR or a delivered part would free it at once, never on either line a PR waiting on a part the job carries, by unlooped, as the PR a staging tester tests or a builder's own PR waiting on its own staging test, which waits on the job in turn, and none for any other line."""
     from drive import view
 
+    order_id = data["jobs"][job_id]["order"]
     if re.match(r"WAITING\b", line):
-        return view.holding(data, named_waits(data, order_id, line), None)
-    return named_waits(data, order_id, line) if REPORTED_LINE.match(line) else []
+        return view.holding(data, unlooped(data, job_id, named_waits(data, order_id, line)), None)
+    return unlooped(data, job_id, named_waits(data, order_id, line)) if REPORTED_LINE.match(line) else []
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, but a builder's or codex job's DONE while a PR it opened has not landed, which waits on those PRs by hold_done, each staging test part such a DONE holds delivered by its first CHECK: proof by post_staging_proof, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job what its WAITING or ASK line answers as stage.waited reads it, and nothing on any other result, waiting on each card of his a WAITING's first line's `waits on` names, and on each PR it answers the step of each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, but a builder's or codex job's DONE while a PR it opened has not landed, which waits on those PRs by hold_done, each staging test part such a DONE holds delivered by its first CHECK: proof by post_staging_proof, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a recording, picture or live post keeping it on each order of its incident that builds something he uses, by brief.unseen, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, another job's PR closing unmerged moving the wait onto that job's change, every take keeping no wait of the job's on a PR waiting on a part it carries, by unlooped, as a builder's BUILT once kept its PUSHED's waits on its own PRs waiting on its own staging tests, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job what its WAITING or ASK line answers as stage.waited reads it, and nothing on any other result, waiting on each card of his a WAITING's first line's `waits on` names, and on each PR it answers the step of each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -1498,13 +1500,14 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         hold_done(job, held)
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
-    if waits := result_waits(data, job["order"], line):
+    if waits := result_waits(data, job_id, line):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     job["waited"] = stage.waited(data, job_id, line) if re.match(r"(?:WAITING|ASK)\b", line) else None
     if re.match(r"WAITING\b", line):
         job["waits"] = list(dict.fromkeys([*job["waits"], *job["waited"]["waits"]]))
         for key in job["waited"]["owed"]:
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *(wait for wait in job["waited"]["waits"] if not card_wait(data, wait))])
+    job["waits"] = unlooped(data, job_id, job["waits"])
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *named_parts(data, waiting["cards"])])
@@ -1535,16 +1538,21 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
 
 
 def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
-    """Each open card of his holding a job's work, its PR when given, by its link or else its waits id: each holds_work finds, and on a PR each its `DESIGN:` lines but a `DESIGN: none` cite by served.named, whatever job asked it, since that PR builds an option of a choice he has not made; the one rule by which a card holds work from landing, in every repository, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
+    """Each open card of his holding a job's work, its PR when given, by its link or else its waits id: each holds_work finds on a question of a job on one of the job's orders, or, on a PR, of a job carrying a part it waits on by waits_on_parts, whatever order tracks the PR, as a staging tester's card names the PR it tests, and on a PR each its `DESIGN:` lines but a `DESIGN: none` cite by served.named, whatever job asked it, since that PR builds an option of a choice he has not made; the one rule by which a card holds work from landing, in every repository, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
     from drive import served, view
 
     job = data["jobs"][job_id]
     cited = [name for line in served.deciding(pr["design"] or "") for kind, name in served.named(line) if kind in ("card", "link")] if pr is not None else []
+    askers = [(order_id, asker) for order_id in [job["order"], *job["carries"]] for asker in data["orders"][order_id]["jobs"]]
+    testers = (
+        [(part[0], tester) for wait in pr["waits"] if (part := part_wait(data, wait)) for tester, carrier in part_jobs(data, *part) if view.open_questions(carrier) and waits_on_parts(data, pr, tester)]
+        if pr is not None
+        else []
+    )
     return [
         *(
             drawn
-            for order_id in [job["order"], *job["carries"]]
-            for asker in data["orders"][order_id]["jobs"]
+            for order_id, asker in dict.fromkeys([*askers, *testers])
             for question in view.open_questions(data["jobs"][asker])
             if (drawn := question["card"] or question["waits"]) and holds_work(data, asker, question, job_id, order_id, pr)
         ),
@@ -1738,21 +1746,35 @@ def names_branch(holds: str, branch: str | None) -> bool:
     return bool(branch) and bool(re.search(rf"(?<![\w./-]){re.escape(branch)}(?![\w/-]|\.\w)", holds))
 
 
-def held_words(data: dict, holds: str, order_ids: Iterable[str]) -> str:
+def held_words(data: dict, holds: str, job_id: str) -> str:
     """A question's `Holds:` words with, for each PR of held_prs, the parts it serves appended: those `drive pr set --part` names, else the parts its job works on its order, so a lane that names its PR names its change."""
-    served = [part for pr in held_prs(data, holds, order_ids) for part in pr["parts"] or sorted(worked(data, pr["job"], pr["order"])) if not names_part(holds, [part])]
+    served = [part for pr in held_prs(data, holds, job_id) for part in pr["parts"] or sorted(worked(data, pr["job"], pr["order"])) if not names_part(holds, [part])]
     return "; ".join([holds, *dict.fromkeys(served)])
 
 
-def held_prs(data: dict, holds: str, order_ids: Iterable[str]) -> list[dict]:
-    """Each PR the drive tracks on these orders that a question's `Holds:` words name by its link, its owner/name#N key, a bare #N or its whole branch name."""
-    orders = set(order_ids)
+def held_prs(data: dict, holds: str, job_id: str) -> list[dict]:
+    """Each PR the drive tracks that the asking job's question's `Holds:` words name by its link, its owner/name#N key, a bare #N or its whole branch name, of those on the job's orders and those waiting on a part it carries by waits_on_parts, whatever order tracks them, as the PR a staging test tests."""
+    job = data["jobs"][job_id]
+    orders = {job["order"], *job["carries"]}
     return [
         pr
         for key, pr in data["prs"].items()
-        if pr["order"] in orders
-        and (re.search(rf"{re.escape(pr_url(key).removeprefix('https://'))}\b|{re.escape(key)}\b|(?<![\w/-])#{key.rpartition('#')[2]}\b", holds) or names_branch(holds, pr["branch"]))
+        if (re.search(rf"{re.escape(pr_url(key).removeprefix('https://'))}\b|{re.escape(key)}\b|(?<![\w/-])#{key.rpartition('#')[2]}\b", holds) or names_branch(holds, pr["branch"]))
+        and (pr["order"] in orders or waits_on_parts(data, pr, job_id))
     ]
+
+
+def waits_on_parts(data: dict, pr: dict, job_id: str) -> bool:
+    """Whether an open PR, whatever order tracks it, waits on a part the job carries by an <order>:<part> wait that still holds, as the PR a staging test tests waits on its tester, so the job's card may hold it, by held_prs and part_cards, and the job never waits on it, by unlooped, which would free neither."""
+    from drive import view
+
+    job = data["jobs"][job_id]
+    return pr["state"] == "open" and any((part := part_wait(data, wait)) and part[1] in job_parts(job, part[0]) and view.holds(data, wait, None) for wait in pr["waits"])
+
+
+def unlooped(data: dict, job_id: str, waits: list[str]) -> list[str]:
+    """The waits but each on a PR waiting on a part the job carries, by waits_on_parts, which waits on the job in turn."""
+    return [wait for wait in waits if wait not in data["prs"] or not waits_on_parts(data, data["prs"][wait], job_id)]
 
 
 def worked(data: dict, job_id: str, order_id: str) -> set[str]:
