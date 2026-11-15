@@ -102,6 +102,7 @@ FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell y
 SUBJECT_LABEL = ', recorded on the subject of "'
 MESSAGES_JOINED = " … "
 TAP_LABELS = ("Approve", "Hold")
+CARDS_FIRST = 'fe09e93 "Buttons only after you answer each question"'
 TOOLING = "Drive tooling:"
 TOOLING_DETAILS_RULING = "43aa665"
 POST_FEEDBACK = f"{TOOLING} post feedback:"
@@ -4512,8 +4513,10 @@ def against(pr: dict) -> str:
     return checker["against"] if checker and checker["head"] == pr["head"] else ""
 
 
-def tap_refused(pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, and neither his Hold nor his Approve on it, whatever the check against his words says. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card."""
+def tap_refused(data: dict, pr: dict) -> str | None:
+    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, neither his Hold nor his Approve on it, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
+    from drive import land
+
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     if upstream(pr):
@@ -4527,6 +4530,9 @@ def tap_refused(pr: dict) -> str | None:
             return "he approved it already"
         case "Hold":
             return "he held it"
+    job = data["jobs"][pr["job"]]
+    if not open_incidents(data, [job["order"], *job["carries"]]) and (holding := land.pr_cards(data, pr)):
+        return f"his cards {', '.join(holding)} hold it until he answers each, by his pick {CARDS_FIRST}"
     return None
 
 
@@ -4539,9 +4545,9 @@ def upstream_owner(pr: dict) -> str:
     return pr_key(pr["url"]).split("/")[0]
 
 
-def asks_tap(pr: dict) -> bool:
+def asks_tap(data: dict, pr: dict) -> bool:
     """Whether his card on the PR offers Approve, by tap_refused."""
-    return tap_refused(pr) is None
+    return tap_refused(data, pr) is None
 
 
 def reworked_under(prs: dict[str, dict], key: str) -> str | None:

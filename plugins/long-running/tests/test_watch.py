@@ -261,9 +261,10 @@ def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_
     lines = watch.run_pass(watcher(demo), T0)
     assert lines == [f"PR {KEY}: new head bbbbbbb [o1 j1]", f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]"]
     assert not any(watch.wakes(line, state.load(demo), NO_CARDS) for line in lines)
-    pr = state.load(demo)["prs"][KEY]
+    data = state.load(demo)
+    pr = data["prs"][KEY]
     assert (pr["head"], pr["checks"], pr["review"], pr["title"]) == ("bbbbbbb222", "pass", "approved", "Fix: the watch")
-    assert (draws.keys, view.tap_card(pr, view.live_cards(demo)), pr["stage"]["name"]) == ([[KEY]] * wants_tap, draws.link if wants_tap else None, "uncarded" if wants_tap else "author")
+    assert (draws.keys, view.tap_card(data, pr, view.live_cards(demo)), pr["stage"]["name"]) == ([[KEY]] * wants_tap, draws.link if wants_tap else None, "uncarded" if wants_tap else "author")
 
 
 def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict_through_githubs_unknown_at_its_head(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4280,7 +4281,7 @@ def test_an_uncarded_pr_carrying_the_hold_label_reads_uncarded_so_the_watch_draw
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "hold_label": True}
     now = stage.of(state.load(demo), KEY, NO_CARDS)
-    assert (now.name, now.owner, state.asks_tap(state.load(demo)["prs"][KEY])) == ("uncarded", stage.WATCH, True)
+    assert (now.name, now.owner, state.asks_tap(data := state.load(demo), data["prs"][KEY])) == ("uncarded", stage.WATCH, True)
 
 
 def test_a_builders_line_carries_the_head_github_holds_for_each_open_pr_it_names_with_its_stage_and_each_commit_it_names_that_none_is_at(demo: str) -> None:
@@ -5284,8 +5285,9 @@ def test_a_pr_whose_card_draw_fails_stays_uncarded_and_is_drawn_again_each_read_
     draws.failure = None
     watch.run_pass(watching, T0 + timedelta(minutes=3))
     watch.run_pass(watching, T0 + timedelta(minutes=4))
-    pr = state.load(demo)["prs"][KEY]
-    assert (len(draws.keys), view.tap_card(pr, view.live_cards(demo)), pr["stage"]["name"]) == (4, draws.link, "card")
+    data = state.load(demo)
+    pr = data["prs"][KEY]
+    assert (len(draws.keys), view.tap_card(data, pr, view.live_cards(demo)), pr["stage"]["name"]) == (4, draws.link, "card")
 
 
 def test_a_pr_whose_card_draw_goes_out_with_no_open_card_at_its_head_is_a_failed_draw_drawn_again_each_read_said_to_the_meta_session_from_the_third(
@@ -5508,7 +5510,7 @@ def test_a_pr_waiting_on_his_tap_draws_his_card_from_the_watch_on_its_first_read
     assert not any(watch.wakes(line, state.load(demo), NO_CARDS) for line in lines)
     assert (draws.keys, sent) == ([[KEY]], [])
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert (draws.keys, view.tap_card(state.load(demo)["prs"][KEY], view.live_cards(demo))) == ([[KEY]], draws.link)
+    assert (draws.keys, view.tap_card(data := state.load(demo), data["prs"][KEY], view.live_cards(demo))) == ([[KEY]], draws.link)
 
 
 THIRD = "Forge-AI/monorepo#44"

@@ -406,7 +406,7 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"the build of {cut(drive['jobs'][returning['job']]['goal'], TITLE_CHARS)} next reports"
     if wait in drive["prs"]:
         pr = drive["prs"][wait]
-        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
+        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(drive, pr, found)) else "")
     if state.untracked_wait(drive, wait):
         return f"{link(wait, state.pr_url(wait))} merges or closes"
     if release := state.RELEASE_WAIT.fullmatch(wait):
@@ -431,9 +431,9 @@ def tester_line(drive: dict, tester: str) -> str:
     return job["said"] if job["state"] == "waiting" and job["said"] else job["state"]
 
 
-def tap_card(pr: dict, found: dict | None) -> str | None:
+def tap_card(data: dict, pr: dict, found: dict | None) -> str | None:
     """The link of his card a tap on lands the PR, which every line naming his card on it reads: while the PR waits on his tap, by state.asks_tap, his open card at its head; None with his cards unread."""
-    if found is None or not state.asks_tap(pr):
+    if found is None or not state.asks_tap(data, pr):
         return None
     shown = head_card(pr, found["pr_cards"])
     return shown and shown["url"]
@@ -558,7 +558,7 @@ def apart(data: dict, key: str, pr_cards: list[dict]) -> list[str]:
     if not (card := card_for(pr_cards, pr["url"])):
         return []
     drawn = [mate for mate in stack_of(data["prs"], key) if mate in data["prs"] and data["prs"][mate]["state"] == "open" and not state.reworked_under(data["prs"], mate)]
-    return [mate for mate in drawn if state.asks_tap(data["prs"][mate]) and data["prs"][mate]["url"] not in card["prs"]] if key in drawn else []
+    return [mate for mate in drawn if state.asks_tap(data, data["prs"][mate]) and data["prs"][mate]["url"] not in card["prs"]] if key in drawn else []
 
 
 def shown_heads(card: dict, pr: dict) -> str:

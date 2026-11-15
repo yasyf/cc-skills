@@ -204,7 +204,7 @@ pick, because he wants to choose the fix. Work does not land with a question of 
 unanswered: outside an incident's repair, the `bash_guard` hook refuses the `ccx vcs ship` that would
 open a proper-fix PR, on this Mac and on a Sprite, and the lander,
 the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while an open card of his
-holds it: one whose question's `Holds:` line names it by link, `#N` or whole branch name, or, on a
+holds it: one asked by a job on the PR's orders or by the staging tester of a part it waits on, whose question's `Holds:` line names it by link, `#N` or whole branch name, or, on a
 design's or reader's card, names a change its job builds from that design or research; a card its
 job asked holds its unbuilt work, never a PR the line leaves out. The immediate fix of a bug hurting someone now is never held: its own
 `immediate fix` job starts at once, options-only orders too, its PR waits on none of his cards, and

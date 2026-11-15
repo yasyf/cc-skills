@@ -113,9 +113,7 @@ and waits ids, record seqs), never a technical name.
    `UNBUILT:` or `Change:` line made your change, which the drive's add of you wrote your change
    and job id onto, the `bash_guard` hook refuses a `ccx vcs ship`
    that would open your first PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
-   work does not land with a question of his on it unanswered; once your job has a PR up, his card
-   holds from landing only the PRs its `Holds:` line names by link, `#N` or whole branch name and each
-   PR whose `DESIGN:` line cites it, so a PR citing a card he has not answered waits for his answer. Only when his words ask for options
+   work does not land with a question of his on it unanswered; once your job has a PR up, his card holds from landing only the PRs on your job's orders, or waiting on a part it carries, as the PR a staging test tests, that its `Holds:` line names by link, `#N` or whole branch name, and each PR whose `DESIGN:` line cites it, whatever its order, so a PR citing a card he has not answered waits for his answer. Only when his words ask for options
    and no build, or the recommended option is no change you build, does the `ASK` end your run:
    keep it with `drive job report <your job> -` and return it, and the `one_line_result` hook refuses
    any other `ASK` ending a running builder's run.
@@ -733,11 +731,11 @@ Replaces: <only on a question built on other open questions of his: each one's A
   and keeps every block in shape whatever Jev finds, printing to you each option or part Jev answers 0.7 or more as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, each code name or run id it answers 0.7 or more as never said in plain words on the card, each of those it answers between 0.3 and 0.7 as unsure, the card itself when Jev, reading it cold, answers 0.7 or more that it uses a name as if he knew it, such as a Forbids line the drive coined, and each raw id `cc-slack check-post` finds on it, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Jev reads any option the card offers as breaking a recorded answer or ruling of his, at 0.7 or more and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Jev reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
-- `Holds:` names each PR the drive tracks that the options alter, by its link or `#N`, and each
+- `Holds:` names each PR on your job's orders, or waiting on a part it carries, as the PR a staging test tests, that the options alter, by its link or `#N`, and each
   branch building an option, in backticks by its whole name, as `j1-remote-config`; `drive job ask`
   keeps a named PR with the parts it serves. His open card then holds from landing only the PRs it
   names, a PR of that branch included, and your unbuilt work, so a card on another subject holds no
-  PR its options leave alone, nor a PR of your job it does not name; a card of a design or reader also
+  PR its options leave alone, nor a PR of your job it does not name, nor a PR of another order however it names it; a card of a design or reader also
   holds the PRs of a change it names that the builder its design or research starts carries, or a
   job it names by id, while a question kept with no `Holds:` line holds every change of those jobs;
   any open card also holds each PR whose `DESIGN:` line, but a `DESIGN: none`, cites it, whatever job asked it.
