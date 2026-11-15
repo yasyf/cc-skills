@@ -8,6 +8,7 @@ from typing import TextIO
 
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
+from drive.pr_graph import chains
 from drive.render import cut
 
 FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles,files"
@@ -538,14 +539,9 @@ def loose_cards(known: dict[str, tuple[str, dict]], keys: list[str], branches: d
 
 
 def chained(known: dict[str, tuple[str, dict]], key: str, reads: dict[str, dict]) -> list[str]:
-    """The PRs a PR in no native GitHub stack draws on one card with, bottom first, which stack_of() reads too: its chain by base branch, by chains(), among the open PRs of its drive in no native GitHub stack."""
+    """The PRs a PR in no native GitHub stack draws on one card with, bottom first, which PrGraph.stack() reads too: its chain by base branch, by chains(), among the open PRs of its drive in no native GitHub stack."""
     pool = [mate for mate, (name, entry) in known.items() if mate == key or name == known[key][0] and entry["state"] == "open" and not entry["native"]]
     return next(chain for chain in chains(pool, ends(known, pool, reads)) if key in chain)
-
-
-def stack_of(prs: dict[str, dict], key: str) -> list[str]:
-    """The PRs of a drive's PR's stack as the watch last read them, bottom first, the one rule view.apart, state.reworked_under and drawn_entry() read: its native GitHub stack, else its chain by base branch by chained()."""
-    return prs[key]["native"] or chained({mate: ("", row) for mate, row in prs.items()}, key, {})
 
 
 def ends(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict]) -> dict[str, tuple[str, str]]:
@@ -554,23 +550,6 @@ def ends(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, d
         key: (read["headRefName"], read["baseRefName"]) if (read := reads.get(key)) and read["headRefName"] else (known[key][1]["branch"] or "", known[key][1]["base"] or "")
         for key in keys
     }
-
-
-def chains(keys: list[str], branches: dict[str, tuple[str, str]]) -> list[list[str]]:
-    """The PRs grouped into stacks, bottom first: a PR sits on another of its repository when its base branch is the other's head branch, each as branches holds them."""
-    by_head = {(key.split("#")[0], branches[key][0]): key for key in keys if branches[key][0]}
-    below = {key: by_head.get((key.split("#")[0], branches[key][1])) for key in keys}
-    above = {under: key for key, under in below.items() if under}
-    found: list[list[str]] = []
-    for key in keys:
-        if below[key]:
-            continue
-        chain = [key]
-        while (nxt := above.get(chain[-1])) and nxt not in chain:
-            chain.append(nxt)
-        found.append(chain)
-    placed = {key for chain in found for key in chain}
-    return found + [[key] for key in keys if key not in placed]
 
 
 def grows(chain: list[str], stored: list[list[str]]) -> bool:
@@ -665,11 +644,11 @@ def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict]
 
 
 def drawn_entry(name: str, data: dict, entry: dict) -> dict:
-    """The drive's entry with what render reads beside it, the one place that adds it, for his card and the dashboard's row alike: its stage and staging line now, why his card offers no Approve by state.tap_refused, and a link to each open PR above it in its stack, by stack_of(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone."""
+    """The drive's entry with what render reads beside it, the one place that adds it, for his card and the dashboard's row alike: its stage and staging line now, why his card offers no Approve by state.tap_refused, and a link to each open PR above it in its stack, by PrGraph.stack(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone."""
     from drive import stage, view
 
     key = state.pr_key(entry["url"])
-    stack = [mate for mate in stack_of(data["prs"], key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
+    stack = [mate for mate in state.pr_graph(data).stack(key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
     above = stack[stack.index(key) + 1 :] if key in stack else []
     return entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry)}
 
