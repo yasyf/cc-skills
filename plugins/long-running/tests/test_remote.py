@@ -13,6 +13,7 @@ from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import ANY
 
 import pytest
@@ -51,6 +52,9 @@ T0 = state.parse_time("2026-11-09T07:30:00-08:00")
 RUN = "run_drive0001"
 FRESH_RUN = "run_relaunch1"
 DISPATCH = "ctx_lane0001"
+NO_RUNTIME = "Could not read Orca runtime metadata. Start the Orca app first."
+NOT_RUNNING = {"runtime": {"state": "not_running"}}
+READY = {"runtime": {"state": "ready"}}
 UNSTAGED = "STAGING: none: it changes no path AGENTS.md calls dangerous"
 J2914_BUILT = "BUILT sprite-volume-leaves-image-agents-and-mise, waits on c096bde8"
 J2914_REPORT = f"{J2914_BUILT}\nNATIVE: none: he never sees it\nUNPROVEN: the screenshot half\n"
@@ -3563,6 +3567,17 @@ def test_the_watchs_turn_for_a_sprite_job_waiting_to_move_here_stamps_its_slot_k
     assert place.local_builders(data, moment)["j1"] == f"j1 on o1, its turn to move here from its Sprite came at {render.when(state.stamp(moment), seconds=True)}, its lane here not started yet"
     assert (place.local_builders(data, moment + watch.RELAUNCH), place.waiting_builders(data)) == ({}, [])
     assert watch.waits_lines(watching, moment) == [] and detached == [["job", "launch", "j1", "--local"]]
+
+
+@pytest.mark.parametrize(("wait", "carried"), [("Forge-AI/monorepo#7", ["job", "resume", "j1"]), ("Forge-AI/monorepo#8", None)])
+def test_the_watch_carries_a_held_text_to_a_sprite_job_waiting_on_its_own_open_pr_as_j5031_waited_but_not_to_one_waiting_on_another_open_pr(
+    run: Run, remote: str, wait: str, carried: list[str] | None
+) -> None:
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)[0] == 0
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=[wait], undelivered=[{"seq": None, "words": "rebase on main first", "at": state.stamp(), "said": None, "request": "req-held"}])
+    held = state.load(remote)
+    assert watch.carrier("j1", held["jobs"]["j1"], held, None) == carried
 
 
 J4507_STEP = "kubectl exec into the staging sandsql pod and the node reads, under drive break-glass for plat-usw2-staging"
@@ -7166,6 +7181,102 @@ def test_a_drive_opening_its_terminal_holds_no_drive_lock_while_orca_creates_it_
 
     monkeypatch.setattr(orca, "request", orca_request)
     assert (REAL_DRIVE_TERMINAL(remote), state.load(remote)["terminal"], taken) == ("term_opened", "term_opened", [0])
+
+
+def runtime_down(verb: str) -> orca.OrcaError:
+    return orca.OrcaError(f"orca {verb}: {orca.RUNTIME_DOWN}: {NO_RUNTIME}", orca.RUNTIME_DOWN)
+
+
+def restarting_orca(monkeypatch: pytest.MonkeyPatch, replies: dict[tuple[str, ...], list]) -> tuple[list[tuple[str, ...]], list[float]]:
+    """Orca while launchd restarts its app server, as on Nov 15 at 12:44 PM: each `orca` call by its first two words answers its next reply, raising one that is an OrcaError, and any other call fails as it does where no `orca` is installed, on a clock only the drive's naps move; the scripted calls made and the naps taken."""
+    calls: list[tuple[str, ...]] = []
+    naps: list[float] = []
+
+    def one_call(args: tuple[str, ...], seconds: float, caller: str | None) -> dict:
+        if args[:2] not in replies:
+            raise orca.OrcaError(f"orca {' '.join(args[:2])}: [Errno 2] No such file or directory: 'orca'")
+        calls.append(args)
+        reply = replies[args[:2]].pop(0)
+        if isinstance(reply, orca.OrcaError):
+            raise reply
+        return reply
+
+    monkeypatch.setattr(orca, "one_call", one_call)
+    monkeypatch.setattr(orca, "time", SimpleNamespace(sleep=naps.append, monotonic=lambda: sum(naps)))
+    return calls, naps
+
+
+def test_an_orca_call_a_verb_riding_restarts_makes_while_orcas_runtime_is_down_runs_again_once_orca_status_reads_it_ready(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    created = {"terminal": {"handle": "term_opened"}}
+    calls, naps = restarting_orca(monkeypatch, {("terminal", "create"): [runtime_down("terminal create"), created], ("status",): [NOT_RUNNING, NOT_RUNNING, READY]})
+    with orca.rides_restarts():
+        assert orca.request("terminal", "create", "--title", "demo-lanes") == created
+    assert calls == [("terminal", "create", "--title", "demo-lanes"), ("status",), ("status",), ("status",), ("terminal", "create", "--title", "demo-lanes")]
+    assert naps == [orca.RUNTIME_POLL_SECONDS] * 3
+    err = capsys.readouterr().err
+    assert (err.startswith("drive: orca: "), err.count("\n")) == (True, 1)
+    assert err.endswith(f" {runtime_down('terminal create')}; it reads `orca status` every 2 s and runs `orca terminal create` again once Orca's runtime reads ready, for at most 600 s\n")
+
+
+def test_every_orca_call_of_one_verb_riding_restarts_shares_one_wait_ending_600_seconds_after_it_first_read_orca_down_then_raises_orcas_refusal(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shown = {"terminal": {"orphaned": False}}
+    polls = orca.RUNTIME_WAIT_SECONDS // orca.RUNTIME_POLL_SECONDS
+    replies = {("terminal", "show"): [runtime_down("terminal show"), shown], ("orchestration", "worker-show"): [runtime_down("orchestration worker-show")], ("status",): [READY, *[NOT_RUNNING] * (polls - 1)]}
+    calls, naps = restarting_orca(monkeypatch, replies)
+    with orca.rides_restarts():
+        assert orca.request("terminal", "show", "--terminal", "term_kept") == shown
+        with pytest.raises(orca.OrcaError) as refused:
+            orca.request("orchestration", "worker-show", "--dispatch", DISPATCH, "--full")
+    assert (str(refused.value), refused.value.code) == (str(runtime_down("orchestration worker-show")), orca.RUNTIME_DOWN)
+    assert (sum(naps), calls.count(("status",)), replies[("status",)]) == (orca.RUNTIME_WAIT_SECONDS, polls, [])
+    assert [line.rsplit(", for at most ", 1)[1] for line in capsys.readouterr().err.splitlines()] == ["600 s", "598 s"]
+
+
+@pytest.mark.parametrize(("riding", "refusal"), [(False, runtime_down("orchestration worker-show")), (True, orca.OrcaError("orca orchestration worker-show: runtime_busy: busy", "runtime_busy"))])
+def test_an_orca_refusal_raises_at_once_reading_no_status_outside_a_verb_riding_restarts_such_as_the_watchs_and_for_any_code_but_the_runtime_down(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], riding: bool, refusal: orca.OrcaError
+) -> None:
+    calls, naps = restarting_orca(monkeypatch, {("orchestration", "worker-show"): [refusal]})
+    with orca.rides_restarts() if riding else nullcontext(), pytest.raises(orca.OrcaError) as refused:
+        orca.request("orchestration", "worker-show", "--dispatch", DISPATCH, "--full")
+    assert (refused.value, calls, naps, capsys.readouterr().err) == (refusal, [("orchestration", "worker-show", "--dispatch", DISPATCH, "--full")], [], "")
+
+
+def test_a_drive_whose_kept_terminal_orca_cannot_show_while_its_runtime_is_down_raises_that_refusal_and_opens_no_second_terminal(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["terminal"] = "term_kept"
+        data["roles"]["coordinator"]["cwd"] = "/work"
+
+    def orca_request(*args: str, seconds: float = orca.CALL_SECONDS) -> dict:
+        assert args[:2] == ("terminal", "show"), f"no {args[:2]} while Orca's runtime is down"
+        raise runtime_down("terminal show")
+
+    monkeypatch.setattr(orca, "request", orca_request)
+    with pytest.raises(orca.OrcaError, match=orca.RUNTIME_DOWN):
+        REAL_DRIVE_TERMINAL(remote)
+    assert state.load(remote)["terminal"] == "term_kept"
+
+
+def test_a_launch_orca_refuses_while_launchd_restarts_it_starts_its_worker_once_orca_status_reads_the_runtime_ready_rather_than_failing_as_j4660s_did(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Researched: j0\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    calls, naps = restarting_orca(monkeypatch, {("orchestration", "run-create"): [runtime_down("orchestration run-create"), {"run": {"id": RUN}}], ("status",): [NOT_RUNNING, READY]})
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 0
+    captured = capsys.readouterr()
+    assert (captured.out, naps) == (f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}\n", [orca.RUNTIME_POLL_SECONDS] * 2)
+    assert f" {runtime_down('orchestration run-create')}; it reads `orca status` every 2 s and runs `orca orchestration run-create` again" in captured.err
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["run"], job["dispatch"], [args[:2] for args in calls]) == (RUN, DISPATCH, [("orchestration", "run-create"), ("status",), ("status",), ("orchestration", "run-create")])
 
 
 NO_RUN = "orca orchestration run-use: run_not_found: no such Run"

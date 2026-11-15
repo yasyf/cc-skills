@@ -3098,6 +3098,7 @@ def transcript_line(job_id: str, job: dict) -> str | None:
     return f"{job_id} {job['kind']}: {path}" if path else None
 
 
+@orca.rides_restarts()
 def job_launch(args: argparse.Namespace) -> int:
     """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by briefed, as drive job brief does, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
@@ -3148,6 +3149,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
     return folder
 
 
+@orca.rides_restarts()
 def job_resume(args: argparse.Namespace) -> int:
     """Send a job its next event, or with no text the texts it holds, by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. A finished pass of a standing part is refused by unrun, holding nothing."""
     name = state.resolve(args.drive)
@@ -3581,6 +3583,7 @@ def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, r
     return {**receipt, "run": run, "sprite_config": made}
 
 
+@orca.rides_restarts()
 def bound(args: argparse.Namespace) -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     try:
@@ -4010,6 +4013,7 @@ def releaded(pr: dict) -> str:
 
 
 @children.capped
+@orca.rides_restarts()
 def pr_wake(args: argparse.Namespace) -> int:
     """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view

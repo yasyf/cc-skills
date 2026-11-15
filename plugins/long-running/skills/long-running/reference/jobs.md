@@ -525,8 +525,13 @@ before it sends or starts.
   the save fails. The lane's death keeps what its wake, that start and the save came to, so a
   resume, launch or PR wake after it reads the lane from that death and wakes, starts in place and saves once per death.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
-  Orca call, so an outage delays it and never drops it. When Orca cannot tell whether the lane
-  lives, or refuses the send, the resume exits 0 saying the text is held. A lane on this Mac that
+  Orca call, so an outage delays it and never drops it. While launchd restarts Orca's app server,
+  Orca refuses every call as `runtime_unavailable`: the resume, a launch, `drive pr wake` and the
+  `drive bound` a launch's worker start runs through then say so on stderr, read `orca status`
+  every 2 s and make the refused call again once Orca's runtime reads ready, for at most 600 s
+  from the first refusal, so they carry on once Orca is back, while the watch, a hook or a read
+  takes that refusal at once. When Orca cannot tell whether the lane lives, or refuses the send,
+  the resume exits 0 saying the text is held. A lane on this Mac that
   Orca shows as its own unfinished worker in a terminal it can write to takes the text whatever
   liveness Orca reads, as after an Orca restart, and when Orca reads it not live, the send is
   followed by a line typed into that terminal telling the lane to read its orchestration mail.
