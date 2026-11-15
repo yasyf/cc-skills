@@ -417,8 +417,8 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
+def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None) -> str:
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, its report as the job's history keeps it, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
     local = here or state.on_mac(job)
     how = "finished" if end.worktree or end.live else "died"
     if end.worktree and not here:
@@ -443,18 +443,18 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, text: str | No
             )
         )
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. {where}"
-    return taking_over(brief, f"a lane that {how}", held, end.branch, job, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, f"a lane that {how}", held, end.branch, job, report, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n")
 
 
-def agent_handoff(brief: str, job: dict, text: str | None, died: str | None) -> str:
+def agent_handoff(brief: str, job: dict, report: str, text: str | None, died: str | None) -> str:
     """The brief of an agent or lane taking over a job from an Agent on this Mac that stopped, or from one of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read."""
     where = f"stopped, so it takes no message: {died}" if died else "runs where this session cannot message it"
     held = f"The agent that held this job, {job['agent']} of session {job['session']}, {where}. You take the job over from its pushed branches; {UNPUSHED}"
     holder = "an agent that stopped" if died else "an agent of another session"
-    return taking_over(brief, holder, held, None, job, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, holder, held, None, job, report, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
 
 
-def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, message: str | None) -> str:
+def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, report: str, message: str | None) -> str:
     prs = ", ".join(job["prs"]) or "none yet"
     return (
         f"{brief.strip()}\n\n"
@@ -463,7 +463,7 @@ def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dic
         f"Its branch: {branch or job['branch'] or 'none recorded'}\n"
         f"Its last line: {job['said'] or 'nothing yet'}\n"
         f"Its PRs: {prs}\n\n"
-        f"Its last report:\n\n{(job.get('report') or 'none').strip()}\n"
+        f"Its last report:\n\n{(report or 'none').strip()}\n"
         + (f"\n{message}" if message else "")
     )
 

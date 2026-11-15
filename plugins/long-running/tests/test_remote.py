@@ -2183,10 +2183,10 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
             lane,
             brief=str(first),
             said="WAITING security review of #7",
-            report="WAITING security review of #7\nPR: https://github.com/Forge-AI/monorepo/pull/7",
             prs=["https://github.com/Forge-AI/monorepo/pull/7"],
             reads={"relay_old": "READ ccn answer search x"},
         )
+    state.keep_report(remote, "j1", "WAITING security review of #7", "WAITING security review of #7\nPR: https://github.com/Forge-AI/monorepo/pull/7")
     reprepared(monkeypatch)
     monkeypatch.setattr(orca, "launch", LAUNCH)
     monkeypatch.setattr(orca, "tool", lambda name: name)
@@ -2998,7 +2998,8 @@ def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brie
     written = "\n".join(filter(None, ["Order (his words): prove it live", brief_mac, "Drive: demo, order o1, job j1"]))
     first.write_text(orca.vm_brief(remote, "j1", written, None))
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", environment="sprite-old", state="waiting", report=report)
+        data["jobs"]["j1"].update(brief=str(first), workspace="sprite-old", environment="sprite-old", state="waiting")
+    state.keep_report(remote, "j1", report.splitlines()[0], report)
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a dead worker: {args}"))
     launched = moving_launch(monkeypatch)
@@ -4530,7 +4531,7 @@ def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, mo
     ]
 
 
-def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_line(
+def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_line_and_its_answer_never_sent(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, remote)
@@ -4538,8 +4539,7 @@ def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_lin
     monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
     replies = []
-    closed = f"Dispatch {DISPATCH} finished on pool-one, which cannot take follow-ups for finished workers yet."
-    monkeypatch.setattr(orca, "call", reply_refused(replies, "dispatch_inactive", closed))
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert staged(watch.lane_lines, watching, T0) == []
     with state.edit(remote) as data:
@@ -4548,8 +4548,31 @@ def test_a_read_still_running_when_job_end_ended_its_lane_is_dropped_with_no_lin
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays done")
     watch.answer_read(remote, "j1", "relay_4d6bfb09372e")
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (5, 10, 70)] == [[], [], []]
-    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_4d6bfb09372e", "--run", RUN, "--body", "m2065")]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["reads"], job["read_answers"], [args for args in replies if args[0] == "reply"]) == ({}, {}, [])
+
+
+@pytest.mark.parametrize("ended", [True, False], ids=["its lane drive job end ended", "its job moved to another worker"])
+def test_a_read_its_jobs_live_worker_did_not_ask_never_runs_once_its_job_is_live_again_and_leaves_with_no_line(
+    ended: bool, run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    if ended:
+        with state.edit(remote) as data:
+            data["jobs"]["j1"].update(state="done", workspace="pool-one")
+        monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
+        assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays done")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", turn_open=True, waits=["https://github.com/Forge-AI/monorepo/pull/7"], **({} if ended else {"dispatch": "ctx_lane0002"}))
+    asked = message("question", 'DRIVE job report j1\n{"files": {}}', id="relay_5da19d2eca2c", payload=json.dumps({"dispatchId": DISPATCH, "taskId": "task_1"}))
+    deliver(monkeypatch, [asked])
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"ran {question}"))
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["reads"], job.get("read_answers", {}), job.get("readers", {})) == ({}, {}, {})
+    assert [args for args in replies if args[0] == "reply"] == []
 
 
 LONG_READ = 'DRIVE job replies j1\n{"files": {}}'
@@ -4843,6 +4866,23 @@ def test_a_running_lane_waiting_30_minutes_on_a_read_it_queued_leaves_its_part_w
     gap = watch.job_gap(watch.Watcher(remote, offset=state.events_end(remote)), "j1", data["jobs"]["j1"], data, "o1", "Short title", T0)
     minutes = int(asked_before.total_seconds() // 60)
     assert gap == (held and f'j1\'s lane asked "READ cci show 2065" {minutes} minutes ago and no answer reached it: {held}, each reader\'s output in the drive\'s {watch.READS_LOG}')
+
+
+@pytest.mark.parametrize(
+    ("taken", "asker"),
+    [("waiting", DISPATCH), ("built", DISPATCH), ("running", "ctx_replaced0001")],
+    ids=["a waiting job holding its wait", "a built job holding its wait", "a running job whose read another worker asked"],
+)
+def test_a_read_queued_40_minutes_ago_leaves_its_part_with_someone_unless_a_running_jobs_live_worker_asked_it(
+    taken: str, asker: str, remote: str
+) -> None:
+    state.keep_reply(remote, "j1", message("question", "READ cci show 2065", id="relay_slow", payload=json.dumps({"dispatchId": asker}), created_at=state.stamp(T0 - timedelta(minutes=40))))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(
+            state=taken, turn_open=True, branch="lane/built", waits=["https://github.com/Forge-AI/monorepo/pull/7"], updated=state.stamp(T0 - timedelta(hours=1)), reads={"relay_slow": "READ cci show 2065"}
+        )
+    data = state.load(remote)
+    assert watch.job_gap(watch.Watcher(remote, offset=state.events_end(remote)), "j1", data["jobs"]["j1"], data, "o1", "Short title", T0) is None
 
 
 def test_a_reader_the_watch_saved_no_pid_for_reads_as_running_from_the_pid_it_kept_so_only_its_final_answer_goes(
