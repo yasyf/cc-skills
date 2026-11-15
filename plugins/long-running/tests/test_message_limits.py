@@ -2864,10 +2864,10 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0822AHFY3G/{alert}")
     assert state.own_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
     assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
-    assert message_limits.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
-    assert message_limits.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None
+    assert talk.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
+    assert talk.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None
     reply = f"https://acme.slack.com/archives/C0822AHFY3G/p1794493100000200?thread_ts={alert}&cid=C0822AHFY3G"
-    assert message_limits.posted_order(state.load("demo"), {"edit": reply, "text": "The fix is live."}, None) == "o1"
+    assert talk.posted_order(state.load("demo"), {"edit": reply, "text": "The fix is live."}, None) == "o1"
 
 
 def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
@@ -2903,11 +2903,11 @@ def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_
 
 def test_a_line_names_a_time_to_come_by_the_drives_own_reader_of_typed_times_a_promise_of_the_next_line_aside() -> None:
     at = datetime.fromisoformat("2026-11-13T16:38:00-08:00")
-    assert message_limits.time_to_come("Release freeze 45ab54019c ends at 5:00 PM, and auric-stein applies plat-usw2-prod by itself.", at)
-    assert message_limits.time_to_come("The cutover runs at 9:15 AM tomorrow.", at)
-    assert not message_limits.time_to_come("The fix merged at 4:20 PM.", at)
-    assert not message_limits.time_to_come("The fix merged; next line by 5:00 PM.", at)
-    assert message_limits.time_to_come("The fix merged; next line by 5:00 PM, and the freeze ends at 5:30 PM.", at)
+    assert talk.time_to_come("Release freeze 45ab54019c ends at 5:00 PM, and auric-stein applies plat-usw2-prod by itself.", at)
+    assert talk.time_to_come("The cutover runs at 9:15 AM tomorrow.", at)
+    assert not talk.time_to_come("The fix merged at 4:20 PM.", at)
+    assert not talk.time_to_come("The fix merged; next line by 5:00 PM.", at)
+    assert talk.time_to_come("The fix merged; next line by 5:00 PM, and the freeze ends at 5:30 PM.", at)
 
 
 def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thread_goes_out(talker: str, transcript: Path) -> None:
@@ -2919,15 +2919,11 @@ def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thr
     assert say(transcript, text=update, channel_id="C0STAGING1", thread_ts="1794676871.132409") is None
 
 
-def test_the_rule_jev_weighs_a_line_held_while_he_is_away_by_names_the_drives_away_mark_and_his_words_that_the_line_waits(run: Run, talker: str, transcript: Path) -> None:
+def test_the_rule_jev_weighs_a_line_held_while_he_is_away_is_the_one_away_rule_say_holds_reports_by(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
         data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    rule = agents.ruled(posted(transcript, text="The fix merged."))["rule"]
-    assert rule.startswith("He is away when the drive marks him so, as it has for this post,")
-    assert "while he is away a line to him waits for his catch-up" in rule
-    assert '"Just do less realtime more summary / batching, with a catch up post once I\'m back"' in rule
-    assert "news that work moved, such as a fix merging, waits even when that work is his order" in rule
+    assert agents.ruled(posted(transcript, text="The fix merged."))["rule"] == state.AWAY_HOLD + "."
 
 
 def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order_or_record_marks(

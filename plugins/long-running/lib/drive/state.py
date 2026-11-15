@@ -112,6 +112,17 @@ DRIVE_TOOLING = (
     " cards and posts, cc-slack check-post, the drive's CI plumbing), this skill, its agents and role rules, how its"
     " sessions reach each other and him, and the install of a released tool"
 )
+WAITS_ON_HIM = "WAITING-ON-HIM"
+AWAY_HOLD = (
+    "He is away from the moment the owner row's away holds: when he says he is going to sleep or stepping out, else an hour"
+    " after his last word or tap. While he is away a line to him in his DM goes out only as a card, a PR card, the watch's"
+    " reply under a card holding built work, an edit of a post already out, his catch-up, an answer passing asked, a line"
+    f" carrying {WAITS_ON_HIM}, an incident's line, a line marked customer_outage=true, or a line naming a clock time still to"
+    " come, which a promise of the next line is not. say holds every other report for his catch-up, news that work moved or"
+    " that the drive failed him included; a report owing a line promised by a time waits for his return instead, and a"
+    ' handler\'s line carrying no report is refused, by his words "Just do less realtime more summary / batching, with a catch'
+    " up post once I'm back\""
+)
 ABOUT_DRIVE = "drive"
 ABOUT_HIS_WORK = "his work"
 ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)

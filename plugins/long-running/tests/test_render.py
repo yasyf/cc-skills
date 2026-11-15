@@ -3,7 +3,7 @@ from pathlib import Path
 
 import re
 
-from drive import cli, render, state, tools
+from drive import cli, mcp, render, state, tools
 
 HOOK_CHARS = 10_000
 
@@ -171,6 +171,17 @@ def test_every_agent_opens_on_the_skills_one_rule_that_his_words_newest_first_ou
 def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
     pages = [cli.PAGES / "communicator.md", cli.PAGES / "meta.md", cli.PAGES / "concepts.md", cli.PAGES.parents[2] / "agents" / "handler.md"]
     assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []
+
+
+def test_say_the_handler_and_the_meta_rules_each_read_the_one_away_rule() -> None:
+    rule = f"{state.AWAY_HOLD}."
+    surfaces = {
+        "say": mcp.SAY["description"],
+        "meta": " ".join(render.META_RULES),
+        "handler.md": (cli.PAGES.parents[2] / "agents" / "handler.md").read_text(),
+        "messages.md": (cli.PAGES / "messages.md").read_text(),
+    }
+    assert [surface for surface, text in surfaces.items() if rule not in " ".join(text.split())] == []
 
 
 def live_sized() -> dict:
