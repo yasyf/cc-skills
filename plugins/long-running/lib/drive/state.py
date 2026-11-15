@@ -157,6 +157,7 @@ PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 SLOT_WAIT = "builder-slot"
 HOLDS_NOW = "## Holds now"
 REPLY_WAIT = re.compile(r"reply:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)")
+NOT_STARTED = "not started"
 PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 STAGING_LINE = re.compile(r"^[*_`]*STAGING[*_`]*:?[*_`]*[ \t]+(?P<staging>\S.*?)[ \t]*$", re.MULTILINE)
 STAGED = re.compile(r"#(?P<number>\d+)[ \t]+(?P<cases>\S.*)")
@@ -209,6 +210,7 @@ ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
 READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()[:12]
+UNSTARTED_WAITING = ".unstarted-jobs-waiting"
 CARDS_NOTED = "card_answers_noted"
 PR_JOB_INDEX: ContextVar[tuple[dict, dict[str, list[str]]] | None] = ContextVar("pr_job_index", default=None)
 BATCHED: dict[str, bytes] = {}
@@ -1125,12 +1127,12 @@ def own_staging_proofs(name: str, data: dict) -> None:
 
 
 def unwait_change_builders(data: dict) -> None:
-    """Drop his cards from the waits of each builder change_builders added that no agent or lane took, which an older install filled with every open card on its design, since a wait now says only when a job starts and each card holds its PR by part_cards; one left waiting on nothing runs, its agent to start now; marked so this runs once."""
+    """Drop his cards from the waits of each builder change_builders added that no agent or lane took, which an older install filled with every open card on its design, since a wait now says only when a job starts and each card holds its PR by part_cards; one whose line is still the waits line that install gave it reads not started, so the watch's ORPHAN line starts its agent once nothing holds it; marked so this runs once."""
     for job in data["jobs"].values():
         if job["kind"] == "builder" and untaken(job) and CHANGE_BUILDER_GOAL.match(job["goal"]):
-            rewait(job, [wait for wait in job["waits"] if not card_wait(data, wait)])
-            if job["state"] == "waiting" and not job["waits"]:
-                job["state"] = "running"
+            if job["said"] in (None, f"waits on {', '.join(job['waits'])}"):
+                job.update(state="waiting", said=NOT_STARTED)
+            job["waits"] = [wait for wait in job["waits"] if not card_wait(data, wait)]
     data["change_builders_unwaited"] = True
 
 
@@ -1398,6 +1400,17 @@ def migrate(name: str) -> None:
             rebuild_asks(name, data)
         if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
             label_approvals(name, data["roles"]["coordinator"]["cwd"])
+        if not (drive_dir(name) / UNSTARTED_WAITING).exists():
+            wait_unstarted(name, data)
+
+
+def wait_unstarted(name: str, data: dict) -> None:
+    """Record each job an older install recorded running, or waiting under its waits line, though no worker or codex-ask run ever started it, as drive job add records one now, waiting and said not started, so none reads at work while nobody works it and the watch's ORPHAN names it; marked so this runs once."""
+    if stale := [job_id for job_id, job in data["jobs"].items() if untaken(job) and not (job["worker_started"] or job.get("codex_run")) and (job["said"] or "waits on ").startswith("waits on ")]:
+        with edit(name) as data:
+            for job_id in stale:
+                data["jobs"][job_id].update(state="waiting", said=NOT_STARTED)
+    (drive_dir(name) / UNSTARTED_WAITING).touch()
 
 
 def label_approvals(name: str, cwd: str) -> None:
@@ -1524,10 +1537,11 @@ def resumed(job: dict) -> str | None:
 
 
 def start(job: dict) -> None:
-    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
+    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started: the one call that runs a job drive job add recorded not started, as each worker records itself, so no job reads running before one did. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
     if job.get("ask"):
         hold_text(job, job["said"], None, job["ask_at"])
-    job.update(state="running", ask=None, waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
+    said = None if job["said"] == NOT_STARTED else job["said"]
+    job.update(state="running", said=said, ask=None, waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
 
 
 def started_after(job: dict, moment: str) -> bool:
@@ -1543,12 +1557,6 @@ def owed_handoffs(data: dict, group: list[str]) -> list[dict]:
         for handoff in data["orders"][order_id]["handoffs"]
         if not any(started_after(data["jobs"][job_id], handoff["at"]) for job_id in data["orders"][order_id]["jobs"])
     ]
-
-
-def hold_unstarted(job: dict) -> None:
-    """A job no agent or lane has started waits, rather than runs, while anything it waits on holds it, so the watch reads it waiting, never as not started, and says FREE once the last wait ends."""
-    if job["state"] == "running" and job["waits"] and not job.get("agent") and not job.get("dispatch"):
-        job.update(state="waiting", said=waits_line(job["waits"]))
 
 
 def hold_text(job: dict, text: str, sender: str | None, at: str | None = None) -> None:
@@ -1599,6 +1607,11 @@ def parts_goal(parts: list[str]) -> str:
 def untaken(job: dict) -> bool:
     """Whether no agent or lane took a live job and it opened no PR, so the brief it starts on can still change."""
     return job["state"] in ("running", "waiting") and not (job["agent"] or job.get("dispatch") or job["prs"])
+
+
+def unstarted(job: dict) -> bool:
+    """Whether an untaken job is still the one drive job add recorded, waiting, not started, which only state.start runs once a worker records itself."""
+    return job["said"] == NOT_STARTED and untaken(job)
 
 
 def builds_nothing(job: dict) -> bool:
@@ -2081,7 +2094,7 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         if all(untaken(job) for _, job in part_jobs(data, order_id, part)):
             drop_part(data, order_id, part, f"{job_id} says {key} needs no staging test: {why}")
-            rewait(pr, [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"])
+            pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
 
 
 def markable(data: dict, key: str, head: str) -> bool:
@@ -2147,11 +2160,10 @@ def change_builders(data: dict, design_id: str, source_id: str, changes: list[tu
             continue
         builder_id = next_id(data["jobs"], "j")
         change = "; ".join(uncarried)
-        builder = data["jobs"][builder_id] = new_job(order_id, "builder", f"build {design_id}'s change: {change}", uncarried, created) | {
+        data["jobs"][builder_id] = new_job(order_id, "builder", f"build {design_id}'s change: {change}", uncarried, created) | {
             "waits": waits,
             "brief_flags": {"plan": f'{design_id}\'s {"design" if data["jobs"][design_id]["kind"] == "design" else "return"}, change "{change}": drive job report {design_id}'},
         }
-        hold_unstarted(builder)
         data["orders"][order_id]["jobs"].append(builder_id)
         added.append(builder_id)
         for question in held:
@@ -2892,8 +2904,8 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "undelivered": [],
         "queued": [],
         "given": [],
-        "state": "running",
-        "said": None,
+        "state": "waiting",
+        "said": NOT_STARTED,
         "due": None,
         "created": created,
         "updated": created,
@@ -3149,7 +3161,7 @@ def pointed(name: str, data: dict) -> None:
 def clone(name: str, folder: Path) -> None:
     """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction, with the mark of each once-only pass `migrate` already made on it, so a load or migrate of the copy reads it as one of the drive would."""
     (folder / name).mkdir(parents=True)
-    for mark in (APPROVALS_LABELLED, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
+    for mark in (APPROVALS_LABELLED, UNSTARTED_WAITING, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
         if (drive_dir(name) / mark).exists():
             (folder / name / mark).parent.mkdir(exist_ok=True)
             (folder / name / mark).touch()
@@ -4206,26 +4218,15 @@ def take_pr(data: dict, job_id: str, key: str) -> None:
 
 
 def wait_on_change(data: dict, job_id: str, key: str) -> None:
-    """Each unfinished job waiting on the change job_id builds waits on its PR, key, in that wait's place, so it is free once that PR merges, and the waits line an unstarted job was given names the PR."""
+    """Each unfinished job waiting on the change job_id builds waits on its PR, key, in that wait's place, so it is free once that PR merges."""
     for waiting in data["jobs"].values():
         if job_id in waiting["waits"] and waiting["state"] not in FINISHED_JOB_STATES:
-            rewait(waiting, list(dict.fromkeys(key if wait == job_id else wait for wait in waiting["waits"])))
-
-
-def rewait(owner: dict, waits: list[str]) -> None:
-    """Give a job or PR its waits, and a job whose line is still the waits line hold_unstarted gave it that line for the waits left, or none once nothing holds it, so its line never names a wait that ended."""
-    if owner.get("said") == waits_line(owner["waits"]):
-        owner["said"] = waits_line(waits) if waits else None
-    owner["waits"] = waits
-
-
-def waits_line(waits: list[str]) -> str:
-    return f"waits on {', '.join(waits)}"
+            waiting["waits"] = list(dict.fromkeys(key if wait == job_id else wait for wait in waiting["waits"]))
 
 
 def job_news(job_state: str, waits: list[str], cards: list[str], said: str | None) -> list:
-    """What a line tells him of a job that is not running: its state, whether anything holds it, the cards of his its open questions are drawn on and its returned line, never which waits hold it nor the waits line hold_unstarted and rewait give it, which move as one wait of several ends, such as a release going out, while the job still only waits."""
-    return [job_state, bool(waits), cards, None if said == waits_line(waits) else said]
+    """What a line tells him of a job that is not running: its state, whether anything holds it, the cards of his its open questions are drawn on and its returned line, never which waits hold it, which move as one wait of several ends, such as a release going out, while the job still only waits."""
+    return [job_state, bool(waits), cards, said]
 
 
 def merges_untapped(key: str) -> bool:
@@ -4354,7 +4355,7 @@ def drop_pr(data: dict, key: str) -> None:
     """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, its place in each stack a card drew and each check judged beside it, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
     url = data["prs"].pop(key)["url"]
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
-        rewait(owner, [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)])
+        owner["waits"] = [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)]
     for job in data["jobs"].values():
         job["prs"] = [held for held in job["prs"] if held != url]
     for pr in data["prs"].values():

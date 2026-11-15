@@ -81,7 +81,7 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
         return f"its turn to {move} came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None
     if job.get("where") != "remote" and not job["agent"] and watch.launching(job, moment):
         return f"its agent launching since {when(job['launching'], seconds=True)}"
-    if job["state"] == "waiting":
+    if job["state"] == "waiting" and not watch.launching(job, moment):
         return "freed to start here, its agent not started yet" if job.get("slot") and not job["waits"] and not job["agent"] and job.get("where") != "remote" else None
     if job.get("where") != "remote":
         if not job["agent"] or watch.local_gap(job_id, job, data, moment) is not None:

@@ -477,26 +477,24 @@ def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_
     assert data["jobs"]["j1"]["said"] == f"DONE {state.pr_url(KEY)} merged: {KEY} at ddd444"
 
 
-def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_frees_it_once_that_pr_merges_and_its_line_names_the_wait_no_more(
-    demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_frees_it_once_that_pr_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     built = "Forge-AI/monorepo#43"
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="build the store")
-        data["jobs"]["j3"] = job(goal="build on the store")
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0))
     assert cli.main(["job", "set", "j3", "--waits", "j2", "--drive", demo]) == 0
-    assert (state.load(demo)["jobs"]["j3"]["state"], state.load(demo)["jobs"]["j3"]["said"]) == ("waiting", "waits on j2")
+    assert (state.load(demo)["jobs"]["j3"]["state"], state.load(demo)["jobs"]["j3"]["said"]) == ("waiting", state.NOT_STARTED)
     watching = watcher(demo)
     assert not [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")]
     assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
     assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
     jobs = state.load(demo)["jobs"]
-    assert (jobs["j3"]["waits"], jobs["j3"]["said"], jobs["j1"]["waits"]) == ([built], f"waits on {built}", [])
+    assert (jobs["j3"]["waits"], jobs["j1"]["waits"]) == ([built], [])
     serve(monkeypatch, {built: read(state="MERGED", mergeCommit="ccc333")})
     said = watch.run_pass(watching, T0 + timedelta(seconds=61)) + watch.run_pass(watching, T0 + timedelta(seconds=122))
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {built} answered or done, nothing else holds it"]
-    assert (state.load(demo)["jobs"]["j3"]["waits"], state.load(demo)["jobs"]["j3"]["said"]) == ([], None)
+    assert state.load(demo)["jobs"]["j3"]["waits"] == []
 
 
 def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_then_its_next_pr_while_its_own_pr_closing_frees_it(
@@ -506,7 +504,7 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_the
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="build the store", state="built", branch="blobstore-refcounts")
-        data["jobs"]["j3"] = job(goal="build on the store")
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0))
     assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
     assert cli.main(["job", "set", "j3", "--waits", "j2", "--drive", demo]) == 0
     with state.edit(demo) as data:
@@ -517,9 +515,9 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_the
     said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j2 o1: {closed} answered or done, nothing else holds it, built on blobstore-refcounts"]
     jobs = state.load(demo)["jobs"]
-    assert (jobs["j2"]["waits"], jobs["j3"]["waits"], jobs["j3"]["said"]) == ([], ["j2"], "waits on j2")
+    assert (jobs["j2"]["waits"], jobs["j3"]["waits"]) == ([], ["j2"])
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    assert (state.load(demo)["jobs"]["j3"]["waits"], state.load(demo)["jobs"]["j3"]["said"]) == ([rebuilt], f"waits on {rebuilt}")
+    assert state.load(demo)["jobs"]["j3"]["waits"] == [rebuilt]
     serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
     said = watch.run_pass(watching, T0 + timedelta(seconds=122)) + watch.run_pass(watching, T0 + timedelta(seconds=183))
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
@@ -535,14 +533,14 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
     assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
     with state.edit(demo) as data:
         data["jobs"]["j2"]["waits"] = [release_wait]
-        data["jobs"]["j3"].update(state="waiting", said=f"waits on {release_wait}", waits=[release_wait])
+        data["jobs"]["j3"].update(state="waiting", waits=[release_wait])
         data["prs"][KEY]["waits"] = [release_wait]
     serve(monkeypatch, {closed: read(state="CLOSED")})
     watching = watcher(demo)
     said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j2 o1: {release_wait} answered or done, nothing else holds it, built on blobstore-refcounts"]
     data = state.load(demo)
-    assert (data["jobs"]["j2"]["waits"], data["jobs"]["j3"]["waits"], data["jobs"]["j3"]["said"], data["prs"][KEY]["waits"]) == ([], ["j2"], "waits on j2", ["j2"])
+    assert (data["jobs"]["j2"]["waits"], data["jobs"]["j3"]["waits"], data["prs"][KEY]["waits"]) == ([], ["j2"], ["j2"])
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
     assert state.load(demo)["jobs"]["j3"]["waits"] == [rebuilt]
     serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
@@ -1627,7 +1625,7 @@ def asked_teammate(demo: str, monkeypatch: pytest.MonkeyPatch, top: list[dict]) 
     histories: list[tuple[str, ...]] = []
     monkeypatch.setattr(watch.slack, "cc_slack", lambda *argv: histories.append(argv) or {"messages": list(top)})
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state="waiting", said=f"waits on reply:{ASKED_TEAMMATE}", waits=[f"reply:{ASKED_TEAMMATE}"])
+        data["jobs"]["j1"].update(state="waiting", waits=[f"reply:{ASKED_TEAMMATE}"])
     return histories
 
 
@@ -2009,15 +2007,14 @@ def test_a_release_ending_one_of_two_waits_of_a_waiting_job_owes_its_thread_no_l
     watching = watcher(demo)
     hour = T0 + timedelta(hours=1)
     with state.edit(demo) as data:
-        state.rewait(data["jobs"]["j1"], [f"release:api:{KEY}", f"release:eks:{KEY}"])
-        data["jobs"]["j1"].update(state="waiting", said=state.waits_line(data["jobs"]["j1"]["waits"]))
+        data["jobs"]["j1"].update(state="waiting", said="WAITING on the api and eks releases", waits=[f"release:api:{KEY}", f"release:eks:{KEY}"])
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
     with state.edit(demo) as data:
-        state.rewait(data["jobs"]["j1"], [f"release:eks:{KEY}"])
+        data["jobs"]["j1"]["waits"] = [f"release:eks:{KEY}"]
     assert watch.quiet_lines(watching, hour) == []
     assert calls == []
     with state.edit(demo) as data:
-        state.rewait(data["jobs"]["j1"], [])
+        data["jobs"]["j1"]["waits"] = []
     assert watch.quiet_lines(watching, hour + timedelta(seconds=5)) == []
     [(_, body), _] = calls
     assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
@@ -2786,7 +2783,7 @@ def test_a_standing_part_its_running_pass_holds_starts_none_and_once_that_pass_e
     assert "Where: this Mac and one EC2 devbox\n" in brief_text
     assert f"Handoff: The watch started this pass of o2's standing part \"codex test box\" once its last pass, j2, ended stopped. Its return, verbatim:\n> {said}\n" in brief_text
     assert render.standings(data, "o2", data["orders"]["o2"]) == [
-        f'  STANDING "codex test box": standing on "{render.cut(BOX_GOAL, 80)}", its live pass codex j3 running, its last pass codex j2 stopped: "{render.cut(said, 80)}"'
+        f'  STANDING "codex test box": standing on "{render.cut(BOX_GOAL, 80)}", its live pass codex j3 waiting, its last pass codex j2 stopped: "{render.cut(said, 80)}"'
     ]
     assert (staged(watch.standing_lines, watching, T0 + timedelta(hours=2)), detached) == ([], [["job", "launch", "j3"]])
 
@@ -3195,20 +3192,33 @@ def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str,
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
-def test_a_local_job_added_with_no_agent_is_an_orphan_a_minute_on_though_its_part_was_said_since_its_last_tick(
+def test_a_job_drive_job_add_recorded_is_not_started_until_its_worker_records_itself_and_an_orphan_a_minute_on_by_the_clock_however_long_the_pass_though_its_part_was_said_since_its_last_tick(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
-    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    clock = [T0]
+    monkeypatch.setattr(state, "now", lambda: clock[0])
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="failed", updated=state.stamp(T0 - timedelta(minutes=20)))
         data["orders"]["o1"]["parts"]["ship the watch"]["orphan_said"] = state.stamp(T0 - timedelta(minutes=10))
         data["orders"]["o1"]["jobs"].append("j2")
-        data["jobs"]["j2"] = job(session="session-under-test", parts=["ship the watch"])
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "watch", ["ship the watch"], state.stamp(T0)) | {"brief": "/briefs/j2.md"}
+    added = state.load(demo)
+    assert (added["jobs"]["j2"]["state"], render.job_line(added, "j2", added["jobs"]["j2"]), view.feature_state(added["orders"]["o1"], [added["jobs"]["j2"]], [])) == (
+        "waiting",
+        "j2 builder not started: watch",
+        "not started",
+    )
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o1 "ship the watch": j2 has no agent recorded']
+    clock[0] = T0 + timedelta(minutes=1)
+    assert watch.run_pass(watching, T0) == ['ORPHAN o1 "ship the watch": j2 not started 1 minutes after drive job add; Read your brief first: /briefs/j2.md']
+    clock[0] = T0 + timedelta(minutes=2)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+    with state.edit(demo) as data:
+        state.start(data["jobs"]["j2"])
+    started = state.load(demo)["jobs"]["j2"]
+    assert (started["state"], started["said"]) == ("running", None)
 
 
 def test_a_reader_an_older_install_started_on_a_prs_head_holds_no_part_and_is_never_an_answer_owed_him(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5194,17 +5204,15 @@ def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_tha
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "build his pick on the card", [], state.stamp(T0)) | {"waits": ["demo:j1-7-a"]}
-        state.hold_unstarted(data["jobs"]["j2"])
         data["jobs"]["j3"] = job(kind="reader", goal="research: the audit his later words asked for", agent="a1")
         data["jobs"]["j4"] = job(kind="design", goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
         data["jobs"]["j5"] = job(kind="reader", goal="research: done", state="done")
-    assert (state.load(demo)["jobs"]["j2"]["state"], state.load(demo)["jobs"]["j2"]["said"]) == ("waiting", "waits on demo:j1-7-a")
     assert cli.main(["job", "set", "j2", "--waits", "j3", "--drive", demo]) == 0
     added = state.load(demo)["jobs"]["j2"]
-    assert (added["waits"], added["said"]) == (["demo:j1-7-a", "j3"], "waits on demo:j1-7-a, j3")
+    assert (added["waits"], added["said"]) == (["demo:j1-7-a", "j3"], state.NOT_STARTED)
     assert cli.main(["job", "set", "j2", "--no-waits", "--waits", "j3", "--drive", demo]) == 0
     moved = state.load(demo)["jobs"]["j2"]
-    assert (moved["state"], moved["waits"], moved["said"]) == ("waiting", ["j3"], "waits on j3")
+    assert (moved["state"], moved["waits"], moved["said"]) == ("waiting", ["j3"], state.NOT_STARTED)
     assert cli.main(["job", "set", "j2", "--waits", "j4", "--drive", demo]) == 0
     assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4"]
     assert cli.main(["job", "set", "j2", "--waits", "j5", "--drive", demo]) == 2
@@ -8131,7 +8139,7 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     builder = data["jobs"]["j2"]
     assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["builds_nothing"], "j2" in data["orders"]["o1"]["jobs"]) == (
         "builder",
-        "running",
+        "waiting",
         [],
         data["jobs"]["j1"]["parts"],
         True,
@@ -8206,7 +8214,7 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     merged_ready(demo, OTHER, None)
     watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"], state.delivered(data, "o1", "ship the watch")) == ("done", "running", False)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"], state.delivered(data, "o1", "ship the watch")) == ("done", "waiting", False)
     with state.edit(demo) as data:
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} live on the api release")
     assert not state.delivered(state.load(demo), "o1", "ship the watch")
@@ -8238,7 +8246,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_has_its_merged_diff_che
     assert said == [f'JOB j2 o1 added, proves {KEY}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {builder["brief"]}"']
     assert watch.wakes(said[0], data, NO_CARDS)
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
-    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "running", [], ["ship the watch"], {"o2": [carried]})
+    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "waiting", [], ["ship the watch"], {"o2": [carried]})
     assert f"Handoff: {merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part" in Path(builder["brief"]).read_text()
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith("JOB ")]
     assert (list(state.load(demo)["jobs"]), asked, provers) == (["j1", "j2"], [[], [KEY]], [])
@@ -8374,9 +8382,7 @@ def test_an_old_merge_whose_prover_failed_or_stopped_gets_no_second_and_its_part
 def unstarted_prover(keys: list[str], parts: list[str], waits: list[str], handoff: str, **overrides: object) -> dict:
     earlier = state.stamp(T0 - timedelta(days=2))
     return state.new_job("o1", "builder", f"prove {', '.join(keys)} live", parts, earlier) | {
-        "state": "waiting",
         "waits": waits,
-        "said": state.waits_line(waits),
         "builds_nothing": True,
         "brief_flags": {"handoff": handoff},
         "session": None,
@@ -8520,7 +8526,7 @@ def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder
     merged_ready(demo, OTHER, proof_file(tmp_path))
     said = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("JOB ")]
     data = state.load(demo)
-    assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("running", [])
+    assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("waiting", [])
     assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"']
     assert provers == []
 

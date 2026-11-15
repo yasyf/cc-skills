@@ -58,6 +58,7 @@ def sample() -> dict:
             "goal": "rewrite long-running",
             "agent": "agent-7",
             "session": "s1",
+            "where": "local",
             "repo": "yasyf/cc-skills",
             "branch": "lr-rewrite",
             "worktree": None,

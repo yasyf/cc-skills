@@ -1466,7 +1466,7 @@ def test_a_question_to_a_teammate_for_a_job_keeps_that_job_waiting_on_their_repl
     question = {"text": "Can we run the migration tonight?", "channel_id": "U0REPORTER", "job": "j1"}
     assert talk.say(demo, question | TICKET).startswith(f"POSTED {POSTED}; j1 waits on the reply to it")
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["waits"], job["state"], job["said"]) == ([f"reply:{POSTED}"], "waiting", f"waits on reply:{POSTED}")
+    assert (job["waits"], job["state"], job["said"]) == ([f"reply:{POSTED}"], "waiting", state.NOT_STARTED)
     assert posts[0][:5] == ("send", "--agent", "claude", "--channel", "U0REPORTER")
 
 

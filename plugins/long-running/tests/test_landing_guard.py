@@ -176,6 +176,7 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     with state.edit("demo") as data:
         data["orders"]["o2"] = state.new_order("test #42 on staging", "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j2"]}
         data["jobs"]["j2"] = state.new_job("o2", "builder", "soak #42 on staging", [part], state.stamp()) | {"builds_nothing": True}
+        state.start(data["jobs"]["j2"])
         data["prs"][drive_pr]["lander"] = {"head": data["prs"][drive_pr]["head"], "pid": os.getpid(), "at": state.stamp(), "outcome": None, "was": None}
     runs = f"o2:{part}"
     enqueue = bash("stack-enqueue 42", session_id="sprite" if lane else SESSION)

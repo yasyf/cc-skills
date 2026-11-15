@@ -263,6 +263,30 @@ def test_migrate_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout
     assert backfilled == ["/work"]
 
 
+def test_migrate_records_each_job_an_older_install_left_running_or_waiting_with_no_worker_ever_started_as_not_started_once(state_root: Path) -> None:
+    make("demo")
+    with state.edit("demo") as data:
+        data["jobs"] |= {job_id: state.new_job("o1", "builder", "ship it", [], state.stamp()) for job_id in ("j1", "j2", "j3", "j4", "j5")}
+        data["jobs"]["j1"].update(state="running", said=None)
+        data["jobs"]["j2"].update(state="waiting", said="waits on j1", waits=["j1"])
+        data["jobs"]["j3"].update(state="running", said=None, codex_run="/runs/j3")
+        data["jobs"]["j4"].update(state="running", said=None, agent="a4")
+        data["jobs"]["j5"].update(state="waiting", said="which store holds the blobs?")
+    state.migrate("demo")
+    jobs = state.load("demo")["jobs"]
+    assert [(jobs[job_id]["state"], jobs[job_id]["said"]) for job_id in jobs] == [
+        ("waiting", state.NOT_STARTED),
+        ("waiting", state.NOT_STARTED),
+        ("running", None),
+        ("running", None),
+        ("waiting", "which store holds the blobs?"),
+    ]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="running", said=None)
+    state.migrate("demo")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
 def test_migrations_run_at_once_take_turns_so_only_the_first_makes_the_change(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()
@@ -442,17 +466,17 @@ def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_wait
     data["jobs"] = {
         "j1": state.new_job("o1", "design", "cards: the copy", [], moment) | {"state": "done"},
         "j2": state.new_job("o1", "builder", "build j1's change: the interface", ["the interface"], moment) | {"state": "waiting", "waits": [*cards, "j3"], "said": "waits on them"},
-        "j3": state.new_job("o1", "builder", "build j1's change: the reads", ["the reads"], moment) | {"state": "waiting", "waits": cards, "said": state.waits_line(cards)},
-        "j4": state.new_job("o1", "builder", "build j1's change: the writes", ["the writes"], moment) | {"state": "built", "waits": cards, "agent": "a4"},
+        "j3": state.new_job("o1", "builder", "build j1's change: the reads", ["the reads"], moment) | {"state": "waiting", "waits": cards, "said": f"waits on {', '.join(cards)}"},
+        "j4": state.new_job("o1", "builder", "build j1's change: the writes", ["the writes"], moment) | {"state": "built", "waits": cards, "agent": "a4", "said": None},
         "j5": state.new_job("o1", "builder", "build the writes", ["the writes"], moment) | {"state": "waiting", "waits": cards},
     }
     state.create(data)
     drive = state.load("demo")
     assert {job_id: (job["state"], job["waits"], job["said"]) for job_id, job in drive["jobs"].items() if job_id != "j1"} == {
         "j2": ("waiting", ["j3"], "waits on them"),
-        "j3": ("running", [], None),
+        "j3": ("waiting", [], state.NOT_STARTED),
         "j4": ("built", cards, None),
-        "j5": ("waiting", cards, None),
+        "j5": ("waiting", cards, state.NOT_STARTED),
     }
     assert drive["change_builders_unwaited"] is True
 
@@ -1551,7 +1575,7 @@ WAITS = ["release:api:Forge-AI/monorepo#42", "release:eks:Forge-AI/monorepo#42"]
 def test_the_news_an_older_install_kept_with_each_jobs_waits_loads_as_the_facts_the_watch_compares_now(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
-    news = {"j1": ["done", [], [], "DONE it"], "j2": ["waiting", WAITS, [], state.waits_line(WAITS)], "j3": ["waiting", WAITS, [], "WAITING on the api release"]}
+    news = {"j1": ["done", [], [], "DONE it"], "j2": ["waiting", WAITS, [], None], "j3": ["waiting", WAITS, [], "WAITING on the api release"]}
     quiet = {"record": None, "at": None, "handler": None, "heard": None, "news": news}
     order = state.new_order("fix it", "terminal", None, {"fix it": state.new_part()}, state.stamp())
     data["orders"] = {"o1": order | {"jobs": ["j1", "j2", "j3"], "quiet": quiet}}
@@ -1667,9 +1691,9 @@ def test_j4060_a_drive_saved_with_failed_builders_another_builder_took_over_stop
     data["jobs"] = {
         "j1": state.new_job("o1", "builder", "fix it", [fix], moment) | {"state": "failed", "carries": {"o2": ["thread it"]}, "prs": [state.pr_url(key)]},
         "j2": state.new_job("o1", "builder", "fix it again", [fix], moment) | {"state": "failed"},
-        "j3": state.new_job("o1", "builder", "fix and post it", [fix, post], moment) | {"state": "failed"},
-        "j4": state.new_job("o1", "builder", "fix it a third way", [fix], moment) | {"state": "waiting"},
-        "j5": state.new_job("o1", "builder", "called off", [fix, post], moment) | {"state": "stopped"},
+        "j3": state.new_job("o1", "builder", "fix and post it", [fix, post], moment) | {"state": "failed", "said": None},
+        "j4": state.new_job("o1", "builder", "fix it a third way", [fix], moment) | {"state": "waiting", "said": None},
+        "j5": state.new_job("o1", "builder", "called off", [fix, post], moment) | {"state": "stopped", "said": None},
     }
     data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1")}
     state.create(data)
@@ -1756,7 +1780,7 @@ def test_j4060_a_builder_failing_after_the_builder_replacing_it_was_added_stops_
     with state.edit("demo") as data:
         state.take_result(data, "j1", "BLOCKED repro/j1.py exits 1")
     jobs = state.load("demo")["jobs"]
-    assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {"j1": ("stopped", "replaced by j2"), "j2": ("running", None)}
+    assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {"j1": ("stopped", "replaced by j2"), "j2": ("waiting", state.NOT_STARTED)}
 
 
 def test_j5802_a_failed_builder_stays_failed_beside_a_later_builder_that_already_ended(state_root: Path) -> None:

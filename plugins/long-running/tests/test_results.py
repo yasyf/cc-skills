@@ -11,7 +11,7 @@ import no_file_tools
 import one_line_result
 import pytest
 import quiet_turn
-from conftest import LEAD, RESEARCH, CodexAsk, codex_reply
+from conftest import LEAD, RESEARCH, CodexAsk, codex_reply, started
 from drive import brief, cli, codex, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -240,7 +240,7 @@ def test_a_standing_parts_pass_that_ended_is_never_started_again_by_hand_and_its
     assert cli.main(["job", verb[0], "j1", *verb[1:]]) == 2
     err = capsys.readouterr().err
     assert f'j1: refused, nothing written, held, sent or started: it ended {ended} as a pass of o1\'s standing part "{part}": standing on "{goal}", ' in err
-    assert ("its live pass codex j2 running" if live else "no pass at work, the watch starts the next at ") in err
+    assert ("its live pass codex j2 waiting" if live else "no pass at work, the watch starts the next at ") in err
     assert "; the watch alone starts each pass of a standing part, carrying the texts and answers the last pass holds" in err
     held = state.load(demo)["jobs"]["j1"]
     assert (held["state"], held.get("codex_run"), held["undelivered"]) == (ended, None, [])
@@ -401,6 +401,7 @@ def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_re
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the handover", "--kind", "build")
     with state.edit(demo) as data:
         data["jobs"]["j2"]["codex_run"] = str(codex_ask.run("completed", codex_reply("DONE", "the handover delays the mint", report)))
+        state.start(data["jobs"]["j2"])
     job = watched(demo, "j2")
     assert (job["state"], state.load(demo)["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, f"DONE the handover delays the mint\n{report}".strip())
     if taken == "failed":
@@ -409,6 +410,7 @@ def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_re
 
 def test_a_reply_file_pointer_reported_on_a_codex_job_sets_no_state(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     codex_job(run)
+    started(demo, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO("REPLY_FILE: /runs/codex-ask.1/codex-r-1\nCodex answered.\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "j1: refused, nothing kept: " in capsys.readouterr().err
@@ -432,6 +434,7 @@ def test_a_codex_done_on_a_surface_its_brief_names_user_stories_on_is_refused_wh
             "repro": str(proof),
             "codex_run": str(codex_ask.run("completed", reply)),
         }
+        state.start(data["jobs"]["j1"])
     job = watched(demo)
     assert job["state"] == "failed"
     assert job["said"] == (

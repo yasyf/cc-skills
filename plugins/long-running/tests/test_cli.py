@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -918,8 +918,8 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
     data = state.load("demo")
     assert data["orders"]["o4"]["jobs"] == ["j6", "j7"]
     assert [(job["kind"], job["parts"], job["agent"], job["state"]) for job in (data["jobs"]["j6"], data["jobs"]["j7"])] == [
-        ("codex", ["fix"], None, "running"),
-        ("codex", ["first check"], None, "running"),
+        ("codex", ["fix"], None, "waiting"),
+        ("codex", ["first check"], None, "waiting"),
     ]
     assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why is the dashboard slow?") == (0, "o5")
 
@@ -1280,7 +1280,7 @@ def test_no_stop_ends_the_last_running_job_on_an_open_incidents_fix(
     run("incident", "open", "SandSQL mint endpoint failing", "--release", *FILED)
     assert cli.main(["job", "set", "j1", "--state", "stopped"]) == 2
     assert "j1 is the last running job on incident o1's fix, and nothing stops an open incident's fix" in capsys.readouterr().err
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
     assert run("job", "set", "j2", "--state", "stopped")[0] == 0
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "release the default branch")
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
@@ -1472,7 +1472,7 @@ def test_job_add_links_the_order(run: Run, demo: str) -> None:
     assert (code, out) == (0, "j1")
     assert data["orders"]["o1"]["jobs"] == ["j1"]
     assert data["jobs"]["j1"]["kind"] == "builder"
-    assert data["jobs"]["j1"]["state"] == "running"
+    assert data["jobs"]["j1"]["state"] == "waiting"
     assert data["jobs"]["j1"]["repo"] == "yasyf/cc-skills"
 
 
@@ -1723,6 +1723,7 @@ def test_job_set_repro_refuses_a_builders_executable_file_the_kernel_cannot_exec
 def asking(run: Run, demo: str) -> str:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    started(demo, "j1")
     return "j1"
 
 
@@ -3495,6 +3496,8 @@ def test_a_tooling_question_jev_reads_as_only_a_detail_is_kept_decided_on_its_re
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
     run("job", "add", "builder", "--order", "o2", "--goal", "lay them out")
+    with state.edit("demo") as data:
+        state.start(data["jobs"]["j2"])
     jev.detail = 0.95
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     kept = str(state.drive_dir("demo") / "asks" / f"j2-{state.ask_hash(SHORT_ASK)}.md")
@@ -3846,6 +3849,7 @@ def test_job_ask_never_settles_a_question_on_his_message_in_its_orders_thread_so
     view.refresh_cards("demo")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    started(demo, "j1")
     slack_thread.post(state.now(), from_user=True, text="keep one snapshot file per finished run, no guessing")
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
@@ -4847,7 +4851,7 @@ def test_a_builders_done_on_a_surface_its_brief_names_user_stories_on_is_never_k
     code, refused = keep(monkeypatch, capsys, "j1", done)
     assert (code, f"{sent}; j1 opened no PR and keeps a proof file, so run drive job prove j1, which runs it and takes DONE or BLOCKED itself" in refused) == (2, True)
     assert [asked for asked in jev.asked if "proof_file" in asked["state"] or "check" in asked["state"]] == []
-    assert state.load("demo")["jobs"]["j1"]["said"] is None
+    assert state.load("demo")["jobs"]["j1"]["said"] == state.NOT_STARTED
 
 
 STAND_IN = "https://example.slack.com/archives/D0PROOF/p1794600000000100"
@@ -4949,6 +4953,7 @@ def test_a_builders_ready_naming_a_yasyf_pr_is_refused_until_it_keeps_a_proof_fi
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    started("demo", "j1")
     run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1", *LEAD)
     ready = "READY https://github.com/yasyf/cc-skills/pull/7\n"
     code, err = keep(monkeypatch, capsys, "j1", ready)
@@ -4975,6 +4980,7 @@ def test_a_builders_done_on_work_he_ordered_is_refused_until_it_keeps_a_proof_fi
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    started("demo", "j1")
     output = tmp_path / "j1.proof.txt"
     output.write_text("ok it ships\n")
     done = f"DONE shipped it\nCHECK: {output}\n"
@@ -5562,6 +5568,7 @@ def test_a_design_report_whose_order_thread_cannot_be_read_fails_as_that_read_an
     thread = "1794532526.296849"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--thread", thread)
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    started("demo", "j1")
 
     def unread(*where: str) -> list[dict]:
         raise slack.SlackError("daemonkit: business session: context deadline exceeded")
@@ -5578,6 +5585,7 @@ def test_a_readers_design_report_keeps_its_ask_and_draws_his_card_on_it_in_the_s
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    started("demo", "j1")
     unshaped = DESIGN_RESEARCH.replace("Findings:\n", "")
     code, err = keep(monkeypatch, capsys, "j1", unshaped)
     assert (code, "j1: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it:" in err) == (2, True)
@@ -5631,7 +5639,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     assert view.open_cards(data["jobs"]["j1"]) == [card]
     holding = f", building his recommended option with no PR until he answers {card}" if held else ""
     assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": start its agent now{holding}'
-    assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "running", [])
+    assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "waiting", [])
     assert (view.start_refusal(data, "j2", True), land.ship_held(data, "j2")) == (None, [card] if held else [])
 
 
@@ -5661,6 +5669,7 @@ def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    started("demo", "j1")
     code, err = keep(monkeypatch, capsys, "j1", "Summary: built the strip\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n")
     assert code == 2
     assert (
@@ -5726,7 +5735,7 @@ def test_a_one_change_design_on_a_part_a_job_that_ended_names_adds_its_builder_a
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     jobs = state.load("demo")["jobs"]
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ("done", "carried by builder j3")
-    assert (jobs["j3"]["kind"], jobs["j3"]["parts"], jobs["j3"]["state"]) == ("builder", parts, "running")
+    assert (jobs["j3"]["kind"], jobs["j3"]["parts"], jobs["j3"]["state"]) == ("builder", parts, "waiting")
     with state.edit("demo") as data:
         assert state.add_changes("demo", data, "j1", DESIGNED) == []
 
@@ -5831,8 +5840,8 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_build
         "the writes through it": "j1",
     }
     assert {job_id: (job["parts"], job["state"], job["waits"]) for job_id, job in data["jobs"].items() if job["kind"] == "builder"} == {
-        "j2": (["the moved-table interface"], "running", []),
-        "j3": (["the reads through it"], "running", []),
+        "j2": (["the moved-table interface"], "waiting", []),
+        "j3": (["the reads through it"], "waiting", []),
         "j4": (["the writes through it"], "waiting", ["j2", "j3"]),
     }
 
@@ -6039,8 +6048,8 @@ def test_a_designs_change_worded_as_a_part_a_stopped_builder_names_gets_its_own_
     assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES)[0] == 0
     jobs = state.load("demo")["jobs"]
     assert {job_id: (job["parts"], job["state"], job["waits"]) for job_id, job in jobs.items() if job["kind"] == "builder" and job_id != "j2"} == {
-        "j3": (["the moved-table interface"], "running", []),
-        "j4": (["the reads through it"], "running", []),
+        "j3": (["the moved-table interface"], "waiting", []),
+        "j4": (["the reads through it"], "waiting", []),
         "j5": (["the writes through it"], "waiting", ["j4"]),
     }
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ("done", "carried by builder j3")
@@ -6730,6 +6739,7 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "ship", "ship again")
     run("job", "add", kind, "--order", "o1", "--part", "ship", "--goal", "ship")
+    started("demo", "j1")
     kept_proof(tmp_path, "j1")
     if first.startswith("READY "):
         run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
@@ -6742,7 +6752,7 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     jobs = state.load("demo")["jobs"]
     said = "carried by builder j3" if kind == "design" else first
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, said) if taken else ("running", None))
-    assert (jobs[stopped]["state"], jobs[stopped]["said"]) == ("stopped", None)
+    assert (jobs[stopped]["state"], jobs[stopped]["said"]) == ("stopped", state.NOT_STARTED)
 
 
 @pytest.mark.parametrize("branch", ["lr-move", "passive-only-checkpoints, passive-only-checkpoints-next, litestream-passive-only"])
@@ -6839,6 +6849,7 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    started(demo, "j1")
     run("pr", "add", PR, "--job", "j1", *LEAD)
     code, err = keep(monkeypatch, capsys, "j1", "WAITING release: #54575 merged after the newest release was cut\n")
     assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as release:<service>" in err) == (2, True)
@@ -6963,6 +6974,7 @@ def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_neve
     run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "ship the SandSQL slots")
     run("job", "add", "builder", "--order", "o1", "--goal", "read the slots")
     run("job", "add", "builder", "--order", "o2", "--goal", "ship the slots")
+    started(demo, "j1")
     keys = [f"Forge-AI/monorepo#{number}" for number in (54607, 54665, 54680)]
     for key in keys:
         run("pr", "add", state.pr_url(key), "--job", "j2", *LEAD)
@@ -7064,7 +7076,7 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
     assert (job["state"], job["said"]) == ("done", "read")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the rest")
     run("job", "add", "builder", "--order", "o2", "--goal", "ship the rest")
-    assert run("job", "set", "j2", "--state", "running")[1].splitlines()[0] == "j2 is already running"
+    assert run("job", "set", "j2", "--state", "waiting")[1].splitlines()[0] == "j2 is already waiting"
 
 
 def test_job_report_prints_each_result_a_remote_lane_sent_newest_first_and_none_of_its_other_messages(run: Run, demo: str) -> None:
@@ -7087,6 +7099,7 @@ def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", PR + "/files", "--job", "j1", *LEAD)
+    started(demo, "j1")
     return "Forge-AI/monorepo#42"
 
 
@@ -7971,9 +7984,10 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     for number in range(2, place.LOCAL_BUILDERS + 1):
         assert run("job", "add", "builder", "--order", "o1", "--part", f"strip {number}", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
     assert run("job", "add", "builder", "--order", "o1", "--part", "strip 9", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
-    assert state.load(demo)["jobs"]["j9"]["state"] == "running"
+    assert state.load(demo)["jobs"]["j9"]["state"] == "waiting"
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
+        state.start(data["jobs"]["j9"])
     mac_only = f"one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
     code, added = run("job", "add", "builder", "--order", "o1", "--part", "strip 10", "--goal", "land", "--repo", "yasyf/cc-skills")
     added_id, sprite, *_ = added.splitlines()
@@ -7981,7 +7995,7 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     assert sprite.startswith("j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
     assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, not ended): drive job launch j10 <brief>; {mac_only}")
     routed = state.load(demo)["jobs"]["j10"]
-    assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("running", [], None, "remote")
+    assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("waiting", [], None, "remote")
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
         place.queue(data["jobs"]["j10"], state.now())
@@ -8010,7 +8024,7 @@ def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immedi
     for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
         code, added = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")
         job = state.load(demo)["jobs"][added.splitlines()[0]]
-        assert (code, job["state"], job["waits"], job["where"], "Sprite" in added) == (0, "running", [], "local", False)
+        assert (code, job["state"], job["waits"], job["where"], "Sprite" in added) == (0, "waiting", [], "local", False)
     assert len(place.waiting_builders(state.load(demo))) == 30
 
 
@@ -8701,7 +8715,7 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     assert (job["kind"], job["goal"], job["parts"]) == ("codex", "spikes 1-2: restore cost", ["spike 1", "spike 2"])
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 3", "--part", "spike 3")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 3", "--part", "spike 2"]) == 2
-    assert 'j1 codex running carries "spike 2" already, and j2 builder running carries "spike 3": a part has one change job' in capsys.readouterr().err
+    assert 'j1 codex waiting carries "spike 2" already, and j2 builder waiting carries "spike 3": a part has one change job' in capsys.readouterr().err
     run("job", "set", "j1", "--agent", "a1")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2"]) == 2
     assert 'refused, no job added: j1 codex running carries "spike 2" already, so a second builder would race it on one change: send it the event with drive job resume j1' in capsys.readouterr().err
@@ -10109,6 +10123,7 @@ def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, 
 def designing(run: Run, with_pr: str) -> str:
     run("job", "add", "design", "--order", "o1", "--goal", "pick a topology")
     run("job", "set", "j2", "--card", DESIGN_CARD)
+    started("demo", "j2")
     return with_pr
 
 
@@ -10148,7 +10163,7 @@ def test_adding_a_builder_on_a_failed_builders_part_stops_it_and_moves_its_open_
     data = state.load("demo")
     order = data["orders"]["o1"]
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["prs"][with_pr]["job"]) == ("stopped", "replaced by j2", "j2")
-    assert view.feature_state(order, [data["jobs"][job_id] for job_id in order["jobs"]], [data["prs"][with_pr]]) == "running"
+    assert view.feature_state(order, [data["jobs"][job_id] for job_id in order["jobs"]], [data["prs"][with_pr]]) == "waiting"
 
 
 def test_a_failed_builder_stays_failed_until_a_later_builder_carries_every_part_it_held(run: Run, demo: str) -> None:
@@ -11344,7 +11359,7 @@ def test_j4873_cards_withdraw_via_the_done_job_whose_report_names_the_card_askin
     heard.refusal = "j2 could not be read for his words"
     words = "A reader read PlatClaude's Client ID from the app's settings"
     assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j2"]) == 2
-    assert f"demo:j1-7: refused, not withdrawn: {heard.refusal}; nor did an event at j2 overtake it: job j2 is not done: it reads running" in capsys.readouterr().err
+    assert f"demo:j1-7: refused, not withdrawn: {heard.refusal}; nor did an event at j2 overtake it: job j2 is not done: it reads waiting" in capsys.readouterr().err
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
     assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", "j2"]) == 2
