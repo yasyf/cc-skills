@@ -18,7 +18,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1566,7 +1566,7 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     assert brief.approval_refusal(start.format("5d0c4a1"), state.load("demo")) is None
     [asked] = jev.asked
     assert asked["state"] == {
-        "action": f"start this release on {settled.PRODUCTION}: `{start.format('5d0c4a1')}`",
+        "action": f"start this release on {settled.PRODUCTION}, shipping only sand: `{start.format('5d0c4a1')}`",
         "answer": {"asked": RELEASE_PICK["title"], "said": "Release now (Recommended)"},
     }
     assert asked["questions"] == {"orders.5d0c4a1": settled.ORDERS, "more": settled.SHIPS_MORE}
@@ -2005,6 +2005,10 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
             f" `ci release start`, and this release ships another change. {brief.RELEASE_APPROVAL}"
         ),
         "tools/ci release start --order 7ab1e20": None,
+        "tools/ci release start --only api --order 7ab1e20": (
+            f'refused: `--order 7ab1e20` names his answer to "{CUT_TAP["title"]}", "The full release", and it picks option 2 of the card it answers,'
+            f" `ci release start`, and this release ships another change. {brief.RELEASE_APPROVAL}"
+        ),
     }
     assert {release: brief.approval_refusal(release, data) for release in releases} == releases
     assert jev.asked == []
@@ -2129,7 +2133,7 @@ def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_
     unapproved = narrowed.replace("23eefb9", "3bfcce8")
     jev.picks("none")
     assert brief.approval_refusal(unapproved, data) == held(unapproved, f'`--order 3bfcce8` names his answer to "{SOAK_CASES["title"]}", and Jev does not read it as approving this release')
-    assert jev.asked[-1]["state"]["action"] == f"start this release on plat-usw2-staging (stage staging): `{unapproved}`"
+    assert jev.asked[-1]["state"]["action"] == f"start this release on plat-usw2-staging (stage staging), shipping only rsw-search: `{unapproved}`"
 
 
 def test_his_standing_yes_on_a_card_another_drive_keeps_orders_a_staging_soak_on_this_drive_and_no_production_start_with_no_jev_read(
@@ -2334,6 +2338,59 @@ def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, ru
     )
     assert settled.team_names("tnt-usw2-acme", data["roles"]["coordinator"]["cwd"]) == ["acme", "Acme"]
     assert settled.team_names("tnt-usw2-north", data["roles"]["coordinator"]["cwd"]) == []
+
+
+HOTFIX_CARD = """ASK Should the production hotfix of the run-secrets fix alone start now?
+Drive tooling: your pick is your exception to your release hold for this one start.
+The hotfix ships the api alone; SandSQL and every other stack stay as they are.
+- Start it: the hotfix starts once its preview shows this fix alone, with 0 deletes and 0 replaces (recommended)
+  `tools/ci release hotfix 101 --without plat-usw2-staging,plat-gbl-staging`, production only. Any change beyond this fix comes back to you before a start.
+- Hold: nothing starts in production, and the fix waits for the next release
+  Runs reading a secret keep getting a 403 until then.
+
+Findings:
+Root cause: none: a pick of whether the hotfix starts
+Simplest: Start it
+Holds: none: it decides only whether the production hotfix starts
+"""
+HOTFIX_TAP = {
+    "id": "0a3bed1" + "0" * 33,
+    "title": "Should the production hotfix of the run-secrets fix alone start now?",
+    "body": "Start it: the hotfix starts once its preview shows this fix alone, with 0 deletes and 0 replaces",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-15T22:47:49Z",
+}
+
+
+def test_his_tap_on_a_card_redrawn_for_a_newer_question_orders_its_release_narrowed_by_only_to_the_components_the_card_says_ship_alone_with_no_jev_read(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [HOTFIX_TAP], HOTFIX_CARD)
+    older = state.drive_dir(demo) / "asks" / "j1-older.md"
+    older.write_text(ANSWERED_CUT)
+    with state.edit(demo) as data:
+        del data["answers"][HOTFIX_TAP["id"]]
+        [newer] = data["jobs"]["j1"]["questions"]
+        newer["closed"]["noted"] = HOTFIX_TAP["id"]
+        replaced = state.new_question(str(older), CUT_PICK["title"], newer["asked"], card=CUT_LINK, closed=dict(newer["closed"]))
+        replaced["replaced"] = newer["file"]
+        data["jobs"]["j1"]["questions"].insert(0, replaced)
+    recorded.shown = {"0a3bed1": HOTFIX_TAP}
+    data = state.load(demo)
+    picks = f'refused: `--order 0a3bed1` names his answer to "{HOTFIX_TAP["title"]}", "{HOTFIX_TAP["body"]}", and it picks option 1 of the card it answers, `tools/ci release hotfix 101 --without plat-usw2-staging,plat-gbl-staging`'
+    hotfix = "tools/ci release hotfix 101 {only}--without plat-usw2-staging,plat-gbl-staging --order 0a3bed1"
+    releases = {
+        hotfix.format(only=""): None,
+        hotfix.format(only="--only api "): None,
+        hotfix.format(only="--only api,sandsql "): f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
+        hotfix.format(only="--only sandsql "): f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
+    }
+    assert {release: brief.approval_refusal(release, data) for release in releases} == releases
+    assert jev.asked == []
+    narrow = {"hotfix": ("101",), "only": ("api",)}
+    worded = ("It ships only the api.", "The api stack alone goes out.", "The fix changes only the api.", "It ships not only the api.", "The full release.")
+    assert [settled.narrowed(narrow, {"hotfix": ("101",)}, words) for words in worded] == [{"hotfix": ("101",)}, {"hotfix": ("101",)}, narrow, narrow, narrow]
+    assert settled.narrowed(narrow, narrow, "It ships the api alone.") == narrow
 
 
 def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: list[list[str]]) -> None:
