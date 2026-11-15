@@ -3686,7 +3686,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tapped and not args.tap_source:
         raise DriveError(
             f"--tapped {args.tapped} needs --tap-source <the Slack permalink of his message or of the card he tapped>:"
-            " only his own words are his tap, and a PR the drive holds itself carries --waits on what it waits for, never the hold label, which takes his Approve off his card"
+            " only his own words are his tap, and a PR the drive holds itself carries --waits on what it waits for, never the hold label"
         )
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
@@ -4054,7 +4054,7 @@ def tap_verdict(pr: dict | None) -> tuple[bool, str]:
     if pr is None:
         return True, "not a drive PR"
     if pr["hold_label"]:
-        return False, "held by the drive with the hold label"
+        return False, "held by the hold label on GitHub"
     if not pr["wants_tap"] and state.merges_untapped(state.pr_key(pr["url"])):
         return True, f"wants no tap: the drive lands a {state.NO_TAP_OWNER}/* PR with none"
     if state.exempted(pr):

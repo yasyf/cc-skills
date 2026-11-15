@@ -232,18 +232,12 @@ def tap_label(entry: dict) -> str | None:
     return (entry.get("tap") or {}).get("label")
 
 
-def hold_labeled(pr: dict) -> bool:
-    return github.HOLD_LABEL in [label["name"] for label in pr["labels"]]
-
-
 def tap_refused(pr: dict, entry: dict, picked: Iterable[str]) -> str | None:
     """Why his card on the PR offers no Approve, by GitHub's read of it now and by state.tap_refused with the waits ids of the cards his Approve would pick on it now; None when it does."""
     if pr["state"] == "FOLDED":
         return github.fold_line(entry)
     if pr["state"] != "OPEN":
         return f"GitHub reads it {pr['state'].lower()}"
-    if hold_labeled(pr):
-        return "it carries the hold label"
     return state.tap_refused(entry, picked)
 
 
@@ -260,7 +254,7 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
         case _, "held" if tap_label(entry) == "Hold":
             return "Held by you"
         case _, "held" if entry["hold_label"]:
-            return "Held by the drive with the hold label on GitHub"
+            return "Held by the hold label on GitHub"
         case _, "red" if entry["checks"] == "fail":
             return "CI failed; the agent is fixing it" + (f", then it lands once {in_turn(list(held))}" if held else "")
         case _, "blocked" if entry["checks"] == "fail" and held:
@@ -286,8 +280,8 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...], picked: tuple[tuple[str, str, str], ...] = ()) -> str:
-    """What his card says the PR lands once: his Approve, CI when it has not passed, and each of its waits that still holds, then each option his Approve picks on a card of his holding it, which land.start answers."""
-    lands = in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *held])
+    """What his card says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, then each option his Approve picks on a card of his holding it, which land.start answers."""
+    lands = in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
     options = [f'"{option}" on {card}' for _, option, card in picked]
     return lands + (f"; your Approve also picks {in_turn(options)}" if options else "")
 

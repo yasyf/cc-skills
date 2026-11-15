@@ -203,7 +203,7 @@ def flake_red(data: dict, pr: dict, failing: str) -> Stage | None:
 
 
 def stopped(pr: dict) -> str:
-    """What stops the PR whatever its checks read: his Hold or the hold label, on which his card offers no Approve, so a red PR under one wakes no builder."""
+    """What stops the PR whatever its checks read: his Hold, on which his card offers no Approve, or the hold label on GitHub, on which it still does, so a red PR under either wakes no builder."""
     if (pr["tap"] or {}).get("label") == "Hold":
         return f"held by his Hold of {pr['tap']['at']}"
     if pr["hold_label"]:

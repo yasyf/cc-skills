@@ -172,7 +172,7 @@ His rulings already live in cc-notes answers.
    or `--tapped Hold`. A hold the old drive or a desk made itself is not his, and his PR card would
    say "Held by you": it carries as `--waits` on what it waits for, a job, PR, release or part,
    such as a deletion held for the cutover as a wait on the cutover's part, never as a `hold`
-   label on GitHub, which takes his Approve off his card. `drive pr set`
+   label on GitHub, a check that holds the PR whatever he taps. `drive pr set`
    refuses `--tapped` with no permalink of his, and one already recorded as his tap drops with
    `drive pr set <url> --no-tapped --why "<what holds it now>"`, in the same call as its `--waits`,
    or once `drive status <url>` shows its label. On Nov 8 a root's hold on a PR he had just tapped
