@@ -77,7 +77,7 @@ def question_key(asked: dict) -> str:
 
 
 def change_key(entry: dict) -> str:
-    return digest({field: entry[field] for field in ("key", "head", "lead")})
+    return digest({field: entry[field] for field in ("key", "head", "lead", "staging")})
 
 
 def digest(told: dict) -> str:
@@ -98,7 +98,7 @@ def change(name: str, entry: dict) -> dict:
     pr = data["prs"][entry["key"]]
     read = card.read(entry["key"], pr)
     words = data["orders"][pr["order"]]["text"] if pr["order"] in data["orders"] else "none recorded"
-    facts = [f"checks {entry['checks']}", f"review {entry['review']}", (entry["stage"] or {}).get("why"), entry["approve_waits"] and f"after his Approve it waits on {entry['approve_waits']}"]
+    facts = [f"checks {entry['checks']}", f"review {entry['review']}", entry["staging"], (entry["stage"] or {}).get("why"), entry["approve_waits"] and f"after his Approve it waits on {entry['approve_waits']}"]
     body = cut(card.body_of(read), BODY_CHARS) if read else "GitHub gave no description"
     told = "\n".join([f'{entry["key"]} "{entry["title"]}"', f"Lead: {json.dumps(entry['lead'])}", f"State: {'; '.join(filter(None, facts))}", "", body])
     return served.structured(name, CHANGE_RULES, f"<order>\n{words}\n</order>\n\n<change>\n{told}\n</change>", CHANGE, STORY_SECONDS, f"writing the story of {entry['key']}")

@@ -58,7 +58,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 - After each change, the parent dashboard posts `{type: "drive:model", slice}` to the page:
   - `page`, its `page.json`
   - `features`, its matched orders as Now shows them
-  - `prs`, the open PRs of its matched orders and the PRs it names
+  - `prs`, the open PRs of its matched orders and the PRs it names, each with `staging`, the line its PR cards say of its staging test, such as `Tested on staging: plat-usw2-staging at f3a6f23, passed` with a link to its proof
   - `questions`, open decisions on its matched orders, each with `href`, the queue route that focuses it
   - `story`, the newest moments naming its matched orders
   - `asked`, the state of its last ask
@@ -131,7 +131,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 | `prose(text)` | Renders rich block and inline prose via `/kit/renderers.js` |
 | `ring(done, total, label)` | Renders a progress ring |
 | `counter(element, n)` | Animates `element`'s numeric value to `n` |
-| `prLane(prs)` | Renders each PR with checks, review and landing status, and Approve / Hold buttons |
+| `prLane(prs)` | Renders each PR with checks, review, staging and landing status, its staging line whole under Landing details, and Approve / Hold buttons |
 | `prGroups(prs, by)` | Renders grouped PR approval sections, each PR named by its repository and number such as `litestream#20`, with batch approval wired to `answers([{card, label}])` |
 | `decision(question)` | Renders a decision card with context, a button per option (recommended option filled), and Answer it in your queue opening its `href` |
 | `decisionGroups(questions, by)` | Renders grouped decision sections with group recommendations and per-option review |

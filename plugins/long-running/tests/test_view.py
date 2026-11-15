@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK
-from drive import land, limits, page, render, slack, stage, state, view, watch
+from drive import land, limits, page, pages, render, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -1258,6 +1258,18 @@ def test_a_monorepo_prs_staging_words_name_its_env_commit_and_result_or_why_it_i
 
 def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:
     assert view.staging(drive_of({}, {}, []), "yasyf/cc-skills#7") == "Not on staging: yasyf/cc-skills has no staging env"
+
+
+def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say() -> None:
+    parts = {"ship it": state.new_part(), state.STAGING_TEST.format(number=5): state.new_part() | {"soak": SOAK, "posted": PROOF}}
+    _, entry = pr(5, "o1", wants_tap=True)
+    tested = ("Forge-AI/monorepo#5", entry | {"url": "https://github.com/Forge-AI/monorepo/pull/5"})
+    data = drive_of({"o1": order("ship it", ["j1"], parts=parts)}, {"j1": job("o1", "running")}, [tested, pr(6, "o1")])
+    model = view.board(data, found(), "live", [], T0, set(), {})
+    assert {each["key"]: each["staging"] for each in pages.slice_of(model, {"orders": ["o1"], "prs": []})["prs"]} == {
+        "Forge-AI/monorepo#5": f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF})",
+        "yasyf/cc-skills#6": "Not on staging: yasyf/cc-skills has no staging env",
+    }
 
 
 def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_stage_first_as_drive_status_prs_prints_them() -> None:

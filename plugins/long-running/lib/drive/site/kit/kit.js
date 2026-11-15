@@ -163,7 +163,8 @@ export function prLane(prs) {
     const facts = stateFacts(pr);
     const caption = pr.approve_waits === '' ? 'Approve queues it for merge at once' : pr.approve_waits ? `After Approve: ${pr.approve_waits}` : pr.stage?.why ?? '';
     const failed = pr.failed?.length ? `<p class="refused">Failing: ${pr.failed.map(esc).join(', ')}</p>` : '';
-    const rail = prRail({ head: pr.head, facts, lands: `<li>${esc(caption)}</li>`, state: failed, serves: pr.feature ? `<p><button class="linkish" data-kit-open="#/feature/${esc(pr.feature)}">${esc(pr.feature_title)}</button></p>` : '' });
+    const staged = pr.staging ? `<p>${renders.inline(pr.staging)}</p>` : '';
+    const rail = prRail({ head: pr.head, facts, lands: `<li>${esc(caption)}</li>`, state: staged + failed, serves: pr.feature ? `<p><button class="linkish" data-kit-open="#/feature/${esc(pr.feature)}">${esc(pr.feature_title)}</button></p>` : '' });
     const panes = `${row.show_me ? `<details data-key="show"><summary>Show me</summary>${renders.prose(row.show_me, pr.key)}</details>` : ''}<details data-key="landing"><summary>Landing details</summary>${rail}</details>`;
     return `<li data-key="${esc(pr.key)}">${prCard({ key: pr.key, row: pr, title: pr.title, facts, summary: row.summary || row.refresher ? `<div class="card-summary">${renders.prose(row.summary || row.refresher, pr.key)}</div>` : '', panes, picks: renders.choices({ ...pr, kind: 'tap' }, { given: pr.answered }), caption })}</li>`;
   }).join('')}</ol>`;

@@ -14,6 +14,8 @@ TOLD = {
     "options": [{"title": "Raise it", "consequence": "One setting changes.", "priority": "", "metrics": []}, {"title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "priority": "", "metrics": []}],
 }
 
+UNSTAGED = "Not on staging: its staging test has not started"
+
 
 @pytest.fixture
 def writer(demo: str) -> story.Writer:
@@ -55,8 +57,8 @@ def test_a_story_that_tells_another_count_of_options_shows_why_and_is_written_ag
 
 def test_only_a_pr_waiting_on_his_tap_gets_a_story_and_a_new_head_gets_its_own(writer: story.Writer, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(story, "change", lambda name, entry: {"headline": entry["head"], "beats": []})
-    waiting = {"key": "demo-org/demo-app#41", "head": "h1", "lead": None, "group": "you"}
-    shown = {"queue": [], "review": [waiting, {"key": "demo-org/demo-app#42", "head": "h2", "lead": None, "group": "not ready"}]}
+    waiting = {"key": "demo-org/demo-app#41", "head": "h1", "lead": None, "staging": UNSTAGED, "group": "you"}
+    shown = {"queue": [], "review": [waiting, {"key": "demo-org/demo-app#42", "head": "h2", "lead": None, "staging": UNSTAGED, "group": "not ready"}]}
     writer.tell(shown)
     writer.write(*writer.writing.get())
     writer.tell(shown)
@@ -64,3 +66,13 @@ def test_only_a_pr_waiting_on_his_tap_gets_a_story_and_a_new_head_gets_its_own(w
     writer.tell(moved)
     assert [entry.get("told") for entry in shown["review"]] == [{"story": {"headline": "h1", "beats": []}}, None]
     assert moved["review"][0]["told"] == {"writing": True}
+
+
+def test_a_prs_story_is_written_anew_once_its_staging_line_moves(writer: story.Writer, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(story, "change", lambda name, entry: {"headline": entry["staging"], "beats": []})
+    waiting = {"key": "demo-org/demo-app#41", "head": "h1", "lead": None, "staging": UNSTAGED, "group": "you"}
+    writer.tell({"queue": [], "review": [waiting]})
+    writer.write(*writer.writing.get())
+    tested = {"queue": [], "review": [waiting | {"staging": "Tested on staging: plat-usw2-staging at f3a6f23, passed, its proof a file on the Mac"}]}
+    writer.tell(tested)
+    assert tested["review"][0]["told"] == {"writing": True}

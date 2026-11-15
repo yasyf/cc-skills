@@ -237,6 +237,60 @@ done({ labels: seen.labels, opened, framed, hash: location.hash, focused: docume
     }
 
 
+def test_a_pages_pr_cards_say_how_each_pr_stands_on_staging_and_open_its_proof_through_the_dashboard(run: Run, ordered: str, tmp_path: Path) -> None:
+    lane = """<script type="module">
+import { live, prLane } from '/kit/kit.js';
+live((slice) => {
+  document.body.innerHTML = prLane(slice.prs);
+  parent.postMessage({
+    type: 'seen',
+    facts: [...document.querySelectorAll('.pr-card > .card-content .fact')].map((fact) => [fact.textContent, fact.className, fact.dataset.tip ?? null]),
+    lines: [...document.querySelectorAll('.pr-rail .rail-block > p:not(.spot-head)')].map((line) => line.textContent),
+    links: [...document.querySelectorAll('.pr-rail .rail-block > p a')].map((link) => [link.textContent, link.href]),
+  }, '*');
+});
+addEventListener('message', (event) => event.source === parent && event.data.type === 'click' && (document.querySelector('.pr-rail .rail-block > p a').click(), parent.postMessage({ type: 'clicked' }, '*')));
+</script>"""
+    run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"index.html": lane})))
+    proof = "https://buildkite.com/demo-org/staging/builds/9"
+    staged = [
+        f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({proof})",
+        "Tested on staging: plat-usw2-staging at f3a6f23, no pass: open p99 rose to 4s",
+        "Testing on staging: plat-usw2-staging at f3a6f23, running",
+        "Not on staging: no staging test is set for it",
+    ]
+    prs = [
+        RAIL | {"key": f"demo-org/shop#{n}", "title": f"change {n}", "url": f"https://github.com/demo-org/shop/pull/{n}", "head": "abc", "card": None, "feature": "o1", "checks": "pass", "review": "approved", "stage": {"name": "card", "why": ""}, "staging": line}
+        for n, line in enumerate(staged, start=20)
+    ]
+    seen = browse(tmp_path, """
+const opened = [];
+window.open = (...args) => { opened.push(args); return null; };
+Object.defineProperty(navigator, 'userActivation', { value: { isActive: true } });
+let seen = null;
+let clicked = 0;
+addEventListener('message', (event) => event.data?.type === 'seen' ? seen = event.data : event.data?.type === 'clicked' && clicked++);
+location.hash = '#/pages/run-lane';
+await until(() => seen);
+document.querySelector('iframe.page-frame').contentWindow.postMessage({ type: 'click' }, '*');
+await until(() => clicked && opened.length);
+done({ facts: seen.facts, lines: seen.lines, links: seen.links, opened });
+""", board(review=prs, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
+    shown = [line.replace(f"[proof]({proof})", "proof") for line in staged]
+    passing = [["Tests pass", "fact good", None], ["Review approved", "fact good", None]]
+    assert seen == {
+        "facts": [
+            *passing, ["Tested on staging", "fact good", shown[0]],
+            *passing, ["No pass on staging", "fact bad", shown[1]],
+            *passing, ["Testing on staging", "fact warn", shown[2]],
+            *passing, ["Not on staging", "fact", shown[3]],
+        ],
+        "lines": shown,
+        "links": [["proof", proof]],
+        "opened": [[proof, "_blank", "noopener"]],
+    }
+
+
 def test_a_render_refusal_keeps_the_previous_page(run: Run, ordered: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     built = folder(tmp_path, PAGE)
     pages.add(ordered, 'run-lane', 'o1', built)
