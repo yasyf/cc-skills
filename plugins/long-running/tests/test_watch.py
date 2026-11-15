@@ -6736,6 +6736,7 @@ def test_replayed_5076_a_pr_whose_design_line_cites_an_open_card_another_orders_
         data["jobs"]["j2"]["questions"] = [asked | {"waits": RELEASE_WAIT_CARD, "closed": state.new_close("answered", "Any production env", None, seq="9") if answered else None}]
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
         data["prs"][REPLAYED_5076] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED, "checks": "pass", "design": design}
+        data["prs"][KEY]["state"] = "merged"
     drive = state.load(demo)
     pr = drive["prs"][REPLAYED_5076]
     assert (state.part_cards(drive, "j1"), view.stored_waits(drive, land.pr_cards(drive, pr))) == ([], [RELEASE_WAIT_CARD] if held else [])
