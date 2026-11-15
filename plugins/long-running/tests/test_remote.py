@@ -1099,6 +1099,11 @@ def test_a_launch_given_drive_job_briefs_flags_writes_its_brief_from_them_before
     assert [line in brief for line in ("\nDone when: merged and installed\n", "\nWhere: yasyf/cc-skills main\n", f"\nHandoff: {handoff}\n")] == [True, True, True]
 
 
+def test_a_launch_takes_every_flag_drive_job_brief_takes() -> None:
+    briefs, launches = (tools.fields(tools.leaf("job", verb)) for verb in ("brief", "launch"))
+    assert briefs.keys() - launches.keys() == set()
+
+
 def test_a_launch_whose_brief_flag_is_refused_or_fails_to_parse_writes_and_starts_nothing(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
