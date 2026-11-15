@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -73,9 +74,9 @@ Leave out:
 - style, naming and tests, and new code the outcome his words name needs;
 - any line the diff does not show, unless you read it at the head.
 
-The code at each change's head, the PRs it is stacked on included, reads with `git -C {clone} show <head>:<path>` and `git -C {clone} grep -n <pattern> <head> -- <path>`, <head> the commit its `###` line in <change> names. Before you state an `after` that depends on code the diff does not show, or object, read that code at the head, and name in `change` the path:line at the head that shows the after.
+The code at each change's head, the PRs it is stacked on included, is the tree its `###` line in <change> names, its repository's files at that head: read them there with the Read, Grep and Glob tools. Before you state an `after` that depends on code the diff does not show, or object, read that code at the head, and name in `change` the path:line at the head that shows the after, the path from the tree's root as its `diff --git a/` line would name it.
 
-An answer of his labelled with a directory, which <his_words> names with that directory only when a PR here changes a file under it, rules how all the code under that directory works, never only the lines the diff touches. For each, before you judge, find every place under that directory at the head that its words speak to with `git -C {clone} grep -n <pattern> <head> -- <directory>`, read each with `git -C {clone} show <head>:<path>`, and judge the directory as it stands at the head against that answer: list in `against` each place there that still goes against it, whether or not the diff shows it, its `file` that path and its `change` naming the path:line at the head.
+An answer of his labelled with a directory, which <his_words> names with that directory only when a PR here changes a file under it, rules how all the code under that directory works, never only the lines the diff touches. For each, before you judge, find every place under that directory at the head that its words speak to with Grep in that directory of the tree, read each with Read, and judge the directory as it stands at the head against that answer: list in `against` each place there that still goes against it, whether or not the diff shows it, its `file` that path and its `change` naming the path:line at the head.
 
 Last, list in `carried` the number of each numbered part the diff does: whole, or, where its job's other PRs share the part, this change's own share of it. A part is not carried when the diff leaves out what its words name, such as a function, file, path or caller the diff never changes, whatever the PR's title says.
 
@@ -576,12 +577,12 @@ def answered(data: dict, waits: str) -> dict:
     return question
 
 
-def shown(changes: dict[str, dict]) -> str:
-    """Each PR's title, head and diff, its source files before its tests, each file cut at FILE_CHARS and each PR at CHANGE_CHARS, counting the files left out and naming them up to LEFT_OUT_CHARS."""
+def shown(changes: dict[str, dict], trees: dict[str, str]) -> str:
+    """Each PR's title, head, the tree holding its files at that head, and diff, its source files before its tests, each file cut at FILE_CHARS and each PR at CHANGE_CHARS, counting the files left out and naming them up to LEFT_OUT_CHARS."""
     out, omitted = [], []
     for key, read in changes.items():
         left = CHANGE_CHARS
-        out.append(f'### {key} "{read["title"]}" at {read["head"]}')
+        out.append(f'### {key} "{read["title"]}" at {read["head"]}, its tree {trees[key]}')
         for path, text in sorted(files(read["diff"]), key=lambda item: bool(TESTS.search(item[0]))):
             piece = text if len(text) <= FILE_CHARS else text[:FILE_CHARS] + "\n[cut]\n"
             if len(piece) > left:
@@ -593,24 +594,36 @@ def shown(changes: dict[str, dict]) -> str:
 
 
 def judged(name: str, said: str, changes: dict[str, dict], parts: int) -> dict:
-    """Where a Claude session allowed only git show and git grep in the coordinator's clone, which --add-dir opens to them under --restricted, at each change's head fetched there, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them, and `carried`, the number of each of the parts numbered 1 to parts that its diff does. A session Claude Code refused any command judged without what it meant to read, so it fails, naming each command, and runs again."""
+    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head, fetched into the coordinator's clone and extracted from it with git archive into a temporary directory that is the session's cwd and only --add-dir, deleted once it answers, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them, and `carried`, the number of each of the parts numbered 1 to parts that its diff does."""
     clone = state.load(name)["roles"]["coordinator"]["cwd"]
-    for key, read in changes.items():
-        fetched(clone, key, read["head"])
-    prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes)}\n</change>"
-    schema = VERDICT | {"properties": VERDICT["properties"] | {"carried": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": max(parts, 1)}, "maxItems": parts}}}
-    return structured(name, RULES.format(clone=clone), prompt, schema, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", clone)
+    with tempfile.TemporaryDirectory(prefix="drive-judge-") as root:
+        trees = {key: tree(clone, key, read["head"], root) for key, read in changes.items()}
+        prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes, trees)}\n</change>"
+        schema = VERDICT | {"properties": VERDICT["properties"] | {"carried": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": max(parts, 1)}, "maxItems": parts}}}
+        return structured(name, RULES, prompt, schema, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", root)
 
 
-def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, clone: str | None = None) -> dict:
-    """What a Claude session given no tools, or only git show and git grep in clone, which --add-dir opens to it under --restricted, answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds, with no structured answer, or once Claude Code refused it a command, since it then answered without what it meant to read, naming each command."""
+def tree(clone: str, key: str, head: str, root: str) -> str:
+    """The directory under root holding the PR's files at its head, fetched into the clone, by fetched, and extracted from its objects with git archive."""
+    fetched(clone, key, head)
+    path = Path(root, key.replace("/", "-").replace("#", "-"))
+    path.mkdir()
+    with subprocess.Popen(["git", "-C", clone, "archive", head], stdout=subprocess.PIPE) as archive:
+        subprocess.run(["tar", "-x", "-C", str(path)], stdin=archive.stdout, check=True)
+    if archive.returncode:
+        raise subprocess.CalledProcessError(archive.returncode, archive.args)
+    return str(path)
+
+
+def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, trees: str | None = None) -> dict:
+    """What a Claude session given no tools, or only Read, Grep and Glob confined to trees, its cwd and only --add-dir under --restricted, answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds or with no structured answer."""
     argv = [
-        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", *(["--add-dir", clone] if clone else []), "--strict-mcp-config", "--tools", "Bash" if clone else "", "--disable-slash-commands",
+        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", *(["--add-dir", trees] if trees else []), "--strict-mcp-config", "--tools", "Read,Grep,Glob" if trees else "", "--disable-slash-commands",
         "--no-session-persistence", "--system-prompt", rules, "--output-format", "json", "--json-schema", json.dumps(schema),
-        *(["--permission-mode", "dontAsk", "--allowedTools", f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)"] if clone else []),
+        *(["--permission-mode", "dontAsk"] if trees else []),
     ]
     try:
-        ran = subprocess.run(argv, input=prompt, cwd=state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
+        ran = subprocess.run(argv, input=prompt, cwd=trees or state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
     except subprocess.TimeoutExpired:
         raise DriveError(f"{doing} ran past {seconds} seconds; run this again") from None
     try:
@@ -619,8 +632,6 @@ def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, d
         result = {"result": ran.stderr or ran.stdout}
     if ran.returncode or result.get("is_error") or "structured_output" not in result:
         raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}; run this again")
-    if denied := result["permission_denials"]:
-        raise DriveError(f"{doing} was refused {'; '.join(denial['tool_input']['command'] for denial in denied)}; run this again")
     return result["structured_output"]
 
 
