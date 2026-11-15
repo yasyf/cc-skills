@@ -603,9 +603,10 @@ return `ASK`. Nothing in a PR body holds a `READY`: the body is fixed beside the
 ## ASK
 
 Write the block to a new file under your scratch directory, one per question, and run
-`drive job ask <your job> --check <file>`, which runs every check the real ask runs but Jev's read of his words, counts the card as he reads it, draws each
+`drive job ask <your job> --check <file>`, which runs every check the real ask runs, counts the card as he reads it, draws each
 Show me picture and prints every fix, such as Mermaid's parse error for a diagram that does not draw,
-or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
+or `ready`, and before any card draws prints Jev's read of his words, such as a recorded answer of
+his that already answers it with the two ways on. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
 and names each fix, prints the path it kept, and leaves your job running to build the recommended
 option, by Build step 3; return that path only on an `ASK` that ends your run. He may already have answered this same
 question, asked in the same words, on or under its card or recorded under it. Then it keeps the block
@@ -613,7 +614,9 @@ settled by that answer instead, draws no card, tells the coordinator, and prints
 them and return no `ASK`. An answer he gave another question settles nothing there, so its card
 draws. A kept block you will not return, such as an
 earlier wording of the same question, counts as open until `drive job ask <your job> --drop <its path>`
-throws it away. On a Sprite, ask with the path it prints as On a Sprite says.
+throws it away. One on his card that a recorded answer of his already settles, such as one choosing
+its recommended option, ends on his words with `drive job ask <your job> --drop <its path> --answer <id>`,
+which closes the card in place. On a Sprite, ask with the path it prints as On a Sprite says.
 
 ````
 ASK <the question, one line>
