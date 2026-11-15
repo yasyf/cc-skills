@@ -71,8 +71,8 @@ CAUSE_RULE = (
     "State a cause, a number or a state only through the read that measured it, as {record:<seq>|<what that read measured>} on the same line or, in a handler's post, in claims beside that read: on"
     ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
     ' 9:49 PM carried a false "disk full". It covers why a system, tool, run or session did something, or a number or state one'
-    " measured, a cause the session worked out from code, logs or a trace included, never the session's own act or mistake told in"
-    " its first person, nor an alert or error he shared, restated."
+    " measured, a cause the session worked out from code, logs or a trace included, never the session's own act or mistake, such as"
+    " the handler its turn starts, nor his words or an alert or error he shared, restated."
 )
 LENGTH_RULE = (
     "A line in his thread is at most 60 words and a summary of two or more features at most 120, the coordinator's reading"
@@ -201,6 +201,7 @@ RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
 LINE_NUMBERS = re.compile(r":\d[\d-]*(?=[\s:]|$)")
 DOC_PATH = re.compile(r"[\w.~/-]+\.(?:md|mdx|rst)\b")
+KEPT_REPORT = re.compile(r"(?:\A|/)reports/j\d+\.md\Z")
 NAMED_SOURCE = "the read the posting handler names as {read}, as its newest call whose tool name and input hold its words"
 GIVEN = "the newest call it names is given once, under {read}"
 DOC_SOURCE = "; {docs} is a doc, which backs what that doc says and nothing about what code does"
@@ -1041,7 +1042,7 @@ def own_calls(payload: dict) -> dict[str, str]:
 
 
 def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str], alone: Callable[[], str] | None = None) -> dict:
-    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's request; that call whole under the first item holding it, and a later item naming that item's id as given in its place, since one call under two reads doubled Jev's request; for a record, the record alone, as alone reads it, when that call is not given already and holds more, so a record weighs what it holds and never what the read that held it did; or none when no call does. Its source names each doc, such as a report or a brief, that call opens."""
+    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's request; that call whole under the first item holding it, and a later item naming that item's id as given in its place, since one call under two reads doubled Jev's request; for a record, the record alone, as alone reads it, when that call is not given already and holds more, so a record weighs what it holds and never what the read that held it did; or none when no call does. Its source names each doc, such as a brief, that call opens, never a job's kept report in the drive's reports folder, whose lines showing their reads back what they measured."""
     words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
     held = next((call for call in reversed(calls) if words and all(word in call.casefold() for word in words)), None)
     if held is None:
@@ -1049,7 +1050,7 @@ def called(item: str, read: str, source: str, calls: dict[str, str], given: dict
     whole = f"{held}\n{calls[held]}"
     if alone and held not in given and len(record := alone()) < len(whole):
         return {"id": item, "read": read, "source": source + ALONE_SOURCE, "quote": record}
-    docs = list(dict.fromkeys(DOC_PATH.findall(held)))
+    docs = [doc for doc in dict.fromkeys(DOC_PATH.findall(held)) if not KEPT_REPORT.search(doc)]
     first = given.setdefault(held, item)
     return {
         "id": item,

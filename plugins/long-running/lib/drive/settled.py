@@ -791,15 +791,15 @@ def size(state: dict, questions: dict[str, Noul]) -> int:
 
 BACKED = Noul(
     "Do the lines of `reads.{read}.result`, that call's output by line number out of its `reads.{read}.lines`, show what `claims.{claim}.claim` says?",
-    yes="The read's own output holds what the claim says, as it stands now for a state told as it stands.",
-    no="The lines shown do not hold it, or only a doc, report, PR body, comment or log line inside them says so about code.",
+    yes="The read's own output holds what the claim says, as it stands now for a state told as it stands, or a record's or report's line in it shows the read that measured just that.",
+    no="The lines shown do not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
 )
 HOLDS = Noul(
     "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in `post.text`?",
     yes="The rule is meant to stop what the finding names in this post.",
     no="The finding's pattern matched words its rule never meant.",
 )
-LIFTED = Noul("Do `his_words` permit what `findings.{finding}.found` names: his own words quoted back, a term he used himself, or words of his asking for it?")
+LIFTED = Noul("Do `his_words` permit what `findings.{finding}.found` names: his own words quoted back or restated, a term he used himself, or words of his asking for it?")
 FACT = Noul(
     "Does `post.sentences[{index}]` state a fact about code, a number or a state of work, which stands only on a read?",
     no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists.",

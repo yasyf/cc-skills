@@ -914,7 +914,8 @@ PANIC = (
     {"text": "never staged", "paths": ["go/sand/next/internal/vm_run"]},
     "go/sand/next/internal/vm_run/values.go:262  panic(\"a run's values are never staged: a pack deletes the ids in its range\")",
 )
-REPORT = ("Read", {"file_path": "/drive/reports/j1880.md"}, "The cloud reads the inbox straight from Postgres.")
+DOC = ("Read", {"file_path": "/repo/docs/inbox.md"}, "The cloud reads the inbox straight from Postgres.")
+REPORT = ("Read", {"file_path": "/drive/reports/j1880.md"}, "READY\nMeasured: go/sand/next/internal/cloudrunner/inbox.go:57 queries Postgres")
 
 
 def tool(lane: Path, name: str, asked: dict, result: str) -> None:
@@ -937,25 +938,27 @@ def evidence(transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
 
 
 @pytest.mark.parametrize("as_text", [False, True])
-def test_jev_gets_the_newest_call_a_claims_read_names_whole_never_an_older_one_its_words_hold_a_read_naming_no_call_says_none_and_a_doc_backs_no_code_line(
+def test_jev_gets_the_newest_call_a_claims_read_names_whole_never_an_older_one_its_words_hold_a_read_naming_no_call_says_none_a_doc_backs_no_code_line_and_a_kept_report_is_no_doc(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], as_text: bool
 ) -> None:
     lane = lane_of(transcript)
-    for each in (SHADOW, SHADOWED, PANIC, REPORT):
+    for each in (SHADOW, SHADOWED, PANIC, DOC, REPORT):
         tool(lane, *each)
     claims = [
         {"claim": "Each table has a `<table>__history` shadow table", "read": "lower.rs:295-305"},
         {"claim": "its columns plus the run", "read": "lower.rs:295-305"},
         {"claim": "the journal never stages a run's values", "read": "values.go 250-280"},
-        {"claim": "the cloud reads the inbox straight from Postgres", "read": "reports/j1880.md"},
+        {"claim": "the cloud reads the inbox straight from Postgres", "read": "docs/inbox.md"},
+        {"claim": "the cloud reader queries Postgres", "read": "reports/j1880.md"},
     ]
-    backed, unbacked, doc = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
+    backed, unbacked, doc, report = evidence(transcript, monkeypatch, capsys, text=HISTORY_POST, thread_ts="1.2", claims=json.dumps(claims) if as_text else claims)
     assert (backed["id"], backed["quote"]) == ("read:1", shown(*SHADOWED))
     assert backed["source"] == message_limits.NAMED_SOURCE.format(read='"lower.rs:295-305"')
     assert "is a doc" not in backed["source"]
     assert (unbacked["id"], unbacked["quote"]) == ("read:2", 'none: no call of the handler\'s own holds "values.go 250-280"')
-    assert (doc["id"], doc["quote"]) == ("read:3", shown(*REPORT))
-    assert doc["source"].endswith(message_limits.DOC_SOURCE.format(docs='["/drive/reports/j1880.md"]'))
+    assert (doc["id"], doc["quote"]) == ("read:3", shown(*DOC))
+    assert doc["source"].endswith(message_limits.DOC_SOURCE.format(docs='["/repo/docs/inbox.md"]'))
+    assert (report["id"], report["quote"], report["source"]) == ("read:4", shown(*REPORT), message_limits.NAMED_SOURCE.format(read='"reports/j1880.md"'))
 
 
 @pytest.mark.parametrize(
