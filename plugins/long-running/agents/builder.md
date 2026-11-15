@@ -248,13 +248,14 @@ and waits ids, record seqs), never a technical name.
    description, and beside his durable answers `ccn answer match` ranks near the card's words, which bind
    only where one speaks to what the change builds, after
    listing each change the diff makes to what already exists, before and after. Its `NOT READY`
-   comes back to you through `drive pr wake`, once a head, while nothing of his holds the stack, naming each of his words the change goes against, and each change to what
+   comes back to you through `drive pr wake`, once a head, while neither his Approve nor an open card of his holds the stack, naming each of his words the change goes against, and each change to what
    exists they do not need: change the PRs to his words, put back what they did not ask to change,
    push and return `PUSHED` again, or `ASK` for a reading his words leave open. His card, up
    since `drive pr add`, shows the PR's stage whatever its body says, and while it is red or being
    reworked to his words the watch wakes its builder with the stage line through `drive pr wake` at
    once and every 30 minutes, a fresh builder when your lane has ended, whatever card of his it
-   waits on, since only his Hold or the hold label holds a red PR. A `WAITING` naming another job's
+   waits on, his Hold and the hold label included, which stop only its landing: keep a held PR
+   rebased and green so its staging test can run, and nothing lands it until he lifts the hold. A `WAITING` naming another job's
    PR or a release, or a question card of his, your own included, in its first line's
    `waits on <cards>`, or an `ASK` ending your run on his open cards, as your last line, taken while
    the PR owed that same rework or red, stages it `blocked` instead: its stage line, and his card on

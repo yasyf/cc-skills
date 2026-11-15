@@ -246,7 +246,14 @@ def tap_refused(pr: dict, entry: dict) -> str | None:
 
 
 def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    """What his card says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it."""
+    """What his card says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it; under his Hold or the hold label, which stop only its landing, that hold first, whatever its stage, then what its builder does while it is not green."""
+    by = "Held by you" if tap_label(entry) == "Hold" else "Held by the hold label on GitHub" if entry["hold_label"] else ""
+    if not by or pr["state"] != "OPEN":
+        return doing(pr, entry, held)
+    return by if entry["now"].name == "held" else f"{by}. {doing(pr, entry, held)}"
+
+
+def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
     now, approved, key = entry["now"], tap_label(entry) == "Approve", state.pr_key(pr["url"])
     match pr["state"], now.name:
         case "MERGED", _:
@@ -255,10 +262,6 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return f"Not landed: {github.fold_line(entry)}"
         case "CLOSED", _:
             return "Closed without merging"
-        case _, "held" if tap_label(entry) == "Hold":
-            return "Held by you"
-        case _, "held" if entry["hold_label"]:
-            return "Held by the hold label on GitHub"
         case _, "red" if entry["checks"] == "fail":
             return "CI failed; the agent is fixing it" + (f", then it lands once {in_turn(list(held))}" if held else "")
         case _, "blocked" if entry["checks"] == "fail" and held:
