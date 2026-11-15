@@ -381,7 +381,7 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a tester is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases and the why of its builder's `STAGING: none` among them."""
+    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return f"Not on staging: {repo} has no staging env"
@@ -406,7 +406,9 @@ def staging(drive: dict, key: str) -> str:
     ran = next((each for each in parts if each["posted_by"]), None)
     job_id, job = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] != "done" or ran and job_id == ran["posted_by"]), jobs[-1])
     if job["state"] not in state.FINISHED_JOB_STATES:
-        return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}" if soak and soak[0] in job["waits"] else f"Testing on staging: {where}running"
+        if soak and soak[0] in job["waits"]:
+            return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}"
+        return f"Testing on staging: {where}running" if job["worker_started"] else "Not on staging: its staging test has not started"
     if job["state"] == "stopped":
         result = "stopped with no result"
     elif ran and job_id == ran["posted_by"]:

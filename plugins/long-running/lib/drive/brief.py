@@ -512,10 +512,9 @@ def filled(block: dict[str, str]) -> bool:
 
 
 def researches(name: str, data: dict, order_id: str, parts: list[str], besides: str | None = None) -> Iterator[tuple[str, str]]:
-    """Each reader or design of these parts of the order but the job besides names, whose kept report carries a filled Researched: block, newest first, with that report."""
-    for job_id in reversed(readers(data, order_id, parts)):
-        if job_id != besides and filled(researched(text := state.report_text(name, job_id))):
-            yield job_id, text
+    """Each job readers names for these parts of the order but the job besides names, with its kept report: each reader or design whose report carries a filled Researched: block, newest first, then each builder whose return listed one as a change, that return as it stands, so a builder of a change a builder left unbuilt starts on that return when nothing researched the work it came from."""
+    found = [(job_id, text) for job_id in reversed(readers(data, order_id, parts)) if job_id != besides and (filled(researched(text := state.report_text(name, job_id))) or data["jobs"][job_id]["kind"] not in RESEARCH_KINDS)]
+    yield from sorted(found, key=lambda pair: not filled(researched(pair[1])))
 
 
 def research(name: str, data: dict, order_id: str, parts: list[str], besides: str | None = None) -> tuple[str, str] | None:
@@ -544,7 +543,7 @@ def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], lis
 
     found = list({reader_id: text for order_id in state.job_feature(data, job) for reader_id, text in researches(name, data, order_id, list(data["orders"][order_id]["parts"]))}.items())
     closed = [(question["title"], answer) for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
-    cited = list(dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text)["rulings"]) if kind == "answer"))
+    cited = list(dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text).get("rulings", "")) if kind == "answer"))
     ruled = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for _, answer in closed if answer["ruling"])]
     heard = {answer["words"]: {"id": None, "asked": title or "his answer", "said": answer["words"], "at": answer["at"], "link": answer["link"], "by": []} for title, answer in closed if not answer["ruling"] and answer["words"]}
     return ruled, cited, list(heard.values())
@@ -608,11 +607,13 @@ def judging(words: list[dict]) -> list[dict]:
 
 
 def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
-    """The order's readers and designs, oldest first, that read or designed one of these parts, on the order or carrying it, a change a design listed counting as that design's own parts, so a design's Researched: block is its changes' research as a reader's is its parts'."""
+    """The order's jobs, oldest first, whose kept report can research these parts: each job whose return listed one as a change, a design's DESIGN or a builder's return by state.left_changes, the parts that job worked on counting as these, and so on up to the first work, and each reader or design that read or designed one of those parts, on the order or carrying it, so a listed change starts on its lister's return as a reader's part starts on the reader's."""
     order = data["orders"][order_id]
-    designs = {held["design"] for part, held in order["parts"].items() if part in parts and held["design"]}
-    read = {*parts, *(part for design in designs for part in data["jobs"][design]["parts"])}
-    return [job_id for job_id in order["jobs"] if (job := data["jobs"][job_id])["kind"] in RESEARCH_KINDS and read & set(state.job_parts(job, order_id))]
+    read, listers = set(parts), set()
+    while listed := {held["design"] for part, held in order["parts"].items() if part in read and held["design"]} - listers:
+        listers |= listed
+        read |= {part for lister in listed for part in data["jobs"][lister]["parts"]}
+    return [job_id for job_id in order["jobs"] if job_id in listers or (job := data["jobs"][job_id])["kind"] in RESEARCH_KINDS and read & set(state.job_parts(job, order_id))]
 
 
 def unstarted_builders(data: dict, reader_id: str) -> list[str]:
@@ -689,7 +690,7 @@ def carried_research(order_id: str, parts: list[str]) -> str:
 
 
 def unresearched(name: str, data: dict, order_id: str, kind: str, parts: list[str]) -> str | None:
-    """Why a build order's builder, designer or codex lane on these parts has no research to start on: no reader or design of its part, on its order or carrying the part from another, a change a design listed counting as that design's part, kept the Researched: block, with the reader to add."""
+    """Why a build order's builder, designer or codex lane on these parts has no research to start on: no reader or design of its part, on its order or carrying the part from another, kept the Researched: block, and no design or builder listed it as a change, whose return is that change's research, by researches, with the reader to add."""
     if not waits_on_research(data["orders"][order_id], kind, parts) or research(name, data, order_id, parts):
         return None
     return (
@@ -743,7 +744,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
             + f"; {carried_research(order_id, job['parts'])}. A builder taking over a PR the drive tracks, such as one proving a merged PR live,"
             " retrying its proof or rebasing it, starts on a Handoff: brief, which needs no reader"
         )
-    if not (named[1] in readers(data, order_id, job["parts"]) and filled(researched(state.report_text(name, named[1])))):
+    if named[1] not in (found for found, _ in researches(name, data, order_id, job["parts"], job_id)):
         return f"Researched: {named[1]} names no reader or design of {job_id}'s part of {order_id} that kept {BLOCK} in its report; {carried_research(order_id, job['parts'])}"
     return None
 
@@ -909,7 +910,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     if not (job["kind"] == "builder" and opening in READY_OPENINGS and order["kind"] == "build") or order["incident"]:
         return None
     found = research(name, data, job["order"], job["parts"])
-    exists = researched(found[1])["exists"] if found else "none"
+    exists = researched(found[1]).get("exists", "none") if found else "none"
     if settled.none_only(exists) or REUSES.search(text):
         return None
     return (
@@ -982,7 +983,7 @@ def unowned_exists(name: str, data: dict, job_id: str, text: str) -> str | None:
     )
     if listed.casefold().startswith("none"):
         found = research(name, data, data["jobs"][job_id]["order"], data["jobs"][job_id]["parts"], job_id)
-        exists = researched(found[1])["exists"] if found else "none"
+        exists = researched(found[1]).get("exists", "none") if found else "none"
         if found and not exists.casefold().startswith("none"):
             return f'its exists: line says none, but {found[0]}\'s research found what already does part of this: "{cut(exists, 200)}"; {shape}'
         return None if SEARCHED.search(listed) else f'its exists: line "{cut(listed, 120)}" names no search that found nothing; {shape}'

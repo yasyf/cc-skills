@@ -69,9 +69,10 @@ ANSWER_FIRST = (
     " away too; then keep your full report and return as usual"
 )
 STAGING_MAC = (
-    "start the soak of the PR each `staging test of #N before it lands` part of yours names from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"
-    " `tools/ci release start <each target its paths reach> --from <its branch> --emergency --env plat-usw2-staging`, by his standing yes to soak any dangerous branch on"
-    " staging alone (23eefb9), then return `WAITING staging:<target>/plat-usw2-staging@<commit>` until staging runs it"
+    "ask the top coordinator for the staging cut of the PR each `staging test of #N before it lands` part of yours names, from this Mac, since a Sprite has no cci:"
+    " one `ask` on cci's `post` tool to `root@{drive}` on topic `staging-slots`, naming your job, the PR, its branch and head, each target its paths reach by"
+    " `tools/ci release select --pr <N>`, your cases and how long they run, then return `WAITING staging:<target>/plat-usw2-staging@<head>`, one per target;"
+    " the top sequences every staging cut, packing PRs that change different files into one, and resumes you in its window, so start no release yourself"
 )
 STAGING_FIRST = (
     "a finding of your staging run that production shows too goes to his thread the moment you have it, before any other step: one `report`"
@@ -738,7 +739,7 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
     if designed := [
         f'{json.dumps(part, ensure_ascii=False)} of {design}\'s design'
         for part in dropped
-        if (design := parts[part]["design"]) and not state.delivered(data, order_id, part) and part not in state.unlisted_changes(name, data, design)
+        if (design := parts[part]["design"]) and data["jobs"][design]["kind"] == "design" and not state.delivered(data, order_id, part) and part not in state.unlisted_changes(name, data, design)
     ]:
         raise DriveError(
             f"{order_id}: refused, its parts stay as they are: --drop-part takes off {', '.join(designed)}, which no builder delivered;"
@@ -3027,7 +3028,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
-    mac, release = mac_lines(job, flags)
+    mac, release = mac_lines(name, job, flags)
     fields = {
         "Order (his words)": order["text"] + carried,
         "From": order["from"],
@@ -3279,7 +3280,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
                     hold(name, args.id, text, state.held_sender(data))
                 return deliver(args, name, text)
             local = args.local and not state.on_mac(job)
-            step = declared_step(job)
+            step = declared_step(name, job)
             try:
                 end = orca.lane_end(name, args.id, job, wake=not (local or step))
             except orca.OrcaError as error:
@@ -3380,7 +3381,7 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
     held = job["undelivered"]
     note = None if text is None or any(kept["words"] == text for kept in held) else state.kept_text(text, state.held_sender(data))
     yield_to_launch(name, args.id)
-    step = declared_step(job)
+    step = declared_step(name, job)
     try:
         end = orca.lane_end(name, args.id, job, wake=step is None)
     except orca.OrcaError as error:
@@ -3394,19 +3395,19 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
         return unsent(args, state.load(name)["jobs"][args.id], held, error, note)
 
 
-def mac_lines(job: dict, flags: dict) -> tuple[str | None, str | None]:
+def mac_lines(name: str, job: dict, flags: dict) -> tuple[str | None, str | None]:
     """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else STAGING_MAC when a part of its is a staging test, and its release flag."""
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
-    return flags["mac"] or (STAGING_MAC if staged else None), flags["release"]
+    return flags["mac"] or (STAGING_MAC.format(drive=name) if staged else None), flags["release"]
 
 
-def declared_step(job: dict) -> str | None:
+def declared_step(name: str, job: dict) -> str | None:
     """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line, when a launch recorded one rather than a lane recorded by hand: the lines its brief flags give it by mac_lines, the ones the brief a resume writes it carries, since the brief its lane started on may predate a staging part or a --mac flag, else the lines of its brief by place.mac_step for a job no drive job brief wrote; the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything, never its report, a text it holds or the text given, since a return's Mac: line places the prover install.add_prover hands its merge to; None for a job on this Mac or one declaring none."""
     if state.on_mac(job) or not job.get("brief"):
         return None
     if not (flags := job.get("brief_flags")):
         return place.mac_step(Path(job["brief"]).read_text())
-    mac, release = mac_lines(job, flags)
+    mac, release = mac_lines(name, job, flags)
     return mac or release
 
 
@@ -4066,7 +4067,7 @@ def pr_wake(args: argparse.Namespace) -> int:
             data = state.load(name)
             job = data["jobs"][job_id]
             if job["state"] != "stopped":
-                step = declared_step(job)
+                step = declared_step(name, job)
                 if (end := orca.lane_end(name, job_id, job, wake=step is None)) or step:
                     return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end or live_end(job), text, declared=step)
                 how = orca.send(name, job, f"{key}: its next step is yours", text)
