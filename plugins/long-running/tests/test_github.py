@@ -678,6 +678,7 @@ def test_carrier_counts_a_build_at_or_after_a_merge_on_the_line_or_a_hotfix_cher
     git_in(tmp_path, "clone", "-q", "--single-branch", "-b", "main", str(origin), str(clone))
     carries = github.carrier(str(clone))
     assert [carries(build, merge, 2) for build in (merge, newer, old, picked, unpicked)] == [True, True, False, True, False]
+    assert [carries(build, merge[:12], 0) for build in (newer, old, unpicked)] == [True, False, False]
     assert git_in(clone, "cat-file", "-t", unpicked) == "commit"
 
 

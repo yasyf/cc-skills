@@ -312,7 +312,7 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
     if staging := state.STAGING_WAIT.fullmatch(wait):
-        return f"{staging['env']} runs {staging['target']} at the soak commit {staging['commit'][:12]}"
+        return f"{staging['env']} runs {staging['target']} at {staging['commit'][:12]} or a build carrying it"
     if part := state.part_wait(drive, wait):
         return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
     if process := state.PID_WAIT.fullmatch(wait):
@@ -746,7 +746,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
     if staging := state.STAGING_WAIT.fullmatch(wait):
-        return {"title": f"{staging['env']} running {staging['target']} at the soak commit {staging['commit'][:12]}", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
+        return {"title": f"{staging['env']} running {staging['target']} at {staging['commit'][:12]} or a build carrying it", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
     if part := state.part_wait(drive, wait):
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
     if wait == state.SLOT_WAIT:

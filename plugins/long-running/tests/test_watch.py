@@ -4169,9 +4169,27 @@ def test_a_staging_wait_frees_once_release_live_reads_its_env_running_its_target
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == [wait]
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [
-        "FREE j1 o1: tools/ci release live reads plat-usw2-staging's sandsql serving the soak commit 044e8552b694, nothing else holds it"
+        "FREE j1 o1: tools/ci release live reads plat-usw2-staging's sandsql serving 044e8552b694 or a build carrying it, nothing else holds it"
     ]
     assert [state.load(demo)["jobs"]["j1"][field] for field in ("waits", "shipped")] == [[], []]
+
+
+def test_a_staging_wait_on_a_merge_commit_frees_once_its_env_serves_a_later_build_carrying_that_merge_and_holds_while_it_serves_one_that_does_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    carried = {"4368afde1574"}
+    live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-staging", "commit": "4f2c41333799"}], carried)
+    wait = "staging:api/plat-usw2-staging@8c186ae8e2dd1d8b24346ac4633db9000e822448"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"WAITING {wait}", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == [wait]
+    carried.add("4f2c41333799")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [
+        "FREE j1 o1: tools/ci release live reads plat-usw2-staging's api serving 8c186ae8e2dd or a build carrying it, nothing else holds it"
+    ]
 
 
 def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6998,6 +7016,7 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
 ) -> None:
     serve(monkeypatch, {})
+    live_reads(monkeypatch)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api"], "touched": ["api"]}})
     merged_ready(demo, OTHER, None)
     watch.run_pass(watcher(demo), T0)
@@ -7044,6 +7063,27 @@ def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_
     lines = watch.run_pass(watcher(demo), T0)
     assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {KEY}, {OTHER}, waits on 2 releases: drive status j2"]
     assert (list(state.load(demo)["jobs"]), state.load(demo)["jobs"]["j2"]["waits"], provers) == (["j1", "j2"], [f"release:api:{KEY}", f"release:web:{OTHER}"], [])
+
+
+def test_a_merged_product_job_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prover_starting_now_on_its_after_merge_pass_holding_back_its_release_waits(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    calls = live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-staging", "commit": "bbb222"}, {"target": "web", "env": "plat-usw2-prod", "commit": "bbb222"}])
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["api", "web"]}})
+    merged_ready(demo, OTHER, proof_file(tmp_path))
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    data = state.load(demo)
+    builder = data["jobs"]["j2"]
+    assert [line for line in lines if line.startswith("JOB ")] == [
+        f'JOB j2 o1 added, proves {OTHER}, owes its after-merge staging pass first, holding back its release waits: start its agent now, run_in_background, on the prompt "Read your brief first: {builder["brief"]}"'
+    ]
+    assert (builder["waits"], [call for call in calls if call[:2] == ["release", "live"]], watching.staged) == ([], [["release", "live", "--json"]], {"api"})
+    assert (
+        f"waiting on staging:api/plat-usw2-staging@ccc333ddd444eee while staging serves no build holding its merge and holding back release:api:{OTHER} release:web:{OTHER} until its verdict"
+        in Path(builder["brief"]).read_text()
+    )
 
 
 def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_that_proves_it_by_its_tests_on_dev(

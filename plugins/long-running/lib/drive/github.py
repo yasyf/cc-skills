@@ -552,7 +552,7 @@ def fetched(clone: str, branch: str) -> str:
 
 
 def carrier(clone: str) -> Callable[[str, str, int], bool]:
-    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by go/ci's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha as fetched does."""
+    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by go/ci's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha as fetched does."""
     git = ["git", "-C", clone]
     order = {sha: at for at, sha in enumerate(reversed(run([*git, "rev-list", "--first-parent", "HEAD"]).split()))}
 
@@ -565,8 +565,12 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
         fork = run([*git, "merge-base", build, "HEAD"]).strip()
         return order[fork], {found[1] for subject in run([*git, "log", "--format=%s", build, "--not", "HEAD"]).splitlines() if (found := PICK.search(subject))}
 
+    @functools.cache
+    def whole(merge: str) -> str:
+        return merge if merge in order else next((sha for sha in order if sha.startswith(merge)), merge)
+
     def carries(build: str, merge: str, number: int) -> bool:
         at, picks = held(build)
-        return order.get(merge, at + 1) <= at or str(number) in picks
+        return order.get(whole(merge), at + 1) <= at or str(number) in picks
 
     return carries
