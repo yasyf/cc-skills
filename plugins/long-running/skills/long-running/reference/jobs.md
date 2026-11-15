@@ -129,7 +129,9 @@ waits its turn ahead of it, sending one whose brief declares no step only this M
 Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
 its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
-writes once its reader's or design's research is kept, unless its job ships the order's `immediate fix` part.
+writes once its reader's or design's research is kept, the one check of that research, since `drive job add`
+adds such a job at once, unless its job ships the order's `immediate fix` part or its `Handoff:` line hands it a PR
+the drive tracks, such as proving a merged PR live, retrying its proof or rebasing it.
 Each refusal names its fix: do it, never route around it. These hooks run in the long-running
 capt-hook pack, which sends each refusal to Jev first: one Jev finds the rule never meant lets the
 call through, and a merge, release or public-body refusal of `landing_guard` blocks outright.

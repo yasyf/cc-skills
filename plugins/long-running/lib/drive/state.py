@@ -1781,13 +1781,13 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
     job = data["jobs"][job_id]
     found = [(whole_order(line["change"]), change_waits(line)) for line in change_lines(job["kind"], report)]
     if job["kind"] == "builder":
-        return left_changes(name, data, job_id, found) if found else []
+        return left_changes(data, job_id, found) if found else []
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or not found:
         return []
     order = data["orders"][job["order"]]
     for change, _ in found if len(found) > 1 else []:
         order["parts"].setdefault(change, new_part()).update(design=job_id)
-    added = change_builders(name, data, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])])
+    added = change_builders(data, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])])
     if len(found) > 1 or added:
         order["updated"] = stamp()
         end_carried_designs(data, job["order"], order["updated"])
@@ -1815,7 +1815,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
     return f"{said}; {fix}" if added and left else None
 
 
-def left_changes(name: str, data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
+def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
     """Make each piece a builder's return lists on its `UNBUILT:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, whose research a builder of the part starts on, or, where its parts have none, read by each reader of them, by share_research; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
     builder = data["jobs"][builder_id]
     order = data["orders"][builder["order"]]
@@ -1826,7 +1826,7 @@ def left_changes(name: str, data: dict, builder_id: str, found: list[tuple[str, 
     if not design:
         share_research(data, builder["order"], set(builder["parts"]), [change for change, _ in found])
     order["updated"] = stamp()
-    return change_builders(name, data, design or builder_id, [([change], waits) for change, waits in found])
+    return change_builders(data, design or builder_id, [([change], waits) for change, waits in found])
 
 
 def change_lines(kind: str, text: str) -> list[re.Match]:
@@ -1834,7 +1834,7 @@ def change_lines(kind: str, text: str) -> list[re.Match]:
     return list((UNBUILT_LINE if kind == "builder" else CHANGE_LINE).finditer(text))
 
 
-def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
+def change_builders(data: dict, design_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
     """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, waiting on each job building an earlier change it waits on, or that job's newest open PR, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, so every brief written for it, the watch's launch included, carries the design as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards on the design join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by part_cards, while its builder builds his recommended option meanwhile."""
     from drive import brief, view
 
@@ -1847,7 +1847,7 @@ def change_builders(name: str, data: dict, design_id: str, changes: list[tuple[l
         earlier = [part for number in numbers for part in changes[number - 1][0] if not delivered(data, order_id, part)]
         building = [change_wait(data, job_id) for part in earlier for job_id in part_builders(data, order_id, part)]
         waits = [wait for wait in dict.fromkeys(building) if view.holds(data, wait, None)]
-        if brief.job_refusal(name, data, order_id, "builder", uncarried, False, waits):
+        if brief.job_refusal(data, order_id, "builder", uncarried, False, waits):
             continue
         builder_id = next_id(data["jobs"], "j")
         change = "; ".join(uncarried)
